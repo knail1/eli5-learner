@@ -141,3 +141,25 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# --- ELI5 Learner additions ---
+
+# macOS
+.DS_Store
+
+# Electron packaging output (out/ and dist/ are covered above)
+release/
+*.dmg
+*.zip
+
+# User-generated learnings (built from possibly private source material)
+docs/*
+!docs/.gitkeep
+
+# Local secrets and config (.env* is covered above)
+*.pem
+*.p12
+config.local.json
+
+# Organization-specific spec details (private)
+spec/internal.md
