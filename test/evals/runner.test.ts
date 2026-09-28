@@ -10,6 +10,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BudgetLedger, MIN_OUTPUT_TOKENS } from '../../src/main/devtools';
 import {
+  LLMError,
   fallbackLimits,
   type ConnectionCheck,
   type GenerationRequest,
@@ -21,7 +22,7 @@ import { loadCases, selectCases } from './lib/cases';
 import { loadJudgeTemplate, loadRubrics } from './lib/judge';
 import { RecordingProvider, evalSettings, guard, judgeFnFor } from './lib/providers';
 import { runEval, type RunEvalOptions } from './lib/runner';
-import type { Baseline, EvalCase } from './lib/types';
+import type { Baseline, EvalCase, EvalResults } from './lib/types';
 
 const REPO = path.resolve(import.meta.dirname, '../..');
 const RATES = { inputPerMTok: 1, outputPerMTok: 5 };
@@ -125,6 +126,22 @@ function rig(
   };
 }
 
+const opsBaseline: Baseline = {
+  schemaVersion: 1,
+  provider: 'claude',
+  model: 'fake-model',
+  date: '2026-09-01',
+  judge: { provider: 'openai', model: 'fake-judge' },
+  suite: { indepth: 4, eli5: 4, section: null },
+  criteria: { D1: 4 },
+  cases: {
+    'general-ops-pdf': {
+      scores: { indepth: 4, eli5: 4 },
+      medians: { D1: 4, D2: 4, D3: 4, D4: 4, D5: 4, D7: 4, E1: 4, E2: 4, E3: 4, E4: 4, E5: 4 },
+    },
+  },
+};
+
 /** A case the default fake script passes the jargon gate on (its glossary anchors "SKU"). */
 const fakeGlossaryCase: EvalCase = {
   id: 'fake-glossary-sections',
@@ -221,6 +238,13 @@ describe('runEval end to end (FakeProvider generator, scripted judge, no network
     );
   });
 
+  it('sends a scanned PDF case to the generator as its real page images', async () => {
+    const r = rig(selectCases(all, ['finance-expense-scan-pdf']));
+    const { results } = await runEval(r.opts);
+    expect(results.cases[0]?.status).not.toBe('generation_failed');
+    expect(r.fake.calls.some((c) => c.taskId === 'in-depth' && c.imageCount === 2)).toBe(true);
+  });
+
   it('stops scheduling new cases once the cap is reached and reports incomplete (13 §9.6, §14)', async () => {
     const cases = selectCases(all, ['general-ops-pdf', 'general-plain-text']);
     // The first case starts with the full cap; after its spend less than minCaseUsd remains.
@@ -256,6 +280,64 @@ describe('runEval end to end (FakeProvider generator, scripted judge, no network
     const retries = r.judge.calls.filter((c) => c.user.includes('Weekly operations note'));
     expect(retries).toHaveLength(2);
     expect(retries[1]?.user).toMatch(/previous reply was rejected/);
+  });
+
+  it('records a judge provider error (after its retry) as judge_error with its kind, and keeps going', async () => {
+    const r = rig(selectCases(all, ['general-ops-pdf', 'general-plain-text']), {
+      reply: (criteria, call, user) => {
+        if (user.includes('Weekly operations note')) throw new LLMError('rate_limited', 'HTTP 429 body text');
+        return cycling(criteria, call);
+      },
+    });
+    const { results, file } = await runEval(r.opts);
+    expect(results.cases.map((c) => [c.id, c.status, c.error])).toEqual([
+      ['general-ops-pdf', 'scored', undefined],
+      ['general-plain-text', 'judge_error', 'judge_rate_limited'],
+    ]);
+    // Never the error message body.
+    expect(readFileSync(file, 'utf8')).not.toContain('HTTP 429 body text');
+    expect(results.status).toBe('inconclusive');
+  });
+
+  it('writes a partial results file before rethrowing an unexpected error', async () => {
+    const broken: EvalCase = { ...fakeGlossaryCase, id: 'broken-source', sources: ['evals/no-such-spec.docx.json'] };
+    const r = rig([...selectCases(all, ['general-ops-pdf']), broken, ...selectCases(all, ['general-plain-text'])]);
+    const err = await runEval(r.opts).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    const file = path.join(r.opts.resultsDir, '2026-09-28-claude-fake-model.json');
+    const partial = JSON.parse(readFileSync(file, 'utf8')) as EvalResults;
+    expect(partial.status).toBe('inconclusive');
+    expect(partial.cases.map((c) => [c.id, c.status])).toEqual([['general-ops-pdf', 'scored']]);
+    expect(partial.costUsd).toBeGreaterThan(0);
+    expect(partial.notes.join(' ')).toMatch(/aborted at broken-source/);
+    expect(r.lines.some((l) => /inconclusive/.test(l))).toBe(true);
+  });
+
+  it('a run whose cases all end judge_error is inconclusive: no regression verdict and no baseline written', async () => {
+    const r = rig(selectCases(all, ['general-ops-pdf']), { reply: () => 'not json' });
+    await mkdir(r.opts.baselinesDir, { recursive: true });
+    const baseFile = path.join(r.opts.baselinesDir, 'claude.json');
+    await writeFile(baseFile, JSON.stringify(opsBaseline));
+    const { results } = await runEval({ ...r.opts, writeBaseline: true });
+    expect(results.cases.map((c) => c.status)).toEqual(['judge_error']);
+    expect(results.status).toBe('inconclusive');
+    expect(results.regression).toBeNull();
+    expect(results.notes.join(' ')).toMatch(/judge_error/);
+    expect(JSON.parse(readFileSync(baseFile, 'utf8'))).toEqual(opsBaseline);
+    expect(r.lines).toContain('[eval] baseline not written: the run is inconclusive');
+  });
+
+  it('is inconclusive when a baseline exists but no case could be compared with it', async () => {
+    const r = rig(selectCases(all, ['general-ops-pdf']));
+    await mkdir(r.opts.baselinesDir, { recursive: true });
+    await writeFile(
+      path.join(r.opts.baselinesDir, 'claude.json'),
+      JSON.stringify({ ...opsBaseline, cases: { 'another-case': opsBaseline.cases['general-ops-pdf'] } }),
+    );
+    const { results } = await runEval(r.opts);
+    expect(results.status).toBe('inconclusive');
+    expect(results.regression?.comparedCases).toEqual([]);
+    expect(results.notes.join(' ')).toMatch(/No case could be compared/);
   });
 
   it('compares with baselines/<provider>.json and flags a regression; writes a baseline on request', async () => {

@@ -32,5 +32,19 @@
       "E5": 4
     }
   },
+  "sectionActions": [
+    {
+      "action": "section-eli5",
+      "note": "Explain it for a new starter",
+      "before": "Timing\nSupport hires come in early in the year.",
+      "after": "Timing, simply\nThe support team gets its new people first, early in the year. Other teams hire later.",
+      "human": {
+        "S1": 4,
+        "S2": 4,
+        "S3": 3
+      },
+      "notes": "Simple and focused (S1=4) but says nothing a new starter would need, such as why support goes first (S3=3)."
+    }
+  ],
   "notes": "Accurate; misses why support comes first (35%, 9 vs 4 hours) and the recruiters; generic headings; glossary off (no D6)."
 }

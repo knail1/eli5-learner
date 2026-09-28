@@ -1,6 +1,6 @@
 /**
  * Judge calibration run (13 §9.5): the configured judge scores test/evals/calibration/ and the report
- * gives MAE per criterion against the hand scores. Run through `node scripts/eval/run.mjs --calibrate`.
+ * gives MAE per criterion against the hand scores. Run through `npm run eval:calibrate`.
  */
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';

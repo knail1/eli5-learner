@@ -64,6 +64,18 @@ export default defineConfig({
       {
         ...shared,
         test: {
+          // 13 §9: the eval runner's offline tests (FakeProvider generator, scripted judge). The real,
+          // paid eval run stays in test/evals/vitest.config.ts (`npm run eval`).
+          name: 'evals:unit',
+          environment: 'node',
+          include: ['test/evals/**/*.test.ts'],
+          setupFiles: ['test/helpers/net-guard.ts'],
+          testTimeout: 60_000,
+        },
+      },
+      {
+        ...shared,
+        test: {
           name: 'contracts:public',
           environment: 'node',
           include: ['test/contracts/**/*.public.test.ts'],

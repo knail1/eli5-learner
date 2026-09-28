@@ -33,5 +33,20 @@
       "E5": 1
     }
   },
+  "sectionActions": [
+    {
+      "action": "expand",
+      "note": "List the deadline for each severity",
+      "before": "Other rules\nSome systems are patched earlier than others, and there are exceptions.",
+      "neighbours": "How fast flaws must be fixed\nCritical vulnerabilities must be patched within 72 hours.",
+      "after": "Other rules\nSome systems are patched earlier than others. Exceptions are possible. Patching matters because attackers move fast, so it is always best to patch as soon as possible.",
+      "human": {
+        "S1": 2,
+        "S2": 3,
+        "S3": 1
+      },
+      "notes": "Padding rather than detail (S1=2); 'as soon as possible' blurs the 72-hour rule above (S2=3); no deadlines listed at all (S3=1)."
+    }
+  ],
   "notes": "What is there is right, but most must-cover facts are missing; vague 'some systems'; no visuals. ELI5 has no clear point and no analogy."
 }

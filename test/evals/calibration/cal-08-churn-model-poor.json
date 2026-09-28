@@ -33,5 +33,20 @@
       "E5": 1
     }
   },
+  "sectionActions": [
+    {
+      "action": "deeper",
+      "note": "Explain how accuracy was measured",
+      "before": "Signals\nMany signals are used.",
+      "neighbours": "Churn Model\nThe model uses machine learning with advanced algorithms to leverage data. It has 95% accuracy and will reduce churn by half.",
+      "after": "Signals\nMany signals are used. The model is very accurate and uses cutting-edge technology to find the customers most likely to leave.",
+      "human": {
+        "S1": 1,
+        "S2": 3,
+        "S3": 1
+      },
+      "notes": "No depth at all, only buzzwords (S1=1); does not contradict the vague neighbour (S2=3); accuracy measurement never explained (S3=1)."
+    }
+  ],
   "notes": "Invented numbers, nothing covered, jargon, no structure, no visuals, wrong glossary, references missing. ELI5 is jargon and misleading."
 }

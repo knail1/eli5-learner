@@ -28,7 +28,7 @@ it('generation quality eval (13 §9)', async () => {
   try {
     const g = cfg.generator;
     const j = cfg.judge;
-    const genRates = cfg.rates[g.model] ?? ratesFor(g.model);
+    const genRates = ratesFor(g.model) ?? cfg.rates[g.model];
     if (!genRates) throw new Error(`model ${g.model} has no price`);
     const generator = new RecordingProvider(
       guard(realProvider(g.provider, g.model, cfg.keys[g.provider] ?? ''), ledger, cfg.rates[g.model]),

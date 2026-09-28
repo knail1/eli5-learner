@@ -1,7 +1,9 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import JSZip from 'jszip';
 import { describe, expect, it } from 'vitest';
 import { hasGlyph } from './lib/font';
-import { buildDocx, buildTextPng, buildXlsx } from './lib/sources';
+import { EVAL_SOURCES_DIR, buildDocx, buildScannedPdf, buildTextPng, buildXlsx } from './lib/sources';
 
 describe('built eval sources (deterministic, synthetic)', () => {
   it('draws text lines into a PNG sized by width and line count, byte-identical across builds', () => {
@@ -13,9 +15,34 @@ describe('built eval sources (deterministic, synthetic)', () => {
     expect(Buffer.from(buildTextPng({ scale: 2, width: 20, lines: ['# TITLE', 'ROAS 3.8', 'CAC $95'] }))).toEqual(view);
   });
 
+  it('builds an image-only PDF, one page image per page, byte-identical across builds', () => {
+    const spec = { pages: [{ lines: ['# PAGE ONE', 'TEXT'] }, { lines: ['PAGE TWO'] }] };
+    const pdf = Buffer.from(buildScannedPdf(spec));
+    expect(pdf.subarray(0, 8).toString('latin1')).toBe('%PDF-1.4');
+    expect(pdf.toString('latin1').match(/\/Type \/Page /g)).toHaveLength(2);
+    expect(pdf.toString('latin1').match(/\/Subtype \/Image/g)).toHaveLength(2);
+    expect(pdf.toString('latin1')).not.toMatch(/\/Font|BT /); // no text layer: a scan
+    expect(Buffer.from(buildScannedPdf(spec))).toEqual(pdf);
+  });
+
   it('has glyphs for every character the eval screenshots use', () => {
     for (const ch of "SOC DASHBOARD - LAST 24 HOURS: 1,240 62% (TARGET 15 MIN) 'IMPOSSIBLE TRAVEL'.")
       expect(hasGlyph(ch), ch).toBe(true);
+  });
+
+  it('has glyphs for every character in the committed screenshot and scan specs', () => {
+    const specs = readdirSync(EVAL_SOURCES_DIR, { recursive: true, encoding: 'utf8' }).filter((f) =>
+      /\.(png|pdf)\.json$/.test(f),
+    );
+    expect(specs.length).toBeGreaterThanOrEqual(2);
+    for (const f of specs) {
+      const spec = JSON.parse(readFileSync(path.join(EVAL_SOURCES_DIR, f), 'utf8')) as {
+        lines?: string[];
+        pages?: { lines: string[] }[];
+      };
+      const lines = [...(spec.lines ?? []), ...(spec.pages ?? []).flatMap((p) => p.lines)];
+      for (const ch of lines.join('').replace(/^# /gm, '')) expect(hasGlyph(ch), `${f}: ${ch}`).toBe(true);
+    }
   });
 
   it('writes a docx with headings, bullets and tables, and an xlsx with the given sheets', async () => {

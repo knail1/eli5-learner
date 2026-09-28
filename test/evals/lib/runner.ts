@@ -14,7 +14,8 @@ import type { MenuAction } from '../../../src/preload/contract';
 import { startFixtureServer, type FixtureServer } from '../../helpers/fixture-server';
 import { runGates } from './gates';
 import { createHarness, type Harness, type SavedDoc, type SectionInfo } from './harness';
-import { JudgeError, criteriaFor, judgePart, type JudgeFn } from './judge';
+import { safeName, writeReport } from './files';
+import { JudgeError, criteriaFor, judgePart, sectionJudgeInput, type JudgeFn } from './judge';
 import type { RecordingProvider } from './providers';
 import { compareBaseline, criterionMeans, mean, suiteScores, toBaseline } from './scoring';
 import { resolveCaseSources } from './sources';
@@ -34,13 +35,6 @@ import type {
 export const MAX_JUDGE_SOURCE_CHARS = 300_000;
 const NEIGHBOUR_CHARS = 1_500;
 
-const ACTION_MEANING: Record<EvalSectionAction, string> = {
-  expand: 'expand: add more detail and explanation to this section',
-  reexplain: 'reexplain: explain the same content more clearly, a different way',
-  analogy: 'analogy: add an apt analogy that makes the idea click',
-  deeper: 'deeper: go into more technical depth for an expert-curious reader',
-  'section-eli5': 'section ELI5: a new tab explaining just this section as simply as possible',
-};
 const MENU_ACTION: Record<EvalSectionAction, MenuAction> = {
   expand: 'expand',
   reexplain: 'reexplain',
@@ -79,6 +73,13 @@ export interface RunEvalOptions {
 
 class BudgetStop extends Error {}
 
+/** A judge call failed after the provider's own retry (not a budget refusal): the case is judge_error. */
+class JudgeCallError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+  }
+}
+
 const isBudgetError = (e: unknown): boolean =>
   e instanceof LLMError && e.kind === 'cancelled' && /budget/i.test(e.message);
 
@@ -113,6 +114,8 @@ export async function runEval(o: RunEvalOptions): Promise<{ results: EvalResults
   const server: FixtureServer = await startFixtureServer({ slowMs: 2_000 });
   let harness: Harness | undefined;
   let stopped = false;
+  /** An unexpected error: the results so far are written, then it is rethrown. */
+  let aborted: { caseId: string; error: unknown } | undefined;
 
   const judgeWith = async (
     part: 'indepth' | 'eli5' | 'section',
@@ -122,6 +125,8 @@ export async function runEval(o: RunEvalOptions): Promise<{ results: EvalResults
       return await judgePart(o.judge, { ...input, part }, o.rubrics[part], o.template, o.judgeRuns);
     } catch (e) {
       if (isBudgetError(e)) throw new BudgetStop();
+      // Only the error kind is kept: a provider message may quote the request.
+      if (e instanceof LLMError) throw new JudgeCallError(`judge_${e.kind}`);
       throw e;
     }
   };
@@ -144,7 +149,10 @@ export async function runEval(o: RunEvalOptions): Promise<{ results: EvalResults
       try {
         r = await runCase(c, harness);
       } catch (e) {
-        if (!(e instanceof BudgetStop)) throw e;
+        if (!(e instanceof BudgetStop)) {
+          aborted = { caseId: c.id, error: e };
+          break;
+        }
         stopped = true;
         r = { id: c.id, domain: c.domain, status: 'skipped_budget', scores: {} };
       }
@@ -153,6 +161,8 @@ export async function runEval(o: RunEvalOptions): Promise<{ results: EvalResults
         `[eval] ${c.id}: ${r.status} indepth=${fmt(r.scores.indepth)} eli5=${fmt(r.scores.eli5)} section=${fmt(r.scores.section)}`,
       );
     }
+  } catch (e) {
+    aborted = { caseId: 'setup', error: e };
   } finally {
     await harness?.dispose();
     await server.close();
@@ -202,8 +212,9 @@ export async function runEval(o: RunEvalOptions): Promise<{ results: EvalResults
         current = res.doc;
       }
     } catch (e) {
-      if (e instanceof JudgeError) {
-        return { ...base, status: 'judge_error', scores: {}, error: 'judge_error', gates, skippedSources };
+      if (e instanceof JudgeError || e instanceof JudgeCallError) {
+        const error = e instanceof JudgeCallError ? e.code : 'judge_error';
+        return { ...base, status: 'judge_error', scores: {}, error, gates, skippedSources };
       }
       throw e;
     }
@@ -271,26 +282,27 @@ export async function runEval(o: RunEvalOptions): Promise<{ results: EvalResults
         .map((s) => clip(sectionText(after.html, s.id), NEIGHBOUR_CHARS))
         .join('\n\n');
     }
-    const context = [
-      `Section action requested: ${ACTION_MEANING[a.action]}`,
-      `User note: ${a.note ?? 'none'}`,
-      `The section before the action:\n${before}`,
-      ...(neighbours ? [`Neighbouring sections (after the action):\n${neighbours}`] : []),
-    ].join('\n\n');
-    const part = await judgeWith('section', {
-      criteria: criteriaFor('section', { note: a.note !== undefined }),
-      sources: '(not needed for this rubric: judge the rewrite against the section before it and its neighbours)',
-      material,
-      context,
-      mustCover: [],
-      jargon: [],
-    });
+    const part = await judgeWith(
+      'section',
+      sectionJudgeInput({ action: a.action, note: a.note, before, neighbours, material }),
+    );
     return { part: { ...part, action: a.action, sectionHint: a.sectionHint }, doc: after };
   }
 
-  const complete = !results.some((r) => r.status === 'skipped_budget');
-  if (!complete) notes.push('Cost cap reached: remaining cases skipped_budget; no regression verdict (13 §14).');
-  if (results.some((r) => r.status === 'judge_error')) notes.push('judge_error cases are excluded from the means.');
+  const capped = results.some((r) => r.status === 'skipped_budget');
+  const judgeErrors = results.some((r) => r.status === 'judge_error');
+  let status: EvalResults['status'] = capped ? 'incomplete' : 'complete';
+  if (capped) notes.push('Cost cap reached: remaining cases skipped_budget; no regression verdict (13 §14).');
+  if (judgeErrors) {
+    status = 'inconclusive';
+    notes.push('judge_error cases are excluded from the means; no regression verdict and no baseline from this run.');
+  }
+  if (aborted) {
+    status = 'inconclusive';
+    const e = aborted.error;
+    const code = e instanceof LLMError ? e.kind : e instanceof Error ? e.name : 'error';
+    notes.push(`Run aborted at ${aborted.caseId} (${code}); later cases did not run.`);
+  }
 
   const suite = suiteScores(results);
   const out: EvalResults = {
@@ -300,7 +312,7 @@ export async function runEval(o: RunEvalOptions): Promise<{ results: EvalResults
     provider: o.info.provider,
     model: o.info.model,
     judge: { ...o.info.judge, runs: o.judgeRuns },
-    status: complete ? 'complete' : 'incomplete',
+    status,
     costUsd: Math.max(0, o.ledger.spentUsd - spentAtStart),
     capUsd: o.ledger.capUsd,
     cases: results,
@@ -311,32 +323,40 @@ export async function runEval(o: RunEvalOptions): Promise<{ results: EvalResults
   };
 
   const baselineFile = path.join(o.baselinesDir, `${o.info.provider}.json`);
-  if (complete && existsSync(baselineFile)) {
+  if (status === 'complete' && existsSync(baselineFile)) {
     const base = JSON.parse(readFileSync(baselineFile, 'utf8')) as Baseline;
     out.regression = compareBaseline(results, base, path.basename(baselineFile));
     if (base.model !== o.info.model || base.judge.model !== o.info.judge.model) {
       notes.push(`Baseline was produced with model ${base.model} and judge ${base.judge.model}.`);
     }
-  } else if (complete) {
+    if (out.regression.comparedCases.length === 0) {
+      out.status = 'inconclusive';
+      notes.push(`No case could be compared with baselines/${o.info.provider}.json.`);
+    }
+  } else if (status === 'complete') {
     notes.push(`No baseline at baselines/${o.info.provider}.json.`);
   }
 
-  await mkdir(o.resultsDir, { recursive: true });
-  const safe = (s: string): string => s.replace(/[^\w.-]+/g, '_');
-  const file = path.join(o.resultsDir, `${date}-${safe(o.info.provider)}-${safe(o.info.model)}.json`);
-  await writeFile(file, JSON.stringify(out, null, 2) + '\n', 'utf8');
+  const file = await writeReport(
+    o.resultsDir,
+    `${date}-${safeName(o.info.provider)}-${safeName(o.info.model)}`,
+    started,
+    JSON.stringify(out, null, 2) + '\n',
+  );
   if (o.writeBaseline) {
-    if (complete) {
+    if (out.status === 'complete') {
       await mkdir(o.baselinesDir, { recursive: true });
       await writeFile(baselineFile, JSON.stringify(toBaseline(out), null, 2) + '\n', 'utf8');
       log(`[eval] baseline written: ${path.relative(process.cwd(), baselineFile)}`);
-    } else log('[eval] baseline not written: the run is incomplete');
+    } else log(`[eval] baseline not written: the run is ${out.status}`);
   }
+  for (const note of notes) log(`[eval] note: ${note}`);
   log(
     `[eval] ${out.status}: indepth=${fmt(suite.indepth ?? undefined)} eli5=${fmt(suite.eli5 ?? undefined)} ` +
       `section=${fmt(suite.section ?? undefined)} cost=$${out.costUsd.toFixed(2)}/${out.capUsd}` +
       (out.regression ? ` regression=${out.regression.regressed ? 'YES' : 'no'}` : ''),
   );
   for (const reason of out.regression?.reasons ?? []) log(`[eval]   ${reason}`);
+  if (aborted) throw aborted.error;
   return { results: out, file };
 }

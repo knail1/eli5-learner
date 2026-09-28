@@ -12,5 +12,5 @@
     "either party can end the agreement with ninety days notice"
   ],
   "jargon": ["net 60", "purchase order", "2/10"],
-  "covers": ["pdf-scanned", "text", "multi-source"]
+  "covers": ["pdf", "text", "multi-source"]
 }

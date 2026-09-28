@@ -1,0 +1,16 @@
+{
+  "id": "finance-expense-scan-pdf",
+  "domain": "finance",
+  "sources": ["evals/finance/expense-policy-scan.pdf.json"],
+  "clarifying": "I am travelling next month. What do I need to know?",
+  "glossary": true,
+  "mustCover": [
+    "economy class for flights under 6 hours, premium economy for longer flights",
+    "hotels up to $180 a night, or $260 in high-cost cities",
+    "a $65 per diem for meals on each travel day, with no meal receipts needed",
+    "receipts for any other item over $25",
+    "claims within 30 days, and trips over $3,000 need a VP's approval before booking"
+  ],
+  "jargon": ["per diem", "pre-approval"],
+  "covers": ["pdf-scanned", "images-only"]
+}

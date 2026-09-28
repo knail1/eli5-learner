@@ -66,6 +66,8 @@ describe('evalConfigFromEnv (13 §9.1, §9.5, §9.6)', () => {
     [{ ELI5_EVAL_API_KEY_CLAUDE: KEY_C, ELI5_EVAL_MAX_USD: '-1' }, /ELI5_EVAL_MAX_USD/],
     [{ ELI5_EVAL_API_KEY_CLAUDE: KEY_C, ELI5_EVAL_MODEL: 'claude-unpriced-9' }, /no price/],
     [{ ELI5_EVAL_API_KEY_CLAUDE: KEY_C, ELI5_EVAL_RATES: 'x=abc' }, /ELI5_EVAL_RATES/],
+    // A priced model keeps its built-in price: an override could only make the cap under-count.
+    [{ ELI5_EVAL_API_KEY_CLAUDE: KEY_C, ELI5_EVAL_RATES: 'claude-opus-5=0.01:0.01' }, /already has a price/],
     [{ ELI5_EVAL_API_KEY_CLAUDE: KEY_C, ELI5_LLM_FAKE: '1' }, /ELI5_LLM_FAKE/],
     [{ ELI5_EVAL_API_KEY_CLAUDE: KEY_C, GITHUB_EVENT_NAME: 'pull_request' }, /pull request/],
   ])('refuses %j', (env, msg) => {

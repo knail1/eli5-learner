@@ -136,7 +136,10 @@ export function sectionText(html: string, sectionId: string): string {
 }
 
 export interface GlossaryNoteText {
+  /** The callout's own term (`<b>`). */
   term: string;
+  /** Its summary line: the term plus an optional expansion ("ROAS · return on ad spend"). */
+  summary: string;
   text: string;
 }
 
@@ -150,6 +153,11 @@ export function glossaryNotes(html: string): GlossaryNoteText[] {
   }
   return findAll(p, (e) => e.tagName === 'details' && classes(e).includes('gl-note')).map((d) => {
     const b = findAll(d, (e) => e.tagName === 'b')[0];
-    return { term: squash(b ? textOf(b) : ''), text: squash(textOf(d)) };
+    const summary = findAll(d, (e) => e.tagName === 'summary')[0];
+    return {
+      term: squash(b ? textOf(b) : ''),
+      summary: squash(summary ? textOf(summary) : ''),
+      text: squash(textOf(d)),
+    };
   });
 }

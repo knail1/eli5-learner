@@ -32,5 +32,20 @@
       "E5": 1
     }
   },
+  "sectionActions": [
+    {
+      "action": "reexplain",
+      "note": "Explain what SPF and DKIM are",
+      "before": "Slide 2: Deliverability\nInbox placement was 91% vs 84% in Q2 after the SPF/DKIM fix.",
+      "neighbours": "Slide 1: Email programme Q3\nThis deck covers the email programme in Q3.\nSlide 3: Engagement\nOpen rate 24%, CTR 3.1%, unsubscribe 0.2%.",
+      "after": "Slide 2: Deliverability\nInbox placement was 91% vs 84% in Q2 after the SPF/DKIM fix, which was a technical change to email authentication settings.",
+      "human": {
+        "S1": 2,
+        "S2": 4,
+        "S3": 2
+      },
+      "notes": "Barely clearer: one vague clause added (S1=2); fits the neighbours; SPF and DKIM are still not explained (S3=2)."
+    }
+  ],
   "notes": "Accurate and complete but a slide-by-slide mirror; jargon unexplained; glossary defines the obvious; no visuals. ELI5 mirrors slides, keeps jargon, no analogy."
 }

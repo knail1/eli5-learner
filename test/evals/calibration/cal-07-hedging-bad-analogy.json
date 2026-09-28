@@ -33,5 +33,18 @@
       "E5": 1
     }
   },
+  "sectionActions": [
+    {
+      "action": "analogy",
+      "before": "Locking in the rate\nThe company hedges 70% of the next 12 months of expected euro revenue with forward contracts that fix today's rate for a future date. The trade-off: if the euro rises, the company does not benefit on the hedged part. Hedges only cover forecast revenue, never bets.",
+      "neighbours": "Why the company locks in exchange rates\n40% of revenue comes in euros while most costs are in dollars, so a 10% fall in the euro would cut operating profit by about $2.4M.",
+      "after": "Locking in the rate\nThe company hedges 70% of the next 12 months of expected euro revenue with forward contracts that fix today's rate for a future date. It is like betting on a horse race: you pick the exchange rate you think will win and collect if it does. Hedges only cover forecast revenue, never bets.",
+      "human": {
+        "S1": 2,
+        "S2": 2
+      },
+      "notes": "An analogy was added but it is misleading, a hedge is the opposite of a bet (S1=2); it contradicts 'never bets' and drops the trade-off (S2=2)."
+    }
+  ],
   "notes": "In depth strong; chart derived correctly (2.4 x 30% = 0.72); glossary defines dollar and euro instead of forward contract and hedging. ELI5 lottery analogy is the opposite of a hedge (E5=1) and makes the explanation false (E3=2)."
 }

@@ -131,6 +131,20 @@ describe('BudgetGuardProvider', () => {
     expect(inner.calls).toEqual([]);
   });
 
+  it('prices an unpriced model with the `rates` option (the eval runner, 13 §9.6)', async () => {
+    const inner = fake({}, 'fake-model');
+    const l = ledger(10);
+    await new BudgetGuardProvider(inner, l, { rates: { inputPerMTok: 1, outputPerMTok: 5 } }).generate(req());
+    expect(inner.calls).toHaveLength(1);
+    expect(l.spentUsd).toBeCloseTo((100 * 1 + 100 * 5) / 1e6, 12);
+  });
+
+  it('keeps the built-in price for a priced model even when `rates` is cheaper', async () => {
+    const l = ledger(10);
+    await new BudgetGuardProvider(fake(), l, { rates: { inputPerMTok: 0.01, outputPerMTok: 0.01 } }).generate(req());
+    expect(l.spentUsd).toBeCloseTo(100 * IN + 100 * OUT, 12);
+  });
+
   it('records the actual cost from usage after each call', async () => {
     const l = ledger(10);
     await guard(fake(), l).generate(req());

@@ -47,7 +47,10 @@ export function maxAttempts(policy: RetryPolicy): number {
 export interface BudgetGuardOptions {
   /** The retry policy the inner provider uses, read per call. Default: the process LLM runtime's. */
   retry?: () => RetryPolicy;
-  /** Price for a model missing from MODEL_RATES (the eval runner's ELI5_EVAL_RATES, 13 §9.6). */
+  /**
+   * Price for a model missing from MODEL_RATES (the eval runner's ELI5_EVAL_RATES, 13 §9.6). Ignored
+   * for a priced model, so an override can never make the cap under-count.
+   */
   rates?: ModelRates;
 }
 
@@ -104,7 +107,7 @@ export class BudgetGuardProvider implements LLMProvider {
     send: (r: GenerationRequest) => Promise<GenerationResult>,
   ): Promise<GenerationResult> {
     if (req.signal?.aborted) throw new LLMError('cancelled', 'Request cancelled');
-    const rates = this.rates ?? ratesFor(this.inner.model);
+    const rates = ratesFor(this.inner.model) ?? this.rates;
     if (!rates) throw new LLMError('cancelled', `budget guard: unknown model ${this.inner.model} has no price`);
     const inRate = rates.inputPerMTok / 1e6;
     const outRate = rates.outputPerMTok / 1e6;

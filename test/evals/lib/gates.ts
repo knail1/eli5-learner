@@ -36,7 +36,10 @@ export function runGates(html: string, c: Pick<EvalCase, 'glossary' | 'jargon'>,
   if (!c.glossary && notes.length > 0) failures.push({ gate: 'glossary', detail: 'disabled but present' });
   if (c.glossary) {
     for (const term of c.jargon) {
-      if (!notes.some((n) => mentions(n.text, term))) failures.push({ gate: 'jargon', detail: term });
+      // The term's own callout: its term or summary line, never another term's explanation.
+      if (!notes.some((n) => mentions(n.term, term) || mentions(n.summary, term))) {
+        failures.push({ gate: 'jargon', detail: term });
+      }
     }
   }
   return { ok: failures.length === 0, failures };

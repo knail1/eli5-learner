@@ -22,6 +22,21 @@ describe('eval set (13 §9.2)', () => {
     }
   });
 
+  it('classifies fixture files by the fixture manifest format, not by file name', () => {
+    expect(sourceTypes({ sources: ['sources/pdf/mixed.pdf'] })).toEqual(['pdf']); // text pages + one image page
+    expect(sourceTypes({ sources: ['sources/pdf/scanned-3p.pdf'] })).toEqual(['pdf-scanned']);
+    expect(sourceTypes({ sources: ['evals/finance/x.pdf.json'] })).toEqual(['pdf-scanned']); // built image-only
+    expect(sourceTypes({ sources: ['sources/text/notes.md', 'sources/text/plain.txt'] })).toEqual(['markdown', 'text']);
+  });
+
+  it('source-type tags in `covers` match what the sources really are', () => {
+    const PRD = ['pptx', 'docx', 'pdf', 'pdf-scanned', 'markdown', 'text', 'image', 'xlsx', 'url'];
+    for (const c of cases) {
+      const tags = (c.covers ?? []).filter((t) => PRD.includes(t));
+      expect(sourceTypes(c), c.id).toEqual(expect.arrayContaining(tags));
+    }
+  });
+
   it('has at least 3 cases per PRD domain, 2 multi-source cases, a skipped source and an images-only case', () => {
     for (const d of ['security', 'finance', 'marketing', 'data']) {
       expect(cases.filter((c) => c.domain === d).length, d).toBeGreaterThanOrEqual(3);
@@ -32,10 +47,10 @@ describe('eval set (13 §9.2)', () => {
     expect(cases.some((c) => c.sources.every((s) => sourceTypes({ ...c, sources: [s] }).includes('image')))).toBe(true);
   });
 
-  it('every case has must-cover facts, and glossary cases name jargon', () => {
+  it('every case has must-cover facts and jargon (ELI5 E1 uses it even with the glossary off)', () => {
     for (const c of cases) {
       expect(c.mustCover.length, c.id).toBeGreaterThanOrEqual(3);
-      if (c.glossary) expect(c.jargon.length, c.id).toBeGreaterThan(0);
+      expect(c.jargon.length, c.id).toBeGreaterThan(0);
     }
   });
 
@@ -63,6 +78,7 @@ describe('source references', () => {
       name: '/evals/vuln-advisory/',
     });
     expect(classifySource('evals/data/x.docx.json')).toMatchObject({ kind: 'eval-built', name: 'x.docx' });
+    expect(classifySource('evals/finance/scan.pdf.json')).toMatchObject({ kind: 'eval-built', name: 'scan.pdf' });
     expect(classifySource('evals/data/a.md').kind).toBe('eval-file');
     expect(() => classifySource('/etc/passwd')).toThrow();
   });

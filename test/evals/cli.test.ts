@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { exitCode } from '../../scripts/eval/exit-code.mjs';
 
 const SCRIPT = path.resolve(import.meta.dirname, '../../scripts/eval/run.mjs');
 const run = (...args: string[]): { status: number | null; out: string; err: string } => {
@@ -46,5 +47,18 @@ describe('scripts/eval/run.mjs (npm run eval)', () => {
     expect(bad.status).toBe(1);
     expect(bad.err).toMatch(/unknown argument --api-key/);
     expect(run('--model').err).toMatch(/--model needs a value/);
+  });
+});
+
+describe('exit codes (npm run eval / eval:calibrate)', () => {
+  it('0 done or cost-capped, 1 run error, 2 regression or failed calibration, 3 inconclusive', () => {
+    expect(exitCode({ calibrate: false, vitest: 0, summary: { status: 'complete', regressed: false } })).toBe(0);
+    expect(exitCode({ calibrate: false, vitest: 0, summary: { status: 'incomplete', regressed: false } })).toBe(0);
+    expect(exitCode({ calibrate: false, vitest: 0, summary: { status: 'complete', regressed: true } })).toBe(2);
+    expect(exitCode({ calibrate: false, vitest: 0, summary: { status: 'inconclusive', regressed: false } })).toBe(3);
+    expect(exitCode({ calibrate: false, vitest: 1, summary: undefined })).toBe(1);
+    expect(exitCode({ calibrate: false, vitest: 0, summary: undefined })).toBe(1);
+    expect(exitCode({ calibrate: true, vitest: 0, summary: { pass: true } })).toBe(0);
+    expect(exitCode({ calibrate: true, vitest: 0, summary: { pass: false } })).toBe(2);
   });
 });

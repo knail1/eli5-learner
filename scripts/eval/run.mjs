@@ -10,13 +10,15 @@
  *     [--write-baseline]
  *   node scripts/eval/run.mjs --calibrate [--judge claude:claude-sonnet-5]
  *
- * Exit codes: 0 done (an incomplete, cost-capped run also exits 0), 1 run error,
- * 2 regression vs the baseline (or calibration MAE above 0.75).
+ * Exit codes (exit-code.mjs): 0 done (an incomplete, cost-capped run also exits 0), 1 run error,
+ * 2 regression vs the baseline (or calibration MAE above 0.75), 3 inconclusive (judge_error cases,
+ * an aborted run, or no case matched the baseline).
  */
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { exitCode } from './exit-code.mjs';
 
 const FLAGS = {
   '--provider': 'ELI5_EVAL_PROVIDER',
@@ -84,16 +86,17 @@ const r = spawnSync('npx', ['vitest', 'run', '--config', 'test/evals/vitest.conf
   stdio: 'inherit',
   env: { ...process.env, ...args.env, ELI5_ALLOW_NET: '1', ELI5_EVAL_SUMMARY_FILE: summaryFile },
 });
-let code = r.status ?? 1;
+/** @type {{ status?: string; regressed?: boolean; pass?: boolean } | undefined} */
+let summary;
 try {
-  const s = JSON.parse(readFileSync(summaryFile, 'utf8'));
-  if (args.calibrate && s.pass === false) code = 2;
-  if (!args.calibrate && s.regressed === true) code = 2;
-  if (!args.calibrate && s.status === 'incomplete')
-    console.log('[eval] incomplete: the cost cap was reached (no regression verdict)');
+  summary = JSON.parse(readFileSync(summaryFile, 'utf8'));
 } catch {
-  // No summary: the run failed before writing results; keep vitest's exit code.
-  if (code === 0) code = 1;
+  summary = undefined; // the run failed before writing results
 }
+if (!args.calibrate && summary?.status === 'incomplete')
+  console.log('[eval] incomplete: the cost cap was reached (no regression verdict)');
+if (!args.calibrate && summary?.status === 'inconclusive')
+  console.log('[eval] inconclusive: see the notes in the results file (no regression verdict)');
+const code = exitCode({ calibrate: args.calibrate, vitest: r.status ?? 1, summary });
 rmSync(scratch, { recursive: true, force: true });
 process.exit(code);

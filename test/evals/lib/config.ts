@@ -53,6 +53,7 @@ function parseRates(v: string | undefined): Record<string, ModelRates> {
     .filter(Boolean)) {
     const m = /^([\w.:-]+)=(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(item);
     if (!m) return refuse('ELI5_EVAL_RATES entries look like model=<input USD/MTok>:<output USD/MTok>');
+    if (ratesFor(m[1] as string)) refuse(`ELI5_EVAL_RATES: ${m[1]} already has a price in src/main/devtools/rates.ts`);
     out[m[1] as string] = { inputPerMTok: Number(m[2]), outputPerMTok: Number(m[3]) };
   }
   return out;

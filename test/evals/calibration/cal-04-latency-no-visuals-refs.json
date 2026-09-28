@@ -33,5 +33,18 @@
       "E5": 5
     }
   },
+  "sectionActions": [
+    {
+      "action": "deeper",
+      "before": "Why it is slow\nEvery time someone opens it, the database recombines 40 million rows from scratch.",
+      "neighbours": "The fix and its cost\nComputing those totals once a night into a pre-aggregated table would bring the slow loads down to about 2 seconds. It takes 2 engineer-weeks and adds $300 a month in storage.",
+      "after": "Why it is slow\nEach load joins the 40-million-row orders table to the customers and products tables, then groups the result by region and week. Nothing is computed ahead of time, so the database reads every order row on every load, and the slowest 5% of loads, which also miss the cache, take 14 seconds. A nightly pre-aggregated table would turn each load into a read of a few thousand rows.",
+      "human": {
+        "S1": 5,
+        "S2": 4
+      },
+      "notes": "Real technical depth (join, grouping, full scan, cache) (S1=5); the last sentence repeats the fix that the next section covers (S2=4)."
+    }
+  ],
   "notes": "Excellent text but no chart or figure at all (D5=1) and the skipped ops-notes.numbers is not listed (D7=2)."
 }

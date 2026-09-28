@@ -33,5 +33,20 @@
       "E5": 4
     }
   },
+  "sectionActions": [
+    {
+      "action": "reexplain",
+      "note": "Keep it to two sentences",
+      "before": "Annual sign-ups jumped from 8% to 31%\nTotal new subscribers fell 3%, a difference too small to rule out chance.",
+      "neighbours": "Why annual matters: people stay\nAfter a year, 88% of annual subscribers remain, against 54% of monthly ones.",
+      "after": "Annual sign-ups jumped from 8% to 31%\nWhen people could pick a cheaper yearly plan, 31 in every 100 new subscribers chose it, against 8 in 100 before. Slightly fewer people signed up overall, 3% fewer, but a gap that small could just be luck.",
+      "human": {
+        "S1": 5,
+        "S2": 5,
+        "S3": 5
+      },
+      "notes": "Clearer (counts per 100, 'could be luck'), same facts, fits the next section, exactly two sentences."
+    }
+  ],
   "notes": "Near-exemplary. Chart is right but simple (D5=4). ELI5 'about three times' understates 8% to 31% slightly (E3=4); the gym analogy fits with a mild stretch (E5=4)."
 }

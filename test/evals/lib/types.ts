@@ -141,7 +141,12 @@ export interface EvalResults {
   provider: string;
   model: string;
   judge: { provider: string; model: string; runs: number };
-  status: 'complete' | 'incomplete';
+  /**
+   * complete: every case ran. incomplete: the cost cap stopped the run (13 §9.6). inconclusive: a
+   * case could not be judged, the run aborted, or no case matched the baseline; no baseline is
+   * written from it.
+   */
+  status: 'complete' | 'incomplete' | 'inconclusive';
   costUsd: number;
   capUsd: number;
   cases: CaseResult[];

@@ -33,5 +33,20 @@
       "E5": 5
     }
   },
+  "sectionActions": [
+    {
+      "action": "analogy",
+      "note": "Use a fire drill analogy",
+      "before": "Reporting is the number that improved most\n38% of staff used the Report button, up from 21%. Reports matter because one early report lets the security team pull a real phishing email from every inbox.",
+      "neighbours": "Fewer staff fell for the fake phishing email, and far more reported it\nIn May the security team sent all 1,200 staff a simulated phishing email. 9% clicked its link, down from 17% last winter, and 3% typed a password into the fake page, down from 6%.",
+      "after": "Reporting is the number that improved most\n38% of staff used the Report button, up from 21%. Reports matter because one early report lets the security team pull a real phishing email from every inbox.\nThink of it like a fire drill: the goal is not that nobody ever smells smoke, but that the first person who does pulls the alarm, so everyone else gets out in time. One report does the same for a phishing email.",
+      "human": {
+        "S1": 5,
+        "S2": 5,
+        "S3": 5
+      },
+      "notes": "Apt fire drill analogy for exactly this idea (early report protects everyone); facts unchanged; follows the note."
+    }
+  ],
   "notes": "Accurate, complete, leads with the point, informative chart, glossary picks the real terms, references complete."
 }

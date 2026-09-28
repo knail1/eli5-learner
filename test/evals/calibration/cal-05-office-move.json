@@ -33,5 +33,17 @@
       "E5": 4
     }
   },
+  "sectionActions": [
+    {
+      "action": "section-eli5",
+      "before": "Getting there\nParking falls from 90 to 60 spaces, so a shuttle will run from the train station every 15 minutes at peak times.",
+      "after": "Getting there, simply\nThe new office has fewer parking spots: 60 instead of 90. So a small bus will pick people up at the train station every 15 minutes when lots of people are arriving.",
+      "human": {
+        "S1": 5,
+        "S2": 5
+      },
+      "notes": "A focused, plain ELI5 of just this section with the numbers intact."
+    }
+  ],
   "notes": "Solid and accurate; chart is correct but adds little (D5=3); ELI5 simplifies and stays true."
 }

@@ -25,9 +25,9 @@ import { openLibrary, type DocumentMeta, type FsLibrary } from '../../../src/mai
 import type { LLMProvider } from '../../../src/main/llm';
 import { createPipelineDeps, isTerminal, JobQueue, type Job, type PipelineRuntime } from '../../../src/main/pipeline';
 import type { MenuAction, SourceInput } from '../../../src/preload/contract';
-import { fakeServices } from '../../contracts/extractor.contract';
 import { STUB_RUNTIME } from '../../fixtures/documents/runtime';
 import { SeededIdSource } from '../../helpers/ids';
+import { evalImageServices } from './images';
 
 const REPO = path.resolve(import.meta.dirname, '../../..');
 
@@ -99,7 +99,8 @@ export async function createHarness(o: {
     politeness: new Politeness({ hostIntervalMs: 0 }),
     sleep: async () => {},
   });
-  const services = fakeServices();
+  // Real page images and screenshots reach the vision model (the contract fakes send placeholders).
+  const services = evalImageServices();
   let jobSeq = 0;
   let docSeq = 0;
   const sectionIds = new SeededIdSource(9);

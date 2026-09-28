@@ -4,8 +4,9 @@
  * - `sources/<path>`: a committed fixture under test/fixtures/ (13 §5.1), as a dropped file.
  * - `sites/<name>/`: a fixture site served by the local fixture server (13 §6.4), as a URL.
  * - `evals/sites/<name>.html`: an eval-owned page, served at `/evals/<name>/`, as a URL.
- * - `evals/<path>.docx.json` / `.xlsx.json` / `.png.json`: a spec built at run time into the work dir
- *   (like 13 §5.3's generated-at-test-time fixtures), as a dropped file named without `.json`.
+ * - `evals/<path>.docx.json` / `.xlsx.json` / `.png.json` / `.pdf.json`: a spec built at run time into
+ *   the work dir (like 13 §5.3's generated-at-test-time fixtures), as a dropped file named without
+ *   `.json`. A `.pdf.json` builds a scanned PDF: image-only pages with the text drawn in.
  * - `evals/<path>`: any other eval-owned file under test/evals/sources/, as a dropped file.
  *
  * Everything is synthetic; builders are deterministic.
@@ -13,6 +14,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { deflateSync } from 'node:zlib';
 import ExcelJS from 'exceljs';
 import { z } from 'zod';
 import type { SourceInput } from '../../../src/preload/contract';
@@ -63,7 +65,8 @@ export function classifySource(ref: string): SourceRef {
   }
   if (ref.startsWith('evals/')) {
     const file = path.join(EVAL_SOURCES_DIR, ref.slice('evals/'.length));
-    if (/\.(docx|xlsx|png)\.json$/.test(ref)) return { kind: 'eval-built', file, name: path.basename(ref, '.json') };
+    if (/\.(docx|xlsx|png|pdf)\.json$/.test(ref))
+      return { kind: 'eval-built', file, name: path.basename(ref, '.json') };
     return { kind: 'eval-file', file, name: path.basename(ref) };
   }
   throw new Error(`source "${ref}" must start with sources/, sites/ or evals/`);
@@ -100,6 +103,15 @@ const PngSpec = z
     scale: z.number().int().min(2).max(6).default(3),
     width: z.number().int().min(20).max(120).default(64),
     lines: z.array(z.string()).min(1),
+  })
+  .strict();
+
+const ScannedPdfSpec = z
+  .object({
+    scale: z.number().int().min(2).max(3).default(2),
+    /** Characters per line. */
+    width: z.number().int().min(20).max(100).default(80),
+    pages: z.array(z.object({ lines: z.array(z.string()).min(1) }).strict()).min(1),
   })
   .strict();
 
@@ -197,43 +209,123 @@ export async function buildXlsx(spec: z.input<typeof XlsxSpec>): Promise<Uint8Ar
   return new Uint8Array(await wb.xlsx.writeBuffer());
 }
 
+interface Raster {
+  width: number;
+  height: number;
+  /** 1 where a glyph pixel is drawn. */
+  ink: Uint8Array;
+  /** Rows inside a title band. */
+  band: Set<number>;
+}
+
 /** Text lines drawn with the 5×7 font; a line starting with "# " is a title band. */
-export function buildTextPng(spec: z.input<typeof PngSpec>): Uint8Array {
-  const s = PngSpec.parse(spec);
+function rasterize(lines: readonly string[], cols: number, scale: number, minHeight = 0): Raster {
   const cell = GLYPH_W + 1;
   const lineH = GLYPH_H + 4;
   const margin = 2;
-  const cols = s.width;
-  const width = (cols + margin * 2) * cell * s.scale;
-  const height = (s.lines.length + margin) * lineH * s.scale;
+  const width = (cols + margin * 2) * cell * scale;
+  const height = Math.max(minHeight, (lines.length + margin) * lineH * scale);
   const ink = new Uint8Array(width * height);
   const band = new Set<number>();
-  s.lines.forEach((raw, row) => {
+  lines.forEach((raw, row) => {
     const title = raw.startsWith('# ');
     const text = (title ? raw.slice(2) : raw).slice(0, cols);
-    const y0 = (row + 1) * lineH * s.scale;
-    if (title) for (let y = y0 - 2 * s.scale; y < y0 + (GLYPH_H + 2) * s.scale; y++) band.add(y);
+    const y0 = (row + 1) * lineH * scale;
+    if (title) for (let y = y0 - 2 * scale; y < y0 + (GLYPH_H + 2) * scale; y++) band.add(y);
     [...text].forEach((ch, i) => {
       const g = glyph(ch);
-      const x0 = (margin + i) * cell * s.scale;
+      const x0 = (margin + i) * cell * scale;
       for (let gy = 0; gy < GLYPH_H; gy++)
         for (let gx = 0; gx < GLYPH_W; gx++) {
           if (!g[gy]?.[gx]) continue;
-          for (let dy = 0; dy < s.scale; dy++)
-            for (let dx = 0; dx < s.scale; dx++) ink[(y0 + gy * s.scale + dy) * width + x0 + gx * s.scale + dx] = 1;
+          for (let dy = 0; dy < scale; dy++)
+            for (let dx = 0; dx < scale; dx++) ink[(y0 + gy * scale + dy) * width + x0 + gx * scale + dx] = 1;
         }
     });
   });
+  return { width, height, ink, band };
+}
+
+export function buildTextPng(spec: z.input<typeof PngSpec>): Uint8Array {
+  const s = PngSpec.parse(spec);
+  const { width, height, ink, band } = rasterize(s.lines, s.width, s.scale);
   return encodePng(width, height, (x, y) => {
     if (ink[y * width + x]) return band.has(y) ? [255, 255, 255] : [25, 30, 40];
     return band.has(y) ? [30, 70, 140] : [250, 250, 248];
   });
 }
 
+/**
+ * A scanned document (04 §6.2): every page is one full-page grayscale image with the text drawn in
+ * and no text layer, so extraction classifies it `pdf-scanned` and sends the pages as vision input.
+ * Same object layout as test/fixtures/build/pdf.ts.
+ */
+export function buildScannedPdf(spec: z.input<typeof ScannedPdfSpec>): Uint8Array {
+  const s = ScannedPdfSpec.parse(spec);
+  const objs: Buffer[] = [];
+  const add = (body: string | Buffer): number => objs.push(Buffer.isBuffer(body) ? body : Buffer.from(body, 'latin1'));
+  const stream = (dict: string, data: Buffer): Buffer =>
+    Buffer.concat([
+      Buffer.from(`<< ${dict}${dict ? ' ' : ''}/Length ${data.length} >>\nstream\n`, 'latin1'),
+      data,
+      Buffer.from('\nendstream', 'latin1'),
+    ]);
+  const catalog = add('');
+  const pagesObj = add('');
+  const kids: number[] = [];
+  const content = Buffer.from('q 612 0 0 792 0 0 cm /Im1 Do Q\n', 'latin1');
+  for (const page of s.pages) {
+    const cols = s.width;
+    const pageW = (cols + 4) * (GLYPH_W + 1) * s.scale;
+    const r = rasterize(page.lines, cols, s.scale, Math.round((pageW * 792) / 612));
+    // The eval renderer hands page images over as they are: keep them within the 04 §7 long edge.
+    if (Math.max(r.width, r.height) > 1568) throw new Error('scanned PDF page image exceeds 1568 px');
+    const px = Buffer.alloc(r.width * r.height);
+    for (let y = 0; y < r.height; y++)
+      for (let x = 0; x < r.width; x++) {
+        const inked = r.ink[y * r.width + x] === 1;
+        px[y * r.width + x] = r.band.has(y) ? (inked ? 255 : 70) : inked ? 30 : 248;
+      }
+    const img = add(
+      stream(
+        `/Type /XObject /Subtype /Image /Width ${r.width} /Height ${r.height} /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode`,
+        deflateSync(px, { level: 9 }),
+      ),
+    );
+    const contents = add(stream('', content));
+    kids.push(
+      add(
+        `<< /Type /Page /Parent ${pagesObj} 0 R /MediaBox [0 0 612 792] /Resources << /XObject << /Im1 ${img} 0 R >> >> /Contents ${contents} 0 R >>`,
+      ),
+    );
+  }
+  objs[pagesObj - 1] = Buffer.from(
+    `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(' ')}] /Count ${kids.length} >>`,
+    'latin1',
+  );
+  objs[catalog - 1] = Buffer.from(`<< /Type /Catalog /Pages ${pagesObj} 0 R >>`, 'latin1');
+  const parts: Buffer[] = [Buffer.from('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n', 'latin1')];
+  const offsets: number[] = [];
+  let pos = parts[0]?.length ?? 0;
+  objs.forEach((o, i) => {
+    offsets.push(pos);
+    const b = Buffer.concat([Buffer.from(`${i + 1} 0 obj\n`, 'latin1'), o, Buffer.from('\nendobj\n', 'latin1')]);
+    parts.push(b);
+    pos += b.length;
+  });
+  const xref =
+    `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` +
+    offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('') +
+    `trailer\n<< /Size ${objs.length + 1} /Root ${catalog} 0 R >>\nstartxref\n${pos}\n%%EOF\n`;
+  parts.push(Buffer.from(xref, 'latin1'));
+  return new Uint8Array(Buffer.concat(parts));
+}
+
 async function build(ref: SourceRef): Promise<Uint8Array> {
   const spec: unknown = JSON.parse(readFileSync(ref.file, 'utf8'));
   if (ref.name.endsWith('.docx')) return buildDocx(spec as z.input<typeof DocxSpec>);
   if (ref.name.endsWith('.xlsx')) return buildXlsx(spec as z.input<typeof XlsxSpec>);
+  if (ref.name.endsWith('.pdf')) return buildScannedPdf(spec as z.input<typeof ScannedPdfSpec>);
   return buildTextPng(spec as z.input<typeof PngSpec>);
 }
 

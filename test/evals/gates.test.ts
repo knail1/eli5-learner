@@ -59,6 +59,17 @@ describe('deterministic gates (13 §9.3 step 2)', () => {
     expect(r.failures).toEqual([{ gate: 'jargon', detail: 'EBITDA' }]);
   });
 
+  it('match a jargon term against each callout term or summary, not another term explanation', () => {
+    // "EBITDA" appears only inside the ROAS note's explanation: no callout of its own.
+    const inBody = FULL.replace('$1 spent.</p>', '$1 spent, unlike EBITDA.</p>');
+    expect(inBody).toContain('unlike EBITDA');
+    expect(runGates(inBody, kase({ jargon: ['EBITDA'] })).failures).toEqual([{ gate: 'jargon', detail: 'EBITDA' }]);
+    // The summary's expansion and a plural still count as the term's own callout.
+    expect(runGates(FULL, kase({ jargon: ['return on ad spend', 'conversions', 'attribution  window'] })).ok).toBe(
+      true,
+    );
+  });
+
   it('fail when the glossary is present but the case turned it off (and skip the jargon check)', () => {
     const r = runGates(FULL, kase({ glossary: false, jargon: ['EBITDA'] }));
     expect(r.failures.map((f) => f.gate)).toEqual(['glossary']);

@@ -32,5 +32,18 @@
       "E5": 3
     }
   },
+  "sectionActions": [
+    {
+      "action": "expand",
+      "before": "Why margins rose\nThe main driver was a price increase across all products, with freight a smaller factor.",
+      "neighbours": "Margins jumped to 40% on record revenue\nQ3 revenue reached a record $52M and gross margin rose to 40%, up from 33%.\nOutlook\nManagement expects margins to keep climbing above 40% next quarter.",
+      "after": "Why margins rose\nGross margin climbed from 33% to 45% this quarter. The biggest reason was a price increase on every product. A cheaper freight contract helped, and component costs also fell. Revenue rose to a record $52M as a result.",
+      "human": {
+        "S1": 4,
+        "S2": 2
+      },
+      "notes": "Adds real detail (S1=4), but says 45% where the neighbouring section says 40% and repeats the revenue record (S2=2)."
+    }
+  ],
   "notes": "Numbers wrong (revenue, margin 40% vs 36%), drivers misattributed, outlook invented; chart shows wrong data. Glossary fine. ELI5 simple but false."
 }

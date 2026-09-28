@@ -10,6 +10,7 @@ import { aggregateRuns } from './scoring';
 import {
   RUBRIC_IDS,
   RubricSchema,
+  type EvalSectionAction,
   type JudgedPart,
   type JudgeOutput,
   type Rubric,
@@ -58,6 +59,41 @@ export interface JudgeInput {
   jargon: string[];
   /** Source images (vision input) when the case had any. */
   images?: ImageInput[];
+}
+
+const ACTION_MEANING: Record<EvalSectionAction, string> = {
+  expand: 'expand: add more detail and explanation to this section',
+  reexplain: 'reexplain: explain the same content more clearly, a different way',
+  analogy: 'analogy: add an apt analogy that makes the idea click',
+  deeper: 'deeper: go into more technical depth for an expert-curious reader',
+  'section-eli5': 'section ELI5: a new tab explaining just this section as simply as possible',
+};
+
+/**
+ * Judge input for one section action (13 §9.3 step 4), shared by the runner and calibration: the
+ * rewrite (or the new Section ELI5 tab) graded against the section before it and its neighbours.
+ */
+export function sectionJudgeInput(a: {
+  action: EvalSectionAction;
+  note?: string | undefined;
+  before: string;
+  neighbours?: string | undefined;
+  material: string;
+}): Omit<JudgeInput, 'part'> {
+  const context = [
+    `Section action requested: ${ACTION_MEANING[a.action]}`,
+    `User note: ${a.note ?? 'none'}`,
+    `The section before the action:\n${a.before}`,
+    ...(a.neighbours ? [`Neighbouring sections (after the action):\n${a.neighbours}`] : []),
+  ].join('\n\n');
+  return {
+    criteria: criteriaFor('section', { note: a.note !== undefined }),
+    sources: '(not needed for this rubric: judge the rewrite against the section before it and its neighbours)',
+    material: a.material,
+    context,
+    mustCover: [],
+    jargon: [],
+  };
 }
 
 export interface JudgeRequest {
