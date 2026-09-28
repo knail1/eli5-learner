@@ -54,3 +54,17 @@ describe('notification channels (11 §14)', () => {
     });
   });
 });
+
+describe('eli5:viewer:focus (11 §12 viewer focus handoff)', () => {
+  it('focuses the viewer view, takes no payload and is app-only', async () => {
+    const h = await setup();
+    expect(await h.call(IPC.viewer.focus)).toEqual({ ok: true, value: undefined });
+    expect(h.viewerFocused.count).toBe(1);
+    expect(await h.call(IPC.viewer.focus, { slug: 'x' })).toMatchObject({
+      ok: false,
+      error: { code: 'E_BAD_REQUEST' },
+    });
+    expect(await h.call(IPC.viewer.focus, undefined, 'viewer')).toEqual(forbidden);
+    expect(h.viewerFocused.count).toBe(1);
+  });
+});

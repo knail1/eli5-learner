@@ -66,6 +66,8 @@ export interface IpcDeps {
   viewer: {
     setBounds(b: { x: number; y: number; width: number; height: number }): void;
     setVisible(v: boolean): void;
+    /** Focuses the viewer view's webContents (11 §12 viewer focus handoff). */
+    focus(): void;
   };
   /** Push an event to the app renderer. */
   sendToApp(channel: IpcChannel, payload: unknown): void;
@@ -160,6 +162,7 @@ export function registerIpc(d: IpcDeps): () => void {
   // ---- viewer (11) ----
   on(IPC.viewer.setBounds, Bounds, (b) => d.viewer.setBounds(b));
   on(IPC.viewer.setVisible, z.object({ visible: z.boolean() }), (p) => d.viewer.setVisible(p.visible));
+  on(IPC.viewer.focus, NoPayload, () => d.viewer.focus());
   on(IPC.viewer.openExternal, z.object({ url: z.string().max(2048) }), async (p, e) => {
     if (!(await safeOpenExternal(p.url, e.sender.id))) fail('E_RATE_LIMITED', 'Link not opened');
   });

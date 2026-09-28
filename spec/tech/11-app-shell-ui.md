@@ -475,6 +475,8 @@ Additions to the 01 §5.2 baseline, same conventions (`IpcResult<T>`, zod valida
 | `eli5:app:navigate` | M→R | shell | — | `AppNavigateEvent` |
 | `eli5:app:context-menu` | R→M | shell | `{kind: 'library-item'; slug: string}` | `void` (main shows a native menu; choices act in main or emit `eli5:app:navigate`) |
 | `eli5:viewer:set-visible` | R→M | shell/viewer | `{visible: boolean}` | `void` |
+| `eli5:viewer:focus` | R→M | shell/viewer | — | `void` (focuses the attached viewer view, §12) |
+| `eli5:app:cycle-region` | M→R | shell | — | `CycleRegionEvent {dir: 1 \| -1}` (F6 / Shift+F6 pressed in the viewer, §12) |
 | `eli5:sources:classify-text` | R→M | sources (03) | `{text: string}` (≤ 2048 chars) | `{kind: 'url' \| 'bare' \| 'invalid'; label: string}` |
 | `eli5:settings:choose-folder` | R→M | shell | `{key: 'publish.local.dir'}` | `{path: string} \| {cancelled: true}` (main shows the open panel, validates, and saves the key) |
 | `eli5:settings:open-help` | R→M | shell | `{topic: 'readme' \| 'publish-pages' \| 'licenses'}` | `void` (main maps the topic to the public README URL, `resources/help/publish-github-pages.html` or `resources/skills/THIRD_PARTY.md` and opens it with the default app; a missing file is `E_NOT_FOUND`). The renderer never names a path or URL |
@@ -485,8 +487,8 @@ Additions to the 01 §5.2 baseline, same conventions (`IpcResult<T>`, zod valida
 All of these channels are in the 01 §5.2 IPC table and their constants are in `contract.ts`.
 
 `window.eli5` gains `app: { onNavigate(cb): Unsubscribe; contextMenu(p); testNotification();
-openNotificationSettings() }`,
-`viewer.setVisible(v)`, `sources.classifyText(t)`, `library.revealRoot()`, `settings.chooseFolder(k)`, and `settings.openHelp(topic)`. There is deliberately no renderer channel to quit the app (§3.2).
+openNotificationSettings(); onCycleRegion(cb): Unsubscribe }`,
+`viewer.setVisible(v)`, `viewer.focus()`, `sources.classifyText(t)`, `library.revealRoot()`, `settings.chooseFolder(k)`, and `settings.openHelp(topic)`. There is deliberately no renderer channel to quit the app (§3.2).
 
 ## 11. Enterprise-only UI
 
@@ -549,9 +551,12 @@ sign-in lifecycle itself is HOOK-AUTH-01; publishers are HOOK-PUB-01..04.
 - **Live regions.** One polite announcer (`aria-live="polite"`) for: job started, job done ("Done:
   {title}"), job failed (assertive only for `failed`), new suggestion. Intermediate stage changes are
   **not** announced, to avoid chatter; the status text is still readable on focus.
-- **Viewer focus handoff.** F6 into the viewer calls `webContents.focus()` on the view; the doc
-  runtime (08) moves focus to the active tab. `Shift+F6` inside the viewer is forwarded by the doc
-  preload so focus can return to the app.
+- **Viewer focus handoff.** F6 into the viewer (with a document shown) sends `eli5:viewer:focus`;
+  main calls `webContents.focus()` on the view and the doc runtime (08) moves focus to the active
+  tab when nothing in the document has focus. Keys pressed in the viewer never reach the app
+  renderer, so main watches the view's `before-input-event`: F6 / Shift+F6 focus the app and send
+  `eli5:app:cycle-region {dir}` (the app cycles on from the viewer region), and Cmd+1…9 are
+  forwarded to the app like the menu shortcuts. Every other key stays with the document.
 - **Controls.** All controls are native elements or follow WAI-ARIA patterns (combobox for model,
   switch for glossary, listbox for chips). Visible focus ring (2 px, `--focus` token) on everything.
   Hit targets ≥ 24×24 px.

@@ -315,12 +315,14 @@ this table is corrected. Channel **names** are fixed here.
 | `eli5:viewer:set-bounds` | R→M | `{x; y; width; height}` | `void` | 11 |
 | `eli5:viewer:set-visible` | R→M | `{visible: boolean}` | `void` | 11 §10 |
 | `eli5:viewer:open-external` | D→M | `{url}` (`http`/`https` only) | `void` | 12 |
+| `eli5:viewer:focus` | R→M | — | `void` (main focuses the viewer view's webContents when it is attached) | 11 §12 |
 
 **App shell (11)**
 
 | Channel | Dir | Request | Response / event payload | Spec |
 | --- | --- | --- | --- | --- |
 | `eli5:app:navigate` | M→R | — | `AppNavigateEvent {route: UiRoute}` | 11 §10 |
+| `eli5:app:cycle-region` | M→R | — | `CycleRegionEvent {dir: 1 \| -1}` (F6 / Shift+F6 pressed in the viewer) | 11 §12 |
 | `eli5:app:context-menu` | R→M | `{kind: 'library-item'; slug}` | `void` (native menu shown by main) | 11 §10 |
 | `eli5:app:test-notification` | R→M | — | `TestNotificationResult {shown: boolean; reason?: 'disabled' \| 'unsupported'}` | 11 §14 |
 | `eli5:app:open-notification-settings` | R→M | — | `void` (main opens the fixed System Settings > Notifications URL; 12 §7.5 exception) | 11 §14 |
@@ -378,7 +380,7 @@ export interface Eli5Api {
   library: { list(); open(slug: string); reveal(slug: string); info(); revealRoot(); onChanged(cb): Unsub };
   suggestions: { list(); accept(id: string); dismiss(id: string); onChanged(cb): Unsub };
   doc: { onUpdated(cb): Unsub };
-  viewer: { setBounds(r: { x: number; y: number; width: number; height: number }); setVisible(v: boolean) };
+  viewer: { setBounds(r: { x: number; y: number; width: number; height: number }); setVisible(v: boolean); focus() };
   llm: { testConnection(provider?: ProviderId); models(provider: ProviderId) };
   settings: {
     get(); set(p: DeepPartial<Settings>); describe();
@@ -395,6 +397,7 @@ export interface Eli5Api {
   app: {
     onNavigate(cb: (e: AppNavigateEvent) => void): Unsub; contextMenu(r: { kind: 'library-item'; slug: string });
     testNotification(); openNotificationSettings();
+    onCycleRegion(cb: (e: CycleRegionEvent) => void): Unsub;
   };
   files: { pathFor(file: File): string };   // webUtils.getPathForFile; the single drop-path helper
 }

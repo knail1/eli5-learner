@@ -148,6 +148,82 @@ describe('App layout and routes (11 §5, §6)', () => {
     expect(fake.api.library.open).toHaveBeenCalledWith('topic-a');
   });
 
+  it('F6 from the sidebar hands focus to the viewer view (11 §9, §12 viewer focus handoff)', async () => {
+    fake.api.library.list = async () => ok([entry('Topic A', '2026-01-01T00:00:00Z')]);
+    const host = await render(App);
+    await click(host.querySelector('.library-item'));
+    host.querySelector<HTMLElement>('.library-item')?.focus();
+    await key(document.activeElement, 'F6');
+    expect(fake.api.viewer.focus).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(host.querySelector('main[data-region="viewer"]'));
+    // Shift+F6 from the viewer's app region goes back to the sidebar without touching the view.
+    await key(document.activeElement, 'F6', { shiftKey: true });
+    expect(host.querySelector('aside')?.contains(document.activeElement)).toBe(true);
+    expect(fake.api.viewer.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it('F6 pressed inside the viewer cycles on from the viewer region (eli5:app:cycle-region)', async () => {
+    fake.api.library.list = async () => ok([entry('Topic A', '2026-01-01T00:00:00Z')]);
+    const host = await render(App);
+    await click(host.querySelector('.library-item'));
+    // The app renderer's own focus is stale (still in the sidebar) while the view has focus.
+    host.querySelector<HTMLElement>('.library-item')?.focus();
+    fake.emit('cycle-region', { dir: 1 });
+    expect(host.querySelector('[data-region="input"]')?.contains(document.activeElement)).toBe(true);
+    host.querySelector<HTMLElement>('.library-item')?.focus();
+    fake.emit('cycle-region', { dir: -1 });
+    expect(host.querySelector('aside')?.contains(document.activeElement)).toBe(true);
+    expect(fake.api.viewer.focus).not.toHaveBeenCalled();
+  });
+
+  it('F6 without a document shown focuses the viewer region in the app and never the view', async () => {
+    const host = await render(App);
+    host.querySelector<HTMLElement>('.settings-button')?.focus();
+    await key(document.activeElement, 'F6');
+    expect(host.querySelector('main')?.contains(document.activeElement)).toBe(true);
+    expect(fake.api.viewer.focus).not.toHaveBeenCalled();
+  });
+
+  it('keyboard: Cmd+L focuses the URL field, Cmd+N clears the draft and focuses the drop box', async () => {
+    const host = await render(App);
+    const url = host.querySelector<HTMLInputElement>('input[aria-label="URL"]');
+    await key(document.body, 'l', { metaKey: true });
+    expect(document.activeElement).toBe(url);
+    const ev = new Event('paste', { bubbles: true, cancelable: true }) as Event & { clipboardData: unknown };
+    ev.clipboardData = { getData: () => 'https://example.com/a https://example.org/b' };
+    await act(async () => {
+      url?.dispatchEvent(ev);
+    });
+    await flush();
+    expect(host.querySelectorAll('.chip')).toHaveLength(2);
+    await key(document.body, 'n', { metaKey: true });
+    expect(host.querySelectorAll('.chip')).toHaveLength(0);
+    expect(document.activeElement).toBe(host.querySelector('.drop-box'));
+  });
+
+  it('keyboard: Cmd+[ and Cmd+] open the previous and next document, clamped at the ends', async () => {
+    fake.api.library.list = async () =>
+      ok([
+        entry('Gamma', '2026-03-01T00:00:00Z'),
+        entry('Beta', '2026-02-01T00:00:00Z'),
+        entry('Alpha', '2026-01-01T00:00:00Z'),
+      ]);
+    const host = await render(App);
+    await key(document.body, '1', { metaKey: true });
+    expect(fake.api.library.open).toHaveBeenLastCalledWith('gamma');
+    await key(document.body, ']', { metaKey: true });
+    expect(fake.api.library.open).toHaveBeenLastCalledWith('beta');
+    await key(document.body, ']', { metaKey: true });
+    await key(document.body, ']', { metaKey: true });
+    expect(fake.api.library.open).toHaveBeenLastCalledWith('alpha');
+    await key(document.body, '[', { metaKey: true });
+    expect(fake.api.library.open).toHaveBeenLastCalledWith('beta');
+    await key(document.body, '[', { metaKey: true });
+    await key(document.body, '[', { metaKey: true });
+    expect(fake.api.library.open).toHaveBeenLastCalledWith('gamma');
+    expect(host.querySelector('[aria-current="page"]')?.textContent).toContain('Gamma');
+  });
+
   it('narrow windows start collapsed, but Cmd+\\ and Cmd+F still open the sidebar (11 §5.2, §12)', async () => {
     const width = window.innerWidth;
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 950 });

@@ -26,6 +26,7 @@ import type { FolderChooserDeps } from './choose-folder';
 import { createHelpOpener, type HelpOpener } from './menu-help';
 import { createSettingsServices } from './settings-services';
 import { ERROR_PAGE, RELOAD_FRAGMENT, closeAction, crashTracker, shell } from './lifecycle';
+import { installViewerKeyHandoff } from './viewer-keys';
 import {
   WINDOW_DEFAULTS,
   debounce,
@@ -325,6 +326,10 @@ export function createMainWindow(): BrowserWindow {
     // Same document only; fragment changes allowed (12 §7.2 step 3).
     return url.protocol === 'eli5doc:' && url.host === cur.host && url.pathname === cur.pathname;
   });
+  // F6, Shift+F6 and Cmd+1…9 pressed in the viewer go back to the app renderer (11 §12).
+  installViewerKeyHandoff(viewer.webContents, mainWebContents, (dir) =>
+    mainWebContents()?.send(IPC.app.cycleRegion, { dir }),
+  );
   // Detached until the renderer shows the doc route (11 §5.1).
   viewer.setVisible(false);
   viewerAttached = false;
@@ -367,6 +372,11 @@ export function setViewerVisible(v: boolean): void {
       viewerAttached = false;
     }
   }
+}
+
+/** F6 into the viewer (11 §12): focus the view; the doc runtime then focuses its active tab. */
+export function focusViewer(): void {
+  if (viewerAttached) viewerWebContents()?.focus();
 }
 
 export function isViewerAttached(): boolean {

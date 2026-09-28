@@ -68,6 +68,18 @@ export function initScroll(doc: Document, win: Window, bridge: DocBridge, tabs: 
   });
 }
 
+/**
+ * Viewer focus handoff (11 §12): when F6 focuses the view and nothing in the document has focus
+ * yet, focus the active tab so keyboard users land somewhere visible.
+ */
+export function initFocusHandoff(doc: Document, win: Window, tabs: TabsApi): void {
+  win.addEventListener('focus', () => {
+    if (doc.activeElement && doc.activeElement !== doc.body) return;
+    const key = tabs.active();
+    if (key) tabs.activateTab(key, { history: false, focus: true });
+  });
+}
+
 /** External links open in the system browser via the bridge (07 §6.3). */
 export function initLinks(doc: Document, bridge: DocBridge): void {
   doc.addEventListener('click', (e) => {

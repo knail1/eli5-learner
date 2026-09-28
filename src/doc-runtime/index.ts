@@ -3,7 +3,7 @@
  * time, no network. Every module is isolated so a failure leaves its no-JS fallback in place.
  */
 import './index.css';
-import { initCloseButtons, initLinks, initScroll } from './app';
+import { initCloseButtons, initFocusHandoff, initLinks, initScroll } from './app';
 import { getBridge } from './bridge';
 import { initCharts, initFigures, initPrint, initSteppers } from './components';
 import { initGlossary, type GlossaryApi } from './glossary';
@@ -47,6 +47,7 @@ export function boot(win: Window = window, doc: Document = document): RuntimeHan
     if (selection) handle.selection = selection;
     safe('close-buttons', () => initCloseButtons(doc, bridge));
     if (tabs) safe('scroll', () => initScroll(doc, win, bridge, tabs));
+    if (tabs) safe('focus-handoff', () => initFocusHandoff(doc, win, tabs));
     safe('links', () => initLinks(doc, bridge));
   }
   return handle;

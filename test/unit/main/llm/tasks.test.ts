@@ -121,6 +121,27 @@ describe('task functions (02 §12) with FakeProvider and the default script', ()
     expect(byTask.get('section-deeper')?.messages[0]?.text).toContain('<source ref="original source excerpt">');
   });
 
+  it('applies the ELI5 register to section ELI5 tabs in every in-place prompt (08 §6.2)', async () => {
+    const fake = new FakeProvider(defaultScript());
+    const tasks = createTasks(deps(fake));
+    const section = { heading: 'Widgets', blocks: [{ type: 'paragraph' as const, md: 'Widgets are sold.' }] };
+    for (const action of ['expand', 'reexplain', 'analogy', 'deeper'] as const) {
+      await tasks.runSectionAction({
+        action,
+        tabKind: 'section-eli5',
+        section,
+        outline: ['Widgets'],
+        selection: 'Widgets',
+        signal: ctx.signal,
+      });
+    }
+    const systems = new Map<string, string | undefined>(fake.calls.map((c) => [c.taskId, c.system]));
+    for (const id of ['section-expand', 'section-reexplain', 'section-analogy', 'section-deeper']) {
+      expect(systems.get(id)).toContain('For an "eli5" or "section-eli5" tab: plain words, no jargon, no glossary');
+    }
+    expect(systems.get('section-deeper')).toContain('stay at ELI5 reading level');
+  });
+
   it('sends images with labels and lets figure blocks cite them', async () => {
     const img = {
       id: 'aaaa1111-img-1',

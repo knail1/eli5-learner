@@ -113,9 +113,11 @@ export const IPC = {
     setBounds: 'eli5:viewer:set-bounds',
     setVisible: 'eli5:viewer:set-visible',
     openExternal: 'eli5:viewer:open-external',
+    focus: 'eli5:viewer:focus',
   },
   app: {
     navigate: 'eli5:app:navigate',
+    cycleRegion: 'eli5:app:cycle-region',
     contextMenu: 'eli5:app:context-menu',
     testNotification: 'eli5:app:test-notification',
     openNotificationSettings: 'eli5:app:open-notification-settings',
@@ -420,6 +422,11 @@ export type UiRoute =
 
 export interface AppNavigateEvent {
   route: UiRoute;
+}
+
+/** F6 (1) or Shift+F6 (-1) pressed while the viewer had focus (11 §12 viewer focus handoff). */
+export interface CycleRegionEvent {
+  dir: 1 | -1;
 }
 
 // ---------------------------------------------------------------------------

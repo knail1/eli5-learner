@@ -138,6 +138,8 @@ export interface Harness {
   opened: string[];
   revealed: string[];
   rootRevealed: { count: number };
+  /** `eli5:viewer:focus` calls (11 §12 viewer focus handoff). */
+  viewerFocused: { count: number };
   keyReady: { value: boolean };
   userData: string;
   dispose: () => void;
@@ -179,6 +181,7 @@ export async function setup(o: SetupOptions = {}): Promise<Harness> {
     opened: [],
     revealed: [],
     rootRevealed: { count: 0 },
+    viewerFocused: { count: 0 },
     keyReady: { value: true },
     userData,
     handlers,
@@ -193,7 +196,13 @@ export async function setup(o: SetupOptions = {}): Promise<Harness> {
     settings,
     keyStore,
     registry,
-    viewer: { setBounds: () => {}, setVisible: () => {} },
+    viewer: {
+      setBounds: () => {},
+      setVisible: () => {},
+      focus: () => {
+        h.viewerFocused.count++;
+      },
+    },
     sendToApp: (channel, payload) => h.sent.push({ channel, payload }),
     sendToViewer: (channel, payload) => h.viewerSent.push({ channel, payload }),
     jobs: h.jobs,

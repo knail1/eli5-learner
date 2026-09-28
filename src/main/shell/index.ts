@@ -11,6 +11,7 @@ export {
   createMainWindow,
   setViewerBounds,
   setViewerVisible,
+  focusViewer,
   isViewerAttached,
   showMainWindow,
   hideMainWindow,

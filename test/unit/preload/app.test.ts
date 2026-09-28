@@ -128,6 +128,7 @@ describe('app preload', () => {
       [api.settings!.openHelp!, ['licenses'], IPC.settings.openHelp, { topic: 'licenses' }],
       [api.sources!.classifyText!, ['ABC-123'], IPC.sources.classifyText, { text: 'ABC-123' }],
       [api.library!.revealRoot!, [], IPC.library.revealRoot, undefined],
+      [api.viewer!.focus!, [], IPC.viewer.focus, undefined],
       [api.suggestions!.accept!, ['s-1'], IPC.suggestions.accept, { suggestionId: 's-1' }],
       [api.publish!.run!, ['solar-power', 'local'], IPC.publish.run, { slug: 'solar-power', targetId: 'local' }],
       [api.publish!.reveal!, ['file:///x'], IPC.publish.reveal, { url: 'file:///x' }],
@@ -137,5 +138,12 @@ describe('app preload', () => {
       await fn(...args);
       expect(invoke).toHaveBeenCalledWith(channel, payload);
     }
+  });
+
+  it('subscribes app.onCycleRegion to eli5:app:cycle-region (11 §12)', async () => {
+    const { ipcRenderer } = await import('electron');
+    const api = exposed.eli5 as { app: { onCycleRegion(cb: (e: unknown) => void): () => void } };
+    api.app.onCycleRegion(() => {});
+    expect(ipcRenderer.on).toHaveBeenCalledWith(IPC.app.cycleRegion, expect.any(Function));
   });
 });

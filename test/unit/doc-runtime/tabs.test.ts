@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { loadGolden, loadRuntime, type Runtime } from './dom';
+import { fakeBridge, loadGolden, loadRuntime, type Runtime } from './dom';
 
 let rt: Runtime;
 const boot: Runtime['boot'] = (win, doc) => rt.boot(win, doc);
@@ -97,5 +97,34 @@ describe('malformed hash (07 §12 item 2)', () => {
     win.location.hash = '#%';
     expect(() => win.dispatchEvent(new win.HashChangeEvent('hashchange'))).not.toThrow();
     expect(h.tabs?.active()).toBe('indepth');
+  });
+});
+
+describe('viewer focus handoff (11 §12)', () => {
+  it('in the app, focus arriving at the viewer lands on the active tab', () => {
+    const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
+    const h = boot(win, doc);
+    h.tabs?.activateTab('eli5');
+    expect(doc.activeElement).toBe(doc.body);
+    win.dispatchEvent(new win.FocusEvent('focus'));
+    expect(doc.activeElement?.id).toBe('tabbtn-eli5');
+  });
+
+  it('keeps focus where it is when something in the document already has it', () => {
+    const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
+    boot(win, doc);
+    const summary = doc.querySelector<HTMLElement>('#tab-indepth section h2');
+    if (!summary) throw new Error('fixture');
+    summary.tabIndex = -1;
+    summary.focus();
+    win.dispatchEvent(new win.FocusEvent('focus'));
+    expect(doc.activeElement).toBe(summary);
+  });
+
+  it('in a plain browser, window focus never moves focus', () => {
+    const { win, doc } = loadGolden('with-tab');
+    boot(win, doc);
+    win.dispatchEvent(new win.FocusEvent('focus'));
+    expect(doc.activeElement).toBe(doc.body);
   });
 });

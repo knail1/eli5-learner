@@ -1,5 +1,6 @@
 import type {
   AppNavigateEvent,
+  CycleRegionEvent,
   ApiKeyProvider,
   AuthStatus,
   CatalogEntry,
@@ -70,7 +71,12 @@ export interface Eli5Api {
     onChanged(cb: (e: { suggestions: MergeSuggestion[] }) => void): Unsub;
   };
   doc: { onUpdated(cb: (e: DocUpdatedEvent) => void): Unsub };
-  viewer: { setBounds(r: ViewerBounds): R<void>; setVisible(v: boolean): R<void> };
+  viewer: {
+    setBounds(r: ViewerBounds): R<void>;
+    setVisible(v: boolean): R<void>;
+    /** F6 into the viewer: main focuses the view's webContents (11 §12). */
+    focus(): R<void>;
+  };
   llm: {
     testConnection(provider?: ProviderId): R<TestConnectionResult>;
     models(provider: ProviderId): R<ModelsResult>;
@@ -107,6 +113,8 @@ export interface Eli5Api {
   };
   app: {
     onNavigate(cb: (e: AppNavigateEvent) => void): Unsub;
+    /** F6 / Shift+F6 pressed inside the viewer; the app cycles on from the viewer region. */
+    onCycleRegion(cb: (e: CycleRegionEvent) => void): Unsub;
     contextMenu(r: { kind: 'library-item'; slug: string }): R<void>;
     /** 11 §14.7. */
     testNotification(): R<TestNotificationResult>;

@@ -163,6 +163,8 @@ function Shell() {
   }, [catalog, go]);
 
   useEffect(() => window.eli5.app.onNavigate((e) => go(e.route)), [go]);
+  // F6 / Shift+F6 pressed inside the viewer: main already focused the app (11 §12).
+  useEffect(() => window.eli5.app.onCycleRegion((e) => cycleRegion(e.dir, 'viewer')), []);
 
   const openSettings = useCallback((section?: SettingsSection) => go({ view: 'settings', section }), [go]);
   const leaveSettings = useCallback(() => go(previous.current), [go]);
@@ -378,15 +380,25 @@ function SidebarHandle(p: { width: number; onChange(w: number): void }) {
   );
 }
 
-/** F6 / Shift+F6: sidebar → viewer → input zone → status → suggestions (11 §9, §12). */
-function cycleRegion(dir: 1 | -1): void {
+/**
+ * F6 / Shift+F6: sidebar → viewer → input zone → status → suggestions (11 §9, §12). `from` names
+ * the region focus is leaving when it was the viewer view, whose focus the app cannot see. With a
+ * document shown, entering the viewer region focuses the view itself; the doc runtime then moves
+ * focus to its active tab.
+ */
+function cycleRegion(dir: 1 | -1, from?: 'viewer'): void {
   const order = ['sidebar', 'viewer', 'input', 'status', 'suggestions'];
   const regions = order
     .map((r) => document.querySelector<HTMLElement>(`[data-region="${r}"]`))
     .filter((el): el is HTMLElement => !!el && !el.closest('[hidden]') && el.childElementCount > 0);
   if (regions.length === 0) return;
-  const current = regions.findIndex((r) => r.contains(document.activeElement));
+  const current = regions.findIndex((r) => (from ? r.dataset.region === from : r.contains(document.activeElement)));
   const next = regions[(current + dir + regions.length) % regions.length];
+  if (next?.dataset.region === 'viewer' && next.querySelector('[data-testid="viewer-slot"]')) {
+    next.focus();
+    void window.eli5.viewer.focus();
+    return;
+  }
   const target =
     next?.querySelector<HTMLElement>('button, input, textarea, [tabindex="0"], [tabindex="-1"]') ?? next ?? null;
   target?.focus();

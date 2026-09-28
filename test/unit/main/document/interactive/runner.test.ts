@@ -120,6 +120,22 @@ describe('in-place actions (08 §6.2, §6.4)', () => {
     expect(model.glossary).toEqual(s.model.glossary);
   });
 
+  it('works inside a section ELI5 tab with the ELI5 register (08 §6.2)', async () => {
+    const s = await setup();
+    await s.ir.runner(s.ctx(await queued(s, { action: 'eli5-tab' })).ctx);
+    const before = parseDocument(await s.read()).model;
+    const tab = before.tabs.at(-1);
+    const target = tab?.sections.find((x) => x.kind === 'content');
+    if (!tab || !target) throw new Error('fixture');
+    const jobId = await queued(s, { tabKey: tab.key, sectionId: target.id, action: 'deeper' });
+    await s.ir.runner(s.ctx(jobId).ctx);
+    expect(s.runSectionAction.mock.calls[1]?.[0]).toMatchObject({ action: 'deeper', tabKind: 'section-eli5' });
+    const { model } = parseDocument(await s.read());
+    expect(model.tabs.at(-1)?.sections.find((x) => x.id === target.id)).toMatchObject({ lastAction: 'deeper' });
+    expect(model.tabs.at(-1)?.sections.map((x) => x.id)).toEqual(tab.sections.map((x) => x.id));
+    expect(model.glossary).toEqual(before.glossary);
+  });
+
   it('fails with SECTION_CHANGED when the section changed outside the app; nothing is written', async () => {
     const s = await setup();
     const id = sec(s.model, 0, 0);

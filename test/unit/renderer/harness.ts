@@ -53,7 +53,7 @@ export interface FakeApi {
   api: Eli5Api;
   /** Emit a main → renderer event, e.g. emit('jobs', snapshot). */
   emit(
-    event: 'jobs' | 'library' | 'suggestions' | 'settings' | 'navigate' | 'auth' | 'doc' | 'publish',
+    event: 'jobs' | 'library' | 'suggestions' | 'settings' | 'navigate' | 'cycle-region' | 'auth' | 'doc' | 'publish',
     payload: unknown,
   ): void;
 }
@@ -101,7 +101,11 @@ export function installFakeApi(edition: EditionInfo = PUBLIC_EDITION): FakeApi {
       onChanged: on('suggestions'),
     },
     doc: { onUpdated: on('doc') },
-    viewer: { setBounds: resolved(ok(undefined)), setVisible: resolved(ok(undefined)) },
+    viewer: {
+      setBounds: resolved(ok(undefined)),
+      setVisible: resolved(ok(undefined)),
+      focus: resolved(ok(undefined)),
+    },
     llm: {
       testConnection: resolved(ok({ ok: true, model: 'model-x' })),
       models: resolved(ok({ suggested: ['model-x'], default: 'model-x' })),
@@ -136,6 +140,7 @@ export function installFakeApi(edition: EditionInfo = PUBLIC_EDITION): FakeApi {
     },
     app: {
       onNavigate: on('navigate'),
+      onCycleRegion: on('cycle-region'),
       contextMenu: resolved(notImplemented),
       testNotification: resolved(notImplemented),
       openNotificationSettings: resolved(notImplemented),
