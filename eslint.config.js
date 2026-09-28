@@ -4,6 +4,7 @@ import importPlugin from 'eslint-plugin-import';
 
 const mainModules = [
   'config',
+  'devtools',
   'document',
   'editions',
   'extract',

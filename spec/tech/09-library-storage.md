@@ -28,7 +28,7 @@ Related: [01-architecture.md](01-architecture.md) · [02-llm-provider.md](02-llm
 | `src/main/library/merge/check.ts` | `runMergeCheck(docId)` |
 | `src/main/library/merge/suggestions.ts` | Suggestion store, lifecycle, accept and dismiss |
 | `src/main/library/protocol.ts` | `eli5doc://` handler that serves files under the root ([01](01-architecture.md) §3) |
-| `src/main/library/ipc.ts` | Library and suggestions IPC handlers |
+| `src/main/ipc/library.ts` | Library and suggestions IPC handlers (under `src/main/ipc/` with the other handlers, which avoids an import cycle) |
 
 ## 3. Library root location
 
@@ -528,7 +528,7 @@ At startup, after reconcile:
 
 ## 11. IPC surface
 
-Channels are registered in `src/main/library/ipc.ts`. Payloads are validated in main with zod. Senders are checked per [01](01-architecture.md) and [12](12-configuration-security.md).
+Channels are registered in `src/main/ipc/library.ts`. Payloads are validated in main with zod. Senders are checked per [01](01-architecture.md) and [12](12-configuration-security.md).
 
 | Channel | Direction | Payload → Result |
 | --- | --- | --- |

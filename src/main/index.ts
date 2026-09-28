@@ -23,6 +23,7 @@ import { Registry } from './editions/registry';
 import { registerPublicCapabilities } from './editions/public';
 import { loadOverlay } from './editions/load-overlay';
 import { edition } from './editions/types';
+import { prepareRealRun, startRealRun } from './devtools';
 import { PDF_RENDER_SCHEME_PRIVILEGES } from './extract';
 import { configureFetch } from './fetch';
 import {
@@ -127,6 +128,11 @@ async function bootstrap(): Promise<void> {
   await loadOverlay(registry);
   // 4. re-validate settings against the extended schema
   await settings.applyExtension(registry.settingsExtension());
+  // Dev-only budget-capped real run: wraps the LLM providers before the freeze; inert unless
+  // ELI5_REAL_RUN_URLS is set, and never reachable in packaged builds (scripts/real-run/README.md).
+  const realRun = app.isPackaged
+    ? undefined
+    : prepareRealRun({ env: process.env, isPackaged: app.isPackaged, userData, registry });
   // 5. freeze
   registry.freeze();
 
@@ -158,7 +164,8 @@ async function bootstrap(): Promise<void> {
   });
   // One ordered quit (06 §4.3, §9.1): later steps are prepended as the pipeline comes up.
   const quitSteps: QuitStep[] = [{ name: 'library', run: () => library.close() }];
-  app.on('before-quit', createQuitHandler({ steps: quitSteps, exit: () => app.exit(0) }));
+  let exitCode = 0;
+  app.on('before-quit', createQuitHandler({ steps: quitSteps, exit: () => app.exit(exitCode) }));
   // eli5doc:// is served on the viewer session only (12 §7.7 step 2).
   installDocProtocol(
     session.fromPartition(VIEWER_PARTITION),
@@ -206,6 +213,22 @@ async function bootstrap(): Promise<void> {
   // Running and queued jobs are persisted and resume on the next launch (06 §4.3, 11 §3.2): the
   // queue flushes before the Library lock is released and the process exits.
   quitSteps.unshift({ name: 'jobs', run: () => jobs.close() }, { name: 'pipeline', run: () => pipeline.dispose() });
+
+  // Headless real run: no IPC, windows or Tray; the driver prints a summary and quits.
+  if (realRun) {
+    void startRealRun({
+      session: realRun,
+      jobs,
+      library,
+      provider: () => registry.llm(),
+      glossary: settings.get().glossary.defaultOn,
+      quit: (code) => {
+        exitCode = code;
+        app.quit();
+      },
+    });
+    return;
+  }
 
   // The viewer loads catalogued documents only through main (09 §11, 12 §7.7).
   const openDocument = (slug: string): void => openInViewer(viewerWebContents(), slug);

@@ -258,12 +258,14 @@ The clipboard is snapshotted at paste time, not at job start, because the user m
 
 1. The input zone receives Cmd+V (or the Edit > Paste menu item while the drop box is focused). Pastes inside the URL field and the clarifying-specifics field are ordinary text entry and are not routed.
 2. The renderer calls `window.eli5.sources.readClipboard(draftId)` → IPC `eli5:sources:read-clipboard`.
-3. Main reads `electron.clipboard` and applies the routing algorithm (§6.2), staging any content under `<userData>/staging/drafts/<draftId>/`.
+3. Main snapshots `electron.clipboard` once into a synchronous `ClipboardPort` (§6.2) and applies the routing algorithm (§6.2), staging any content under `<userData>/staging/drafts/<draftId>/`.
 4. Main returns `SourceInput[]` which the renderer shows as chips. Removing a chip calls `eli5:sources:discard` to delete its staged file.
 5. On `eli5:jobs:start`, the pipeline (06 §9.2) moves or copies the draft's staged files into `<userData>/jobs/<jobId>/inputs/`, rewrites each `stagedPath` accordingly, and deletes `<userData>/staging/drafts/<draftId>/`. The clipboard resolver (§6.4) only ever reads the `inputs/` copy.
 6. **Crash sweep.** Drafts are otherwise cleaned only on chip removal, job start, and quit, so a crash leaks them. At app startup, main deletes every `<userData>/staging/drafts/*` directory whose mtime is older than 24 hours (younger drafts may belong to a second window restored by the app shell and are left alone).
 
 ### 6.2 Routing algorithm
+
+Electron 44's `clipboard` is the async W3C-style API (`read()` returning items with `types` and `getType()`, `readText()`, `has()`). `snapshotClipboard()` in `src/main/ipc/clipboard.ts` reads it once at paste time into the synchronous `ClipboardPort` below: `availableFormats()` is the union of item types, `readText()`/`readHTML()` come from the `text/plain`/`text/html` items, `readImage()` from the `image/png` item, and the raw pasteboard formats `NSFilenamesPboardType` and `public.file-url` are reached through Electron's `electron application/osclipboard;format="<name>"` MIME type. Any read failure counts as absent. The names below refer to that port.
 
 Read `clipboard.availableFormats()` once, then take the first matching branch:
 
@@ -582,7 +584,7 @@ Details in [13-testing-quality.md](./13-testing-quality.md). This module needs:
 
 - Fixture corpus under `test/fixtures/sources/`: one minimal file per supported format, each unsupported signature (legacy OLE, encrypted OOXML, AVIF, RTF, generic ZIP), HEIC/TIFF/BMP images, a CSV file, mismatched extensions, BOM variants, empty file, directory tree with hidden files.
 - Unit tests for `sniff()` table rows, URL normalization, lane routing with a synthetic rule list, chain ordering/dedupe/limits, and error mapping (including `NotAvailableInEdition`).
-- Clipboard routing tested against a fake clipboard adapter (`ClipboardPort` wrapping `availableFormats/read/readText/readHTML/readImage/readBuffer`, including a multi-file `NSFilenamesPboardType` plist fixture) so the branch precedence is testable without a real pasteboard.
+- Clipboard routing tested against a fake clipboard adapter (`ClipboardPort` wrapping `availableFormats/read/readText/readHTML/readImage/readBuffer`, including a multi-file `NSFilenamesPboardType` plist fixture) so the branch precedence is testable without a real pasteboard. `snapshotClipboard()` is tested separately against a fake async clipboard (§6.2).
 - The fetch module and `AuthBroker` are injected, so the URL and MCP paths are tested with fakes.
 
 ## Acceptance criteria

@@ -54,8 +54,9 @@ test('window.eli5 answers IPC with IpcResult envelopes', async () => {
   const signIn = await win.evaluate(() => window.eli5.auth.signIn());
   expect(signIn).toMatchObject({ ok: false, error: { code: 'E_NOT_AVAILABLE_IN_EDITION', hookId: 'HOOK-AUTH-01' } });
 
-  const notYet = await win.evaluate(() => window.eli5.library.list());
-  expect(notYet).toMatchObject({ ok: false, error: { code: 'E_INTERNAL' } });
+  // A fresh Library lists no documents (09 §11).
+  const list = await win.evaluate(() => window.eli5.library.list());
+  expect(list).toMatchObject({ ok: true, value: [] });
 });
 
 test('API key goes to the key store, never to settings.json', async () => {

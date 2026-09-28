@@ -430,7 +430,7 @@ export interface PipelinePolicy {
 
 ## 11. IPC surface
 
-All channels are registered in `src/main/pipeline/ipc.ts` and exposed via `window.eli5.jobs` (doc 01 preload). Every invoke handler returns `IpcResult<T>` (doc 01) and never throws across the boundary.
+All channels are registered in `src/main/ipc/jobs.ts` (with the other handlers under `src/main/ipc/`, which avoids an import cycle with the shared handler wrapper) and exposed via `window.eli5.jobs` (doc 01 preload). Every invoke handler returns `IpcResult<T>` (doc 01) and never throws across the boundary.
 
 | Channel | Direction | Payload → Result |
 | --- | --- | --- |
@@ -443,7 +443,7 @@ All channels are registered in `src/main/pipeline/ipc.ts` and exposed via `windo
 
 Section jobs are started through doc 08's `eli5:doc:regenerate-section` / `eli5:doc:create-section-eli5` channels. Those channels call `JobQueue.enqueueSection()` internally and report through `eli5:jobs:changed`.
 
-Renderer payloads are validated with a schema in the main process. Main cannot tell a preload-captured path from a forged one, so raw paths are never accepted from the renderer. Instead, `src/preload/app.ts` registers its own `drop` listener, ignores events where `event.isTrusted` is false, resolves each file with `webUtils.getPathForFile`, and sends the paths to main via `eli5:sources:register-drop`, which returns opaque input ids. File `SourceInput`s in `eli5:jobs:start` carry those ids; main maps them back to paths from its own registry. Details are in doc 03 §6.3 and doc 12.
+Renderer payloads are validated with a schema in the main process. Main cannot tell a preload-captured path from a forged one, so raw paths are never accepted from the renderer. Instead, `src/preload/app.ts` registers its own `drop` listener, ignores events where `event.isTrusted` is false, resolves each file with `webUtils.getPathForFile`, and sends the paths to main via `eli5:sources:register-drop`, which returns opaque input ids. The renderer keeps working with paths (`window.eli5.files.pathFor`); the preload swaps in the id main minted for each dropped path when it sends `eli5:jobs:start`, so file `SourceInput`s there carry those ids and main maps them back to paths from its own registry. An unknown id is refused with `E_FORBIDDEN`; a successful start uses the ids up. Details are in doc 03 §6.3 and doc 12.
 
 ## 12. Edge cases
 

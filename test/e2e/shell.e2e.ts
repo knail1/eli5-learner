@@ -4,8 +4,8 @@ import path from 'node:path';
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 
 /**
- * M1b shell skeleton (11 §3–6, 13 §8 E12/E14): layout and empty states against the stubbed
- * handlers, viewer attach/detach, inline input hints, close-to-hide, and the Tray driven through
+ * M1b shell skeleton (11 §3–6, 13 §8 E12/E14): layout and empty states on a fresh profile (a few
+ * handlers stood in to stay offline), viewer attach/detach, inline input hints, close-to-hide, and the Tray driven through
  * the test-only `eli5:test:tray-click` channel. Requires a test build (ELI5_TEST_BUILD=1).
  */
 
@@ -65,14 +65,14 @@ const clickMenu = (id: string) =>
     Menu.getApplicationMenu()?.getMenuItemById(menuId)?.click();
   }, id);
 
-test('layout regions and empty states render against stubbed handlers', async () => {
+test('layout regions and empty states render on a fresh profile', async () => {
   await expect(win.getByRole('navigation', { name: 'Library' })).toBeVisible();
   await expect(win.getByRole('main', { name: 'Viewer' })).toBeVisible();
   await expect(win.getByRole('form', { name: 'New explainer' })).toBeVisible();
   await expect(win.getByRole('region', { name: 'Jobs' })).toBeAttached();
-  // library:list is an M2 handler; the sidebar degrades to its inline error with Retry (11 §13).
-  await expect(win.getByText('Could not load the Library')).toBeVisible();
-  await expect(win.getByRole('button', { name: 'Retry' })).toBeVisible();
+  // An empty Library shows its empty state (11 §8).
+  await expect(win.getByText('Your finished documents will appear here')).toBeVisible();
+  await expect(win.getByText('Could not load the Library')).toHaveCount(0);
   // First run, no key (11 §8).
   await expect(win.getByRole('heading', { name: 'Turn anything into an explainer.' })).toBeVisible();
   await expect(win.getByRole('button', { name: 'Add an API key' })).toBeVisible();
@@ -137,9 +137,23 @@ test('with a key, the start request reaches main and an error keeps the draft', 
   const key = 'sk-ant-test-' + 'k'.repeat(24);
   await win.evaluate((k) => window.eli5.settings.setApiKey('claude', k), key);
   await win.getByLabel('Specifics').fill('Focus on the pricing section');
+  // The real eli5:jobs:start would fetch the URL; this suite stays offline, so main answers with a
+  // refusal in the handler's envelope. The error renders inline and the draft is kept (11 §5.4 step 6).
+  const received = await app.evaluate(({ ipcMain }) => {
+    const seen: unknown[] = [];
+    ipcMain.removeHandler('eli5:jobs:start');
+    ipcMain.handle('eli5:jobs:start', (_e, payload: unknown) => {
+      seen.push(payload);
+      (globalThis as { __startSeen?: unknown[] }).__startSeen = seen;
+      return { ok: false, error: { code: 'E_INTERNAL', message: 'Start refused by the test' } };
+    });
+    return true;
+  });
+  expect(received).toBe(true);
   await win.getByRole('button', { name: 'Start' }).click();
-  // eli5:jobs:start is an M2 handler: the stub error renders inline, the draft is kept (11 §5.4 step 6).
-  await expect(win.getByText('Not implemented yet')).toBeVisible();
+  await expect(win.getByText('Start refused by the test')).toBeVisible();
+  const seen = await app.evaluate(() => (globalThis as { __startSeen?: unknown[] }).__startSeen ?? []);
+  expect(JSON.stringify(seen)).toContain('Focus on the pricing section');
   await expect(win.getByRole('list', { name: 'Added sources' }).getByText('example.com/article')).toBeVisible();
   await expect(win.getByLabel('Specifics')).toHaveValue('Focus on the pricing section');
 });
@@ -152,6 +166,30 @@ test('doc route attaches the viewer and reports its bounds; settings detaches it
     });
   expect(await children()).toHaveLength(0);
 
+  // 'topic-a' is not catalogued in this fresh Library: the renderer is told it exists and
+  // eli5:library:open is stood in for, so the doc route keeps its viewer slot instead of the
+  // not-found state (11 §8).
+  await app.evaluate(({ BrowserWindow, ipcMain }) => {
+    ipcMain.removeHandler('eli5:library:open');
+    ipcMain.handle('eli5:library:open', () => ({ ok: true, value: undefined }));
+    const at = '2026-01-01T00:00:00.000Z';
+    BrowserWindow.getAllWindows()[0]!.webContents.send('eli5:library:changed', {
+      entries: [
+        {
+          id: 'doc-a',
+          title: 'Topic A',
+          topicSlug: 'topic-a',
+          createdAt: at,
+          updatedAt: at,
+          summary: '',
+          summarySource: 'fallback',
+          tabCount: 1,
+          mergedFromCount: 0,
+        },
+      ],
+    });
+  });
+  await expect(win.getByRole('button', { name: /Topic A/ })).toBeVisible();
   await app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()[0]!.webContents.send('eli5:app:navigate', {
       route: { view: 'doc', slug: 'topic-a' },
