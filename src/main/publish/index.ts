@@ -26,7 +26,9 @@ export type {
 export { PublishError } from './types';
 export { DrivePublisherStub } from './drive.stub';
 export { GitPublisherStub } from './git.stub';
-export { LocalPublisher, expandHome, abbreviateHome } from './local';
+export { LocalPublisher, expandHome, abbreviateHome, isWithin } from './local';
+export type { LocalPublisherOptions } from './local';
+export { buildPublishFileSet, MAX_PUBLISH_BYTES } from './files';
 export { defaultPrePublishPolicy } from './policy';
 export { BaselineSecretScanner, scanText, maskPreview, shannonEntropy } from './scanner';
 export type { BaselineSecretScannerOptions } from './scanner';

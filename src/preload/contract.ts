@@ -477,6 +477,8 @@ export interface PublishTarget {
   destinationPreview?: string;
   requiresSignIn: boolean;
   lastPublished?: PublicationRecord;
+  /** Set with lastPublished: index.html's sha256 differs from its contentSha256 (10 §4). */
+  changedSincePublish?: boolean;
 }
 
 export interface PublishLink {

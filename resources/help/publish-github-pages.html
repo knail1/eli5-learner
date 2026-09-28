@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Set up a GitHub Pages repository</title>
+    <style>
+      /* Help page (10 §8): doc-runtime base tokens (07 §11.1), inline, no external requests. */
+      :root {
+        color-scheme: light dark;
+        --paper: #fbfaf7;
+        --paper-2: #f1eee7;
+        --ink: #1b1b1b;
+        --muted: #5a5a5a;
+        --rule: #d8d3c9;
+        --accent: #0f5fa8;
+        --callout-note: #edf3fa;
+        --callout-warning: #fcf0e4;
+        --font-serif: Charter, 'Iowan Old Style', Georgia, serif;
+        --font-sans: -apple-system, 'Helvetica Neue', Arial, sans-serif;
+        --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --paper: #16171a;
+          --paper-2: #202227;
+          --ink: #ece9e4;
+          --muted: #a9a59e;
+          --rule: #3a3d43;
+          --accent: #6fb1f5;
+          --callout-note: #1b2836;
+          --callout-warning: #35281b;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font: 17px/1.6 var(--font-serif);
+      }
+      main {
+        max-width: 46rem;
+        margin: 0 auto;
+        padding: 2.5rem 1.25rem 4rem;
+      }
+      h1,
+      h2 {
+        font-family: var(--font-sans);
+        line-height: 1.25;
+      }
+      h1 {
+        font-size: 1.9rem;
+        margin: 0 0 0.5rem;
+      }
+      h2 {
+        font-size: 1.2rem;
+        margin: 2.25rem 0 0.5rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--rule);
+      }
+      .lede {
+        color: var(--muted);
+        font-size: 1.05rem;
+      }
+      code,
+      pre {
+        font-family: var(--font-mono);
+        font-size: 0.88em;
+      }
+      code {
+        background: var(--paper-2);
+        padding: 0.05em 0.3em;
+        border-radius: 3px;
+      }
+      pre {
+        background: var(--paper-2);
+        border: 1px solid var(--rule);
+        border-radius: 6px;
+        padding: 0.9rem 1rem;
+        overflow-x: auto;
+        line-height: 1.45;
+      }
+      pre code {
+        background: none;
+        padding: 0;
+      }
+      .note,
+      .warn {
+        border-left: 4px solid var(--accent);
+        padding: 0.6rem 0.9rem;
+        margin: 1rem 0;
+        border-radius: 0 6px 6px 0;
+      }
+      .note {
+        background: var(--callout-note);
+      }
+      .warn {
+        background: var(--callout-warning);
+        border-left-color: #c77a2a;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-family: var(--font-sans);
+        font-size: 0.92rem;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 0.4rem 0.6rem;
+        border-bottom: 1px solid var(--rule);
+        vertical-align: top;
+      }
+      li {
+        margin: 0.25rem 0;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Set up a GitHub Pages repository</h1>
+      <p class="lede">
+        How to turn a folder of exported ELI5 Learner documents into a website with a GitHub Actions workflow. This
+        works for any repository and any owner.
+      </p>
+
+      <h2 id="what-you-get">1. What you get</h2>
+      <p>
+        Every document pushed to <code>&lt;docsPath&gt;/&lt;slug&gt;/index.html</code> becomes reachable at
+        <code>https://&lt;owner&gt;.github.io/&lt;repo&gt;/&lt;slug&gt;/</code>. Documents are plain, self-contained
+        static HTML, so no site generator is needed.
+      </p>
+
+      <h2 id="prerequisites">2. Prerequisites</h2>
+      <ul>
+        <li>A repository you can push to.</li>
+        <li>git installed on your Mac.</li>
+        <li>
+          Working git credentials for that repository (a credential helper or an SSH key). If your credential helper
+          asks the macOS Keychain for access, grant it once from a terminal so later pushes never need a prompt.
+        </li>
+      </ul>
+      <p class="note">
+        Plans: on GitHub Free, Pages can be published only from a public repository. Publishing Pages from a private
+        repository requires a paid plan, and even then the site itself is public. Only GitHub Enterprise Cloud can
+        restrict a Pages site to organization members (private Pages).
+      </p>
+
+      <h2 id="repository">3. Create or choose the repository and folder</h2>
+      <p>
+        Use a dedicated repository, or a dedicated <code>docs/</code> folder in an existing one. Add an empty
+        <code>docs/.nojekyll</code> file so files and folders whose names start with <code>_</code> are served as they
+        are. Optionally add <code>docs/index.html</code> as a landing page that links to your documents.
+      </p>
+
+      <h2 id="enable-pages">4. Enable Pages with Actions as the source</h2>
+      <p>
+        In the repository on GitHub, open Settings, then Pages, then Build and deployment, and set Source: GitHub
+        Actions.
+      </p>
+
+      <h2 id="workflow">5. Add the workflow</h2>
+      <p>Create <code>.github/workflows/pages.yml</code>:</p>
+      <pre><code>name: Deploy docs to GitHub Pages
+on:
+  push:
+    branches: [main]
+    paths: ["docs/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs
+      - id: deployment
+        uses: actions/deploy-pages@v5</code></pre>
+      <ul>
+        <li>
+          <strong>on</strong>: the workflow runs only when something under <code>docs/</code> (or the workflow itself)
+          changes on <code>main</code>, or when you start it by hand.
+        </li>
+        <li>
+          <strong>permissions</strong>: least privilege; <code>id-token: write</code> is required by the deploy action.
+        </li>
+        <li><strong>concurrency</strong>: two pushes in a row deploy one after the other instead of racing.</li>
+        <li><strong>path</strong>: must match the folder the documents are pushed to (the app's docs path).</li>
+      </ul>
+      <p>
+        Use the current major versions of the four actions. The versions above match the workflow this app's own
+        repository uses.
+      </p>
+
+      <h2 id="branch-protection">6. Branch protection and required reviews</h2>
+      <p>
+        If <code>main</code> requires pull requests, direct pushes are rejected. Either publish to an unprotected branch
+        and change the workflow's <code>branches</code> trigger to that branch, or keep publishing manual through pull
+        requests.
+      </p>
+
+      <h2 id="private-material">7. Keep private material out</h2>
+      <p>
+        Only <code>index.html</code> files are ever pushed for a document. If the repository also holds other generated
+        files, ignore the whole folder and allowlist only what should be public in <code>.gitignore</code>:
+      </p>
+      <pre><code>docs/*
+!docs/index.html
+!docs/.nojekyll
+!docs/&lt;published-slug&gt;/</code></pre>
+
+      <h2 id="custom-domain">8. Custom domain (optional)</h2>
+      <p>
+        Add the domain under Settings, then Pages, then Custom domain, and update the Pages URL pattern in the app's
+        settings to match.
+      </p>
+
+      <h2 id="configure">9. Configure the app</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>On GitHub</th>
+            <th>App setting</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Repository (<code>owner/name</code>)</td>
+            <td><code>publish.github.repo</code></td>
+          </tr>
+          <tr>
+            <td>Branch</td>
+            <td><code>publish.github.branch</code></td>
+          </tr>
+          <tr>
+            <td>Folder</td>
+            <td><code>publish.github.docsPath</code></td>
+          </tr>
+          <tr>
+            <td>Site URL</td>
+            <td><code>publish.github.pagesUrlPattern</code></td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="warn">
+        Pushing from the app is available in the enterprise edition only. In this edition these settings are dormant:
+        use <strong>Export copy</strong>, then copy the exported folder into your repository's docs folder and push it
+        yourself.
+      </p>
+
+      <h2 id="verify">10. Verify</h2>
+      <ol>
+        <li>Push a test document to <code>docs/&lt;slug&gt;/index.html</code>.</li>
+        <li>Open the repository's Actions tab and wait for the deploy job to finish.</li>
+        <li>Note the <code>page_url</code> the deploy job reports.</li>
+        <li>Open <code>&lt;page_url&gt;&lt;slug&gt;/</code> in your browser.</li>
+      </ol>
+
+      <h2 id="troubleshooting">11. Troubleshooting</h2>
+      <ul>
+        <li>
+          <strong>404 right after a push</strong>: the deploy is still running, or the workflow's <code>path</code> does
+          not match the folder you pushed to.
+        </li>
+        <li>
+          <strong>Styles or scripts missing</strong>: none are expected, since documents are self-contained. Check that
+          <code>docs/.nojekyll</code> exists.
+        </li>
+        <li>
+          <strong>The workflow did not run</strong>: the change was outside the <code>paths</code> filter, or the Pages
+          source is not set to GitHub Actions.
+        </li>
+        <li>
+          <strong>Push rejected</strong>: branch protection, a non-fast-forward (pull first, then push again), or the
+          code host's secret scanning blocked something that looks like a credential.
+        </li>
+      </ul>
+    </main>
+  </body>
+</html>
