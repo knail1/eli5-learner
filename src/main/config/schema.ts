@@ -109,7 +109,7 @@ export function isDormantPath(path: string): boolean {
 
 /** Default model per provider when llm.model is null (02). Pinned per release. */
 export const DEFAULT_MODELS: Record<ProviderId, string> = {
-  claude: 'claude-opus-5-5',
+  claude: 'claude-opus-5', // GA model; claude-opus-5-5 is still launching (02 §5)
   openai: 'gpt-5',
   bedrock: '',
 };

@@ -70,7 +70,7 @@ describe('token estimation and budget (02 §8.1, §8.2)', () => {
   });
 
   it('model table: defaults, suggestions and conservative unknown rows', () => {
-    expect(suggestedModels('claude').default).toBe('claude-opus-5-5');
+    expect(suggestedModels('claude').default).toBe('claude-opus-5');
     expect(suggestedModels('openai').suggested).toContain('gpt-5');
     expect(suggestedModels('bedrock').suggested).toEqual([]);
     expect(limitsFor('claude', 'nope')).toMatchObject({
