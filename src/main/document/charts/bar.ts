@@ -16,6 +16,7 @@ import {
   textWidth,
   truncate,
 } from './common';
+import { NOTE_BELOW, NOTE_ROW, noteAbove, noteBelow } from './annotate';
 
 /** Horizontal when any category label exceeds 14 characters or there are more than 8 (rule 5). */
 export function isHorizontal(chart: ChartSpec): boolean {
@@ -84,7 +85,13 @@ export function renderBar(chart: ChartSpec): { body: string; height: number } {
   if (isHorizontal(chart)) {
     const labelW = Math.min(220, Math.max(...chart.categories.map((c) => textWidth(truncate(c, 34), 12))) + 10);
     const rowH = 28;
-    const plotH = rowH * chart.categories.length;
+    // Rule 6: the note gets its own space under the highlighted row, so it never meets a bar or a
+    // value label; rows after it move down by that space.
+    const hi0 = chart.highlight ? chart.categories.indexOf(chart.highlight.category) : -1;
+    const hlRow = hi0 >= 0 && ms.some((m) => m.ci === hi0) ? hi0 : -1;
+    const extra = hlRow >= 0 ? NOTE_BELOW : 0;
+    const bandH = rowH * chart.categories.length;
+    const plotH = bandH + extra;
     const height = top + plotH + (chart.xLabel ? 30 : 12);
     const x = scaleLinear()
       .domain([lo, hi === lo ? lo + 1 : hi])
@@ -92,9 +99,10 @@ export function renderBar(chart: ChartSpec): { body: string; height: number } {
       .range([labelW, CHART_WIDTH - 56]);
     const band = scaleBand<number>()
       .domain(chart.categories.map((_, i) => i))
-      .range([top, top + plotH])
+      .range([top, top + bandH])
       .paddingInner(0.25)
       .paddingOuter(0.1);
+    const rowY = (ci: number): number => (band(ci) ?? 0) + (hlRow >= 0 && ci > hlRow ? extra : 0);
     const sub = scaleBand<number>()
       .domain(chart.series.map((_, i) => i))
       .range([0, band.bandwidth()])
@@ -105,7 +113,7 @@ export function renderBar(chart: ChartSpec): { body: string; height: number } {
         'text',
         [
           ['x', r2(labelW - 8)],
-          ['y', r2((band(ci) ?? 0) + band.bandwidth() / 2 + 4)],
+          ['y', r2(rowY(ci) + band.bandwidth() / 2 + 4)],
           ['text-anchor', 'end'],
           ['class', 'viz-ink viz-cat'],
         ],
@@ -113,7 +121,7 @@ export function renderBar(chart: ChartSpec): { body: string; height: number } {
       );
     });
     for (const m of ms) {
-      const y0 = (band(m.ci) ?? 0) + (stacked ? 0 : (sub(m.si) ?? 0));
+      const y0 = rowY(m.ci) + (stacked || !multi ? 0 : (sub(m.si) ?? 0));
       const h = stacked || !multi ? band.bandwidth() : sub.bandwidth();
       const xa = x(Math.min(m.v0, m.v1));
       const xb = x(Math.max(m.v0, m.v1));
@@ -147,14 +155,8 @@ export function renderBar(chart: ChartSpec): { body: string; height: number } {
       ['y2', top + plotH],
       ['class', 'viz-axis'],
     ]);
-    if (chart.highlight) {
-      const ci = chart.categories.indexOf(chart.highlight.category);
-      const ms2 = ms.filter((m) => m.ci === ci);
-      if (ci >= 0 && ms2.length > 0) {
-        const xe = x(Math.max(...ms2.map((m) => Math.max(m.v0, m.v1))));
-        const yc = (band(ci) ?? 0) + band.bandwidth() / 2;
-        body += annotation(xe + (showValues ? 48 : 8), yc, chart.highlight.note, 'h');
-      }
+    if (chart.highlight && hlRow >= 0) {
+      body += noteBelow(chart.highlight.note, x(0), rowY(hlRow) + band.bandwidth());
     }
     if (chart.xLabel) {
       body += el(
@@ -174,8 +176,8 @@ export function renderBar(chart: ChartSpec): { body: string; height: number } {
   const height = 320;
   const bottom = chart.xLabel ? 46 : 28;
   const left = 44;
-  // Headroom above the plot for the highlight note (rule 6).
-  const vTop = top + (chart.highlight ? 28 : 0);
+  // Rule 6: a band above the plot is reserved for the highlight note.
+  const vTop = top + (chart.highlight ? NOTE_ROW : 0);
   const y = scaleLinear()
     .domain([lo, hi === lo ? lo + 1 : hi])
     .nice()
@@ -253,9 +255,10 @@ export function renderBar(chart: ChartSpec): { body: string; height: number } {
     const ci = chart.categories.indexOf(chart.highlight.category);
     const ms2 = ms.filter((m) => m.ci === ci);
     if (ci >= 0 && ms2.length > 0) {
-      const yt = y(Math.max(...ms2.map((m) => Math.max(m.v0, m.v1))));
+      // The leader stops above the category's highest mark and its value label.
+      const yt = y(Math.max(0, ...ms2.map((m) => Math.max(m.v0, m.v1))));
       const xc = (band(ci) ?? 0) + band.bandwidth() / 2;
-      body += annotation(xc, yt - (showValues ? 18 : 4), chart.highlight.note, 'v', leg.height);
+      body += noteAbove(chart.highlight.note, xc, top, yt - (showValues ? 18 : 4));
     }
   }
   if (chart.xLabel) {
@@ -271,59 +274,4 @@ export function renderBar(chart: ChartSpec): { body: string; height: number } {
     );
   }
   return { body, height };
-}
-
-/** Leader-line annotation for highlight.note (07 §7.2 rule 6). */
-export function annotation(x: number, y: number, note: string, dir: 'h' | 'v', minY = 0): string {
-  const text = truncate(note, 60);
-  const w = textWidth(text, 12);
-  if (dir === 'h') {
-    const tx = Math.min(x + 18, CHART_WIDTH - w - 4);
-    return el(
-      'g',
-      [['class', 'viz-annotation']],
-      [
-        el('line', [
-          ['x1', r2(x)],
-          ['x2', r2(tx - 4)],
-          ['y1', r2(y)],
-          ['y2', r2(y)],
-          ['class', 'viz-leader'],
-        ]),
-        el(
-          'text',
-          [
-            ['x', r2(tx)],
-            ['y', r2(y + 4)],
-            ['class', 'viz-ink viz-note'],
-          ],
-          escSvg(text),
-        ),
-      ].join(''),
-    );
-  }
-  const ty = Math.max(minY + 12, y - 16);
-  const tx = Math.max(4, Math.min(x - w / 2, CHART_WIDTH - w - 4));
-  return el(
-    'g',
-    [['class', 'viz-annotation']],
-    [
-      el('line', [
-        ['x1', r2(x)],
-        ['x2', r2(x)],
-        ['y1', r2(ty + 4)],
-        ['y2', r2(Math.max(ty + 4, y))],
-        ['class', 'viz-leader'],
-      ]),
-      el(
-        'text',
-        [
-          ['x', r2(tx)],
-          ['y', r2(ty)],
-          ['class', 'viz-ink viz-note'],
-        ],
-        escSvg(text),
-      ),
-    ].join(''),
-  );
 }

@@ -106,6 +106,23 @@ describe('ExtractWorkerHost with the real worker loop', () => {
     expect(t.ok).toBe(true);
     host.dispose();
   });
+
+  it('a job cancel reaches the worker and comes back as cancelled', async () => {
+    const hung: Extractor = {
+      id: 'hung',
+      formats: ['text'],
+      canHandle: (s) => s.format === 'text',
+      extract: () => new Promise<ExtractResult>(() => undefined),
+    };
+    const { fork } = inProcessFork([hung]);
+    const host = new ExtractWorkerHost({ fork, ...fakeServices() });
+    const ac = new AbortController();
+    const pending = host.extract(textSource('a'), { ...opts(), signal: ac.signal });
+    await new Promise((r) => setTimeout(r, 5));
+    ac.abort();
+    expect(await pending).toMatchObject({ ok: false, skipped: { code: 'cancelled', reason: 'Job was cancelled' } });
+    host.dispose();
+  });
 });
 
 describe('ExtractWorkerHost isolation', () => {
@@ -168,7 +185,7 @@ describe('ExtractWorkerHost isolation', () => {
     await Promise.resolve();
     await Promise.resolve();
     host.dispose();
-    expect(await pending).toMatchObject({ ok: false, skipped: { code: 'timeout' } });
+    expect(await pending).toMatchObject({ ok: false, skipped: { code: 'cancelled', reason: 'Job was cancelled' } });
   });
 
   it('forwards cancellation to the worker', async () => {
@@ -194,6 +211,21 @@ describe('ExtractWorkerHost isolation', () => {
     ac.abort();
     expect(await p).toMatchObject({ ok: false });
     expect(proc!.sent.map((m) => m.type)).toEqual(['extract', 'cancel']);
+  });
+
+  it('skips as cancelled, not timeout, when a cancelled worker never answers', async () => {
+    vi.useFakeTimers();
+    const ac = new AbortController();
+    let proc: FakeProcess | undefined;
+    const fork: ForkWorker = () => (proc = new FakeProcess(() => undefined));
+    const host = new ExtractWorkerHost({ fork, ...fakeServices(), killSlackMs: 1000 });
+    const pending = host.extract(textSource('a'), { ...opts(), signal: ac.signal });
+    await vi.advanceTimersByTimeAsync(0);
+    ac.abort();
+    // Killed after the slack, without waiting for the per-format timeout.
+    await vi.advanceTimersByTimeAsync(1000 + 1);
+    expect(await pending).toMatchObject({ ok: false, skipped: { code: 'cancelled' } });
+    expect(proc!.killed).toBe(true);
   });
 
   it('runs sources of one job one at a time', async () => {

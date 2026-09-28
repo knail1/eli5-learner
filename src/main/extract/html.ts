@@ -1,8 +1,8 @@
 /**
  * HTML sources (04 §4 dispatch row "html", §9.3). `html` payloads from 03/05 are already readable
- * HTML. A local `.html` file (`path` payload) should go through 05's readability helper first; that
- * helper is not exported by fetch/index.ts yet, so it is injected (`readable`) and, when absent, the
- * raw page goes straight to htmlToBlocks, which drops script, style, nav, svg and form.
+ * HTML. A local `.html` file (`path` payload) goes through Readability first (`readable`; the public
+ * registry passes the worker-safe readable.ts). Without it the raw page goes straight to
+ * htmlToBlocks, which drops script, style, nav, svg and form.
  */
 import type { ResolvedSource } from '../sources';
 import { htmlToBlocks } from './html-to-blocks';

@@ -3,7 +3,8 @@
  * runs that job's sources one at a time, routes render/normalize round trips to the pdf-render
  * window, and isolates failures. A crash skips the source (internal-error, or too-large when the
  * exit looks like out-of-memory); a worker stuck past its timeout is killed and the source skipped
- * as timeout. Either way a fresh worker serves the next source. Main only routes messages here.
+ * as timeout (as cancelled when the job was cancelled). Either way a fresh worker serves the next
+ * source. Main only routes messages here.
  */
 import type { UtilityProcess } from 'electron';
 import type { ResolvedSource } from '../sources';
@@ -71,14 +72,14 @@ export class ExtractWorkerHost {
   }
 
   /**
-   * Kills the worker (job end). A source still extracting settles at once as cancelled (the same
-   * `timeout` skip extractSource gives a cancel), instead of waiting for the kill timer.
+   * Kills the worker (job end). A source still extracting settles at once as `cancelled`, instead
+   * of waiting for the kill timer.
    */
   dispose(): void {
     this.disposed = true;
     this.killWorker();
     const a = this.active;
-    if (a) this.finish(a, skip(a.source, 'timeout'));
+    if (a) this.finish(a, skip(a.source, 'cancelled'));
   }
 
   private log(msg: string): void {
@@ -142,6 +143,14 @@ export class ExtractWorkerHost {
       const onAbort = (): void => {
         for (const c of active.controllers) c.abort();
         this.worker?.postMessage({ type: 'cancel', reqId });
+        // The worker answers a cancel within its abort grace; if it is stuck in a synchronous parse,
+        // kill it after the slack instead of the full per-format timeout.
+        clearTimeout(active.timer);
+        active.timer = setTimeout(() => {
+          this.log('extract-worker: killed after cancel');
+          this.killWorker();
+          if (this.active === active) this.finish(active, skip(source, 'cancelled'));
+        }, this.opts.killSlackMs ?? 5000);
       };
       const active: Active = {
         reqId,

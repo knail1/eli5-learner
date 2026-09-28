@@ -18,6 +18,7 @@ describe('skip reasons (04 §8.2)', () => {
       ['image-budget-exceeded', { maxImages: 20 }, 'Too many images in one job (limit 20)'],
       ['scan-render-failed', {}, 'Scanned PDF pages could not be rendered'],
       ['internal-error', {}, 'Unexpected error while reading this file'],
+      ['cancelled', {}, 'Job was cancelled'],
     ];
     for (const [code, p, text] of cases) {
       const reason = skipReason(code, src, p);

@@ -98,6 +98,41 @@ describe('extractSource (04 §3)', () => {
     });
   });
 
+  it('reports a job cancel as cancelled, not timeout (03 §7.2)', async () => {
+    vi.useFakeTimers();
+    const ac = new AbortController();
+    const hung = fake(() => new Promise<ExtractResult>(() => undefined));
+    const p = extractSource(textSource('x'), testContext({ signal: ac.signal }), [hung]);
+    ac.abort();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(await p).toEqual({
+      ok: false,
+      skipped: { ref: 'Pasted text', code: 'cancelled', reason: 'Job was cancelled' },
+    });
+  });
+
+  it('reports cancelled when the extractor rejects on the job cancel', async () => {
+    const ac = new AbortController();
+    const rejecting = fake(
+      (_s, ctx) =>
+        new Promise<ExtractResult>((_, reject) => {
+          ctx.signal.addEventListener('abort', () => reject(new Error('aborted')));
+        }),
+    );
+    const ctx = testContext({ signal: ac.signal });
+    const p = extractSource(textSource('x'), ctx, [rejecting]);
+    ac.abort();
+    expect(await p).toMatchObject({ ok: false, skipped: { code: 'cancelled' } });
+    expect(ctx.logs).toContain('extract: cancelled');
+  });
+
+  it('reports cancelled for a source whose job was cancelled before it started', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const r = await extractSource(textSource('x'), testContext({ signal: ac.signal }), [fake(ok('x'))]);
+    expect(r).toMatchObject({ ok: false, skipped: { code: 'cancelled' } });
+  });
+
   it('accepts partial output returned after the timeout signal', async () => {
     vi.useFakeTimers();
     const partial = fake(

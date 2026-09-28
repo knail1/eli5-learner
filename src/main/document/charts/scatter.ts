@@ -17,6 +17,7 @@ import {
   seriesClass,
   truncate,
 } from './common';
+import { NOTE_ROW, noteAbove } from './annotate';
 
 export function renderScatter(chart: ChartSpec): { body: string; height: number } {
   const height = 320;
@@ -28,7 +29,9 @@ export function renderScatter(chart: ChartSpec): { body: string; height: number 
           0,
         )
       : { svg: '', height: 0 };
-  const top = leg.height + (chart.yLabel ? 22 : 12);
+  // Rule 6: a band above the plot is reserved for the highlight note.
+  const noteTop = leg.height + (chart.yLabel ? 22 : 12);
+  const top = noteTop + (chart.highlight ? NOTE_ROW : 0);
   const bottom = chart.xLabel ? 46 : 28;
   const left = 44;
   const right = 16;
@@ -135,6 +138,12 @@ export function renderScatter(chart: ChartSpec): { body: string; height: number 
       ]);
     });
   });
+  const hl = chart.highlight ? chart.categories.indexOf(chart.highlight.category) : -1;
+  const hv = hl >= 0 ? maxOf(chart.series.map((s) => s.values[hl] ?? null)) : undefined;
+  if (chart.highlight && hv !== undefined) {
+    // The leader stops above the highest highlighted point (radius 6).
+    body += noteAbove(chart.highlight.note, xp(hl), noteTop, y(hv) - 9);
+  }
   if (chart.xLabel) {
     body += el(
       'text',

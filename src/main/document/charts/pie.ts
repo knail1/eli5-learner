@@ -3,6 +3,7 @@
 import { arc, pie } from 'd3-shape';
 import type { ChartSpec } from '../../llm';
 import { CHART_WIDTH, el, escSvg, formatValue, markAttrs, r2, seriesClass, truncate } from './common';
+import { NOTE_BELOW, noteUnder } from './annotate';
 
 interface Slice {
   label: string;
@@ -11,7 +12,7 @@ interface Slice {
 }
 
 export function renderPie(chart: ChartSpec): { body: string; height: number } {
-  const height = 300;
+  const pieH = 300;
   const values = chart.series[0]?.values ?? [];
   const data: Slice[] = chart.categories
     .map((label, index) => ({ label, value: values[index] ?? 0, index }))
@@ -19,7 +20,7 @@ export function renderPie(chart: ChartSpec): { body: string; height: number } {
     .sort((a, b) => b.value - a.value || a.index - b.index);
   const total = data.reduce((s, d) => s + d.value, 0);
   const cx = CHART_WIDTH / 2;
-  const cy = height / 2;
+  const cy = pieH / 2;
   const radius = 104;
   const arcs = pie<Slice>()
     .sort(null)
@@ -64,5 +65,7 @@ export function renderPie(chart: ChartSpec): { body: string; height: number } {
       escSvg(`${truncate(d.label, 26)} ${pct}%`),
     );
   });
-  return { body, height };
+  // Rule 6: the note sits under the pie, below the lowest slice label.
+  if (chart.highlight) body += noteUnder(chart.highlight.note, cx, pieH);
+  return { body, height: pieH + (chart.highlight ? NOTE_BELOW : 0) };
 }
