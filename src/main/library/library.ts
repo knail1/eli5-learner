@@ -200,6 +200,15 @@ interface FsLibraryDeps {
   pid: number;
 }
 
+/** What FsLibrary delegates its merge methods to (09 §9, §10); implemented by ./merge. */
+export interface MergeDelegate {
+  runMergeCheck(docId: string): Promise<MergeSuggestion | null>;
+  /** Pending only, newest first. */
+  pending(): MergeSuggestion[];
+  accept(id: string): Promise<{ targetSlug: string }>;
+  dismiss(id: string): Promise<void>;
+}
+
 type ChangedListener = (e: { reason: LibraryChangeReason; slugs: string[] }) => void;
 type SuggestionsListener = (s: MergeSuggestion[]) => void;
 
@@ -212,6 +221,7 @@ export class FsLibrary implements Library {
   private readOnlyReason: ReadOnlyReason | undefined;
   private readonly changedListeners = new Set<ChangedListener>();
   private readonly suggestionsListeners = new Set<SuggestionsListener>();
+  private merge: MergeDelegate | undefined;
 
   constructor(deps: FsLibraryDeps) {
     this.d = deps;
@@ -431,6 +441,29 @@ export class FsLibrary implements Library {
       if (this.d.devChecks) throw new LibraryError('LOCK_NOT_HELD', { slug });
       return this.withDocLock(slug, () => this.updateDocument(slug, patch));
     }
+    const clean = await this.writeDocumentFiles(slug, patch);
+    const entry = await this.withCatalogLock(async () => {
+      const e = entryFromMeta(clean);
+      this.entries.set(e.id, e);
+      await this.writeCatalog();
+      return e;
+    });
+    this.emitChanged('updated', [slug]);
+    return { ...entry };
+  }
+
+  /**
+   * The file half of `updateDocument`: validated meta, index.html then meta.json (the meta write is
+   * the commit point, 09 §10.6 step 7). No catalog write, no event; the merge flow (09 §10.6) does
+   * those itself in step 9. Caller holds `withDocLock(slug)`.
+   */
+  async writeDocumentFiles(
+    slug: string,
+    patch: { html?: string; meta: (m: DocumentMeta) => DocumentMeta },
+  ): Promise<DocumentMeta> {
+    this.assertWritable();
+    this.docPath(slug);
+    if (!this.holdsDocLock(slug)) throw new LibraryError('LOCK_NOT_HELD', { slug });
     if (!this.hasSlug(slug)) throw new LibraryError('NOT_FOUND', { slug });
     const current = await this.getMeta(slug);
     this.assertWritable();
@@ -444,17 +477,22 @@ export class FsLibrary implements Library {
     });
     if (!parsed.success) throw new LibraryError('META_INVALID', { slug });
     const clean = sanitizeMeta(parsed.data, this.d.policy.sourceUrls);
-    // index.html first, then meta.json: the meta write is the commit point (09 §10.6 step 7).
     if (patch.html !== undefined) await writeFileAtomic(this.docPath(slug, INDEX_FILE), patch.html);
     await writeJsonAtomic(this.docPath(slug, META_FILE), clean);
-    const entry = await this.withCatalogLock(async () => {
-      const e = entryFromMeta(clean);
-      this.entries.set(e.id, e);
+    return clean;
+  }
+
+  /**
+   * 09 §10.6 step 9: under the catalog lock, drop the merged-away source entry and upsert the target
+   * from its committed meta (updatedAt, tabCount, mergedFromCount). Idempotent (09 §10.8 step 2).
+   */
+  async applyMergeToCatalog(target: DocumentMeta | undefined, sourceId: string): Promise<void> {
+    this.assertWritable();
+    await this.withCatalogLock(async () => {
+      this.entries.delete(sourceId);
+      if (target) this.entries.set(target.id, entryFromMeta(target));
       await this.writeCatalog();
-      return e;
     });
-    this.emitChanged('updated', [slug]);
-    return { ...entry };
   }
 
   /** 09 §9: `updateDocument(slug, {meta: m => m})`. */
@@ -701,23 +739,41 @@ export class FsLibrary implements Library {
     await fsyncDir(this.root);
   }
 
-  // ---- merge (09 §10): M3 ----
+  // ---- merge (09 §10): delegated to the engine in ./merge once attached ----
 
-  /** M3 (09 §10.2). No suggestions are produced in M1. */
-  runMergeCheck(_docId: string): Promise<MergeSuggestion | null> {
-    return Promise.resolve(null);
+  /** Plugs the merge engine in (09 §10); until then there are no suggestions. */
+  attachMerge(delegate: MergeDelegate): void {
+    this.merge = delegate;
   }
 
+  /** 09 §10.1-10.2; swallows nothing itself: the engine logs and returns null on failure. */
+  runMergeCheck(docId: string): Promise<MergeSuggestion | null> {
+    return this.merge ? this.merge.runMergeCheck(docId) : Promise.resolve(null);
+  }
+
+  /** Pending only, newest first (09 §9). */
   suggestions(): MergeSuggestion[] {
-    return [];
+    return this.merge ? this.merge.pending() : [];
   }
 
   acceptSuggestion(id: string): Promise<{ targetSlug: string }> {
+    if (this.merge) return this.merge.accept(id);
     return Promise.reject(new LibraryError('SUGGESTION_STALE', { id: id.slice(0, 64) }));
   }
 
-  dismissSuggestion(_id: string): Promise<void> {
-    return Promise.resolve();
+  dismissSuggestion(id: string): Promise<void> {
+    return this.merge ? this.merge.dismiss(id) : Promise.resolve();
+  }
+
+  /** `on('suggestions')` listeners get the pending list (09 §9). */
+  emitSuggestions(pending: MergeSuggestion[]): void {
+    for (const cb of [...this.suggestionsListeners]) {
+      try {
+        cb(pending.map((x) => ({ ...x })));
+      } catch (err) {
+        this.d.logger.error('library.listener-failed', { kind: 'suggestions' }, err);
+      }
+    }
   }
 
   // ---- events ----
@@ -732,7 +788,8 @@ export class FsLibrary implements Library {
     };
   }
 
-  private emitChanged(reason: LibraryChangeReason, slugs: string[]): void {
+  /** Emits `changed`; public so the merge flow can report `merged` (09 §10.6 step 12). */
+  emitChanged(reason: LibraryChangeReason, slugs: string[]): void {
     for (const cb of [...this.changedListeners]) {
       try {
         cb({ reason, slugs });
