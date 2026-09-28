@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_EXTRACT_LIMITS,
   JobImageBudget,
@@ -136,7 +136,35 @@ describe('pdf extractor (04 §6)', () => {
     expect(r).toMatchObject({ ok: false, skipped: { code: 'scan-render-failed' } });
   });
 
-  it('keeps the text pages of a mixed PDF when rendering is interrupted (04 §10.2)', async () => {
+  it('keeps the text pages of a mixed PDF when rendering runs past its deadline (04 §10.2)', async () => {
+    const services = fakeServices();
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now');
+    const r = await extractSource(
+      fixtureSource('sources/pdf/mixed.pdf'),
+      testContext({
+        services,
+        normalizeImage: services.normalizeImage,
+        renderPdfPages: () => {
+          // The render deadline (120 s + 15 s per page) has passed by the time rendering is awaited.
+          clock.mockReturnValue(now + 3_600_000);
+          return new Promise(() => undefined);
+        },
+      }),
+    );
+    clock.mockRestore();
+    if (!r.ok) throw new Error(r.skipped.code);
+    expect(r.content.truncated).toBe(true);
+    expect(r.content.warnings).toContain('Stopped after 2 of 3 pages (timeout)');
+    expect(
+      pages(r.content)
+        .map((p) => p.number)
+        .slice(0, 2),
+    ).toEqual([1, 2]);
+    expect(r.content.images).toEqual([]);
+  });
+
+  it('reports a job cancelled mid-render as cancelled, even with text pages done (03 §7.2)', async () => {
     const ac = new AbortController();
     const services = fakeServices();
     const r = await extractSource(
@@ -152,15 +180,7 @@ describe('pdf extractor (04 §6)', () => {
           }),
       }),
     );
-    if (!r.ok) throw new Error(r.skipped.code);
-    expect(r.content.truncated).toBe(true);
-    expect(r.content.warnings).toContain('Stopped after 2 of 3 pages (timeout)');
-    expect(
-      pages(r.content)
-        .map((p) => p.number)
-        .slice(0, 2),
-    ).toEqual([1, 2]);
-    expect(r.content.images).toEqual([]);
+    expect(r).toMatchObject({ ok: false, skipped: { code: 'cancelled' } });
   });
 
   it('keeps page renders within the job image budget', async () => {

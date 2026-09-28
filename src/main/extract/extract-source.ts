@@ -279,6 +279,12 @@ async function runExtract(
       ctx.log(timedOut ? 'extract: timeout' : 'extract: cancelled');
       return timedOut ? skip(source, 'timeout', { seconds: Math.round(timeoutMs / 1000) }) : skip(source, 'cancelled');
     }
+    // pptx/pdf return a truncated ok result when aborted mid-way; after a job cancel (not our
+    // deadline) that is still a cancel (03 §7.2).
+    if (ctx.signal.aborted && !timedOut) {
+      ctx.log('extract: cancelled');
+      return skip(source, 'cancelled');
+    }
     result = r;
   } catch (err) {
     if (ac.signal.aborted && !(err instanceof ExtractError && err.code !== 'timeout')) {

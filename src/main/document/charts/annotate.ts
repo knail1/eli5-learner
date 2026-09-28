@@ -60,14 +60,27 @@ export function noteAbove(note: string, x: number, rowTop: number, targetY: numb
 
 /**
  * Note in the space reserved under a horizontal bar row (bottom edge `rowBottom`): a short leader
- * drops from the bar's start, and the text starts beside it.
+ * drops from the bar at `barStart`, and the text starts beside it. When the text does not fit to
+ * the right of the leader (a bar near the right edge, e.g. negative values), it moves left, but not
+ * past `plotStart`, and the leader stops above it. Returns the text's horizontal extent so the
+ * caller can keep the zero axis out of it.
  */
-export function noteBelow(note: string, barStart: number, rowBottom: number): string {
+export function noteBelow(
+  note: string,
+  barStart: number,
+  rowBottom: number,
+  plotStart: number,
+): { svg: string; x0: number; x1: number } {
   const lx = barStart + 2;
-  const tx = lx + 6;
-  const text = fitNote(note, CHART_WIDTH - MARGIN - tx);
+  const right = CHART_WIDTH - MARGIN;
+  // Fitted to the widest start; either position below leaves it that much room.
+  const text = fitNote(note, right - Math.min(plotStart, lx + 6));
+  const w = textWidth(text, 12);
+  const beside = lx + 6 + w <= right;
+  const tx = beside ? lx + 6 : Math.max(plotStart, right - w);
   const baseline = rowBottom + 16;
-  return group(leaderLine(lx, rowBottom, lx, baseline - 4), tx, baseline, text);
+  const svg = group(leaderLine(lx, rowBottom, lx, baseline - (beside ? 4 : 12)), tx, baseline, text);
+  return { svg, x0: tx, x1: tx + w };
 }
 
 /** Centered note under a pie (no leader: it would cross the slices). */

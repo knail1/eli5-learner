@@ -172,7 +172,11 @@ export function renderLine(chart: ChartSpec): { body: string; height: number } {
   if (chart.highlight) {
     const ci = chart.categories.indexOf(chart.highlight.category);
     const v = ci >= 0 ? maxOf(chart.series.map((s) => s.values[ci] ?? null)) : undefined;
-    if (ci >= 0 && v !== undefined) body += noteAbove(chart.highlight.note, xp(ci), noteTop, y(v) - 7);
+    if (ci >= 0 && v !== undefined) {
+      // An area's fill runs from the zero line to each value, so its leader stops above both.
+      const yt = y(isArea ? Math.max(0, v) : v);
+      body += noteAbove(chart.highlight.note, xp(ci), noteTop, yt - 7);
+    }
   }
   if (chart.xLabel) {
     body += el(

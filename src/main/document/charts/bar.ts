@@ -148,15 +148,27 @@ export function renderBar(chart: ChartSpec): { body: string; height: number } {
         );
       }
     }
-    body += el('line', [
-      ['x1', r2(x(0))],
-      ['x2', r2(x(0))],
-      ['y1', top],
-      ['y2', top + plotH],
-      ['class', 'viz-axis'],
-    ]);
+    // The leader drops from the left end of the highlighted row's bars; the zero axis breaks
+    // around the note's row where the text crosses it.
+    const x0 = x(0);
+    const axisSpans: [number, number][] = [[top, top + plotH]];
     if (chart.highlight && hlRow >= 0) {
-      body += noteBelow(chart.highlight.note, x(0), rowY(hlRow) + band.bandwidth());
+      const rowBottom = rowY(hlRow) + band.bandwidth();
+      const start = Math.min(x0, ...ms.filter((m) => m.ci === hlRow).map((m) => x(Math.min(m.v0, m.v1))));
+      const note = noteBelow(chart.highlight.note, start, rowBottom, labelW);
+      body += note.svg;
+      if (note.x0 - 2 < x0 && x0 < note.x1 + 2) {
+        axisSpans.splice(0, 1, [top, rowBottom + 4], [rowBottom + NOTE_BELOW - 2, top + plotH]);
+      }
+    }
+    for (const [ya, yb] of axisSpans) {
+      body += el('line', [
+        ['x1', r2(x0)],
+        ['x2', r2(x0)],
+        ['y1', r2(ya)],
+        ['y2', r2(yb)],
+        ['class', 'viz-axis'],
+      ]);
     }
     if (chart.xLabel) {
       body += el(

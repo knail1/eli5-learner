@@ -126,6 +126,45 @@ describe('extractSource (04 §3)', () => {
     expect(ctx.logs).toContain('extract: cancelled');
   });
 
+  it('reports cancelled when a job cancel stops an extractor that already has partial output', async () => {
+    // pptx/pdf return ok with truncated:true and a "(timeout)" warning when aborted mid-way; after
+    // a job cancel that partial result is still a cancel (03 §7.2), not a success.
+    const ac = new AbortController();
+    const partial = fake(
+      (s, ctx) =>
+        new Promise<ExtractResult>((resolve) => {
+          ctx.signal.addEventListener('abort', () => {
+            const content = newContent(s, { blocks: [{ kind: 'paragraph', text: 'slide 1' }] });
+            content.truncated = true;
+            content.warnings.push('Stopped after 1 of 3 slides (timeout)');
+            resolve({ ok: true, content });
+          });
+        }),
+    );
+    const ctx = testContext({ signal: ac.signal });
+    const p = extractSource(textSource('x'), ctx, [partial]);
+    ac.abort();
+    expect(await p).toMatchObject({ ok: false, skipped: { code: 'cancelled' } });
+    expect(ctx.logs).toContain('extract: cancelled');
+  });
+
+  it('keeps a partial result when our own deadline stopped the extractor', async () => {
+    vi.useFakeTimers();
+    const partial = fake(
+      (s, ctx) =>
+        new Promise<ExtractResult>((resolve) => {
+          ctx.signal.addEventListener('abort', () => {
+            const content = newContent(s, { blocks: [{ kind: 'paragraph', text: 'slide 1' }] });
+            content.truncated = true;
+            resolve({ ok: true, content });
+          });
+        }),
+    );
+    const p = extractSource(textSource('x'), testContext(), [partial]);
+    await vi.advanceTimersByTimeAsync(10_000 + 10);
+    expect(await p).toMatchObject({ ok: true, content: { truncated: true } });
+  });
+
   it('reports cancelled for a source whose job was cancelled before it started', async () => {
     const ac = new AbortController();
     ac.abort();

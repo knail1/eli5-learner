@@ -83,7 +83,7 @@ function crosses(s: { x1: number; y1: number; x2: number; y2: number }, b: Box):
   return lx0 < b.x1 - 0.5 && b.x0 + 0.5 < lx1 + 0.01 && ly0 < b.y1 - 0.5 && b.y0 + 0.5 < ly1 + 0.01;
 }
 
-function checkNote(chart: ChartSpec): void {
+function checkNote(chart: ChartSpec, opts: { leader?: boolean } = {}): string {
   const svg = renderChartSvg(chart, 'x');
   const height = Number(/viewBox="0 0 640 ([\d.]+)"/.exec(svg)?.[1]);
   const texts = textBoxes(svg);
@@ -101,12 +101,29 @@ function checkNote(chart: ChartSpec): void {
   const ms = markBoxes(svg);
   for (const m of ms) expect(overlaps(note, m), `note overlaps ${m.what}`).toBe(false);
   const leaders = leaderSegments(svg);
-  expect(leaders.length).toBeGreaterThan(0);
+  if (opts.leader !== false) expect(leaders.length).toBeGreaterThan(0);
   for (const s of leaders) {
     for (const m of ms) expect(crosses(s, m), `leader crosses ${m.what}`).toBe(false);
     for (const t of texts) if (t !== note) expect(crosses(s, t), `leader crosses ${t.what}`).toBe(false);
   }
+  return svg;
 }
+
+/** Vertical extent of the area fills at `x` (the path's vertices at that x). */
+function areaExtentAt(svg: string, x: number): { y0: number; y1: number } | undefined {
+  const ys: number[] = [];
+  for (const m of svg.matchAll(/<path d="([^"]*)" class="[^"]*viz-area"/g)) {
+    for (const p of (m[1] ?? '').matchAll(/[ML](-?[\d.]+),(-?[\d.]+)/g)) {
+      if (Math.abs(Number(p[1]) - x) < 0.01) ys.push(Number(p[2]));
+    }
+  }
+  return ys.length ? { y0: Math.min(...ys), y1: Math.max(...ys) } : undefined;
+}
+
+const noteText = (svg: string): string | undefined =>
+  textBoxes(svg)
+    .find((t) => t.cls.includes('viz-note'))
+    ?.what.replace(/^text "|"$/g, '');
 
 const LONG_CATS = ['Sent to a shared team channel', 'Forwarded to the service desk', 'Sent to a general email inbox'];
 
@@ -209,6 +226,75 @@ describe('highlight note layout (07 §7.2 rule 6)', () => {
       ],
       highlight: { category: 'Apr', note: 'Both regions peak in April this year' },
     });
+  });
+
+  it.each<[string, number[][]]>([
+    ['negative', [[5, -8, 3]]],
+    [
+      'negative in two series',
+      [
+        [5, -8, 3],
+        [2, -2, 1],
+      ],
+    ],
+  ])('area: a %s highlighted value keeps the leader out of the fill', (_, rows) => {
+    const series = rows.map((values, i) => ({ name: `S${i}`, values }));
+    const svg = checkNote({
+      kind: 'area',
+      title: 't',
+      categories: ['Jan', 'Feb', 'Mar'],
+      series,
+      highlight: { category: 'Feb', note: 'The dip' },
+    });
+    const [leader] = leaderSegments(svg);
+    const fill = areaExtentAt(svg, leader!.x1);
+    expect(fill).toBeDefined();
+    expect(Math.max(leader!.y1, leader!.y2)).toBeLessThan(fill!.y0);
+  });
+
+  it.each([
+    ['all-negative', [-3, -5, -1]],
+    ['mixed-sign', [4, -5, -1]],
+    ['mostly negative, positive highlight', [-6, -5, 1]],
+  ] as const)('horizontal bars: %s values keep the whole note when it fits the plot', (_, values) => {
+    const note = 'Sent to a general email inbox';
+    const svg = checkNote({
+      kind: 'bar',
+      title: 't',
+      categories: LONG_CATS,
+      series: [{ name: 'S', values: [...values] }],
+      highlight: { category: LONG_CATS[2]!, note },
+    });
+    expect(noteText(svg)).toBe(note);
+  });
+
+  it('scatter: a dense scatter never runs the leader through neighbouring dots', () => {
+    const n = 150;
+    const categories = Array.from({ length: n }, (_, i) => String(i));
+    const values = categories.map((_, i) => (i === 75 ? 1 : 10));
+    checkNote(
+      {
+        kind: 'scatter',
+        title: 't',
+        categories,
+        series: [{ name: 'S', values }],
+        highlight: { category: '75', note: 'The one low reading' },
+      },
+      { leader: false },
+    );
+  });
+
+  it('scatter: duplicate highlighted x values are all cleared by the leader', () => {
+    checkNote(
+      {
+        kind: 'scatter',
+        title: 't',
+        categories: ['1', '2', '3', '2'],
+        series: [{ name: 'S', values: [5, 2, 4, 8] }],
+        highlight: { category: '2', note: 'Two readings at two' },
+      },
+      { leader: false },
+    );
   });
 
   it('scatter: the note is drawn and clears every point', () => {

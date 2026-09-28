@@ -125,10 +125,12 @@ export function renderScatter(chart: ChartSpec): { body: string; height: number 
       escSvg(formatValue(t, chart.unit)),
     );
   }
+  const dots: { cx: number; cy: number; r: number; hl: boolean }[] = [];
   chart.series.forEach((s, si) => {
     s.values.forEach((v, i) => {
       if (v === null || !Number.isFinite(v)) return;
       const hl = chart.highlight?.category === chart.categories[i];
+      dots.push({ cx: xp(i), cy: y(v), r: hl ? 6 : 4.5, hl });
       body += el('circle', [
         ['cx', r2(xp(i))],
         ['cy', r2(y(v))],
@@ -139,10 +141,18 @@ export function renderScatter(chart: ChartSpec): { body: string; height: number 
     });
   });
   const hl = chart.highlight ? chart.categories.indexOf(chart.highlight.category) : -1;
-  const hv = hl >= 0 ? maxOf(chart.series.map((s) => s.values[hl] ?? null)) : undefined;
-  if (chart.highlight && hv !== undefined) {
-    // The leader stops above the highest highlighted point (radius 6).
-    body += noteAbove(chart.highlight.note, xp(hl), noteTop, y(hv) - 9);
+  if (chart.highlight && hl >= 0 && dots.some((d) => d.hl)) {
+    // The leader drops straight down at the highlighted x to the topmost dot in its path. When that
+    // dot is not a highlighted one (dense or duplicate x), a leader would cross it: the accent
+    // alone marks the point and the note stands without a leader.
+    const lx = xp(hl);
+    const inPath = dots.filter((d) => Math.abs(d.cx - lx) < d.r + 1);
+    const topDot = inPath.reduce<(typeof dots)[number] | undefined>(
+      (a, d) => (a && a.cy - a.r <= d.cy - d.r ? a : d),
+      undefined,
+    );
+    const targetY = topDot?.hl ? topDot.cy - topDot.r - 3 : -Infinity;
+    body += noteAbove(chart.highlight.note, lx, noteTop, targetY);
   }
   if (chart.xLabel) {
     body += el(
