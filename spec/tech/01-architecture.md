@@ -44,7 +44,7 @@ pipeline* (placement of the queue), *Configuration, scope, and open items* (edit
 | App renderer | Main window | `src/renderer/**` | Untrusted, sandboxed | React UI: Library sidebar, viewer frame, input zone, status, suggestions, settings |
 | Document viewer | `WebContentsView` attached to the main window | the document's own `index.html` + `src/doc-runtime/**` (already inlined) | Untrusted, sandboxed | Renders one generated document |
 | Doc preload | Document viewer | `src/preload/doc.ts` | Bridge | Exposes `window.eli5Doc` (selection actions, tab close) to the doc-runtime |
-| Hidden fetch window | `src/main/fetch/` on demand | none (remote page) | Hostile | Renders client-side pages for the fetch fallback (see 05); never shown, destroyed after extraction; partition `eli5-render-<uuid>` |
+| Hidden fetch window | `src/main/fetch/` on demand | none (remote page) | Hostile | Renders client-side pages for the fetch fallback (see 05); never shown, destroyed after extraction; pooled non-persistent partitions `eli5-render-0` / `eli5-render-1`, cleared after every render (05 §8.1) |
 | Readability workers | `src/main/fetch/readability.ts` | Node `worker_threads` pool (size 2) | Trusted code, hostile input | Parse fetched HTML with jsdom + Readability off the main thread (05) |
 | Extract worker | `src/main/extract/` | Electron `utilityProcess` (`src/main/extract/worker.ts`) | Trusted code, hostile input | Runs every per-format parser; a crash or timeout fails one source, not the app (04 §10.4) |
 | pdf-render window | `src/main/extract/pdf-render-window.ts` per job, on demand | bundled `pdf-render.html` + pdf.js | Hostile input | Renders scanned PDF pages to images for vision (04 §6.3); `show:false`, network blocked, partition `eli5-pdf-render`, destroyed at job end |
@@ -57,7 +57,7 @@ BrowserWindow "main"  (contextIsolation, sandbox, nodeIntegration=false)
  └─ WebContentsView "viewer"                        preload: src/preload/doc.ts
        bounds = rect of <ViewerSlot/> reported by the renderer (eli5:viewer:set-bounds)
 Tray "menu bar item"   (lives in main; survives main window close)
-BrowserWindow "fetch-N" (show:false, offscreen, no preload, partition "eli5-render-<uuid>", 0..2 concurrent)
+BrowserWindow "fetch-N" (show:false, offscreen, no preload, partition "eli5-render-0|1" (pooled, cleared per render), 0..2 concurrent)
 BrowserWindow "pdf-render" (show:false, network blocked, partition "eli5-pdf-render", per job)
 utilityProcess "extract worker"   worker_threads "readability" x2
 session "eli5-fetch" (in-memory; used by net.request for the plain HTTP fetch, 05)
@@ -85,7 +85,7 @@ session "eli5-fetch" (in-memory; used by net.request for the plain HTTP fetch, 0
 | `nodeIntegration` | false | false | false |
 | `webSecurity` | true | true | true |
 | Preload | `app.ts` | `doc.ts` | none |
-| Network | CSP `default-src 'self'` | CSP: see 12 §7.4 (response header set by the `eli5doc://` handler: `default-src 'none'`, `connect-src 'none'`, no `data:` in `script-src`) and 07 §6.2 (meta tag in the file); no remote origins | unrestricted (public web); fetch session `eli5-fetch` is in-memory, each render uses a fresh non-persistent partition `eli5-render-<uuid>` (05, 12) |
+| Network | CSP `default-src 'self'` | CSP: see 12 §7.4 (response header set by the `eli5doc://` handler: `default-src 'none'`, `connect-src 'none'`, no `data:` in `script-src`) and 07 §6.2 (meta tag in the file); no remote origins | unrestricted (public web); fetch session `eli5-fetch` is in-memory, each render uses one of two pooled non-persistent partitions `eli5-render-0`/`-1`, whose storage and cache are cleared after every render (05 §8.1, 12) |
 | Navigation | blocked except app URL | blocked except same document; `http(s)` links open in default browser via `shell.openExternal` | allowed |
 | `window.open` | denied | denied, routed to `shell.openExternal` for `http(s)` | denied |
 
@@ -696,7 +696,7 @@ scaffold time, pinned via lockfile.
 | `linkedom` | main/extract, main/document | HTML-to-blocks (04 `htmlToBlocks`) and SVG sanitizing (07) |
 | `tldts` | main/fetch | Registrable-domain and public-suffix parsing (05) |
 | `marked` | main/extract | Markdown → HTML before `htmlToBlocks` (04) |
-| `jszip` | main/extract | Open `.pptx` / `.docx` / `.xlsx` containers (04) |
+| `jszip` | test fixture generators (13) | Writes the synthetic OOXML fixtures. Runtime OOXML reads go through the in-repo `SafeZip` reader (04 §10.3), which checks sizes before inflating; `mammoth` brings its own copy |
 | `fast-xml-parser` | main/extract | Parse slide XML, speaker notes (04) |
 | `mammoth` | main/extract | `.docx` → structured HTML preserving headings, lists, tables (04) |
 | `pdfjs-dist` | main/extract, pdf-render window | Text with page order; render scanned pages to images for vision (04) |
@@ -729,7 +729,7 @@ license, and no network activity at import time.
 | Build | Entry | Output | Notes |
 | --- | --- | --- | --- |
 | doc-runtime (pre-step) | `src/doc-runtime/index.ts`, `index.css` | `build/doc-runtime/runtime.iife.js`, `runtime.css` | Vite library mode, IIFE, ES2020, minified, no imports allowed; imported into main as `?raw` strings. `build/doc-runtime/` is git-ignored |
-| main | `src/main/index.ts` | `out/main/` | Node target, `@eli5/overlay` alias per §6.5, `__ELI5_EDITION__` and `__ELI5_TEST__` defined; `jsdom` externalized (§7) |
+| main | `src/main/index.ts`, `src/main/extract/worker.ts` | `out/main/index.js`, `out/main/extract-worker.js` (the extract `utilityProcess` entry, 04 §6), plus a `readability.worker` chunk (05 §5.2) | Node target, `@eli5/overlay` alias per §6.5, `__ELI5_EDITION__` and `__ELI5_TEST__` defined; `jsdom` and `@mozilla/readability` externalized (§7) |
 | preload | `src/preload/app.ts`, `src/preload/doc.ts` | `out/preload/` | Two entries, CJS (sandboxed preload requirement) |
 | renderer | `src/renderer/index.html` | `out/renderer/` | React, `__ELI5_EDITION__` and `__ELI5_TEST__` defined |
 
@@ -759,6 +759,8 @@ declare const __ELI5_TEST__: boolean;
 | `lint` | `eslint .` | Includes import boundary rules |
 | `test` | `vitest run` | Unit tests (13) |
 | `test:e2e` | `ELI5_TEST_BUILD=1 npm run build && playwright test` | Electron e2e via `_electron` against a test build (13) |
+| `test:update-goldens` | `ELI5_UPDATE_GOLDENS=1 vitest run` | Rewrites extraction and document goldens (04, 07, 13) |
+| `fixtures:build` | `ELI5_WRITE_FIXTURES=1 vitest run test/unit/fixtures/build.test.ts` | Regenerates the synthetic binary fixtures and `test/fixtures/manifest.json` (13 §5) |
 | `package` | `rimraf out build/doc-runtime && npm run build && electron-builder --mac dmg` | Clean build without `ELI5_TEST_BUILD`, then dmg. The e2e output in `out/` is never packaged |
 
 ### 8.3 Packaging (electron-builder)
@@ -771,7 +773,8 @@ asar: true
 asarUnpack: ['**/*.node']
 files: ['out/**', 'package.json']
 extraResources:
-  - { from: resources, to: . }       # prompts/, skills/, help/, pdf-render/ (html + pdf.js worker), tray/ icons
+  - { from: resources, to: . }       # prompts/, skills/, help/, pdf-render/ (page, preload, normalizer), tray/ icons
+  - { from: node_modules/pdfjs-dist/build, to: pdfjs, filter: [pdf.mjs, pdf.worker.mjs] }  # served as eli5res://pdfjs/ (04 §6.3)
 mac:
   target: [{ target: dmg, arch: [arm64, x64] }]
   hardenedRuntime: true
@@ -781,9 +784,11 @@ mac:
   x64ArchFiles: '**/*.node'          # only for a universal build
 ```
 
-- **Resources.** Prompts (02), skills (02), the help page (10 §8), `pdf-render.html` with the
-  pdf.js worker (04 §6.3) and tray template images (11 §4) live in the repo's `resources/` and ship
-  via `extraResources`. Code never builds these paths by hand; it calls
+- **Resources.** Prompts (02), skills (02), the help page (10 §8), the `pdf-render/` page (04 §6.3) and tray
+  template images (11 §4) live in the repo's `resources/` and ship via `extraResources`; pdf.js
+  (`pdf.mjs`, `pdf.worker.mjs`) is copied from `node_modules/pdfjs-dist/build` to `pdfjs/`. Asset
+  generators live in `scripts/` (for example `scripts/generate-tray-icons.mjs`), never in
+  `resources/`. Code never builds these paths by hand; it calls
   `resourcePath(rel)` from `src/main/config/paths.ts`, which returns
   `path.join(process.resourcesPath, rel)` when `app.isPackaged` and `path.join(<repo>/resources,
   rel)` in dev.

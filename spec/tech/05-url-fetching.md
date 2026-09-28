@@ -117,7 +117,7 @@ The URL resolver (03 §7) turns each outcome into a `ResolvedSource` or `Skipped
 2. Start the **overall budget** timer (`URL_TOTAL_BUDGET_MS`, 75 s). Link it with `ctx.signal` into a single `AbortController`.
 3. **Per-job dedupe**: if the same normalized URL is already in flight or finished in this job, return the cached outcome. The cache is keyed by `jobId + normalizedUrl` and dropped when the job ends.
 4. Acquire a **politeness slot** for the host (section 9).
-5. `httpFetch` (section 4). On a network or HTTP error, map it to a skip code (section 10). **One exception:** if the error is `http-client-error` 403 or 429 *without* login-wall signals, or the response is a bot-challenge interstitial (section 6.3), go to step 8 (render fallback) instead of skipping, because some sites serve real pages only to a full browser.
+5. `httpFetch` (section 4). On a network or HTTP error, map it to a skip code (section 10). **One exception:** if the error is `http-client-error` 403 or 429 *without* login-wall signals, or the response is a bot-challenge interstitial (section 6.3), go to step 9 (render fallback) instead of skipping; if the render also fails, return the original HTTP skip (`http-client-error` / `rate-limited`), because some sites serve real pages only to a full browser.
 6. **Route by content type** (section 4.6):
    - binary type → return `binary`.
    - unsupported → return `skipped: unsupported-type`.
@@ -161,21 +161,19 @@ The PRD's "if both fail, record as skipped" is steps 9 and 10. There is no third
 
 `network.ts` exposes `configureSession(ses: Session): Promise<void>`. It is called for the fetch session once at startup and for each pooled render partition once, when the pool is created (8.1). The public implementation calls `ses.setProxy({ mode: 'system' })` and nothing else.
 
-Enterprise replacement goes through a registry method that `01-architecture.md` §6.2 must add to `CapabilityRegistry` (follow-up for that file; the registry is frozen after bootstrap, so this is a registration, not a runtime swap):
+Enterprise replacement goes through two registry slots declared in 01 §6.2 (the registry is frozen after bootstrap, so these are registrations, not runtime swaps):
 
 ```ts
-// addition to CapabilityRegistry (01 §6.2)
-registerFetchPolicy(p: FetchPolicy): void;   // at most once; a second call throws during bootstrap
+// CapabilityRegistry (01 §6.2)
+registerNetworkConfigurator(fn: NetworkConfigurator): void;  // HOOK-FETCH-01; replaces the public configureSession
+registerLoginSignatures(sigs: LoginSignature[]): void;       // HOOK-FETCH-02; appended to the public (empty) list
 
-// src/main/fetch/policy.ts
-export interface FetchPolicy {
-  loginSignatures?: LoginSignature[];                 // HOOK-FETCH-02
-  configureSession?: (ses: Session) => Promise<void>; // HOOK-FETCH-01; replaces the public implementation
-}
+// src/main/fetch/types.ts
+export type NetworkConfigurator = (ses: Session) => Promise<void>;
 export interface LoginSignature { hostPattern?: RegExp; urlPattern?: RegExp; domSelector?: string; kind: 'conclusive' | 'strong'; }
 ```
 
-`fetch/index.ts` reads the frozen registry once at startup (`registry.fetchPolicy()`, which returns `{}` in the public build). The same review asks 01 §6.2 to add `registerPipelinePolicy`, `registerDocTheme`, and `registerMergeEligibility` for 06, 07, and 09; those are outside this file.
+Bootstrap calls `configureFetch({ configureSession: registry.networkConfigurator(), loginSignatures: registry.loginSignatures() })` from `fetch/index.ts` once after `registry.freeze()` and before the first `fetchUrl`. The public build registers the public `configureSession` and an empty signature list.
 
 ### 4.3 Request headers
 
@@ -386,7 +384,7 @@ The public build never authenticates. When a page is behind a login, the correct
 <!-- hook:HOOK-FETCH-02 -->
 > **Private hook · HOOK-FETCH-02 · Organization identity-provider and login-page signatures.** Public behavior: login walls are detected only by the generic HTTP, URL, and DOM heuristics in section 7.1, and the result is always `skipped: login-required`. Private binding supplies: the organization's identity-provider hostnames and URL patterns (SSO portal, federation endpoints) to treat as conclusive login signals; any organization-specific login-page DOM markers; and whether a login-wall hit on an unrouted host should produce a skip reason that tells the user to add the host to the MCP routing rules (HOOK-SRC-03). Binding lives in the private spec under "HOOK-FETCH-02".
 
-The signature list is `FetchPolicy.loginSignatures`, registered through `registerFetchPolicy` (section 4.2). The public build registers no policy, so the list is empty. The enterprise overlay contributes entries at bootstrap (see HOOK-CFG-02).
+The signature list is registered through `registerLoginSignatures` (section 4.2). The public build registers no policy, so the list is empty. The enterprise overlay contributes entries at bootstrap (see HOOK-CFG-02).
 
 ## 8. Hidden BrowserWindow fallback
 
@@ -427,7 +425,7 @@ win.webContents.setAudioMuted(true);
 win.webContents.setUserAgent(FETCH_USER_AGENT);
 ```
 
-Each render still starts from a clean cookie jar, cache, and storage, because teardown (8.4) runs `clearStorageData()` and `clearCache()` on the slot's session before the slot is released. Nothing leaks between renders or into the fetch session or the app UI, and memory stays bounded at two sessions. `12-configuration-security.md` §7.6 still describes a unique `eli5-render-<uuid>` partition per render and must be updated to the pooled scheme (follow-up for that file).
+Each render still starts from a clean cookie jar, cache, and storage, because teardown (8.4) runs `clearStorageData()` and `clearCache()` on the slot's session before the slot is released. Nothing leaks between renders or into the fetch session or the app UI, and memory stays bounded at two sessions.
 
 ### 8.2 Lockdown handlers (installed before `loadURL`)
 
@@ -619,5 +617,5 @@ Unit tests (Vitest, pure Node) cover the worker, `detect.ts`, `login-wall.ts`, s
 - [ ] At most 2 render windows and 4 global fetches run at once, with 1 per host and 1 s spacing per host. `Retry-After` of 10 s or less is honored once. There is no link following.
 - [ ] Login walls (401, `WWW-Authenticate`, login redirects, password forms) produce `skipped: login-required` without leaking credentials or prompting the user. Paywalls produce `paywall` or a partial article per 7.2.
 - [ ] Network configuration goes through `configureSession()`, which in the public build uses the system proxy and trust store only (HOOK-FETCH-01).
-- [ ] Login signatures and the `configureSession` override arrive via `registerFetchPolicy` (added to 01 §6.2), and the public build ships an empty list (HOOK-FETCH-02). Lane routing before fetch is delegated to HOOK-SRC-03.
+- [ ] Login signatures and the `configureSession` override arrive via `registerLoginSignatures` and `registerNetworkConfigurator` (01 §6.2), and the public build ships an empty list (HOOK-FETCH-02). Lane routing before fetch is delegated to HOOK-SRC-03.
 - [ ] Debug logs omit URL query strings. Generated documents contain only the friendly reason text.

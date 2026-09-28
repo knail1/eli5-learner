@@ -57,9 +57,13 @@ export default defineConfig({
     },
     build: {
       rollupOptions: {
-        input: { index: resolve(root, 'src/main/index.ts') },
-        // Readability's DOM is loaded only inside its worker (01 §7).
-        external: ['jsdom', '@napi-rs/keyring'],
+        input: {
+          index: resolve(root, 'src/main/index.ts'),
+          // utilityProcess entry for extraction (04 §6), bundled to out/main/extract-worker.js.
+          'extract-worker': resolve(root, 'src/main/extract/worker.ts'),
+        },
+        // Readability and its DOM are loaded only inside the Readability worker (01 §7, 05 §5.2).
+        external: ['jsdom', '@mozilla/readability', '@napi-rs/keyring'],
       },
     },
   },

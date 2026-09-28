@@ -19,10 +19,21 @@ test.beforeAll(async () => {
   userData = await mkdtemp(path.join(tmpdir(), 'eli5-e2e-shell-'));
   app = await electron.launch({
     args: [path.resolve('.')],
-    env: { ...process.env, ELI5_USER_DATA_DIR: userData, ELI5_KEYSTORE: 'memory', TZ: 'UTC' },
+    env: {
+      ...process.env,
+      ELI5_USER_DATA_DIR: userData,
+      ELI5_LIBRARY_DIR: path.join(userData, 'library'),
+      ELI5_KEYSTORE: 'memory',
+      TZ: 'UTC',
+    },
   });
   win = await app.firstWindow();
+  testBuild = await app.evaluate(({ ipcMain }) => ipcMain.listenerCount('eli5:test:tray-click') > 0);
 });
+
+/** The Tray driver channel exists only in ELI5_TEST_BUILD=1 builds (`npm run test:e2e`). */
+let testBuild = false;
+const requireTestBuild = (): void => test.skip(!testBuild, 'needs an ELI5_TEST_BUILD=1 build (npm run test:e2e)');
 
 test.afterAll(async () => {
   await app?.close().catch(() => {});
@@ -166,6 +177,7 @@ test('doc route attaches the viewer and reports its bounds; settings detaches it
 });
 
 test('close hides the window and the Dock icon; the Tray brings it back', async () => {
+  requireTestBuild();
   expect(await tray()).toMatchObject({
     labels: ['No documents yet', 'Open ELI5 Learner', 'Settings…', 'Quit'],
     tooltip: 'ELI5 Learner',
@@ -189,6 +201,7 @@ test('close hides the window and the Dock icon; the Tray brings it back', async 
 });
 
 test('Tray > Quit exits without confirmation', async () => {
+  requireTestBuild();
   const closed = app.waitForEvent('close');
   await tray({ click: 'Quit' });
   await closed;

@@ -1,14 +1,19 @@
 import path from 'node:path';
 import fs from 'node:fs';
-import { app, dialog, ipcMain, protocol } from 'electron';
+import { app, dialog, ipcMain, protocol, session, shell as electronShell } from 'electron';
+import { IPC, type IpcChannel } from '../preload/contract';
 import { SettingsStore } from './config/store';
 import { createKeyStore } from './config/keystore';
-import { initPaths, resolveUserDataDir } from './config/paths';
+import { initPaths, resourcePath, resolveUserDataDir } from './config/paths';
 import { Registry } from './editions/registry';
 import { registerPublicCapabilities } from './editions/public';
 import { loadOverlay } from './editions/load-overlay';
 import { edition } from './editions/types';
+import { PDF_RENDER_SCHEME_PRIVILEGES } from './extract';
+import { configureFetch } from './fetch';
 import { registerIpc } from './ipc';
+import { DOC_SCHEME, createDocProtocolHandler, gitCheckIgnored, installDocProtocol, openLibrary } from './library';
+import { configureLlmRuntime, createLlmFetch, retryPolicyFromPipeline } from './llm';
 import { hardenApp } from './security/harden';
 import { RotatingFileSink, createLogger, installLogger, log } from './security/log';
 import {
@@ -17,17 +22,20 @@ import {
   initShell,
   isAppUrl,
   mainWebContents,
+  observeAppEvent,
+  seedTray,
   setViewerBounds,
   setViewerVisible,
   shell,
   showMainWindow,
+  VIEWER_PARTITION,
   viewerWebContents,
 } from './shell';
 
 // Privileges must be registered at module load, before ready (12 §7.7).
 protocol.registerSchemesAsPrivileged([
   {
-    scheme: 'eli5doc',
+    scheme: DOC_SCHEME,
     privileges: {
       standard: true,
       secure: true,
@@ -37,6 +45,8 @@ protocol.registerSchemesAsPrivileged([
       stream: false,
     },
   },
+  // pdf-render window pages and pdf.js (04 §6.3, 01 §2).
+  PDF_RENDER_SCHEME_PRIVILEGES,
 ]);
 
 // Dev and test runs never touch the real profile (12 §4.1).
@@ -96,6 +106,49 @@ async function bootstrap(): Promise<void> {
   // 5. freeze
   registry.freeze();
 
+  // Process-wide wiring that the frozen registry feeds (02 §4, 05 §4.2).
+  const network = registry.networkConfigurator();
+  configureFetch({ configureSession: network, loginSignatures: registry.loginSignatures() });
+  const pipelinePolicy = registry.pipelinePolicy();
+  configureLlmRuntime({
+    keys: keyStore,
+    fetch: await createLlmFetch(network),
+    retry: retryPolicyFromPipeline(pipelinePolicy),
+    timeouts: pipelinePolicy.llmTimeoutOverride,
+  });
+
+  // Library root, process lock, catalog and reconcile (09 §3.1, §7, §8.4).
+  const library = await openLibrary({
+    rootInput: { isPackaged: app.isPackaged, repoRoot: app.getAppPath(), userData, env: process.env },
+    policy: registry.libraryPolicy(),
+    appVersion: app.getVersion(),
+    devChecks: !app.isPackaged,
+    processLock: {
+      startedAt: new Date(Date.now() - process.uptime() * 1000),
+      executableName: path.basename(process.execPath),
+    },
+    checkIgnored: app.isPackaged ? undefined : gitCheckIgnored,
+  });
+  app.on('before-quit', () => {
+    void library.close();
+  });
+  // eli5doc:// is served on the viewer session only (12 §7.7 step 2).
+  installDocProtocol(
+    session.fromPartition(VIEWER_PARTITION),
+    createDocProtocolHandler({
+      root: library.root,
+      isCatalogued: (slug) => library.hasSlug(slug),
+      helpRoot: resourcePath('help'),
+    }),
+  );
+
+  // Every push to the app renderer also feeds the Tray (11 §4.2).
+  const sendToApp = (channel: IpcChannel, payload: unknown): void => {
+    observeAppEvent(channel, payload);
+    mainWebContents()?.send(channel, payload);
+  };
+  library.on('changed', () => sendToApp(IPC.library.changed, { entries: library.list() }));
+
   // 6. IPC, windows, Tray
   registerIpc({
     ipc: ipcMain,
@@ -104,15 +157,18 @@ async function bootstrap(): Promise<void> {
     keyStore,
     registry,
     viewer: { setBounds: setViewerBounds, setVisible: setViewerVisible },
-    sendToApp: (channel, payload) => mainWebContents()?.send(channel, payload),
+    sendToApp,
   });
   initShell({
     preloadDir: path.join(import.meta.dirname, '../preload'),
     rendererDir: path.join(import.meta.dirname, '../renderer'),
     devServerUrl: app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL,
+    // openDocument (viewer.open) is wired with the viewer loader in M2.
+    hooks: { revealDocument: (slug) => electronShell.showItemInFolder(library.docPath(slug)) },
   });
   createMainWindow();
   createTray();
+  seedTray({ catalog: library.list() });
   log.info('app.ready', { kind: edition });
 }
 

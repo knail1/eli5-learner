@@ -13,6 +13,10 @@ files:
 extraResources:
   - from: resources
     to: .
+  # pdf.js for the pdf-render window, served over eli5res://pdfjs/ (04 §6.3).
+  - from: node_modules/pdfjs-dist/build
+    to: pdfjs
+    filter: [pdf.mjs, pdf.worker.mjs]
 mac:
   target:
     - target: dmg

@@ -20,7 +20,7 @@ export const SettingsSchema = z
         provider: ProviderIdSchema.default('claude'),
         model: z.string().trim().min(1).max(200).nullable().default(null), // null = provider default (02)
         maxOutputTokens: z.number().int().min(1024).max(128000).default(32000),
-        timeoutMs: z.number().int().min(10_000).max(1_800_000).default(600_000),
+        timeoutMs: z.number().int().min(10_000).max(1_800_000).default(1_800_000),
         maxConcurrency: z.number().int().min(1).max(6).default(2),
         bedrock: Dormant, // HOOK-LLM-01
       })

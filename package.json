@@ -23,6 +23,8 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:update-goldens": "ELI5_UPDATE_GOLDENS=1 vitest run",
+    "fixtures:build": "ELI5_WRITE_FIXTURES=1 vitest run test/unit/fixtures/build.test.ts",
     "test:e2e": "ELI5_TEST_BUILD=1 npm run build && playwright test",
     "check:spec": "node scripts/check-spec-hooks.mjs",
     "package": "rimraf out build/doc-runtime && npm run build && electron-builder --mac dmg"

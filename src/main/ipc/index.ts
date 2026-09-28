@@ -11,11 +11,13 @@ import {
   type SettingsDescription,
   type TestConnectionResult,
 } from '../../preload/contract';
-import { DEFAULT_MODELS, ProviderIdSchema, type DeepPartial } from '../config';
+import { ProviderIdSchema, type DeepPartial } from '../config';
 import type { SettingsStore } from '../config';
 import { account, type KeyStore } from '../config';
 import { checkApiKeyFormat } from '../config';
 import type { Registry } from '../editions';
+import { suggestedModels } from '../llm';
+import { ContextMenuRequest, handleContextMenu } from '../shell';
 import { log } from '../security';
 import { safeOpenExternal } from '../security';
 import { fail, makeHandle, NoPayload, WithWarnings, type HandlerRegistrar, type SenderIdentity } from './handle';
@@ -100,10 +102,7 @@ export function registerIpc(d: IpcDeps): void {
     const out: TestConnectionResult = r.ok ? { ok: true, model: r.model } : { ok: false, message: r.error.message };
     return out;
   });
-  on(IPC.llm.models, z.object({ provider: ProviderIdSchema }), (p): ModelsResult => ({
-    suggested: DEFAULT_MODELS[p.provider] ? [DEFAULT_MODELS[p.provider]] : [],
-    default: DEFAULT_MODELS[p.provider],
-  }));
+  on(IPC.llm.models, z.object({ provider: ProviderIdSchema }), (p): ModelsResult => suggestedModels(p.provider));
 
   // ---- viewer (11) ----
   on(IPC.viewer.setBounds, Bounds, (b) => d.viewer.setBounds(b));
@@ -111,6 +110,9 @@ export function registerIpc(d: IpcDeps): void {
   on(IPC.viewer.openExternal, z.object({ url: z.string().max(2048) }), async (p, e) => {
     if (!(await safeOpenExternal(p.url, e.sender.id))) fail('E_RATE_LIMITED', 'Link not opened');
   });
+
+  // ---- app (11 §10): the Library item menu; Open/Reveal go through the shell hooks ----
+  on(IPC.app.contextMenu, ContextMenuRequest, (r) => handleContextMenu(r));
 
   // ---- test-only channel, compiled out of packaged builds (01 §8.1) ----
   if (__ELI5_TEST__) {

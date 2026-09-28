@@ -464,7 +464,7 @@ export function appendMergedDocument(input: {
   suggestionId: string; mergedAt: string;
 }): { html: string; tabs: TabRecord[]; markerSectionIds: SectionId[]; idMap: Record<SectionId, SectionId> };
 export class DocumentFormatError extends Error { code: 'no_model' | 'bad_version' | 'invalid_model' }
-export class DocumentBuildError extends Error { code: 'empty_indepth' | 'empty_tab' | 'invalid_merge' }
+export class DocumentBuildError extends Error { code: 'empty_indepth' | 'empty_tab' | 'empty_section' | 'invalid_merge' }  // empty_section: replaceSection got a draft with no valid blocks
 ```
 
 All mutators are pure (return a new model); the caller renders and writes under
@@ -564,9 +564,11 @@ The note is rendered immediately after the block that contains the anchor:
 
 ### 9.3 After regeneration
 
-When a section is replaced, its notes are re-anchored with steps 3–5 starting from that section.
-Notes whose anchor now appears nowhere are dropped. v1 does not create new notes on regeneration.
-Notes anchored in other sections are untouched.
+When a section is replaced, its notes are re-anchored inside the replaced section only (08 §6.5
+rule 2): first by `anchorText`, then by `term`. A note that matches neither is dropped with the
+warning `glossary-dropped`. Notes never move to another section, because the byte-diff rule (§5.5)
+forbids changing any other section. v1 does not create new notes on regeneration. Notes anchored in
+other sections are untouched.
 
 ## 10. References section
 

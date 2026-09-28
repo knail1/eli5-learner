@@ -54,7 +54,7 @@ export const SettingsSchema = z.object({
     provider: ProviderId.default('claude'),
     model: z.string().trim().min(1).max(200).nullable().default(null), // null = provider default (02)
     maxOutputTokens: z.number().int().min(1024).max(128000).default(32000),
-    timeoutMs: z.number().int().min(10_000).max(1_800_000).default(600_000),
+    timeoutMs: z.number().int().min(10_000).max(1_800_000).default(1_800_000),
     maxConcurrency: z.number().int().min(1).max(6).default(2),
     bedrock: Dormant,                                   // HOOK-LLM-01
   }).strict().default({}),
@@ -110,7 +110,7 @@ Sibling modules own the **meaning** of their keys (02 for `llm.*`, 05 for `fetch
 | `llm.provider` | `'claude' \| 'openai' \| 'bedrock'` | `'claude'` | 02 | Closed enum. `bedrock` is selectable only when the registry reports it available; hand-set in a public build it fails at generation with `NotAvailableInEdition` (02 §13). The enterprise backend must register under the `bedrock` ID (HOOK-LLM-01); an overlay cannot add other selectable IDs, because §8.2 rule 1 forbids changing a public key's type |
 | `llm.model` | `string \| null` | `null` | 02 | `null` resolves to `DEFAULT_MODELS[provider]` |
 | `llm.maxOutputTokens` | int | 32000 | 02 | Clamped to model limit by 02 |
-| `llm.timeoutMs` | int | 600000 | 02 | Per attempt |
+| `llm.timeoutMs` | int | 1800000 | 02 | Per attempt total cap; idle timeout 120 s |
 | `llm.maxConcurrency` | int 1..6 | 2 | 02 | |
 | `llm.bedrock.*` | record | `{}` | 02 | Dormant |
 | `glossary.defaultOn` | boolean | `true` | 06, 11 | Initial state of the per-job "Explain domain specific terms" toggle |
@@ -342,7 +342,7 @@ This is used only for `eli5:viewer:open-external`, for `setWindowOpenHandler` in
 05 §8 defines the mechanics. The security requirements are these:
 
 - no preload, no `window.eli5`, and no IPC channel accepts its frames (§7.2 step 6);
-- a unique non-persistent partition per render (`eli5-render-<uuid>`), separate from the in-memory fetch session `eli5-fetch` and from the app and viewer sessions, destroyed after extraction;
+- one of two pooled non-persistent partitions (`eli5-render-0`, `eli5-render-1`; 05 §8.1), separate from the in-memory fetch session `eli5-fetch` and from the app and viewer sessions; the window is destroyed after extraction and the slot's storage and cache are cleared before the slot is reused (Electron never frees a per-render partition's session, so a fresh partition per render would leak memory);
 - all permissions, popups, downloads, and dialogs denied (§7.3), `show: false`, never focused or attached to the app window;
 - the DOM is read only through an isolated world; the isolated-world snapshot (`outerHTML`, a plain string) goes to the Readability worker in main (05), and nothing else from the page crosses into main;
 - the proxy and TLS trust configuration is the only enterprise difference (HOOK-FETCH-01). The public build never adds certificate-verify overrides (`setCertificateVerifyProc` is not called) and never ignores certificate errors (the `certificate-error` event keeps its default, which rejects).

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { _electron as electron, expect, test, type ElectronApplication } from '@playwright/test';
@@ -15,6 +15,7 @@ test.beforeAll(async () => {
     env: {
       ...process.env,
       ELI5_USER_DATA_DIR: userData,
+      ELI5_LIBRARY_DIR: path.join(userData, 'library'),
       ELI5_KEYSTORE: 'memory',
       TZ: 'UTC',
     },
@@ -84,4 +85,16 @@ test('closing the window hides it; the app keeps running', async () => {
     return { exists: !!w, visible: w?.isVisible() ?? false };
   });
   expect(state).toEqual({ exists: true, visible: false });
+});
+
+test('bootstrap opens the Library and serves eli5doc:// on the viewer session only', async () => {
+  const root = path.join(userData, 'library');
+  await access(path.join(root, 'catalog.json'));
+  await access(path.join(root, '.eli5', 'library.lock'));
+  const status = await app.evaluate(async ({ session }) => {
+    const viewer = session.fromPartition('eli5-viewer');
+    const res = await viewer.fetch('eli5doc://doc/not-catalogued/index.html');
+    return { viewer: res.status, defaultHandled: session.defaultSession.protocol.isProtocolHandled('eli5doc') };
+  });
+  expect(status).toEqual({ viewer: 404, defaultHandled: false });
 });

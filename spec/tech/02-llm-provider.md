@@ -1,6 +1,6 @@
 # LLM provider
 
-This file specifies the intelligence layer in `src/main/llm/`. It covers the `LLMProvider` interface and its request and result types, the Claude and OpenAI implementations (SDKs, image input, token limits, retries, timeouts, rate limits), the documented Bedrock stub, how long inputs are fitted into the context window, the structured JSON contract the model returns (a `DocumentDraft` that the document builder turns into a `DocumentModel`, never raw HTML), the prompt catalogue in `src/main/llm/prompts/*.md`, and where the user-supplied HTML skills plug in. It implements PRD sections "Build editions and swap seams" (LLM row, `LLMProvider` seam), "Output document" (skills, glossary, tabs), "Interactive reading" (section actions), "Library, storage, and merge suggestions" (summary and merge match), and "Configuration" (`llm.provider`, model name, keychain key).
+This file specifies the intelligence layer in `src/main/llm/`. It covers the `LLMProvider` interface and its request and result types, the Claude and OpenAI implementations (SDKs, image input, token limits, retries, timeouts, rate limits), the documented Bedrock stub, how long inputs are fitted into the context window, the structured JSON contract the model returns (a `DocumentDraft` that the document builder turns into a `DocumentModel`, never raw HTML), the prompt catalogue in `resources/prompts/*.md`, and where the user-supplied HTML skills plug in. It implements PRD sections "Build editions and swap seams" (LLM row, `LLMProvider` seam), "Output document" (skills, glossary, tabs), "Interactive reading" (section actions), "Library, storage, and merge suggestions" (summary and merge match), and "Configuration" (`llm.provider`, model name, keychain key).
 
 Related: [01-architecture.md](01-architecture.md) · [03-source-resolvers.md](03-source-resolvers.md) · [04-extraction.md](04-extraction.md) · [05-url-fetching.md](05-url-fetching.md) · [06-generation-pipeline.md](06-generation-pipeline.md) · [07-output-document.md](07-output-document.md) · [08-interactive-reading.md](08-interactive-reading.md) · [09-library-storage.md](09-library-storage.md) · [10-publishing.md](10-publishing.md) · [11-app-shell-ui.md](11-app-shell-ui.md) · [12-configuration-security.md](12-configuration-security.md) · [13-testing-quality.md](13-testing-quality.md)
 
@@ -129,7 +129,7 @@ export type LLMErrorKind =
   | 'rate_limited'    // 429: retried with backoff, honors retry-after
   | 'overloaded'      // 529 / 503: retried
   | 'server'          // 500/502/504: retried
-  | 'timeout'         // client-side timeout: retried once
+  | 'timeout'         // client-side timeout: retried (section 7.1)
   | 'network'         // DNS, TLS, reset: retried
   | 'refusal'         // model declined: not retried
   | 'invalid_output'  // JSON failed validation after repair: not retried
@@ -202,14 +202,14 @@ export function createProvider(s: Settings, keys: KeyStore): LLMProvider
 5. Abort immediately with `cancelled` if the job's `AbortSignal` fires during a wait.
 6. Record `attempts` on the result. Retries are silent apart from the ` (retrying)` suffix that [06](06-generation-pipeline.md) §6 appends to the status line while a wait is in progress; `retry.ts` reports waits through an `onRetry` callback for that purpose.
 
-`retry.ts` is the single retry policy for all LLM calls; [06](06-generation-pipeline.md) does not wrap LLM calls in its own retry loop (its output-validation retry is the repair call in section 10.1). The numbers above are defaults read from the active `PipelinePolicy` (`retry.attempts`, `retry.backoffMs`, `retry.maxRetryAfterMs`); an enterprise `PipelinePolicy` (HOOK-PIPE-01) may override only these numbers, not the classification or the algorithm.
+`retry.ts` is the single retry policy for all LLM calls; [06](06-generation-pipeline.md) does not wrap LLM calls in its own retry loop (its output-validation retry is the repair call in section 10.1). The numbers above are defaults read from the active `PipelinePolicy` (`llmRetryOverride.maxAttempts` per error kind, `llmRetryOverride.baseMs`, which scales the default backoff schedule, and `llmRetryOverride.maxRetryAfterMs`; see the `PipelinePolicy` type under HOOK-PIPE-01 in 06 §9.5); an enterprise `PipelinePolicy` (HOOK-PIPE-01) may override only these numbers, not the classification or the algorithm.
 
 ### 7.2 Timeouts
 
 | Setting | Default | Notes |
 | --- | --- | --- |
-| Idle timeout | 120000 (`PipelinePolicy.llmTimeouts.idleMs`) | Every call streams (sections 5, 6); no bytes, including thinking or keep-alive events, for 2 min → `timeout`. This is the primary liveness check. |
-| `llm.timeoutMs` (total cap) | 1800000 (30 min) (`PipelinePolicy.llmTimeouts.totalMs`) | Per attempt, generous backstop only. A 32k-token draft plus thinking at typical output rates approaches 10 min, so a 10-min whole-response limit would kill healthy calls. |
+| Idle timeout | 120000 (`PipelinePolicy.llmTimeoutOverride.idleMs`) | Every call streams (sections 5, 6); no bytes, including thinking or keep-alive events, for 2 min → `timeout`. This is the primary liveness check. |
+| `llm.timeoutMs` (total cap) | 1800000 (30 min) (`PipelinePolicy.llmTimeoutOverride.totalMs`) | Per attempt, generous backstop only. A 32k-token draft plus thinking at typical output rates approaches 10 min, so a 10-min whole-response limit would kill healthy calls. |
 | `testConnection` | 20000 | Tiny request, `maxOutputTokens: 16`. |
 
 ### 7.3 Rate limiting (`limiter.ts`)
@@ -272,7 +272,7 @@ If an in-depth call returns `stopReason: 'max_tokens'`, the module retries once 
 
 ## 9. Prompt catalogue
 
-Prompts are Markdown files with YAML front matter, loaded once at startup from `src/main/llm/prompts/` (copied to `resources/prompts/` in the packaged app). They are data, not code, so wording changes do not touch TypeScript.
+Prompts are Markdown files with YAML front matter, loaded once at startup from `resources/prompts/` (01 §8.3; shipped as an extra resource in the packaged app). They are data, not code, so wording changes do not touch TypeScript.
 
 ```md
 ---
@@ -448,7 +448,7 @@ The dormant keys `llm.bedrock.region`, `llm.bedrock.modelId`, and `llm.bedrock.p
 The enterprise provider must pass the same provider contract test suite ([13](13-testing-quality.md)) as the public ones: same `GenerationRequest`/`GenerationResult` semantics, same `LLMErrorKind` classification, native structured output or the repair-loop fallback.
 
 <!-- hook:HOOK-LLM-02 -->
-> **Private hook · HOOK-LLM-02 · Enterprise prompt policy and data handling.** Public behavior: prompts load from `src/main/llm/prompts/` and skills from the bundled and user folders; no additional preamble; source content is sent only to the provider the user configured. Private binding supplies: an organization system-prompt preamble (for example, data-classification reminders or approved terminology), any prompt overrides directory shipped in the overlay (same file format as section 9, same IDs, overlay copy wins), organization-approved default skills, content that must never be sent to the model (patterns or classifications, enforced before `send()`), and logging and retention rules for token usage metadata. Binding lives in the private spec under "HOOK-LLM-02".
+> **Private hook · HOOK-LLM-02 · Enterprise prompt policy and data handling.** Public behavior: prompts load from `resources/prompts/` and skills from the bundled and user folders; no additional preamble; source content is sent only to the provider the user configured. Private binding supplies: an organization system-prompt preamble (for example, data-classification reminders or approved terminology), any prompt overrides directory shipped in the overlay (same file format as section 9, same IDs, overlay copy wins), organization-approved default skills, content that must never be sent to the model (patterns or classifications, enforced before `send()`), and logging and retention rules for token usage metadata. Binding lives in the private spec under "HOOK-LLM-02".
 
 ## 14. Settings, keys, and IPC
 
@@ -498,7 +498,7 @@ Setting and clearing keys goes through `eli5:settings:*` channels owned by [12](
 - [ ] A source set larger than the context budget completes through chunk-then-synthesize without a `context_overflow` error.
 - [ ] `prepareContent`, `generateIndepth`, `generateEli5`, `generateGlossary`, and `summarize` are separate functions that [06](06-generation-pipeline.md) calls in order with checkpoints between them; step functions throw `LLMError` and leave the degrade/fail decision to 06.
 - [ ] The model never emits `SectionId`s or full HTML; section actions return one `SectionDraft` that replaces the section while keeping its ID.
-- [ ] All eleven catalogue prompts exist as `src/main/llm/prompts/*.md`, pass the prompt lint test, and record `id@version` in `meta.json`.
+- [ ] All eleven catalogue prompts exist as `resources/prompts/*.md`, pass the prompt lint test, and record `id@version` in `meta.json`.
 - [ ] Skills placed in the user skills folder are picked up without restart and override bundled skills of the same name; the app works with no skills installed.
 - [ ] Source text is delimited as untrusted content in every prompt.
 - [ ] `llm.provider = bedrock` in the public build fails with the enterprise-edition message, and the stub satisfies the interface; HOOK-LLM-01 and HOOK-LLM-02 are marked with machine marker and callout.

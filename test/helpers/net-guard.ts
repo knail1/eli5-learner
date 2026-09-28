@@ -25,7 +25,8 @@ function isAllowed(host: string | undefined, port: number | undefined): boolean 
 if (process.env.ELI5_ALLOW_NET !== '1') {
   const origConnect = net.Socket.prototype.connect;
   net.Socket.prototype.connect = function (this: net.Socket, ...args: unknown[]) {
-    const first = args[0];
+    // net.connect / createConnection, http's agent and undici pass a normalized `[options, cb]`.
+    const first = Array.isArray(args[0]) ? (args[0] as unknown[])[0] : args[0];
     let host: string | undefined;
     let port: number | undefined;
     if (typeof first === 'object' && first !== null) {

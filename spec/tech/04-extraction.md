@@ -197,7 +197,7 @@ Macro-enabled OOXML (`.pptm`, `.docm`, `.xlsm`) arrives as the base format; macr
 
 PRD: *Preserve slide order, slide titles, bullet hierarchy, speaker notes.*
 
-**Libraries:** `yauzl` (pure JS ZIP reader over the file path, with central-directory sizes and entry-size validation; §10.3) and `fast-xml-parser` (pure JS, no native dependencies). We parse the XML parts directly rather than use a high-level pptx library, because none of those libraries keep bullet levels and notes reliably, and the subset of DrawingML we need is small.
+**Libraries:** `SafeZip` (`zip-safety.ts`, a small central-directory reader on `node:zlib` with pre-inflate size checks and capped inflation; §10.3) and `fast-xml-parser` (pure JS, no native dependencies). We parse the XML parts directly rather than use a high-level pptx library, because none of those libraries keep bullet levels and notes reliably, and the subset of DrawingML we need is small.
 
 **XML parser configuration** (`src/main/extract/ooxml-xml.ts`, shared by all pptx parts and the docx style and text-box scans; SheetJS parses xlsx itself):
 
@@ -208,8 +208,12 @@ const parser = new XMLParser({
   attributeNamePrefix: '@_',
   removeNSPrefix: false,        // element names stay "a:p", "p:sp", ...
   processEntities: true,        // decodes &amp; &lt; &gt; &quot; &apos; and numeric references
-  htmlEntities: false,          // no HTML named entities
+  htmlEntities: XML_ENTITIES,   // the five XML entities only: fast-xml-parser v5 decodes numeric
+                                // references only when this is truthy; no HTML named entities
   allowBooleanAttributes: true,
+  trimValues: false,            // keep a:t runs literally, including whitespace-only runs
+  parseTagValue: false,         // no "007" -> 7 coercion
+  parseAttributeValue: false,
 });
 ```
 
@@ -217,7 +221,7 @@ Before parsing any part, reject it as `corrupt` if its text contains `<!DOCTYPE`
 
 **Algorithm**
 
-1. Run the ZIP safety check (§10.3) while opening the archive with `yauzl`.
+1. Run the ZIP safety check (§10.3) while opening the archive with `SafeZip`.
 2. Parse `ppt/presentation.xml`. Read `p:sldIdLst/p:sldId` in document order. Each `r:id` resolves through `ppt/_rels/presentation.xml.rels` to a slide part. **This list is the slide order.** Never sort by file name: `slide10.xml` can come before `slide2.xml`, and reordered decks do not renumber their files.
 3. For each slide part (index `i`, 1-based):
    1. Parse the slide XML and its `.rels`. Skip the slide if `show="0"`, unless `limits.pptx.includeHidden` is set. Count skipped hidden slides in `warnings`.
@@ -252,7 +256,7 @@ PRD: *Preserve headings, lists, tables.*
 
 **Configuration**
 
-- **Heading style pre-scan.** mammoth style maps match style names or style IDs only, not `w:outlineLvl`. So before conversion, read `word/styles.xml` (through `yauzl` and the §5.1 XML parser) and collect every `w:style[@w:type='paragraph']` whose own or inherited (`w:basedOn` chain, max depth 10) `w:pPr/w:outlineLvl@w:val` is `n` with `0 <= n <= 5`. For each, add `p[style-id='<w:styleId>'] => h<n+1>:fresh`. This covers localized built-in headings (for example `Überschrift 1`, `Titre 1`, `見出し 1`) and custom heading styles without a hard-coded name list.
+- **Heading style pre-scan.** mammoth style maps match style names or style IDs only, not `w:outlineLvl`. So before conversion, read `word/styles.xml` (through `SafeZip` and the §5.1 XML parser) and collect every `w:style[@w:type='paragraph']` whose own or inherited (`w:basedOn` chain, max depth 10) `w:pPr/w:outlineLvl@w:val` is `n` with `0 <= n <= 5`. For each, add `p[style-name='<w:name>'] => h<n+1>:fresh` (mammoth style maps match `style-name` or `p.<StyleId>`, not `style-id`). This covers localized built-in headings (for example `Überschrift 1`, `Titre 1`, `見出し 1`) and custom heading styles without a hard-coded name list.
 - `styleMap` (after the generated entries): map `Title` to `h1`. Map `Heading 1`..`Heading 6` by name to `h1`..`h6` as a fallback for styles that lack `w:outlineLvl`. Map `Quote`/`Intense Quote` to `blockquote`. Map `Caption` to `p.caption`.
 - `includeDefaultStyleMap: true`, and `ignoreEmptyParagraphs: true`.
 - `convertImage`: collect the bytes as image candidates (§7.3) and emit a placeholder `<img data-eli5-img="n">` that becomes an `ImageBlock`. Alt text comes from `descr`.
@@ -267,7 +271,7 @@ PRD: *Preserve headings, lists, tables.*
 4. **Title:** `docProps/core.xml` `dc:title`, else the first `h1`.
 5. Surface mammoth's `messages` (unrecognized styles) in the debug log, not in `warnings`, because they are noisy.
 
-**Edge cases:** text boxes and shapes are not covered by mammoth. Scan `document.xml` for `w:txbxContent`, append their paragraphs at the end under `HeadingBlock("Text boxes", 2)`, and add a warning. SmartArt in docx is not extracted, and a warning records it. Size cap: `limits.maxCharsPerSource` (§10.1).
+**Edge cases:** mammoth (1.13) reads `w:txbxContent` text inline, but not reliably for every shape. Scan `document.xml` for `w:txbxContent`, append only the paragraphs mammoth did not already emit (no duplicated text) at the end under `HeadingBlock("Text boxes", 2)`, and add a warning. SmartArt in docx is not extracted, and a warning records it. Size cap: `limits.maxCharsPerSource` (§10.1).
 
 ---
 
@@ -328,10 +332,10 @@ export type PdfPageRenderer = (
 ) => Promise<Array<{ page: number; png: Uint8Array; width: number; height: number } | { page: number; error: string }>>;
 ```
 
-Implementation (`src/main/extract/render-window.ts`):
+Implementation (`src/main/extract/pdf-render-window.ts`, named per 01 §2):
 
-1. **Scheme.** Before `app.whenReady()`, main calls `protocol.registerSchemesAsPrivileged([{ scheme: 'eli5res', privileges: { standard: true, secure: true, supportFetchAPI: true } }])`, and on the render session registers `session.protocol.handle('eli5res', ...)` serving only files under `resources/extract-render/` and `resources/pdfjs/`. The page is loaded from `eli5res://extract/render.html`, **not** `file://`, because Chromium refuses module workers from `file://` origins and pdf.js needs its `pdf.worker.mjs` as a module worker. The page sets `GlobalWorkerOptions.workerSrc = 'eli5res://pdfjs/pdf.worker.mjs'`.
-2. **Window.** One hidden `BrowserWindow` per job that needs rendering or image normalization, created lazily, reused for every source in that job, and destroyed at job end. Settings: `show: false`, `webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, preload: <render-preload.js>, partition: 'eli5-extract-render' }`. `backgroundThrottling: false` is required because a hidden window is otherwise throttled and timers and `requestAnimationFrame` stall. `session.webRequest.onBeforeRequest` cancels every request whose scheme is not `eli5res:`, `blob:`, or `data:`, so the page has no network.
+1. **Scheme.** Before `app.whenReady()`, main calls `protocol.registerSchemesAsPrivileged([{ scheme: 'eli5res', privileges: { standard: true, secure: true, supportFetchAPI: true } }])`, and on the render session registers `session.protocol.handle('eli5res', ...)` serving only files under `resources/pdf-render/` and `resources/pdfjs/`. The page is loaded from `eli5res://pdf-render/render.html`, **not** `file://`, because Chromium refuses module workers from `file://` origins and pdf.js needs its `pdf.worker.mjs` as a module worker. The page sets `GlobalWorkerOptions.workerSrc = 'eli5res://pdfjs/pdf.worker.mjs'`.
+2. **Window.** One hidden `BrowserWindow` per job that needs rendering or image normalization, created lazily, reused for every source in that job, and destroyed at job end. Settings: `show: false`, `webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, preload: <pdf-render/preload.cjs>, partition: 'eli5-pdf-render' }`. `backgroundThrottling: false` is required because a hidden window is otherwise throttled and timers and `requestAnimationFrame` stall. `session.webRequest.onBeforeRequest` cancels every request whose scheme is not `eli5res:`, `blob:`, or `data:`, so the page has no network.
 3. **Channel.** Main creates a `MessageChannelMain` and sends one end with `webContents.postMessage('eli5:extract:render-port', null, [port])`. That message arrives at `ipcRenderer`, which exists only in the preload, so the preload is minimal: it listens once for `eli5:extract:render-port` and forwards the port to the page with `window.postMessage('eli5-render-port', '*', [port])`. It exposes nothing on `window` and handles no other channel. The page then speaks a small request/response protocol over the port: `{ op: 'render-pdf', id, pdf, pages, targetLongEdgePx }` and `{ op: 'normalize-image', id, bytes, mediaType, opts }`. Bytes are structured-cloned across the port.
 4. **Rendering.** The page renders each requested page to an `OffscreenCanvas` at `scale = targetLongEdgePx / max(viewport.width, viewport.height)` and returns `convertToBlob({ type: 'image/png' })` bytes.
 5. Pages render one at a time, which keeps memory bounded. Each page has its own timeout of `limits.pdf.renderPageTimeoutMs` (default 15 s). If one page fails, it gets an `error` entry and the others continue. If the window's renderer process crashes (`render-process-gone`), outstanding requests fail and the window is recreated once for the next request.
@@ -351,9 +355,9 @@ PRD: *Send directly to the LLM's vision input. No OCR engine.* Also: *paste a sc
 
 **Where it runs.** Normalization runs in the extract render window (§6.3), not in main. Electron `nativeImage` is not used: it only guarantees PNG and JPEG from `createFromBuffer`, has no EXIF orientation API and no header-only dimension read, and its calls are synchronous, so decoding a 50 MP image in main would freeze IPC, the tray, and the UI. Chromium in the hidden window decodes PNG, JPEG, GIF (first frame), WebP, and BMP off the main process. Chromium cannot decode HEIC or TIFF. `sharp` was rejected as a native module that adds packaging and notarization cost for no gain here.
 
-**Formats.** Standalone sources arrive as `png`, `jpeg`, `gif`, `webp`, `bmp`, `heic`, or `tiff` (03 §5, `sniff()`). `heic` and `tiff` are first converted in the extract worker with the built-in macOS tool: `execFile('/usr/bin/sips', ['-s', 'format', 'jpeg', '-s', 'formatOptions', '90', <in>, '--out', <tmp>.jpg])`, with no shell, a 15 s timeout, input and output under the job staging directory, and the temp file deleted afterwards. `sips` keeps the EXIF orientation tag in the JPEG, and step 2 applies it. A non-zero exit or missing output gives `corrupt`. The JPEG then goes through the normal steps below. Embedded images inside pptx/docx follow the same rules by their sniffed type (TIFF and HEIC through `sips`); EMF and WMF are not converted and are dropped under the §7.3 placeholder rule with the warning "N embedded vector images (EMF/WMF) omitted".
+**Formats.** Standalone sources arrive as `png`, `jpeg`, `gif`, `webp`, `bmp`, `heic`, or `tiff` (03 §5, `sniff()`). `heic` and `tiff` are first converted in the extract worker with the built-in macOS tool: `execFile('/usr/bin/sips', ['-s', 'format', 'jpeg', '-s', 'formatOptions', '90', <in>, '--out', <tmp>.jpg])`, with no shell, a 15 s timeout, input and output in a private temp directory (`ExtractContext` carries no staging directory), and that directory deleted afterwards. `sips` keeps the EXIF orientation tag in the JPEG, and step 2 applies it. A non-zero exit or missing output gives `corrupt`. The JPEG then goes through the normal steps below. Embedded images inside pptx/docx follow the same rules by their sniffed type (TIFF and HEIC through `sips`); EMF and WMF are not converted and are dropped under the §7.3 placeholder rule with the warning "N embedded vector images (EMF/WMF) omitted".
 
-**Header dimensions** are read in the extract worker with `image-size` (pure JS, header-only parse; added to the dependency list in `01-architecture.md` §7) before any bytes are sent for decoding.
+**Header dimensions** are read in the extract worker by `image-header.ts` (a header-only parser for PNG, JPEG with EXIF orientation, GIF, WebP, BMP, TIFF, HEIC, EMF and WMF; no dependency) before any bytes are sent for decoding.
 
 ```ts
 export type ImageNormalizer = (
@@ -374,9 +378,9 @@ export type ImageNormalizer = (
 | `images.maxOutputBytes` | 3.75 MB | Keeps base64 payload under 5 MB, the strictest per-image cap among supported providers (see `02-llm-provider.md`) |
 | `images.maxAspect` | 1:8 | Very tall screenshots are split (§7.2) |
 
-Normalization algorithm (steps 2 to 6 run in the render window page, `resources/extract-render/normalize.js`):
+Normalization algorithm (steps 2 to 6 run in the render window page, `resources/pdf-render/normalize.js`):
 
-1. In the extract worker: read the dimensions with `image-size`. Unreadable header gives `corrupt`. If `width × height` exceeds `maxInputPixels`, return `image-too-large` without decoding.
+1. In the extract worker: read the dimensions with `image-header.ts`. Unreadable header gives `corrupt`. If `width × height` exceeds `maxInputPixels`, return `image-too-large` without decoding.
 2. Decode with `createImageBitmap(new Blob([bytes], { type: mediaType }), { imageOrientation: 'from-image' })`. `'from-image'` applies EXIF orientation, so phone photos and rotated JPEGs come out upright. A rejected promise gives `corrupt`.
 3. Compute the target size: if the long edge is more than `targetLongEdgePx`, scale to it; never upscale. The resize is done by `createImageBitmap`'s `resizeWidth`/`resizeHeight` with `resizeQuality: 'high'`.
 4. Draw onto an `OffscreenCanvas`. For JPEG output, first fill it with white so transparent pixels are flattened onto white.
@@ -535,11 +539,11 @@ On timeout, the `AbortSignal` fires. Extractors check `signal.aborted` between s
 
 ### 10.3 Archive and parser safety
 
-- **ZIP (OOXML), `src/main/extract/zip-safety.ts`:** all OOXML reads go through `yauzl`, opened on `payload.path` with `yauzl.open(path, { lazyEntries: true, autoClose: false, validateEntrySizes: true, strictFileNames: true, decodeStrings: true })`. `jszip` is not a direct dependency (update `01-architecture.md` §7 and the `13-testing-quality.md` fixture generators, which should build OOXML fixtures with `yazl`, the writer counterpart).
-  1. **Before inflating anything:** read `zipfile.entryCount` and each entry's central-directory `uncompressedSize` while iterating `entry` events. Refuse with `zip-bomb` if `entryCount > 10,000`, if the sum of declared `uncompressedSize` exceeds 1 GiB, or if any single `.xml`/`.rels` part declares more than 100 MiB. Also refuse entry names containing `..` or absolute paths (`strictFileNames` rejects backslashes).
-  2. **While inflating:** read each needed part with `openReadStream(entry)`. `validateEntrySizes: true` makes yauzl emit an error as soon as the actual inflated bytes exceed the declared `uncompressedSize` (sizes can lie). On top of that, a byte counter on the stream destroys it once the running total across the archive passes 1 GiB. Either error gives `zip-bomb`.
-  3. Only the parts an extractor asks for are inflated; media parts are inflated only if §7.3 keeps them.
-- **XML:** the §5.1 `fast-xml-parser` configuration with `processEntities: true` and `htmlEntities: false`, so `&amp; &lt; &gt; &quot; &apos;` and numeric character references decode correctly. Any part containing `<!DOCTYPE` or `<!ENTITY` is refused as `corrupt` before parsing, so there is no DTD processing, entity expansion, or external entity.
+- **ZIP (OOXML), `src/main/extract/zip-safety.ts`:** all OOXML reads go through `SafeZip`, a small reader of the ZIP central directory built on `node:zlib` (no ZIP library dependency; `jszip`, already in 01 §7, has no pre-inflate size checks and is used only by the fixture generators, alongside a raw ZIP writer for the hostile fixtures). mammoth and SheetJS receive an archive only after every entry has been test-inflated under these limits.
+  1. **Before inflating anything:** read the entry count and each entry's central-directory `uncompressedSize`. Refuse with `zip-bomb` if `entryCount > 10,000`, if the sum of declared `uncompressedSize` exceeds 1 GiB, or if any single `.xml`/`.rels` part declares more than 100 MiB. Also refuse entry names containing `..`, absolute paths or backslashes.
+  2. **While inflating:** inflate each needed part with an output cap equal to its declared `uncompressedSize`, so a part that inflates past it fails (sizes can lie). On top of that, an archive-wide byte counter fails once the running total passes 1 GiB. Either error gives `zip-bomb`.
+  3. Only the parts an extractor asks for are inflated; media parts are inflated too, because the §7.3 size, repetition and ranking rules need their dimensions and hashes; every inflate is still capped.
+- **XML:** the §5.1 `fast-xml-parser` configuration with `processEntities: true` and `htmlEntities` limited to the five XML entities, so `&amp; &lt; &gt; &quot; &apos;` and numeric character references decode correctly. Any part containing `<!DOCTYPE` or `<!ENTITY` is refused as `corrupt` before parsing, so there is no DTD processing, entity expansion, or external entity.
 - **PDF:** `isEvalSupported: false`, no JS execution, no font loading from the system, no network (`disableAutoFetch`, `disableStream`).
 - Content is never executed: no macros, OLE objects, embedded fonts, or scripts. Embedded OLE objects (for example, a workbook inside a deck) are ignored, with a warning.
 
@@ -585,20 +589,20 @@ src/main/extract/
   types.ts              ExtractedContent, ExtractedFormat, ContentBlock, ImageAsset, ExtractSkipCode, ExtractLimits
   limits.ts             DEFAULT_EXTRACT_LIMITS (§10.1)
   payload.ts            payload access by kind (§4)
-  zip-safety.ts         yauzl open + checks (§10.3)
+  zip-safety.ts         SafeZip reader + checks (§10.3)
   ooxml-xml.ts          shared XMLParser config + DOCTYPE/ENTITY guard (§5.1)
   pptx.ts  docx.ts  pdf.ts  xlsx.ts  markdown.ts  text.ts
   html-to-blocks.ts     §9.3 (shared with fetch/)
-  images.ts             header check (image-size), sips pre-conversion, tiling, ImageBudget (§7)
-  render-window.ts      extract render window: PdfPageRenderer + ImageNormalizer (§6.3, §7.1)
-resources/extract-render/  render.html, render.js, normalize.js, render-preload.js (served via eli5res://)
+  images.ts             header check (image-header.ts), sips pre-conversion, tiling, ImageBudget (§7)
+  pdf-render-window.ts  extract render window: PdfPageRenderer + ImageNormalizer (§6.3, §7.1)
+resources/pdf-render/  render.html, render.js, normalize.js, preload.cjs (served via eli5res://)
 resources/pdfjs/           pdf.mjs, pdf.worker.mjs (copied from pdfjs-dist by extraResources)
   serialize.ts          toPromptText() (§11)
   worker.ts             utilityProcess entry (§10.4)
   skip.ts               code → reason text (§8.2)
 ```
 
-Dependencies added by this module: `yauzl`, `fast-xml-parser`, `mammoth`, `pdfjs-dist` (major version pinned), `xlsx` (SheetJS CE, from the CDN tarball), `marked`, `linkedom`, `image-size`; dev only: `yazl` for fixtures. All are pure JS. `sips` is part of macOS, not a dependency. None are native modules, so there is no rebuild step for Electron's ABI and nothing extra to sign or notarize.
+Dependencies added by this module: `fast-xml-parser`, `mammoth`, `pdfjs-dist` (major version pinned), `xlsx` (SheetJS CE, from the CDN tarball), `marked`, `linkedom`; `jszip` and dev-only `exceljs` for fixtures. ZIP reading and image headers use in-repo code (`zip-safety.ts`, `image-header.ts`). All are pure JS. `sips` is part of macOS, not a dependency. None are native modules, so there is no rebuild step for Electron's ABI and nothing extra to sign or notarize.
 
 ---
 
@@ -611,12 +615,12 @@ Dependencies added by this module: `yauzl`, `fast-xml-parser`, `mammoth`, `pdfjs
 - [ ] docx: `Heading 1..6` map to heading levels, and a fixture with localized heading styles (for example `Überschrift 1`, `Titre 1`) maps through the `w:outlineLvl` pre-scan. Numbered and bulleted lists keep nesting. Tables keep rows and columns, with header detection. Bold pseudo-headings are promoted only when no real headings exist.
 - [ ] Text PDF: text is in page order with `PageBlock` numbers matching the PDF. Two-column fixtures read column by column. Running headers and footers are removed. De-hyphenation works.
 - [ ] Scanned PDF: an image-only fixture is detected, and at most 30 pages are rendered at a 1568 px long edge through the hidden window with no network access. The window loads over `eli5res://`, has `backgroundThrottling: false`, and receives its `MessagePort` through the minimal preload. pdf.js text extraction works in a packaged build with `workerSrc` pointing at the copied `pdf.worker.mjs`. A mixed PDF renders only the image-only pages. No OCR library is present in the dependency tree.
-- [ ] Images: PNG/JPEG/GIF/WebP/BMP inputs, and HEIC/TIFF via `sips`, are normalized under 3.75 MB with a long edge of 1568 px or less. EXIF rotation is applied. A 1000×12000 screenshot is tiled into readable parts. A 60 MP image is refused from its header (via `image-size`) before any decode. No `nativeImage` call is made during extraction, and the main process event loop never blocks for more than 50 ms while normalizing a 48 MP JPEG.
+- [ ] Images: PNG/JPEG/GIF/WebP/BMP inputs, and HEIC/TIFF via `sips`, are normalized under 3.75 MB with a long edge of 1568 px or less. EXIF rotation is applied. A 1000×12000 screenshot is tiled into readable parts. A 60 MP image is refused from its header (via `image-header.ts`) before any decode. No `nativeImage` call is made during extraction, and the main process event loop never blocks for more than 50 ms while normalizing a 48 MP JPEG.
 - [ ] Standalone images always get budget ahead of embedded images and page renders. Exceeding the job image budget drops embedded images with a warning and does not skip their source.
 - [ ] xlsx/csv: visible sheets only, with caps of 10 sheets, 200 rows, and 30 columns applied and reported in `TableBlock.truncated`. Values are formatted display strings.
 - [ ] Markdown keeps the text verbatim, with headings, lists, and tables mapped. Plain text in windows-1252 decodes correctly.
 - [ ] Every failure path returns `SkippedSource` with a human reason from §8.2. No extractor exception escapes `extractSource`. Truncation never causes a skip.
-- [ ] ZIP bomb fixtures (entry count, declared size, lying sizes) are refused as `zip-bomb` through `yauzl` within 1 s without large memory growth. XML parts containing `<!DOCTYPE` or `<!ENTITY` are refused as `corrupt`.
+- [ ] ZIP bomb fixtures (entry count, declared size, lying sizes) are refused as `zip-bomb` through `SafeZip` within 1 s without large memory growth. XML parts containing `<!DOCTYPE` or `<!ENTITY` are refused as `corrupt`.
 - [ ] Extraction runs in a `utilityProcess`. A parser crash or timeout in one source leaves the app responsive and the rest of the job running.
 - [ ] `toPromptText` output is byte-identical across runs for all golden fixtures.
 - [ ] Every dependency is pure JS. `electron-builder` packaging needs no native rebuild for this module.

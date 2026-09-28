@@ -1,13 +1,13 @@
 // Generates the menu bar template images (11 §4.1): a document glyph, plus a busy variant with a
 // dot. Template images use only the alpha channel; macOS tints them for light and dark menu bars.
-// Run: node resources/tray/generate-icons.mjs
+// Run: node scripts/generate-tray-icons.mjs
 import { Buffer } from 'node:buffer';
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deflateSync } from 'node:zlib';
 
-const outDir = dirname(fileURLToPath(import.meta.url));
+const outDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'resources', 'tray');
 
 // Glyph in an 18×18 point design space.
 const DOC = { x0: 4, y0: 2, x1: 14, y1: 16, r: 2, stroke: 1.5 };

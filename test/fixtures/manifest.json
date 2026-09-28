@@ -2,6 +2,64 @@
   "version": 1,
   "fixtures": [
     {
+      "path": "sites/article/index.html",
+      "format": "html",
+      "sha256": "fd89de2057a43c59a10d09959f5cc5ff19236421a80b2dc1f82aa515eb9b244a",
+      "expect": {
+        "kind": "extract"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sites/login-wall/index.html",
+      "format": "html",
+      "sha256": "51a8d64ff70e8cb5e9af753e822b6f1cfaac1459c59bd4bd0efa71646b83a8c0",
+      "expect": {
+        "kind": "skip",
+        "skipCode": "login-required"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sites/paywall/index.html",
+      "format": "html",
+      "sha256": "e85ec1848eedb011b30903e00d16dccfdc411f4f19731b8cb041d4cde3def5fd",
+      "expect": {
+        "kind": "skip",
+        "skipCode": "paywall"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sites/redirect-loop/index.html",
+      "format": "html",
+      "sha256": "7407379abe693a575e5d816a8d610ac1fda43b2f0e274e69073c8abb70210b7a",
+      "expect": {
+        "kind": "skip",
+        "skipCode": "too-many-redirects"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sites/slow/index.html",
+      "format": "html",
+      "sha256": "47cf511dab521c4197ecf9e4206f3558a07375febb1127568fadd84335001bba",
+      "expect": {
+        "kind": "skip",
+        "skipCode": "timeout"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sites/spa/index.html",
+      "format": "html",
+      "sha256": "2b09b6df1ace036cc68f70c218e09e535c29496d80419319e40ba181285f15be",
+      "expect": {
+        "kind": "extract"
+      },
+      "provenance": "synthetic"
+    },
+    {
       "path": "sources/docx/bold-headings.docx",
       "format": "docx",
       "generator": "test/fixtures/build/docx.ts",
