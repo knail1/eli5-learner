@@ -16,17 +16,27 @@ type Key = { key: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean;
 const { matchShortcut } = await loadRenderer<{ matchShortcut(k: Key): { id: string; index?: number } | null }>(
   'a11y/shortcuts.ts',
 );
-const { chipLabel, clarifyRows, commitUrlText, isHttpUrl, isTextField, newDraft, startErrorMessage, startRequest } =
-  await loadRenderer<{
-    chipLabel(i: SourceInput): string;
-    clarifyRows(t: string): number;
-    commitUrlText(t: string): { added: SourceInput[]; invalid: string[] };
-    isHttpUrl(s: string): boolean;
-    isTextField(el: EventTarget | null): boolean;
-    newDraft(glossary: boolean): Draft;
-    startErrorMessage(e: IpcError): string;
-    startRequest(d: Draft, inputs: SourceInput[]): StartJobRequest;
-  }>('input/draft.ts');
+const {
+  chipLabel,
+  clarifyRows,
+  commitUrlText,
+  draftAfterStart,
+  isHttpUrl,
+  isTextField,
+  newDraft,
+  startErrorMessage,
+  startRequest,
+} = await loadRenderer<{
+  chipLabel(i: SourceInput): string;
+  draftAfterStart(cur: Draft, sent: StartJobRequest, glossary: boolean): Draft;
+  clarifyRows(t: string): number;
+  commitUrlText(t: string): { added: SourceInput[]; invalid: string[] };
+  isHttpUrl(s: string): boolean;
+  isTextField(el: EventTarget | null): boolean;
+  newDraft(glossary: boolean): Draft;
+  startErrorMessage(e: IpcError): string;
+  startRequest(d: Draft, inputs: SourceInput[]): StartJobRequest;
+}>('input/draft.ts');
 const { filterCatalog, relativeDate, sortCatalog, updatedLabel } = await loadRenderer<{
   filterCatalog(e: CatalogEntry[], q: string): CatalogEntry[];
   relativeDate(iso: string, now?: number): string;
@@ -122,6 +132,30 @@ describe('input draft (11 §5.4)', () => {
     expect(startRequest(d, [img]).draftId).toBe(d.draftId);
     expect(chipLabel(img)).toBe('Pasted image 14:02');
     expect(chipLabel({ id: 'a', kind: 'file', origin: 'drop', path: '/Users/x/deck.pptx' })).toBe('deck.pptx');
+  });
+
+  it('after a start, clears only what was sent (11 §5.4 step 5)', () => {
+    const sentUrl: SourceInput = { id: 'in-00000001', kind: 'url', origin: 'url-field', url: 'https://example.com' };
+    const later: SourceInput = { id: 'in-00000003', kind: 'file', origin: 'drop', path: '/Users/x/later.pdf' };
+    const staged: SourceInput = {
+      id: 'in-00000004',
+      kind: 'text',
+      origin: 'paste',
+      stagedPath: '/tmp/t.txt',
+      markup: 'plain',
+      preview: 'Pasted text',
+    };
+    const d = { ...newDraft(false), clarifying: 'pricing' };
+    const req = startRequest(d, [sentUrl]);
+    const plain = draftAfterStart({ ...d, inputs: [sentUrl, later] }, req, true);
+    expect(plain.inputs).toEqual([later]);
+    expect(plain.clarifying).toBe('');
+    expect(plain.glossary).toBe(true);
+    expect(plain.draftId).not.toBe(d.draftId);
+    // Staged leftovers keep their draft; edited specifics survive.
+    const kept = draftAfterStart({ ...d, inputs: [sentUrl, staged], clarifying: 'pricing and costs' }, req, true);
+    expect(kept.draftId).toBe(d.draftId);
+    expect(kept.clarifying).toBe('pricing and costs');
   });
 
   it('maps edition errors to the documented copy', () => {

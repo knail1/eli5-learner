@@ -1,6 +1,6 @@
 import { act, createElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CatalogEntry, EditionInfo } from '../../../src/preload/contract';
+import type { CatalogEntry, EditionInfo, PublishResult, PublishTarget } from '../../../src/preload/contract';
 import {
   PUBLIC_EDITION,
   button,
@@ -20,6 +20,7 @@ import {
 const { App } = await loadRenderer<{ App: Component }>('App.tsx');
 const { SettingsScreen } = await loadRenderer<{ SettingsScreen: Component }>('settings/SettingsScreen.tsx');
 const { EditionProvider } = await loadRenderer<{ EditionProvider: Component }>('edition/FeatureGate.tsx');
+const { DocHeader } = await loadRenderer<{ DocHeader: Component }>('viewer/DocHeader.tsx');
 
 let fake: FakeApi;
 beforeEach(() => {
@@ -117,6 +118,25 @@ describe('App layout and routes (11 §5, §6)', () => {
     expect(fake.api.library.open).toHaveBeenCalledWith('topic-a');
   });
 
+  it('narrow windows start collapsed, but Cmd+\\ and Cmd+F still open the sidebar (11 §5.2, §12)', async () => {
+    const width = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 950 });
+    try {
+      const host = await render(App);
+      expect(host.querySelector('aside')?.hidden).toBe(true);
+      await key(document.body, '\\', { metaKey: true });
+      expect(host.querySelector('aside')?.hidden).toBe(false);
+      await key(document.body, '\\', { metaKey: true });
+      expect(host.querySelector('aside')?.hidden).toBe(true);
+      await key(document.body, 'f', { metaKey: true });
+      expect(host.querySelector('aside')?.hidden).toBe(false);
+      // The narrow override never flips the persisted wide-window preference.
+      expect(JSON.parse(window.localStorage.getItem('eli5.sidebar') ?? '{}')).toMatchObject({ collapsed: false });
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+    }
+  });
+
   it('public build: no sign-in, publish or enterprise settings elements (HOOK-UI-01)', async () => {
     const host = await render(App);
     await click(button(host, 'Settings'));
@@ -192,10 +212,74 @@ describe('SettingsScreen (11 §7)', () => {
     expect(host.textContent).toContain('3 documents');
   });
 
+  it('does not let a save echo overwrite newer typing in the model field', async () => {
+    const host = await render(App);
+    await click(button(host, 'Settings'));
+    const field = host.querySelector<HTMLInputElement>('input[aria-label="Model"]');
+    await act(async () => field?.focus());
+    await type(field, 'gpt-4');
+    await type(field, 'gpt-4o');
+    // settings.changed for the earlier save arrives while the user is still editing.
+    const s = settings();
+    s.llm.model = 'gpt-4';
+    fake.emit('settings', { changed: ['llm.model'], settings: s });
+    await flush();
+    expect(field?.value).toBe('gpt-4o');
+    // Once the user leaves the field, external values apply again.
+    await act(async () => field?.blur());
+    s.llm.model = 'model-y';
+    fake.emit('settings', { changed: ['llm.model'], settings: structuredClone(s) });
+    await flush();
+    expect(field?.value).toBe('model-y');
+  });
+
   it('has no API key controls for key-less providers', async () => {
     const s = settings();
     s.llm.provider = 'bedrock';
     const host = await mount({ settings: s });
     expect(host.querySelector('input[aria-label="API key"]')).toBeNull();
+  });
+});
+
+describe('DocHeader (11 §5.3)', () => {
+  it('drops an export result that resolves after switching documents', async () => {
+    const local: PublishTarget = {
+      id: 'local',
+      kind: 'local',
+      label: 'Export',
+      available: true,
+      requiresSignIn: false,
+    };
+    fake.api.publish.targets = vi.fn(async () => ok([local])) as typeof fake.api.publish.targets;
+    let finish: (r: ReturnType<typeof ok<PublishResult>>) => void = () => {};
+    fake.api.publish.run = vi.fn(
+      () => new Promise<ReturnType<typeof ok<PublishResult>>>((r) => (finish = r)),
+    ) as unknown as typeof fake.api.publish.run;
+    let setSlug: (s: string) => void = () => {};
+    const { useState } = await import('react');
+    const host = await render(function Harness() {
+      const [slug, set] = useState('doc-a');
+      setSlug = set;
+      return createElement(DocHeader, { slug, entry: undefined });
+    });
+    await click(button(host, 'Export copy'));
+    await act(async () => setSlug('doc-b'));
+    await flush();
+    await act(async () =>
+      finish(
+        ok({
+          targetId: 'local',
+          kind: 'local',
+          slug: 'doc-a',
+          publishedAt: '2026-01-01T00:00:00Z',
+          files: [],
+          links: [{ kind: 'file', url: '/tmp/doc-a', label: 'doc-a copy', primary: true }],
+          warnings: [],
+        }),
+      ),
+    );
+    await flush();
+    expect(host.querySelector('h1')?.textContent).toBe('doc-b');
+    expect(host.querySelector('.result-chip')).toBeNull();
   });
 });

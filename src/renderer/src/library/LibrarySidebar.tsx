@@ -18,6 +18,8 @@ export function LibrarySidebar(p: LibrarySidebarProps) {
   const [query, setQuery] = useState('');
   const known = useRef<Set<string> | null>(null);
   const [fresh, setFresh] = useState<ReadonlySet<string>>(new Set());
+  // Inline message next to the item whose context menu failed (11 §13).
+  const [menuError, setMenuError] = useState<{ slug: string; message: string } | null>(null);
 
   // A newly finished document slides in with a brief highlight; it never steals the selection.
   useEffect(() => {
@@ -33,7 +35,10 @@ export function LibrarySidebar(p: LibrarySidebarProps) {
   const shown = p.entries ? filterCatalog(p.entries, query) : [];
 
   const contextMenu = (slug: string) => {
-    void window.eli5.app.contextMenu({ kind: 'library-item', slug });
+    setMenuError(null);
+    void window.eli5.app.contextMenu({ kind: 'library-item', slug }).then((r) => {
+      if (!r.ok) setMenuError({ slug, message: r.error.message });
+    });
   };
 
   const onItemKey = (e: KeyboardEvent, slug: string) => {
@@ -98,6 +103,11 @@ export function LibrarySidebar(p: LibrarySidebarProps) {
                 <span className="item-title">{e.title}</span>
                 <span className="item-date">{relativeDate(e.createdAt)}</span>
               </button>
+              {menuError?.slug === e.topicSlug && (
+                <p className="inline-error" role="status">
+                  {menuError.message}
+                </p>
+              )}
             </li>
           ))}
         </ul>

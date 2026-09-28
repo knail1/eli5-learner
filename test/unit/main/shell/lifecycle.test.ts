@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  ERROR_PAGE,
+  RELOAD_FRAGMENT,
   closeAction,
   crashTracker,
   installLifecycle,
@@ -93,5 +95,15 @@ describe('crashTracker', () => {
     const t = crashTracker();
     expect(t.record(0)).toBe('reload');
     expect(t.record(60_001)).toBe('reload');
+  });
+});
+
+describe('renderer error page (11 §3.2)', () => {
+  it('offers a Reload control as a script-free same-document link', () => {
+    const html = decodeURIComponent(ERROR_PAGE.slice(ERROR_PAGE.indexOf(',') + 1));
+    expect(html).toContain('Something went wrong.');
+    expect(html).toContain(`<a href="${RELOAD_FRAGMENT}" role="button"`);
+    expect(html).toContain('>Reload</a>');
+    expect(html).not.toMatch(/<script/i);
   });
 });

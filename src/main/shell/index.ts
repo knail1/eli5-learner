@@ -17,12 +17,22 @@ export {
   navigate,
   installAppMenu,
   showLibraryItemMenu,
+  requestCloseMainWindow,
 } from './window';
+export { ContextMenuRequest, handleContextMenu, observeAppEvent, seedTray } from './events';
 export type { ShellPaths, ShellHooks } from './window';
 export { createTray, rebuildTrayMenu, buildTrayMenu, setTrayCatalog, setTrayActiveJobs, trayModel } from './tray';
-export { trayMenuTemplate, trayLabel, trayTooltip, quitLabel, recentFromCatalog, libraryOrder } from './tray-model';
+export {
+  activeJobCounter,
+  trayMenuTemplate,
+  trayLabel,
+  trayTooltip,
+  quitLabel,
+  recentFromCatalog,
+  libraryOrder,
+} from './tray-model';
 export type { TrayEntry, TrayModel, TrayActions } from './tray-model';
-export { shell, installLifecycle, quitApp, closeAction, crashTracker } from './lifecycle';
+export { shell, installLifecycle, quitApp, closeAction, crashTracker, ERROR_PAGE, RELOAD_FRAGMENT } from './lifecycle';
 export type { LifecycleApp } from './lifecycle';
 export { appMenuTemplate, libraryItemMenuTemplate, MENU_IDS } from './app-menu';
 export type { AppMenuActions, LibraryItemMenuActions } from './app-menu';

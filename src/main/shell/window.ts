@@ -4,7 +4,7 @@ import { BrowserWindow, Menu, WebContentsView, app, nativeTheme, screen, session
 import { IPC, type UiRoute, type ViewerBounds } from '../../preload/contract';
 import { APP_CSP_DEV, APP_CSP_PROD, SECURE_WEB_PREFERENCES, log, registerSurface } from '../security';
 import { appMenuTemplate, libraryItemMenuTemplate, type LibraryItemMenuActions } from './app-menu';
-import { closeAction, crashTracker, shell } from './lifecycle';
+import { ERROR_PAGE, RELOAD_FRAGMENT, closeAction, crashTracker, shell } from './lifecycle';
 import {
   WINDOW_DEFAULTS,
   debounce,
@@ -22,6 +22,8 @@ export const VIEWER_PARTITION = 'eli5-viewer';
 export interface ShellHooks {
   /** Loads a document into the viewer (09/07 `viewer.open`); wired by bootstrap in M2. */
   openDocument?(slug: string): void;
+  /** Reveals a document folder in Finder (09 `library.reveal`); wired by bootstrap in M2. */
+  revealDocument?(slug: string): void;
 }
 
 export interface ShellPaths {
@@ -105,7 +107,7 @@ export function installAppMenu(): void {
     Menu.buildFromTemplate(
       appMenuTemplate(
         {
-          hideWindow: () => hideMainWindow(),
+          hideWindow: () => requestCloseMainWindow(),
           openSettings: () => {
             showMainWindow();
             navigate({ view: 'settings' });
@@ -128,13 +130,19 @@ function initialState(): { file: string; state: WindowState } {
   return { file, state };
 }
 
-const ERROR_PAGE =
-  'data:text/html;charset=utf-8,' +
-  encodeURIComponent(
-    '<!doctype html><meta charset="utf-8"><title>ELI5 Learner</title>' +
-      '<body style="font:15px -apple-system,sans-serif;display:grid;place-items:center;height:100vh;margin:0">' +
-      '<p>Something went wrong. Press Return to reload.</p></body>',
-  );
+/**
+ * Close policy shared by the red close button and Cmd+W / Cmd+Q: hide normally, quit when no Tray
+ * exists to come back from (11 §3.2 step 1, §13).
+ */
+export function requestCloseMainWindow(): void {
+  const action = closeAction({ isQuitting: shell.isQuitting, trayAvailable });
+  if (action === 'hide') {
+    hideMainWindow();
+    return;
+  }
+  shell.isQuitting = true;
+  app.quit();
+}
 
 export function createMainWindow(): BrowserWindow {
   installAppCsp();
@@ -195,23 +203,33 @@ export function createMainWindow(): BrowserWindow {
   });
   win.once('ready-to-show', () => win.show());
 
+  // Every reload of the app renderer detaches the viewer first: the reloaded renderer starts on a
+  // non-doc route, and its ViewerSlot re-attaches the view when a doc route mounts (11 §5.1).
+  const reloadRenderer = (): void => {
+    showingErrorPage = false;
+    setViewerVisible(false);
+    void win.loadURL(rendererEntry());
+  };
   const crashes = crashTracker();
   win.webContents.on('render-process-gone', (_e, d) => {
     log.warn('renderer.gone', { kind: d.reason });
     if (shell.isQuitting || win.isDestroyed()) return;
     if (crashes.record(Date.now()) === 'reload') {
-      void win.loadURL(rendererEntry());
+      reloadRenderer();
     } else {
       showingErrorPage = true;
       setViewerVisible(false);
       void win.loadURL(ERROR_PAGE);
     }
   });
+  // Error page recovery: the Reload link (a same-document fragment) or Return (11 §3.2).
+  win.webContents.on('did-navigate-in-page', (_e, url, isMainFrame) => {
+    if (showingErrorPage && isMainFrame && url.endsWith(RELOAD_FRAGMENT)) reloadRenderer();
+  });
   win.webContents.on('before-input-event', (e, input) => {
     if (!showingErrorPage || input.type !== 'keyDown' || input.key !== 'Enter') return;
     e.preventDefault();
-    showingErrorPage = false;
-    void win.loadURL(rendererEntry());
+    reloadRenderer();
   });
 
   viewerView = new WebContentsView({

@@ -59,3 +59,16 @@ export function crashTracker(windowMs = 60_000): { record(now: number): 'reload'
     },
   };
 }
+
+/** In-page fragment the error page's Reload link navigates to; main watches for it (11 §3.2). */
+export const RELOAD_FRAGMENT = '#eli5-reload';
+
+/** Static, script-free page: the Reload link is a same-document fragment, so no JS or preload. */
+export const ERROR_PAGE =
+  'data:text/html;charset=utf-8,' +
+  encodeURIComponent(
+    '<!doctype html><meta charset="utf-8"><title>ELI5 Learner</title>' +
+      '<body style="font:15px -apple-system,sans-serif;display:grid;place-items:center;height:100vh;margin:0">' +
+      '<p>Something went wrong. ' +
+      `<a href="${RELOAD_FRAGMENT}" role="button" autofocus style="margin-left:.5em">Reload</a></p></body>`,
+  );

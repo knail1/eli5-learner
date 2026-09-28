@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SourceInput } from '../../../src/preload/contract';
 import {
   button,
@@ -120,6 +120,42 @@ describe('InputZone start algorithm (11 §5.4)', () => {
     await click(button(host, 'Start'));
     expect(host.textContent).toContain('Not implemented yet');
     expect(host.querySelectorAll('.chip')).toHaveLength(1);
+  });
+
+  it('a second Enter while the key check is pending does not start a second job', async () => {
+    let release: (v: ReturnType<typeof ok<boolean>>) => void = () => {};
+    fake.api.settings.hasApiKey = vi.fn(
+      () => new Promise<ReturnType<typeof ok<boolean>>>((r) => (release = r)),
+    ) as unknown as typeof fake.api.settings.hasApiKey;
+    const { url } = await mount();
+    await type(url, 'https://example.com/a');
+    await key(url, 'Enter');
+    await key(url, 'Enter');
+    await act(async () => release(ok(true)));
+    await flush();
+    expect(fake.api.settings.hasApiKey).toHaveBeenCalledOnce();
+    expect(fake.api.jobs.start).toHaveBeenCalledOnce();
+  });
+
+  it('sources added while jobs.start is in flight survive the post-start clear', async () => {
+    fake.api.settings.hasApiKey = async () => ok(true);
+    let finish: (v: ReturnType<typeof ok<{ jobId: string }>>) => void = () => {};
+    fake.api.jobs.start = vi.fn(
+      () => new Promise<ReturnType<typeof ok<{ jobId: string }>>>((r) => (finish = r)),
+    ) as unknown as typeof fake.api.jobs.start;
+    const { host, url } = await mount();
+    await type(url, 'https://example.com/a');
+    await key(url, 'Enter');
+    expect(fake.api.jobs.start).toHaveBeenCalledOnce();
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('eli5:test:drop-paths', { detail: ['/Users/x/later.pdf'] }));
+    });
+    await flush();
+    await act(async () => finish(ok({ jobId: 'job-1' })));
+    await flush();
+    const chips = Array.from(host.querySelectorAll('.chip')).map((c) => c.textContent ?? '');
+    expect(chips).toHaveLength(1);
+    expect(chips[0]).toContain('later.pdf');
   });
 
   it('Shift+Enter in specifics does not start', async () => {

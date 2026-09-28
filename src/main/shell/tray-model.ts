@@ -1,5 +1,5 @@
 import type { MenuItemConstructorOptions } from 'electron';
-import type { CatalogEntry } from '../../preload/contract';
+import type { CatalogEntry, JobSnapshot } from '../../preload/contract';
 
 /** Tray menu model (11 §4.1). Pure; the Electron side lives in tray.ts. */
 
@@ -71,4 +71,30 @@ export function trayMenuTemplate(m: TrayModel, a: TrayActions): MenuItemConstruc
   items.push({ type: 'separator' });
   items.push({ label: quitLabel(m.activeJobs), click: () => a.quit() });
   return items;
+}
+
+/**
+ * Active job count from `eli5:jobs:changed` snapshots (one job per event): queued and running
+ * jobs count; done and failed do not (11 §4.2).
+ */
+export function activeJobCounter(): {
+  update(s: Pick<JobSnapshot, 'id' | 'status'>): number;
+  reset(all: readonly Pick<JobSnapshot, 'id' | 'status'>[]): number;
+} {
+  const active = new Set<string>();
+  const apply = (s: Pick<JobSnapshot, 'id' | 'status'>): void => {
+    if (s.status === 'done' || s.status === 'failed') active.delete(s.id);
+    else active.add(s.id);
+  };
+  return {
+    update(s) {
+      apply(s);
+      return active.size;
+    },
+    reset(all) {
+      active.clear();
+      for (const s of all) apply(s);
+      return active.size;
+    },
+  };
 }

@@ -225,4 +225,11 @@ describe('LibrarySidebar (11 §5.2, §8)', () => {
     await key(host.querySelector('.library-item'), 'F10', { shiftKey: true });
     expect(fake.api.app.contextMenu).toHaveBeenCalledWith({ kind: 'library-item', slug: 'topic-b' });
   });
+
+  it('a failed context-menu call shows an inline message next to the item (11 §13)', async () => {
+    const entries = [entry('Topic A', '2026-01-01T00:00:00Z')];
+    const host = await render(LibrarySidebar, { ...base, entries });
+    await key(host.querySelector('.library-item'), 'ContextMenu');
+    expect(host.querySelector('li .inline-error')?.textContent).toBe('Not implemented yet');
+  });
 });

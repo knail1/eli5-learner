@@ -271,7 +271,12 @@ function ModelField(p: { provider: ProviderId; value: string | null; onChange(v:
   const [text, setText] = useState(p.value ?? '');
   const [suggested, setSuggested] = useState<string[]>([]);
   const [placeholder, setPlaceholder] = useState('');
-  useEffect(() => setText(p.value ?? ''), [p.value]);
+  // While the user edits, echoes of earlier debounced saves (settings.changed) must not overwrite
+  // newer typing; external values (e.g. a provider switch) apply whenever the field is not focused.
+  const editing = useRef(false);
+  useEffect(() => {
+    if (!editing.current) setText(p.value ?? '');
+  }, [p.value]);
   useEffect(() => {
     let live = true;
     void window.eli5.llm.models(p.provider).then((r) => {
@@ -292,6 +297,12 @@ function ModelField(p: { provider: ProviderId; value: string | null; onChange(v:
         list="model-suggestions"
         placeholder={placeholder}
         value={text}
+        onFocus={() => {
+          editing.current = true;
+        }}
+        onBlur={() => {
+          editing.current = false;
+        }}
         onChange={(e) => {
           setText(e.target.value);
           p.onChange(e.target.value.trim() || null);

@@ -93,6 +93,24 @@ export function startRequest(d: InputDraft, inputs: SourceInput[]): StartJobRequ
   return req;
 }
 
+/**
+ * Draft after a successful start (11 §5.4 step 5): drops the inputs that were sent and the sent
+ * specifics, keeping anything added while `jobs.start` was in flight. Staged leftovers keep the
+ * old draftId because their staging lives under it; otherwise a fresh draftId is taken.
+ */
+export function draftAfterStart(cur: InputDraft, sent: StartJobRequest, glossary: boolean): InputDraft {
+  const sentIds = new Set(sent.inputs.map((i) => i.id));
+  const rest = cur.inputs.filter((i) => !sentIds.has(i.id));
+  const fresh = newDraft(glossary);
+  return {
+    draftId: rest.some(isStaged) ? cur.draftId : fresh.draftId,
+    inputs: rest,
+    urlText: cur.urlText,
+    clarifying: cur.clarifying.trim() === sent.options.clarifyingInput ? '' : cur.clarifying,
+    glossary,
+  };
+}
+
 /** Inline message for a failed start (11 §5.4 step 6, 01 §6.4). */
 export function startErrorMessage(e: IpcError): string {
   return e.code === 'E_NOT_AVAILABLE_IN_EDITION' ? 'Requires the enterprise edition' : e.message;

@@ -63,6 +63,9 @@ function Shell() {
   const startupDone = useRef(false);
   const [sidebar, setSidebar] = useState(readSidebar);
   const [narrow, setNarrow] = useState(() => window.innerWidth < SIDEBAR.narrow);
+  // Below 1000 px the sidebar starts collapsed, but Cmd+\ and Cmd+F can still open it; this
+  // override is per narrow spell and never touches the persisted collapsed flag (11 §5.2, §12).
+  const [narrowOpen, setNarrowOpen] = useState(false);
   const inputZone = useRef<InputZoneHandle>(null);
   const filterRef = useRef<HTMLInputElement>(null);
 
@@ -148,7 +151,12 @@ function Shell() {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
-  const collapsed = sidebar.collapsed || narrow;
+  useEffect(() => {
+    if (!narrow) setNarrowOpen(false);
+  }, [narrow]);
+  const collapsed = narrow ? !narrowOpen : sidebar.collapsed;
+  const narrowRef = useRef(narrow);
+  narrowRef.current = narrow;
 
   // ---- shortcuts (11 §9) ----
   const catalogRef = useRef(catalog);
@@ -182,10 +190,12 @@ function Shell() {
           openSettings();
           break;
         case 'toggle-sidebar':
-          setSidebar((s) => ({ ...s, collapsed: !s.collapsed }));
+          if (narrowRef.current) setNarrowOpen((o) => !o);
+          else setSidebar((s) => ({ ...s, collapsed: !s.collapsed }));
           break;
         case 'focus-filter':
-          setSidebar((s) => ({ ...s, collapsed: false }));
+          if (narrowRef.current) setNarrowOpen(true);
+          else setSidebar((s) => ({ ...s, collapsed: false }));
           requestAnimationFrame(() => filterRef.current?.focus());
           break;
         case 'prev-doc': {

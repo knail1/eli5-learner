@@ -16,6 +16,7 @@ import {
   chipLabel,
   clarifyRows,
   commitUrlText,
+  draftAfterStart,
   fileInput,
   isHttpUrl,
   isStaged,
@@ -62,6 +63,9 @@ export function InputZone(p: InputZoneProps) {
   const [dragDepth, setDragDepth] = useState(0);
   const [starting, setStarting] = useState(false);
   const lastStart = useRef(0);
+  // Synchronous guard: taken before the first await so a second Enter during the key check or
+  // jobs.start cannot send a duplicate job (11 §5.4 debounce).
+  const inFlight = useRef(false);
   const hintTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -217,8 +221,18 @@ export function InputZone(p: InputZoneProps) {
 
   // ---- Start algorithm (11 §5.4) ----
   const start = async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    try {
+      await runStart();
+    } finally {
+      inFlight.current = false;
+    }
+  };
+
+  const runStart = async () => {
     // Debounce only real starts against a double Enter; validation hints stay immediate.
-    if (starting || Date.now() - lastStart.current < START_DEBOUNCE_MS) return;
+    if (Date.now() - lastStart.current < START_DEBOUNCE_MS) return;
     setStartError(null);
     const d = draftRef.current;
     let inputs = d.inputs;
@@ -250,11 +264,13 @@ export function InputZone(p: InputZoneProps) {
     // 4. Start.
     lastStart.current = Date.now();
     setStarting(true);
-    const r = await window.eli5.jobs.start(startRequest(draftRef.current, inputs));
+    const req = startRequest(draftRef.current, inputs);
+    const r = await window.eli5.jobs.start(req);
+    lastStart.current = Date.now();
     setStarting(false);
     if (r.ok) {
-      // 5. Clear the draft; the next job can be composed immediately.
-      setDraft(newDraft(p.glossaryDefault));
+      // 5. Clear what was sent; anything added while the start was in flight stays (11 §5.4).
+      setDraft((cur) => draftAfterStart(cur, req, p.glossaryDefault));
       setGlossaryTouched(false);
       setHint(null);
       announce('Started');

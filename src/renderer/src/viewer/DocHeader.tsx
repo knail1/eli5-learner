@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CatalogEntry, PublishResult, PublishTarget, UiFeature } from '../../../preload/contract';
 import { useEdition } from '../edition/FeatureGate';
 import { updatedLabel } from '../library/order';
@@ -21,6 +21,9 @@ export function DocHeader(p: { slug: string; entry: CatalogEntry | undefined }) 
   const [busy, setBusy] = useState<string | null>(null);
   const [result, setResult] = useState<PublishResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The header stays mounted across documents; async results apply only to the slug that asked.
+  const slugRef = useRef(p.slug);
+  slugRef.current = p.slug;
 
   useEffect(() => {
     let live = true;
@@ -42,16 +45,20 @@ export function DocHeader(p: { slug: string; entry: CatalogEntry | undefined }) 
   });
 
   const run = async (t: PublishTarget) => {
+    const slug = p.slug;
     setBusy(t.id);
     setError(null);
-    const r = await window.eli5.publish.run(p.slug, t.id);
+    const r = await window.eli5.publish.run(slug, t.id);
     setBusy(null);
+    if (slugRef.current !== slug) return;
     if (r.ok) setResult(r.value);
     else setError(r.error.message);
   };
 
   const reveal = async () => {
-    const r = await window.eli5.library.reveal(p.slug);
+    const slug = p.slug;
+    const r = await window.eli5.library.reveal(slug);
+    if (slugRef.current !== slug) return;
     setError(r.ok ? null : r.error.message);
   };
 

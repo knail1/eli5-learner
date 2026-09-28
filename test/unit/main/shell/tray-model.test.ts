@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { CatalogEntry } from '../../../../src/preload/contract';
 import {
+  activeJobCounter,
   quitLabel,
   recentFromCatalog,
   trayLabel,
@@ -112,5 +113,22 @@ describe('labels', () => {
     expect(quitLabel(0)).toBe('Quit');
     expect(quitLabel(1)).toBe('Quit (1 job will resume)');
     expect(quitLabel(3)).toBe('Quit (3 jobs will resume)');
+  });
+});
+
+describe('activeJobCounter (11 §4.2)', () => {
+  it('counts queued and running jobs from single-job change events', () => {
+    const c = activeJobCounter();
+    expect(c.update({ id: 'a', status: 'queued' })).toBe(1);
+    expect(c.update({ id: 'b', status: 'generating' })).toBe(2);
+    expect(c.update({ id: 'a', status: 'reading' })).toBe(2);
+    expect(c.update({ id: 'a', status: 'done' })).toBe(1);
+    expect(c.update({ id: 'b', status: 'failed' })).toBe(0);
+    expect(
+      c.reset([
+        { id: 'x', status: 'saving' },
+        { id: 'y', status: 'done' },
+      ]),
+    ).toBe(1);
   });
 });
