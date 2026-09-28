@@ -304,18 +304,23 @@ describe('eli5:library:* (09 §11)', () => {
   });
 });
 
-describe('M3 channels stay registered as not implemented', () => {
-  it('answers suggestions, publish and doc section channels with E_INTERNAL', async () => {
+describe('M3 channels answer not implemented until their service is plugged in', () => {
+  it('validates first, then answers suggestions, publish and doc section channels with E_INTERNAL', async () => {
     const h = await setup();
-    for (const ch of [IPC.suggestions.list, IPC.publish.targets]) {
-      expect(await h.call(ch, {})).toEqual({
-        ok: false,
-        error: { code: 'E_INTERNAL', message: 'Not implemented yet' },
-      });
-    }
-    expect(await h.call(IPC.doc.regenerateSection, {}, 'viewer')).toEqual({
+    const notImplemented = { ok: false, error: { code: 'E_INTERNAL', message: 'Not implemented yet' } };
+    expect(await h.call(IPC.suggestions.list)).toEqual(notImplemented);
+    expect(await h.call(IPC.publish.targets, { slug: 'solar-power' })).toEqual(notImplemented);
+    const section = {
+      slug: 'solar-power',
+      tabKey: 'indepth',
+      sectionId: 'sec-indepth-3f9a1c2e',
+      action: 'expand',
+      selectionText: 'Some selected text',
+    };
+    expect(await h.call(IPC.doc.regenerateSection, section, 'viewer')).toEqual(notImplemented);
+    expect(await h.call(IPC.doc.regenerateSection, {}, 'viewer')).toMatchObject({
       ok: false,
-      error: { code: 'E_INTERNAL', message: 'Not implemented yet' },
+      error: { code: 'E_BAD_REQUEST' },
     });
   });
 });

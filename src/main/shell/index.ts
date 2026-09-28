@@ -47,3 +47,9 @@ export {
   SIDEBAR_DEFAULT,
 } from './window-state';
 export type { WindowState } from './window-state';
+
+// M3 (11 §7, §14): completion notifications and the settings folder chooser.
+export { notifyOnCreateDone } from './completion';
+export type { CompletionEvent } from './completion';
+export * from './notifications';
+export * from './choose-folder';

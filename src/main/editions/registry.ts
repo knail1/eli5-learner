@@ -114,10 +114,13 @@ export interface RegistryOptions {
   getSettings: () => Settings;
   /** Called when an id is replaced; for logging (IDs only). */
   onReplace?: (kind: string, id: string) => void;
+  /** app.getVersion(), reported in EditionInfo.version (11 §7 About). */
+  appVersion?: string;
 }
 
 export class Registry implements CapabilityRegistry {
   readonly edition: Edition;
+  private readonly appVersion: string;
   private readonly getSettings: () => Settings;
   private readonly onReplace: (kind: string, id: string) => void;
   private isFrozen = false;
@@ -142,6 +145,7 @@ export class Registry implements CapabilityRegistry {
     this.edition = opts.edition;
     this.getSettings = opts.getSettings;
     this.onReplace = opts.onReplace ?? (() => {});
+    this.appVersion = opts.appVersion ?? '0.0.0';
   }
 
   get frozen(): boolean {
@@ -403,6 +407,7 @@ export class Registry implements CapabilityRegistry {
     }
     return {
       edition: this.edition,
+      version: this.appVersion,
       overlayLoaded: this.overlayName !== undefined,
       ...(this.overlayName !== undefined ? { overlayName: this.overlayName } : {}),
       llmProviders,

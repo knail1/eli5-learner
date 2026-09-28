@@ -8,6 +8,7 @@ import type {
   PublishResult,
   PublishStage,
   PublishTarget,
+  SecretFinding,
 } from '../../preload/contract';
 
 // Wire types are owned by the preload contract; re-exported here so publish code has one import site.
@@ -20,6 +21,7 @@ export type {
   PublishResult,
   PublishStage,
   PublishTarget,
+  SecretFinding,
 };
 
 /** One file that may leave the machine; produced only by buildPublishFileSet (10 §3.3). */
@@ -58,12 +60,16 @@ export interface Publisher {
   publish(ctx: PublishContext): Promise<PublishResult>;
 }
 
-/** Publish failure (10 §3.2). `detail` is logged, never sent to the renderer. */
+/**
+ * Publish failure (10 §3.2). `detail` is logged, never sent to the renderer; masked `findings`
+ * (E_PUBLISH_SECRET_FOUND) are sent so the UI can list them (10 §7 step 5).
+ */
 export class PublishError extends Error {
   constructor(
     readonly code: PublishErrorCode,
     message: string,
     readonly detail?: unknown,
+    readonly findings?: SecretFinding[],
   ) {
     super(message);
     this.name = 'PublishError';
@@ -73,16 +79,6 @@ export class PublishError extends Error {
 // ---------------------------------------------------------------------------
 // Secret scanning (10 §5.4)
 // ---------------------------------------------------------------------------
-
-export interface SecretFinding {
-  relPath: string;
-  /** 1-based. */
-  line: number;
-  /** e.g. "private-key-block", "cloud-access-key-id", "generic-high-entropy". */
-  rule: string;
-  /** Matched text with all but the first 4 chars masked. */
-  preview: string;
-}
 
 /** Scanner seam (HOOK-PUB-03 may replace the baseline). */
 export interface SecretScanner {

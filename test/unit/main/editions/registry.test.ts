@@ -45,6 +45,13 @@ describe('registerPublicCapabilities (01 §6.3)', () => {
     });
   });
 
+  it('carries the app version for Settings > About (11 §7), 0.0.0 when unknown', () => {
+    expect(publicRegistry().info().version).toBe('0.0.0');
+    const reg = new Registry({ edition: 'public', getSettings: () => DEFAULTS, appVersion: '1.2.3' });
+    registerPublicCapabilities(reg);
+    expect(reg.info().version).toBe('1.2.3');
+  });
+
   it('orders default resolvers by 01 §6.2 priority', () => {
     expect(
       publicRegistry()

@@ -375,10 +375,10 @@ export type SettingsSection =
 | API key | Password field + **Save**, state "Key saved in Keychain" or "No key", **Remove**, **Test connection** | `eli5:settings:set-api-key`, `has-api-key`, `clear-api-key`, `eli5:llm:test-connection` |
 | Model | Combobox: suggestions from `eli5:llm:models`, free text allowed | `llm.model` |
 | Documents | "Explain domain specific terms by default" switch | `glossary.defaultOn` |
-| Library | Location (read only), document count, read-only reason if any, + **Reveal in Finder** | `eli5:library:info` (09), `eli5:library:reveal` |
+| Library | Location (read only), document count, read-only reason if any, + **Reveal in Finder** | `eli5:library:info` (09), `eli5:library:reveal-root` |
 | Publishing | Export folder (read-only path + **Choose…**, which opens a native open panel for directories), "Reveal in Finder after export" switch, link "How to set up a Pages repository" (10 §8) | `publish.local.dir`, `publish.local.revealAfter` (10, 12) |
 | Notifications | See "Notifications section" below | `notifications.enabled`, `notifications.clickAction`, `notifications.preferredLink` (12 §3); `eli5:app:test-notification`, `eli5:app:open-notification-settings` |
-| About | Version, edition name, links to README and help docs (HOOK-UI-02) | `eli5:edition:info` |
+| About | Version (`EditionInfo.version`), edition name, links to README and help docs (HOOK-UI-02) | `eli5:edition:info` |
 | Enterprise | Rendered only when HOOK-UI-01 enables it | HOOK-UI-01, HOOK-CFG-01 |
 
 Rules:
@@ -477,15 +477,15 @@ Additions to the 01 §5.2 baseline, same conventions (`IpcResult<T>`, zod valida
 | `eli5:viewer:set-visible` | R→M | shell/viewer | `{visible: boolean}` | `void` |
 | `eli5:sources:classify-text` | R→M | sources (03) | `{text: string}` (≤ 2048 chars) | `{kind: 'url' \| 'bare' \| 'invalid'; label: string}` |
 | `eli5:settings:choose-folder` | R→M | shell | `{key: 'publish.local.dir'}` | `{path: string} \| {cancelled: true}` (main shows the open panel, validates, and saves the key) |
+| `eli5:library:reveal-root` | R→M | shell/library | — | `void` (Finder shows the Library root; Settings > Library **Reveal in Finder**) |
 | `eli5:app:test-notification` | R→M | shell/notifications | — | `{shown: boolean; reason?: 'disabled' \| 'unsupported'}` (§14.7) |
 | `eli5:app:open-notification-settings` | R→M | shell/notifications | — | `void` (main opens the fixed System Settings URL, §14.6) |
 
-These channels must also be added to the 01 §5.2 IPC table (the two notification channels in its
-App shell group); their constants go in `contract.ts` when implemented.
+All of these channels are in the 01 §5.2 IPC table and their constants are in `contract.ts`.
 
 `window.eli5` gains `app: { onNavigate(cb): Unsubscribe; contextMenu(p); testNotification();
 openNotificationSettings() }`,
-`viewer.setVisible(v)`, `sources.classifyText(t)`, and `settings.chooseFolder(k)`. There is deliberately no renderer channel to quit the app (§3.2).
+`viewer.setVisible(v)`, `sources.classifyText(t)`, `library.revealRoot()`, and `settings.chooseFolder(k)`. There is deliberately no renderer channel to quit the app (§3.2).
 
 ## 11. Enterprise-only UI
 

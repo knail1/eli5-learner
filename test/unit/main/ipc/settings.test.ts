@@ -104,11 +104,43 @@ describe('eli5:settings:* (12 §5)', () => {
       [IPC.settings.hasApiKey, { provider: 'claude' }],
       [IPC.settings.clearApiKey, { provider: 'claude' }],
       [IPC.settings.describe, undefined],
+      [IPC.settings.chooseFolder, { key: 'publish.local.dir' }],
     ];
     for (const [channel, payload] of calls) {
       expect(await h.call(channel, payload, 'viewer'), channel).toEqual(forbidden);
     }
     expect(await h.keyStore.has(account('claude'))).toBe(false);
     expect(h.settings.get().pipeline.maxConcurrentJobs).toBe(1);
+  });
+});
+
+describe('eli5:settings:choose-folder (11 §7, §10)', () => {
+  it('delegates the panel to the FolderChooser for publish.local.dir only', async () => {
+    const chooseFolder = vi.fn(async () => ({ path: '/Users/me/Exports' }));
+    const h = await setup({ services: { folders: { chooseFolder } } });
+    expect(await h.call(IPC.settings.chooseFolder, { key: 'publish.local.dir' })).toEqual({
+      ok: true,
+      value: { path: '/Users/me/Exports' },
+    });
+    chooseFolder.mockResolvedValueOnce({ cancelled: true } as never);
+    expect(await h.call(IPC.settings.chooseFolder, { key: 'publish.local.dir' })).toEqual({
+      ok: true,
+      value: { cancelled: true },
+    });
+    for (const bad of [undefined, {}, { key: 'llm.model' }, { key: 'publish.local.dir', path: '/etc' }]) {
+      const r = await h.call(IPC.settings.chooseFolder, bad);
+      if (r.ok) expect(chooseFolder).toHaveBeenLastCalledWith('publish.local.dir');
+      else expect(r).toMatchObject({ ok: false, error: { code: 'E_BAD_REQUEST' } });
+    }
+    // Unknown keys are stripped; the renderer can never pass a path.
+    expect(chooseFolder.mock.calls.every((c: unknown[]) => c.length === 1 && c[0] === 'publish.local.dir')).toBe(true);
+  });
+
+  it('answers "Not implemented yet" until a FolderChooser is plugged in', async () => {
+    const h = await setup();
+    expect(await h.call(IPC.settings.chooseFolder, { key: 'publish.local.dir' })).toEqual({
+      ok: false,
+      error: { code: 'E_INTERNAL', message: 'Not implemented yet' },
+    });
   });
 });

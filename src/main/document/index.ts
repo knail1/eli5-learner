@@ -76,3 +76,7 @@ export type { ImageNormalizer, NormalizedImage, NativeImageModule, NativeImageLi
 export { sanitizeSvg, colorToken } from './svg-sanitize';
 export { checkDocumentHtml, MAX_DOCUMENT_BYTES } from './validity';
 export type { ValidityReport, ValidityError, ValidityRule, ValidityMeta } from './validity';
+
+// M3 slices (08, 09 §10): filled by their builders; see each file's header.
+export * from './interactive';
+export * from './merge';

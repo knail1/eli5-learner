@@ -32,9 +32,10 @@ import {
   providerKeyPresent,
   registerIpc,
   snapshotClipboard,
+  type IpcServices,
   type QuitStep,
 } from './ipc';
-import { JobQueue, createPipelineDeps } from './pipeline';
+import { JobQueue, createPipelineDeps, type SectionRunner } from './pipeline';
 import { sweepStaleDrafts } from './sources/drafts';
 import { DOC_SCHEME, createDocProtocolHandler, gitCheckIgnored, installDocProtocol, openLibrary } from './library';
 import { configureLlmRuntime, createLlmFetch, retryPolicyFromPipeline } from './llm';
@@ -47,6 +48,7 @@ import {
   initShell,
   isAppUrl,
   mainWebContents,
+  notifyOnCreateDone,
   observeAppEvent,
   seedTray,
   setViewerBounds,
@@ -55,6 +57,7 @@ import {
   showMainWindow,
   VIEWER_PARTITION,
   viewerWebContents,
+  type Notifier,
 } from './shell';
 
 // Privileges must be registered at module load, before ready (12 §7.7).
@@ -111,6 +114,7 @@ async function bootstrap(): Promise<void> {
     edition,
     getSettings: () => settings.get(),
     onReplace: (kind, id) => log.info('registry.replaced', { kind, capability: id }),
+    appVersion: app.getVersion(),
   });
   late.registry = registry;
   registerPublicCapabilities(registry);
@@ -181,6 +185,24 @@ async function bootstrap(): Promise<void> {
     observeAppEvent(channel, payload);
     mainWebContents()?.send(channel, payload);
   };
+  // M→D pushes (08 §4.1): only ever to the viewer.
+  const sendToViewer = (channel: IpcChannel, payload: unknown): void => viewerWebContents()?.send(channel, payload);
+
+  // ---------------------------------------------------------------------------------------------
+  // M3 feature slots (dependency injection points). Each slice builds its service in its own
+  // module; the integrator plugs the factories in at the M3-PLUG markers below. Until then every
+  // slot is empty: its channels answer "Not implemented yet" (ipc/services.ts) and the app runs.
+  //   sectionRunner  08  src/main/document/interactive/   (SectionRunner, 06 §8.2)
+  //   services       08  sectionActions   SectionActions      src/main/document/interactive/
+  //                  09  suggestions      MergeSuggestions    src/main/library/merge/
+  //                  10  publish          PublishService      src/main/publish/service.ts
+  //                  11  notifications    NotificationControls src/main/shell/notifications.ts
+  //                  11  folders          FolderChooser       src/main/shell/choose-folder.ts
+  //   notifier       11  Notifier (createNotifier)             src/main/shell/notifications.ts
+  // ---------------------------------------------------------------------------------------------
+  const m3: { sectionRunner?: SectionRunner; services: Partial<IpcServices>; notifier?: Notifier } = {
+    services: {},
+  };
 
   // Generation pipeline (06 §2). Fake-LLM test runs need no Keychain key (13 §8.1).
   const fakeLlm = __ELI5_TEST__ && process.env.ELI5_LLM_FAKE === '1';
@@ -202,11 +224,17 @@ async function bootstrap(): Promise<void> {
     prepareRenderWebContents: (wc) => registerSurface(wc, 'other', (u) => u.protocol === 'eli5res:'),
     requireApiKey: !fakeLlm,
   });
-  const jobs = new JobQueue(pipeline.deps);
-  jobs.on('done', (e) => {
-    // 11 §14 completion notifications hang off this event for create jobs (M3).
-    log.info('pipeline.job-done', { jobId: e.jobId, kind: e.kind });
+  // M3-PLUG 08: m3.sectionRunner = createSectionRunner({ ...pipeline, library, ... });
+  const jobs = new JobQueue({
+    ...pipeline.deps,
+    ...(m3.sectionRunner ? { sectionRunner: m3.sectionRunner } : {}),
   });
+  jobs.on('done', (e) => log.info('pipeline.job-done', { jobId: e.jobId, kind: e.kind }));
+  // 11 §14.2: one "Document ready" per finished create job, through the notifier slot.
+  jobs.on(
+    'done',
+    notifyOnCreateDone(() => m3.notifier),
+  );
   // Crash recovery (06 §9.4) finishes before IPC exists, so the renderer's first eli5:jobs:list
   // already sees resumed jobs. A failure here must not stop the app from opening the Library.
   await jobs.init().catch((err: unknown) => log.error('pipeline.init-failed', {}, err));
@@ -236,6 +264,14 @@ async function bootstrap(): Promise<void> {
   const revealDocument = (slug: string): void => {
     if (library.hasSlug(slug)) electronShell.showItemInFolder(library.docPath(slug));
   };
+  // Settings > Library "Reveal in Finder" (11 §7): the root itself, never a renderer path.
+  const revealLibraryRoot = (): void => electronShell.showItemInFolder(library.root);
+
+  // M3-PLUG 08:  m3.services.sectionActions = createSectionActions({ jobs, library, ... });
+  // M3-PLUG 09:  m3.services.suggestions = createMergeSuggestions({ library, ... });
+  // M3-PLUG 10:  m3.services.publish = createPublishService({ registry, library, settings, ... });
+  // M3-PLUG 11:  m3.notifier = createNotifier({ ... }); m3.services.notifications = { ... };
+  // M3-PLUG 11:  m3.services.folders = createFolderChooser({ dialog, settings, ... });
 
   // 6. IPC, windows, Tray
   registerIpc({
@@ -246,11 +282,13 @@ async function bootstrap(): Promise<void> {
     registry,
     viewer: { setBounds: setViewerBounds, setVisible: setViewerVisible },
     sendToApp,
+    sendToViewer,
     jobs,
     library,
-    documents: { open: openDocument, reveal: revealDocument },
+    documents: { open: openDocument, reveal: revealDocument, revealRoot: revealLibraryRoot },
     sources: { userData, clipboard: () => snapshotClipboard(clipboard) },
     apiKeyReady: fakeLlm ? async () => true : () => providerKeyPresent(settings.get().llm.provider, keyStore),
+    services: m3.services,
   });
   initShell({
     preloadDir: path.join(import.meta.dirname, '../preload'),

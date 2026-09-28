@@ -1,4 +1,4 @@
-// Public API of the publish module (10). listTargets / runPublish / buildPublishFileSet land in M3.
+// Public API of the publish module (10).
 export type {
   GitHandoffManifest,
   GitHandoffResult,
@@ -31,3 +31,6 @@ export { defaultPrePublishPolicy } from './policy';
 export { BaselineSecretScanner, scanText, maskPreview, shannonEntropy } from './scanner';
 export type { BaselineSecretScannerOptions } from './scanner';
 export { registerPublic, registerPublicPublishers } from './register';
+
+// M3 publish service (10 §4, §7): filled by the publishing slice.
+export * from './service';

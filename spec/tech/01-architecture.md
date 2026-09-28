@@ -215,6 +215,8 @@ HOOK-PUB-03). Publish UI visibility is HOOK-UI-01.
   code and detail are logged (IDs only), never sent. In particular `LibraryError` (09 §9) maps
   `LIBRARY_READ_ONLY` → `E_LIBRARY_READ_ONLY`, `SUGGESTION_STALE` → `E_SUGGESTION_STALE`,
   `MERGE_FAILED` → `E_MERGE_FAILED`, `NOT_FOUND` → `E_NOT_FOUND`, everything else → `E_IO`.
+  `PublishError` (10) maps to `E_PUBLISH_FAILED` with its `PublishErrorCode` in `detailCode` and,
+  for `E_PUBLISH_SECRET_FOUND`, the masked `findings`; its `detail` is never sent.
   A module needing a new code adds it here; `detailCode` carries a finer module code where the
   UI needs one (for example `PublishErrorCode`, 10).
 
@@ -229,7 +231,9 @@ export type IpcErrorCode =
   | 'E_SETTINGS_INVALID' | 'E_SETTINGS_LOCKED' | 'E_SECRET_IN_SETTINGS' | 'E_SETTINGS_IO'
   | 'E_KEY_FORMAT' | 'E_KEYCHAIN_UNAVAILABLE'
   // library (09)
-  | 'E_LIBRARY_READ_ONLY' | 'E_SUGGESTION_STALE' | 'E_MERGE_FAILED';
+  | 'E_LIBRARY_READ_ONLY' | 'E_SUGGESTION_STALE' | 'E_MERGE_FAILED'
+  // publish (10): every PublishError; its PublishErrorCode travels in detailCode
+  | 'E_PUBLISH_FAILED';
 
 export interface IpcError {
   code: IpcErrorCode;
@@ -237,6 +241,7 @@ export interface IpcError {
   detailCode?: string;      // optional finer module code (e.g. a PublishErrorCode); never secret
   capability?: string;      // set for E_NOT_AVAILABLE_IN_EDITION
   hookId?: string;          // e.g. "HOOK-PUB-01", set for E_NOT_AVAILABLE_IN_EDITION
+  findings?: SecretFinding[]; // masked secret-scanner hits for detailCode E_PUBLISH_SECRET_FOUND (10 §7)
 }
 export type IpcResult<T> = { ok: true; value: T } | { ok: false; error: IpcError };
 ```
@@ -268,6 +273,7 @@ this table is corrected. Channel **names** are fixed here.
 | `eli5:sources:stage-text` | R→M | `{draftId; text; markup: 'plain'\|'html'}` | `SourceInput` | 03 §13 |
 | `eli5:sources:discard` | R→M | `{draftId; inputId}` | `void` | 03 §13 |
 | `eli5:sources:discard-draft` | R→M | `{draftId}` | `void` | 03 §13 |
+| `eli5:sources:classify-text` | R→M | `{text}` (≤ 2048 chars) | `ClassifyTextResult {kind: 'url'\|'bare'\|'invalid'; label}` (lane router `routeBare`; public: non-URL text is `invalid`) | 11 §5.4 |
 | `eli5:sources:register-drop` | R→M | `{paths: string[]}` (absolute; sent only by the app preload's capture-phase listener for a trusted `drop`) | `DropRegistration[]` (`{inputId, path}`). Main mints an opaque input id per path; file `SourceInput`s in `eli5:jobs:start` carry that id (the preload swaps it in), and main reads its own registered path, never the renderer's. An unknown id → `E_FORBIDDEN`; a successful start uses the ids up. File inputs from `eli5:sources:read-clipboard` get ids the same way | 06 §11 |
 | `eli5:auth:status` | R→M | — | `AuthStatus`; public: `{state:'unavailable'}` (HOOK-AUTH-01) | 03 §12 |
 | `eli5:auth:sign-in` | R→M | — | `AuthStatus`; public: `E_NOT_AVAILABLE_IN_EDITION` | 03 §12 |
@@ -289,6 +295,7 @@ this table is corrected. Channel **names** are fixed here.
 | `eli5:library:open` | R→M | `{slug}` | `void` (loads viewer) | 09 §11 |
 | `eli5:library:reveal` | R→M | `{slug}` | `void` (Finder) | 09 §11 |
 | `eli5:library:info` | R→M | — | `{root: string; readOnly: boolean; readOnlyReason?: string; count: number}` | 09 §11 |
+| `eli5:library:reveal-root` | R→M | — | `void` (Finder shows the Library root; Settings > Library) | 11 §7 |
 | `eli5:library:changed` | M→R | — | `{entries: CatalogEntry[]}` | 09 §11 |
 | `eli5:suggestions:list` | R→M | — | `MergeSuggestion[]` | 09 §11 |
 | `eli5:suggestions:accept` | R→M | `{suggestionId}` | `{targetSlug}`; `E_SUGGESTION_STALE`, `E_MERGE_FAILED`, `E_LIBRARY_READ_ONLY` | 09 §11 |
@@ -301,7 +308,7 @@ this table is corrected. Channel **names** are fixed here.
 | --- | --- | --- | --- | --- |
 | `eli5:doc:regenerate-section` | D→M | `SectionActionRequest {slug; tabKey; sectionId; action: SectionAction; selectionText; note?}` | `{jobId}` | 08 §3 |
 | `eli5:doc:create-section-eli5` | D→M | `CreateSectionEli5Request` (06's `eli5:doc:section-eli5` is this channel) | `{jobId}` | 08 §3 |
-| `eli5:doc:close-tab` | D→M | `{slug; tabKey}` (section ELI5 tabs only) | `void` | 08 §3 |
+| `eli5:doc:close-tab` | D→M | `CloseTabRequest {slug; tabKey}` (section ELI5 tabs only) | `void` | 08 §3 |
 | `eli5:doc:updated` | M→R | — | `{slug; sectionId?: SectionId; tabKey?: string}` | 08 |
 | `eli5:doc:scroll-to` | M→D | — | `ScrollToEvent {sectionId?; tabKey?; flash: boolean; loadSeq: number}` | 08 §3 |
 | `eli5:doc:section-busy` | M→D | — | `SectionBusyEvent` (full busy list for the loaded document) | 08 §4.1 |
@@ -315,7 +322,7 @@ this table is corrected. Channel **names** are fixed here.
 | --- | --- | --- | --- | --- |
 | `eli5:app:navigate` | M→R | — | `AppNavigateEvent {route: UiRoute}` | 11 §10 |
 | `eli5:app:context-menu` | R→M | `{kind: 'library-item'; slug}` | `void` (native menu shown by main) | 11 §10 |
-| `eli5:app:test-notification` | R→M | — | `{shown: boolean; reason?: 'disabled' \| 'unsupported'}` | 11 §14 |
+| `eli5:app:test-notification` | R→M | — | `TestNotificationResult {shown: boolean; reason?: 'disabled' \| 'unsupported'}` | 11 §14 |
 | `eli5:app:open-notification-settings` | R→M | — | `void` (main opens the fixed System Settings > Notifications URL; 12 §7.5 exception) | 11 §14 |
 | `eli5:test:tray-click` | R→M | test-defined | `void`; registered **only** when `__ELI5_TEST__` is true (§8.1) | 13 |
 
@@ -329,6 +336,7 @@ this table is corrected. Channel **names** are fixed here.
 | `eli5:settings:has-api-key` | R→M | `{provider}` | `boolean` | 12 §5 |
 | `eli5:settings:clear-api-key` | R→M | `{provider}` | `void` | 12 §5 |
 | `eli5:settings:describe` | R→M | — | `SettingsDescription` | 12 §5 |
+| `eli5:settings:choose-folder` | R→M | `{key: 'publish.local.dir'}` | `ChooseFolderResult` = `{path}` \| `{cancelled: true}` (main shows the open panel, validates, saves the key) | 11 §10 |
 | `eli5:settings:changed` | M→R | — | `{changed: string[]; settings: Settings}` | 12 §5 |
 | `eli5:edition:info` | R→M | — | `EditionInfo` (§6.2) | this file |
 
@@ -338,7 +346,7 @@ this table is corrected. Channel **names** are fixed here.
 | --- | --- | --- | --- | --- |
 | `eli5:publish:targets` | R→M | `{slug}` | `PublishTarget[]`: all registered targets; stubs have `available:false` | 10 §6 |
 | `eli5:publish:run` | R→M | `{slug; targetId}` | `PublishResult` | 10 §6 |
-| `eli5:publish:progress` | M→R | — | `{slug; targetId; stage: PublishStage\|'failed'; result?; error?}` | 10 §6 |
+| `eli5:publish:progress` | M→R | — | `{slug; targetId; stage: PublishStage\|'failed'; result?; error?: IpcError}` (a failure is `E_PUBLISH_FAILED` + `detailCode`) | 10 §6 |
 | `eli5:publish:history` | R→M | `{slug}` | `PublicationRecord[]` newest first | 10 §6 |
 | `eli5:publish:cancel` | R→M | `{slug; targetId}` | `void` | 10 §6 |
 | `eli5:publish:copy-link` | R→M | `{url}` | `void` (clipboard written in main) | 10 §6 |
@@ -364,16 +372,16 @@ export interface Eli5Api {
   };
   sources: {
     readClipboard(draftId: string); stageText(draftId: string, text: string, markup: 'plain' | 'html');
-    discard(draftId: string, inputId: string); discardDraft(draftId: string);
+    discard(draftId: string, inputId: string); discardDraft(draftId: string); classifyText(text: string);
   };
-  library: { list(); open(slug: string); reveal(slug: string); info(); onChanged(cb): Unsub };
+  library: { list(); open(slug: string); reveal(slug: string); info(); revealRoot(); onChanged(cb): Unsub };
   suggestions: { list(); accept(id: string); dismiss(id: string); onChanged(cb): Unsub };
   doc: { onUpdated(cb): Unsub };
   viewer: { setBounds(r: { x: number; y: number; width: number; height: number }); setVisible(v: boolean) };
   llm: { testConnection(provider?: ProviderId); models(provider: ProviderId) };
   settings: {
     get(); set(p: DeepPartial<Settings>); describe();
-    setApiKey(p, k); hasApiKey(p); clearApiKey(p);
+    setApiKey(p, k); hasApiKey(p); clearApiKey(p); chooseFolder(key: 'publish.local.dir');
     onChanged(cb: (e: { changed: string[]; settings: Settings }) => void): Unsub;
   };
   edition: { info(): Promise<IpcResult<EditionInfo>> };
@@ -539,6 +547,7 @@ export interface CapabilityRegistry {
 
 export interface EditionInfo {
   edition: Edition;
+  version: string;                            // app.getVersion(), for Settings > About (11 §7)
   overlayLoaded: boolean;
   overlayName?: string;                       // display name supplied by the overlay (HOOK-UI-02)
   llmProviders: { id: string; available: boolean }[];

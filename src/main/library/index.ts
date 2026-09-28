@@ -1,4 +1,4 @@
-/** Public API of src/main/library (09). Merge suggestions land in M3. */
+/** Public API of src/main/library (09). */
 export * from './types';
 export * from './schema';
 export {
@@ -41,3 +41,6 @@ export { readVersioned, metaMigrations, catalogMigrations, suggestionsMigrations
 export type { Migration } from './migrations';
 export { createDocProtocolHandler, installDocProtocol, DOC_SCHEME } from './protocol';
 export type { DocProtocolDeps } from './protocol';
+
+// M3 merge suggestions (09 §10): filled by the merge slice.
+export * from './merge';

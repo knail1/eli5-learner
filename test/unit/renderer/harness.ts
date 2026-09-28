@@ -33,6 +33,7 @@ export const notImplemented: IpcResult<never> = {
 
 export const PUBLIC_EDITION: EditionInfo = {
   edition: 'public',
+  version: '0.1.0',
   overlayLoaded: false,
   llmProviders: [
     { id: 'claude', available: true },
@@ -51,7 +52,10 @@ type Listener = (payload: never) => void;
 export interface FakeApi {
   api: Eli5Api;
   /** Emit a main → renderer event, e.g. emit('jobs', snapshot). */
-  emit(event: 'jobs' | 'library' | 'suggestions' | 'settings' | 'navigate' | 'auth', payload: unknown): void;
+  emit(
+    event: 'jobs' | 'library' | 'suggestions' | 'settings' | 'navigate' | 'auth' | 'doc' | 'publish',
+    payload: unknown,
+  ): void;
 }
 
 const resolved = <T>(v: IpcResult<T>) => vi.fn(async () => v);
@@ -80,12 +84,14 @@ export function installFakeApi(edition: EditionInfo = PUBLIC_EDITION): FakeApi {
       stageText: resolved(notImplemented),
       discard: resolved(ok(undefined)),
       discardDraft: resolved(ok(undefined)),
+      classifyText: vi.fn(async (text: string) => ok({ kind: 'invalid', label: text })),
     },
     library: {
       list: resolved(notImplemented),
       open: resolved(notImplemented),
       reveal: resolved(notImplemented),
       info: resolved(notImplemented),
+      revealRoot: resolved(ok(undefined)),
       onChanged: on('library'),
     },
     suggestions: {
@@ -107,6 +113,7 @@ export function installFakeApi(edition: EditionInfo = PUBLIC_EDITION): FakeApi {
       setApiKey: resolved(ok(undefined)),
       hasApiKey: resolved(ok(false)),
       clearApiKey: resolved(ok(undefined)),
+      chooseFolder: resolved(notImplemented),
       onChanged: on('settings'),
     },
     edition: { info: resolved(ok(edition)) },
@@ -126,7 +133,12 @@ export function installFakeApi(edition: EditionInfo = PUBLIC_EDITION): FakeApi {
       signOut: resolved(notImplemented),
       onChanged: on('auth'),
     },
-    app: { onNavigate: on('navigate'), contextMenu: resolved(notImplemented) },
+    app: {
+      onNavigate: on('navigate'),
+      contextMenu: resolved(notImplemented),
+      testNotification: resolved(notImplemented),
+      openNotificationSettings: resolved(notImplemented),
+    },
     files: { pathFor: vi.fn((f: File) => `/tmp/${f.name}`) },
   } as unknown as Eli5Api;
   window.eli5 = api;

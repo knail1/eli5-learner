@@ -3,10 +3,13 @@ import type {
   ApiKeyProvider,
   AuthStatus,
   CatalogEntry,
+  ChooseFolderResult,
+  ClassifyTextResult,
   CreateSectionEli5Request,
   DeepPartial,
   DocUpdatedEvent,
   EditionInfo,
+  FolderSettingKey,
   IpcResult,
   JobSnapshot,
   LibraryInfo,
@@ -25,6 +28,7 @@ import type {
   SourceInput,
   StartJobRequest,
   TestConnectionResult,
+  TestNotificationResult,
   ViewerBounds,
 } from './contract';
 
@@ -46,12 +50,16 @@ export interface Eli5Api {
     stageText(draftId: string, text: string, markup: 'plain' | 'html'): R<SourceInput>;
     discard(draftId: string, inputId: string): R<void>;
     discardDraft(draftId: string): R<void>;
+    /** Non-http tokens from the URL field (11 §5.4). */
+    classifyText(text: string): R<ClassifyTextResult>;
   };
   library: {
     list(): R<CatalogEntry[]>;
     open(slug: string): R<void>;
     reveal(slug: string): R<void>;
     info(): R<LibraryInfo>;
+    /** Reveals the Library root in Finder (Settings > Library, 11 §7). */
+    revealRoot(): R<void>;
     onChanged(cb: (e: { entries: CatalogEntry[] }) => void): Unsub;
   };
   suggestions: {
@@ -73,6 +81,8 @@ export interface Eli5Api {
     setApiKey(p: ApiKeyProvider, k: string): R<void>;
     hasApiKey(p: ApiKeyProvider): R<boolean>;
     clearApiKey(p: ApiKeyProvider): R<void>;
+    /** Main shows the folder panel, validates and saves the key (11 §7, §10). */
+    chooseFolder(key: FolderSettingKey): R<ChooseFolderResult>;
     onChanged(cb: (e: { changed: string[]; settings: Settings }) => void): Unsub;
   };
   edition: { info(): R<EditionInfo> };
@@ -95,6 +105,10 @@ export interface Eli5Api {
   app: {
     onNavigate(cb: (e: AppNavigateEvent) => void): Unsub;
     contextMenu(r: { kind: 'library-item'; slug: string }): R<void>;
+    /** 11 §14.7. */
+    testNotification(): R<TestNotificationResult>;
+    /** Opens System Settings > Notifications (11 §14.6). */
+    openNotificationSettings(): R<void>;
   };
   /** webUtils.getPathForFile; the single drop-path helper. */
   files: { pathFor(file: File): string };

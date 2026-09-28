@@ -533,7 +533,7 @@ adds the following, with the same conventions (`IpcResult<T>`, zod validation, a
 
 | Channel | Dir | Request | Response / payload |
 | --- | --- | --- | --- |
-| `eli5:publish:progress` | M→R | — | `{slug; targetId; stage: PublishStage \| 'failed'; result?: PublishResult; error?: IpcError & {publishCode?: PublishErrorCode}}` |
+| `eli5:publish:progress` | M→R | — | `{slug; targetId; stage: PublishStage \| 'failed'; result?: PublishResult; error?: IpcError}`; a `PublishError` arrives as `E_PUBLISH_FAILED` with the `PublishErrorCode` in `detailCode` and, for `E_PUBLISH_SECRET_FOUND`, the masked `findings` (01 §5.1) |
 | `eli5:publish:history` | R→M | `{slug}` | `PublicationRecord[]` newest first |
 | `eli5:publish:cancel` | R→M | `{slug; targetId}` | `void` (aborts `ctx.signal`; no-op if not running) |
 | `eli5:publish:copy-link` | R→M | `{url}` | `void` (writes to system clipboard in main) |

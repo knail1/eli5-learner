@@ -1,11 +1,27 @@
 import { z } from 'zod';
-import { IPC, type Settings, type SettingsDescription } from '../../preload/contract';
+import {
+  IPC,
+  type ChooseFolderResult,
+  type FolderSettingKey,
+  type Settings,
+  type SettingsDescription,
+} from '../../preload/contract';
 import { account, checkApiKeyFormat, type DeepPartial, type KeyStore, type SettingsStore } from '../config';
 import type { Registry } from '../editions';
 import { log } from '../security';
 import { NoPayload, WithWarnings, fail, type Register } from './handle';
 
+/**
+ * Folder chooser (11 §7 Publishing, §10), implemented by the settings slice: shows the native
+ * open panel for directories, validates the choice (10 §4 step 1) and saves the key. A rejected
+ * folder throws IpcFailure / SettingsError so the message renders inline.
+ */
+export interface FolderChooser {
+  chooseFolder(key: FolderSettingKey): Promise<ChooseFolderResult>;
+}
+
 export interface SettingsIpcDeps {
+  folders: FolderChooser;
   settings: SettingsStore;
   keyStore: KeyStore;
   /** Only `invalidateLLM` is used: a new key or provider takes effect on the next LLM call. */
@@ -35,6 +51,8 @@ export function registerSettingsIpc(on: Register, d: SettingsIpcDeps): void {
     await d.keyStore.delete(account(p.provider));
     d.registry.invalidateLLM();
   });
+  // The renderer names the key only; the path always comes from main's panel.
+  on(IPC.settings.chooseFolder, z.object({ key: z.enum(['publish.local.dir']) }), (p) => d.folders.chooseFolder(p.key));
   on(IPC.settings.describe, NoPayload, async (): Promise<SettingsDescription> =>
     d.settings.describe(await d.keyStore.available()),
   );

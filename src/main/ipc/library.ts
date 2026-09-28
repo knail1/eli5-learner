@@ -18,6 +18,8 @@ export interface DocumentActions {
   open(slug: string): void;
   /** Reveals the document folder in Finder (09 §11). */
   reveal(slug: string): void;
+  /** Reveals the Library root folder in Finder (`eli5:library:reveal-root`, 11 §7). */
+  revealRoot(): void;
 }
 
 /** The viewer URL of a catalogued document (01 §2.1, 12 §7.7). Throws on an invalid slug. */
@@ -52,4 +54,5 @@ export function registerLibraryIpc(on: Register, d: { library: LibraryPort; docu
     known(p.slug);
     d.documents.reveal(p.slug);
   });
+  on(IPC.library.revealRoot, NoPayload, (): void => d.documents.revealRoot());
 }

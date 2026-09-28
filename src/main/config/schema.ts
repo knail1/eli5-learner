@@ -80,6 +80,14 @@ export const SettingsSchema = z
       })
       .strict()
       .prefault({}),
+    notifications: z
+      .object({
+        enabled: z.boolean().default(true), // 11 §14.2
+        clickAction: z.enum(['app', 'published-link']).default('app'), // 11 §14.4
+        preferredLink: z.enum(['most-recent', 'drive', 'site']).default('most-recent'),
+      })
+      .strict()
+      .prefault({}), // 11 §14; HOOK-UI-03
     enterprise: Dormant, // reserved for SettingsExtension (HOOK-CFG-01)
   })
   .strict();

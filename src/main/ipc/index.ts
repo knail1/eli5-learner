@@ -18,11 +18,24 @@ import { ContextMenuRequest, handleContextMenu } from '../shell';
 import { safeOpenExternal } from '../security';
 import type { ClipboardPort } from '../sources';
 import { DropRegistry } from './drops';
-import { fail, makeHandle, NoPayload, type HandlerRegistrar, type Register, type SenderIdentity } from './handle';
+import {
+  fail,
+  makeHandle,
+  NoPayload,
+  toIpcError,
+  type HandlerRegistrar,
+  type Register,
+  type SenderIdentity,
+} from './handle';
 import { registerJobsIpc, type JobsPort } from './jobs';
 import { registerLibraryIpc, type DocumentActions, type LibraryPort } from './library';
+import { registerAppIpc } from './app';
+import { registerDocIpc } from './doc';
+import { registerPublishIpc } from './publish';
+import { notImplementedServices, type IpcServices } from './services';
 import { registerSettingsIpc } from './settings';
 import { registerSourcesIpc } from './sources';
+import { registerSuggestionsIpc } from './suggestions';
 
 export { assertSender, toIpcError, IpcFailure, fail, makeHandle, NO_API_KEY } from './handle';
 export type { SenderIdentity, HandlerRegistrar } from './handle';
@@ -35,6 +48,14 @@ export { createQuitHandler, QUIT_BOUND_MS } from './quit';
 export type { QuitStep } from './quit';
 export type { AsyncClipboard } from './clipboard';
 export type { LibraryPort, DocumentActions } from './library';
+export { notImplementedServices } from './services';
+export type { IpcServices } from './services';
+export type { SectionActions } from './doc';
+export type { MergeSuggestions } from './suggestions';
+export type { PublishService, PublishServiceProgress } from './publish';
+export type { NotificationControls } from './app';
+export type { FolderChooser } from './settings';
+export { classifyText } from './sources';
 
 export interface IpcDeps {
   ipc: HandlerRegistrar;
@@ -48,6 +69,8 @@ export interface IpcDeps {
   };
   /** Push an event to the app renderer. */
   sendToApp(channel: IpcChannel, payload: unknown): void;
+  /** Push an event to the document viewer (M→D: scroll-to, section-busy). */
+  sendToViewer(channel: IpcChannel, payload: unknown): void;
   /** 06 JobQueue (M2). */
   jobs: JobsPort;
   /** 09 FsLibrary. */
@@ -58,6 +81,8 @@ export interface IpcDeps {
   sources: { userData: string; clipboard: () => ClipboardPort | Promise<ClipboardPort>; drops?: DropRegistry };
   /** 01 §6.2 pre-check for `eli5:jobs:start`: false yields E_NO_API_KEY. */
   apiKeyReady(): Promise<boolean>;
+  /** M3 feature services; missing slots answer "Not implemented yet" (services.ts). */
+  services?: Partial<IpcServices>;
 }
 
 /** 01 §6.2: the Keychain holds a key for `provider`; providers without a Keychain key need none. */
@@ -85,14 +110,31 @@ export function registerIpc(d: IpcDeps): () => void {
     handle(channel, VIEWER_CHANNELS.includes(channel) ? 'viewer' : 'app', schema, fn);
   };
   const drops = d.sources.drops ?? new DropRegistry();
+  const svc: IpcServices = { ...notImplementedServices(), ...d.services };
 
   // ---- jobs (06 §11), sources (03 §13), library (09 §11) ----
   registerJobsIpc(on, { jobs: d.jobs, drops, userData: d.sources.userData, apiKeyReady: d.apiKeyReady });
-  registerSourcesIpc(on, { userData: d.sources.userData, clipboard: d.sources.clipboard, drops });
+  registerSourcesIpc(on, {
+    userData: d.sources.userData,
+    clipboard: d.sources.clipboard,
+    drops,
+    registry: d.registry,
+  });
   registerLibraryIpc(on, { library: d.library, documents: d.documents });
 
-  // ---- settings (12 §5) ----
-  registerSettingsIpc(on, { settings: d.settings, keyStore: d.keyStore, registry: d.registry });
+  // ---- M3 feature areas (08, 09 §10, 10, 11 §14): validation here, behavior in the services ----
+  registerDocIpc(on, { actions: svc.sectionActions });
+  registerSuggestionsIpc(on, { suggestions: svc.suggestions });
+  registerPublishIpc(on, { publish: svc.publish });
+  registerAppIpc(on, { notifications: svc.notifications });
+
+  // ---- settings (12 §5, 11 §10) ----
+  registerSettingsIpc(on, {
+    settings: d.settings,
+    keyStore: d.keyStore,
+    registry: d.registry,
+    folders: svc.folders,
+  });
 
   // ---- edition (01 §6.2) ----
   on(IPC.edition.info, NoPayload, (): EditionInfo => d.registry.info());
@@ -129,7 +171,7 @@ export function registerIpc(d: IpcDeps): () => void {
     implemented.add(IPC.test.trayClick);
   }
 
-  // ---- everything else: owned by M1+ modules, registered so the preload API is total ----
+  // ---- safety net: any channel without a handler answers "not implemented" ----
   for (const channel of invokableChannels()) {
     if (implemented.has(channel)) continue;
     handle(channel, VIEWER_CHANNELS.includes(channel) ? 'viewer' : 'app', z.unknown(), () =>
@@ -142,6 +184,14 @@ export function registerIpc(d: IpcDeps): () => void {
     d.jobs.on('changed', (s) => d.sendToApp(IPC.jobs.changed, s)),
     d.library.on('changed', () => d.sendToApp(IPC.library.changed, { entries: d.library.list() })),
     d.settings.onChanged((settings, changed) => d.sendToApp(IPC.settings.changed, { changed, settings })),
+    svc.sectionActions.onUpdated((e) => d.sendToApp(IPC.doc.updated, e)),
+    svc.sectionActions.onScrollTo((e) => d.sendToViewer(IPC.doc.scrollTo, e)),
+    svc.sectionActions.onSectionBusy((e) => d.sendToViewer(IPC.doc.sectionBusy, e)),
+    svc.suggestions.onChanged((suggestions) => d.sendToApp(IPC.suggestions.changed, { suggestions })),
+    svc.suggestions.onDocUpdated((e) => d.sendToApp(IPC.doc.updated, e)),
+    svc.publish.onProgress(({ error, ...e }) =>
+      d.sendToApp(IPC.publish.progress, error === undefined ? e : { ...e, error: toIpcError(error) }),
+    ),
   ];
   return () => {
     for (const off of subs.splice(0)) off();

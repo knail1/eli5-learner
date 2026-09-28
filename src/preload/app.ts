@@ -47,12 +47,14 @@ const api: Eli5Api = {
     stageText: (draftId, text, markup) => invoke(IPC.sources.stageText, { draftId, text, markup }),
     discard: (draftId, inputId) => invoke(IPC.sources.discard, { draftId, inputId }),
     discardDraft: (draftId) => invoke(IPC.sources.discardDraft, { draftId }),
+    classifyText: (text) => invoke(IPC.sources.classifyText, { text }),
   },
   library: {
     list: () => invoke(IPC.library.list),
     open: (slug) => invoke(IPC.library.open, { slug }),
     reveal: (slug) => invoke(IPC.library.reveal, { slug }),
     info: () => invoke(IPC.library.info),
+    revealRoot: () => invoke(IPC.library.revealRoot),
     onChanged: on(IPC.library.changed),
   },
   suggestions: {
@@ -77,6 +79,7 @@ const api: Eli5Api = {
     setApiKey: (provider, key) => invoke(IPC.settings.setApiKey, { provider, key }),
     hasApiKey: (provider) => invoke(IPC.settings.hasApiKey, { provider }),
     clearApiKey: (provider) => invoke(IPC.settings.clearApiKey, { provider }),
+    chooseFolder: (key) => invoke(IPC.settings.chooseFolder, { key }),
     onChanged: on(IPC.settings.changed),
   },
   edition: { info: () => invoke(IPC.edition.info) },
@@ -99,6 +102,8 @@ const api: Eli5Api = {
   app: {
     onNavigate: on(IPC.app.navigate),
     contextMenu: (r) => invoke(IPC.app.contextMenu, r),
+    testNotification: () => invoke(IPC.app.testNotification),
+    openNotificationSettings: () => invoke(IPC.app.openNotificationSettings),
   },
   files: { pathFor: (file) => webUtils.getPathForFile(file) },
 };

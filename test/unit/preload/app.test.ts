@@ -117,4 +117,24 @@ describe('app preload', () => {
       options: {},
     });
   });
+
+  it('maps the M3 methods to their channels (01 §5.3, 11 §10, 10 §6, 09 §11)', async () => {
+    type Fn = (...a: unknown[]) => Promise<unknown>;
+    const api = exposed.eli5 as Record<string, Record<string, Fn>>;
+    const cases: [Fn, unknown[], string, unknown][] = [
+      [api.app!.testNotification!, [], IPC.app.testNotification, undefined],
+      [api.app!.openNotificationSettings!, [], IPC.app.openNotificationSettings, undefined],
+      [api.settings!.chooseFolder!, ['publish.local.dir'], IPC.settings.chooseFolder, { key: 'publish.local.dir' }],
+      [api.sources!.classifyText!, ['ABC-123'], IPC.sources.classifyText, { text: 'ABC-123' }],
+      [api.library!.revealRoot!, [], IPC.library.revealRoot, undefined],
+      [api.suggestions!.accept!, ['s-1'], IPC.suggestions.accept, { suggestionId: 's-1' }],
+      [api.publish!.run!, ['solar-power', 'local'], IPC.publish.run, { slug: 'solar-power', targetId: 'local' }],
+      [api.publish!.reveal!, ['file:///x'], IPC.publish.reveal, { url: 'file:///x' }],
+    ];
+    for (const [fn, args, channel, payload] of cases) {
+      invoke.mockClear();
+      await fn(...args);
+      expect(invoke).toHaveBeenCalledWith(channel, payload);
+    }
+  });
 });

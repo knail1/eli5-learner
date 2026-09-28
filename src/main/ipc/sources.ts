@@ -1,6 +1,8 @@
-import { IPC, type DropRegistration, type SourceInput } from '../../preload/contract';
+import { z } from 'zod';
+import { IPC, type ClassifyTextResult, type DropRegistration, type SourceInput } from '../../preload/contract';
 import { log } from '../security';
 import { discardDraft, discardInput, readClipboardInputs, stageText, type ClipboardPort } from '../sources';
+import type { Registry } from '../editions';
 import type { DropRegistry } from './drops';
 import type { Register } from './handle';
 import { DiscardPayload, DraftPayload, RegisterDropPayload, StageTextPayload } from './schemas';
@@ -10,6 +12,28 @@ export interface SourcesIpcDeps {
   /** A paste-time snapshot of the clipboard (03 §6.1, §15); see snapshotClipboard. */
   clipboard: () => ClipboardPort | Promise<ClipboardPort>;
   drops: DropRegistry;
+  /** Lane router for bare identifiers (`eli5:sources:classify-text`, 11 §5.4). */
+  registry: Pick<Registry, 'laneRouter'>;
+}
+
+/** 11 §10: `{text}` of at most 2048 chars. */
+const ClassifyTextPayload = z.object({
+  text: z
+    .string()
+    .max(2048)
+    .refine((t) => t.trim().length > 0, 'Empty'),
+});
+
+/**
+ * 11 §5.4: http(s) URLs are `url`; a token the lane router accepts as a bare identifier (for
+ * example a ticket key, HOOK-SRC-02/03) is `bare`; anything else is `invalid`. The public router
+ * accepts no bare identifiers, so the field behaves as URL-only.
+ */
+export function classifyText(text: string, router: { routeBare(t: string): unknown }): ClassifyTextResult {
+  const t = text.trim();
+  if (URL.canParse(t) && ['http:', 'https:'].includes(new URL(t).protocol)) return { kind: 'url', label: t };
+  if (router.routeBare(t) !== null) return { kind: 'bare', label: t };
+  return { kind: 'invalid', label: t };
 }
 
 /**
@@ -29,6 +53,7 @@ export function registerSourcesIpc(on: Register, d: SourcesIpcDeps): void {
   on(IPC.sources.stageText, StageTextPayload, (p): Promise<SourceInput> => stageText(d.userData, p));
   on(IPC.sources.discard, DiscardPayload, (p) => discardInput(d.userData, p.draftId, p.inputId));
   on(IPC.sources.discardDraft, DraftPayload, (p) => discardDraft(d.userData, p.draftId));
+  on(IPC.sources.classifyText, ClassifyTextPayload, (p) => classifyText(p.text, d.registry.laneRouter()));
   on(IPC.sources.registerDrop, RegisterDropPayload, (p): DropRegistration[] => {
     const regs = d.drops.register(p.paths);
     log.debug('sources.drop-registered', { count: regs.length });

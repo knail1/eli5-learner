@@ -7,6 +7,7 @@ import { KeychainUnavailable } from '../config';
 import { LibraryError, type LibraryErrorCode } from '../library';
 import { LLMError } from '../llm';
 import { PipelineRequestError } from '../pipeline';
+import { PublishError } from '../publish';
 import { log } from '../security';
 import { InvalidDraftId } from '../sources';
 
@@ -69,6 +70,15 @@ export function toIpcError(err: unknown): IpcError {
   if (err instanceof KeychainUnavailable) return { code: 'E_KEYCHAIN_UNAVAILABLE', message: err.message };
   if (err instanceof PipelineRequestError) return { code: err.code, message: err.message };
   if (err instanceof LibraryError) return libraryError(err.code);
+  // 01 §5.1, 10 §11: one boundary code; the PublishErrorCode travels in detailCode, `detail` never.
+  if (err instanceof PublishError) {
+    return {
+      code: 'E_PUBLISH_FAILED',
+      message: err.message,
+      detailCode: err.code,
+      ...(err.findings ? { findings: err.findings } : {}),
+    };
+  }
   if (err instanceof InvalidDraftId) return { code: 'E_BAD_REQUEST', message: 'Invalid request' };
   // 01 §6.2: a provider that finds no key at call time maps to E_NO_API_KEY.
   if (err instanceof LLMError && err.kind === 'auth') return NO_API_KEY;

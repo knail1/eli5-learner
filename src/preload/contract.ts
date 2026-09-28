@@ -31,7 +31,9 @@ export type IpcErrorCode =
   // library (09)
   | 'E_LIBRARY_READ_ONLY'
   | 'E_SUGGESTION_STALE'
-  | 'E_MERGE_FAILED';
+  | 'E_MERGE_FAILED'
+  // publish (10): the PublishErrorCode travels in detailCode
+  | 'E_PUBLISH_FAILED';
 
 export interface IpcError {
   code: IpcErrorCode;
@@ -47,6 +49,8 @@ export interface IpcError {
   issues?: { path: string; message: string }[];
   /** Non-fatal warnings (e.g. unexpected API key prefix). */
   warnings?: string[];
+  /** Masked secret-scanner findings for detailCode E_PUBLISH_SECRET_FOUND (10 §7 step 5). */
+  findings?: SecretFinding[];
 }
 
 export type IpcResult<T> = { ok: true; value: T; warnings?: string[] } | { ok: false; error: IpcError };
@@ -69,6 +73,7 @@ export const IPC = {
     stageText: 'eli5:sources:stage-text',
     discard: 'eli5:sources:discard',
     discardDraft: 'eli5:sources:discard-draft',
+    classifyText: 'eli5:sources:classify-text',
     /** Preload-only: paths of a trusted native drop, so jobs:start can refuse forged paths (06 §11). */
     registerDrop: 'eli5:sources:register-drop',
   },
@@ -87,6 +92,7 @@ export const IPC = {
     open: 'eli5:library:open',
     reveal: 'eli5:library:reveal',
     info: 'eli5:library:info',
+    revealRoot: 'eli5:library:reveal-root',
     changed: 'eli5:library:changed',
   },
   suggestions: {
@@ -111,6 +117,8 @@ export const IPC = {
   app: {
     navigate: 'eli5:app:navigate',
     contextMenu: 'eli5:app:context-menu',
+    testNotification: 'eli5:app:test-notification',
+    openNotificationSettings: 'eli5:app:open-notification-settings',
   },
   test: {
     trayClick: 'eli5:test:tray-click',
@@ -122,6 +130,7 @@ export const IPC = {
     hasApiKey: 'eli5:settings:has-api-key',
     clearApiKey: 'eli5:settings:clear-api-key',
     describe: 'eli5:settings:describe',
+    chooseFolder: 'eli5:settings:choose-folder',
     changed: 'eli5:settings:changed',
   },
   edition: {
@@ -162,6 +171,8 @@ export type UiFeature = 'publish.drive' | 'publish.git' | 'auth.signIn';
 
 export interface EditionInfo {
   edition: Edition;
+  /** App version (app.getVersion()), shown in Settings > About (11 §7). */
+  version: string;
   overlayLoaded: boolean;
   /** Display name supplied by the overlay (HOOK-UI-02). */
   overlayName?: string;
@@ -188,6 +199,12 @@ export interface SettingsDescription {
 
 export type ApiKeyProvider = 'claude' | 'openai';
 
+/** Settings keys that `eli5:settings:choose-folder` may set (11 §10). */
+export type FolderSettingKey = 'publish.local.dir';
+
+/** `eli5:settings:choose-folder` result: main showed the panel, validated and saved the key. */
+export type ChooseFolderResult = { path: string } | { cancelled: true };
+
 // ---------------------------------------------------------------------------
 // Sources and auth (03)
 // ---------------------------------------------------------------------------
@@ -211,6 +228,12 @@ export type SourceInput =
 export interface DropRegistration {
   inputId: string;
   path: string;
+}
+
+/** `eli5:sources:classify-text` (11 §5.4): non-http tokens from the URL field. */
+export interface ClassifyTextResult {
+  kind: 'url' | 'bare' | 'invalid';
+  label: string;
 }
 
 export type AuthState = 'unavailable' | 'signed-out' | 'signing-in' | 'signed-in' | 'expired' | 'error';
@@ -341,6 +364,12 @@ export interface SectionActionRequest {
 
 export type CreateSectionEli5Request = Omit<SectionActionRequest, 'action'>;
 
+/** `eli5:doc:close-tab` (08 §3): Section ELI5 tabs only. */
+export interface CloseTabRequest {
+  slug: string;
+  tabKey: string;
+}
+
 export interface ScrollToEvent {
   sectionId?: SectionId;
   tabKey?: string;
@@ -365,7 +394,13 @@ export interface ViewerBounds {
   height: number;
 }
 
-export type SettingsSection = 'ai' | 'documents' | 'library' | 'publishing' | 'about' | 'enterprise';
+export type SettingsSection = 'ai' | 'documents' | 'library' | 'publishing' | 'notifications' | 'about' | 'enterprise';
+
+/** `eli5:app:test-notification` (11 §14.7). */
+export interface TestNotificationResult {
+  shown: boolean;
+  reason?: 'disabled' | 'unsupported';
+}
 
 export type UiRoute =
   | { view: 'welcome' }
@@ -409,6 +444,17 @@ export type PublishErrorCode =
   | 'E_PUBLISH_CONFLICT'
   | 'E_PUBLISH_CANCELLED'
   | 'E_PUBLISH_FAILED';
+
+/** One secret-scanner hit (10 §5.4); `preview` is already masked. */
+export interface SecretFinding {
+  relPath: string;
+  /** 1-based. */
+  line: number;
+  /** e.g. "private-key-block", "cloud-access-key-id", "generic-high-entropy". */
+  rule: string;
+  /** Matched text with all but the first 4 chars masked. */
+  preview: string;
+}
 
 export interface PublicationRecord {
   targetId: string;
@@ -455,5 +501,6 @@ export interface PublishProgressEvent {
   targetId: string;
   stage: PublishStage | 'failed';
   result?: PublishResult;
+  /** On 'failed': code E_PUBLISH_FAILED with the PublishErrorCode in detailCode (10 §6). */
   error?: IpcError;
 }

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { onTestFinished, vi } from 'vitest';
 import type { KeyStore, SettingsStore } from '../../../../src/main/config';
 import type { Registry } from '../../../../src/main/editions';
+import type { IpcServices } from '../../../../src/main/ipc';
 import type {
   CatalogEntry,
   IpcResult,
@@ -129,11 +130,14 @@ export async function tmpUserData(): Promise<string> {
 export interface Harness {
   call<T = unknown>(channel: string, payload?: unknown, from?: 'app' | 'viewer'): Promise<IpcResult<T>>;
   sent: { channel: string; payload: unknown }[];
+  /** Pushes to the document viewer (M→D). */
+  viewerSent: { channel: string; payload: unknown }[];
   jobs: FakeJobs;
   library: FakeLibrary;
   clipboard: FakeClipboard;
   opened: string[];
   revealed: string[];
+  rootRevealed: { count: number };
   keyReady: { value: boolean };
   userData: string;
   dispose: () => void;
@@ -146,6 +150,8 @@ export interface Harness {
 export interface SetupOptions {
   /** Default: a fresh MemoryKeyStore. */
   keyStore?: KeyStore;
+  /** M3 service slots; missing ones use the "not implemented" defaults. */
+  services?: Partial<IpcServices>;
 }
 
 export async function setup(o: SetupOptions = {}): Promise<Harness> {
@@ -166,11 +172,13 @@ export async function setup(o: SetupOptions = {}): Promise<Harness> {
     keyStore,
     registry,
     sent: [],
+    viewerSent: [],
     jobs: new FakeJobs(),
     library: new FakeLibrary(),
     clipboard: new FakeClipboard(),
     opened: [],
     revealed: [],
+    rootRevealed: { count: 0 },
     keyReady: { value: true },
     userData,
     handlers,
@@ -187,14 +195,19 @@ export async function setup(o: SetupOptions = {}): Promise<Harness> {
     registry,
     viewer: { setBounds: () => {}, setVisible: () => {} },
     sendToApp: (channel, payload) => h.sent.push({ channel, payload }),
+    sendToViewer: (channel, payload) => h.viewerSent.push({ channel, payload }),
     jobs: h.jobs,
     library: h.library,
     documents: {
       open: (slug) => h.opened.push(slug),
       reveal: (slug) => h.revealed.push(slug),
+      revealRoot: () => {
+        h.rootRevealed.count++;
+      },
     },
     sources: { userData, clipboard: () => h.clipboard },
     apiKeyReady: async () => h.keyReady.value,
+    ...(o.services ? { services: o.services } : {}),
   });
   const call = <T>(channel: string, payload?: unknown, from: 'app' | 'viewer' = 'app') => {
     const sender = from === 'app' ? app : viewer;
