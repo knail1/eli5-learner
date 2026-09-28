@@ -179,11 +179,13 @@ if (!existsSync(INTERNAL)) {
     fail(`could not run "git ls-files": ${e.message}`);
   }
 
+  // Verbatim third-party copies (resources/skills/THIRD_PARTY.md) are upstream text, not ours.
+  const THIRD_PARTY = ['resources/skills/eli5/upstream/', 'resources/skills/beautiful-doc/html-effectiveness/'];
   const mask = (t) => (t.length <= 2 ? '*'.repeat(t.length) : t[0] + '*'.repeat(t.length - 2) + t[t.length - 1]);
   const needles = terms.map((t) => t.toLowerCase());
   let hits = 0;
   for (const f of files) {
-    if (f === 'spec/internal.md') continue;
+    if (f === 'spec/internal.md' || THIRD_PARTY.some((p) => f.startsWith(p))) continue;
     const abs = join(ROOT, f);
     let buf;
     try {
