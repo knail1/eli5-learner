@@ -207,6 +207,12 @@ export type SourceInput =
   | { id: string; kind: 'text'; origin: 'paste'; stagedPath: string; markup: 'plain' | 'html'; preview: string }
   | { id: string; kind: 'image'; origin: 'paste'; stagedPath: string; mediaType: 'image/png'; preview: string };
 
+/** `eli5:sources:register-drop` result: main's opaque id for one dropped path (06 §11). */
+export interface DropRegistration {
+  inputId: string;
+  path: string;
+}
+
 export type AuthState = 'unavailable' | 'signed-out' | 'signing-in' | 'signed-in' | 'expired' | 'error';
 
 export interface AuthStatus {

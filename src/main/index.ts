@@ -25,7 +25,14 @@ import { loadOverlay } from './editions/load-overlay';
 import { edition } from './editions/types';
 import { PDF_RENDER_SCHEME_PRIVILEGES } from './extract';
 import { configureFetch } from './fetch';
-import { openInViewer, providerKeyPresent, registerIpc, snapshotClipboard } from './ipc';
+import {
+  createQuitHandler,
+  openInViewer,
+  providerKeyPresent,
+  registerIpc,
+  snapshotClipboard,
+  type QuitStep,
+} from './ipc';
 import { JobQueue, createPipelineDeps } from './pipeline';
 import { sweepStaleDrafts } from './sources/drafts';
 import { DOC_SCHEME, createDocProtocolHandler, gitCheckIgnored, installDocProtocol, openLibrary } from './library';
@@ -149,9 +156,9 @@ async function bootstrap(): Promise<void> {
     },
     checkIgnored: app.isPackaged ? undefined : gitCheckIgnored,
   });
-  app.on('before-quit', () => {
-    void library.close();
-  });
+  // One ordered quit (06 §4.3, §9.1): later steps are prepended as the pipeline comes up.
+  const quitSteps: QuitStep[] = [{ name: 'library', run: () => library.close() }];
+  app.on('before-quit', createQuitHandler({ steps: quitSteps, exit: () => app.exit(0) }));
   // eli5doc:// is served on the viewer session only (12 §7.7 step 2).
   installDocProtocol(
     session.fromPartition(VIEWER_PARTITION),
@@ -196,11 +203,9 @@ async function bootstrap(): Promise<void> {
   // Crash recovery (06 §9.4) finishes before IPC exists, so the renderer's first eli5:jobs:list
   // already sees resumed jobs. A failure here must not stop the app from opening the Library.
   await jobs.init().catch((err: unknown) => log.error('pipeline.init-failed', {}, err));
-  // Running and queued jobs are persisted and resume on the next launch (06 §4.3, 11 §3.2).
-  app.on('before-quit', () => {
-    void jobs.close();
-    pipeline.dispose();
-  });
+  // Running and queued jobs are persisted and resume on the next launch (06 §4.3, 11 §3.2): the
+  // queue flushes before the Library lock is released and the process exits.
+  quitSteps.unshift({ name: 'jobs', run: () => jobs.close() }, { name: 'pipeline', run: () => pipeline.dispose() });
 
   // The viewer loads catalogued documents only through main (09 §11, 12 §7.7).
   const openDocument = (slug: string): void => openInViewer(viewerWebContents(), slug);

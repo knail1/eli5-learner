@@ -1,4 +1,4 @@
-import { IPC, type SourceInput } from '../../preload/contract';
+import { IPC, type DropRegistration, type SourceInput } from '../../preload/contract';
 import { log } from '../security';
 import { discardDraft, discardInput, readClipboardInputs, stageText, type ClipboardPort } from '../sources';
 import type { DropRegistry } from './drops';
@@ -14,19 +14,24 @@ export interface SourcesIpcDeps {
 
 /**
  * `eli5:sources:*` (03 §13). Staged paths are derived in main from validated ids. File paths found
- * on the clipboard, and paths from a trusted drop, become allowed read targets for jobs:start.
+ * on the clipboard, and paths from a trusted drop, get opaque ids that jobs:start maps back (06 §11).
  */
 export function registerSourcesIpc(on: Register, d: SourcesIpcDeps): void {
   on(IPC.sources.readClipboard, DraftPayload, async (p): Promise<SourceInput[]> => {
     const inputs = await readClipboardInputs(await d.clipboard(), { userData: d.userData, draftId: p.draftId });
-    d.drops.register(inputs.flatMap((i) => (i.kind === 'file' ? [i.path] : [])));
-    return inputs;
+    // File inputs carry main's registry id, like drops (06 §11).
+    return inputs.map((i): SourceInput => {
+      if (i.kind !== 'file') return i;
+      const [reg] = d.drops.register([i.path]);
+      return reg ? { ...i, id: reg.inputId, path: reg.path } : i;
+    });
   });
   on(IPC.sources.stageText, StageTextPayload, (p): Promise<SourceInput> => stageText(d.userData, p));
   on(IPC.sources.discard, DiscardPayload, (p) => discardInput(d.userData, p.draftId, p.inputId));
   on(IPC.sources.discardDraft, DraftPayload, (p) => discardDraft(d.userData, p.draftId));
-  on(IPC.sources.registerDrop, RegisterDropPayload, (p): void => {
-    d.drops.register(p.paths);
-    log.debug('sources.drop-registered', { count: p.paths.length });
+  on(IPC.sources.registerDrop, RegisterDropPayload, (p): DropRegistration[] => {
+    const regs = d.drops.register(p.paths);
+    log.debug('sources.drop-registered', { count: regs.length });
+    return regs;
   });
 }

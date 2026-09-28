@@ -30,24 +30,30 @@ function inside(dir: string, p: string): boolean {
 }
 
 /**
- * 06 §11: file inputs must name a path main already knows (trusted drop or clipboard read); staged
- * pastes must sit in their own chip folder of the request's draft (03 §13). Anything else is forged.
+ * 06 §11: a file input must carry an id main minted for a trusted drop or clipboard read; its path
+ * is replaced by main's own, so a renderer path is never read. Staged pastes must sit in their own
+ * chip folder of the request's draft (03 §13). Anything else is forged. Returns the resolved request.
  */
-export function authorizeInputs(req: StartJobRequest, o: { drops: DropRegistry; userData: string }): void {
-  for (const input of req.inputs) {
+export function authorizeInputs(req: StartJobRequest, o: { drops: DropRegistry; userData: string }): StartJobRequest {
+  const inputs = req.inputs.map((input) => {
     if (input.kind === 'file') {
-      if (!o.drops.has(input.path)) {
+      const registered = o.drops.resolve(input.id);
+      if (registered === undefined) {
         log.warn('ipc.forbidden-input', { channel: IPC.jobs.start, sourceKind: 'file' });
         fail('E_FORBIDDEN', 'Add files by dropping or pasting them');
       }
-    } else if (input.kind === 'text' || input.kind === 'image') {
+      return { ...input, path: registered };
+    }
+    if (input.kind === 'text' || input.kind === 'image') {
       const chip = req.draftId ? path.join(draftDir(o.userData, req.draftId), input.id) : undefined;
       if (!chip || !inside(chip, input.stagedPath)) {
         log.warn('ipc.forbidden-input', { channel: IPC.jobs.start, sourceKind: input.kind });
         fail('E_FORBIDDEN', 'That pasted item is no longer available');
       }
     }
-  }
+    return input;
+  });
+  return { ...req, inputs };
 }
 
 /** `eli5:jobs:*` invokes (06 §11). The `changed` event is wired by registerIpc. */
@@ -55,10 +61,10 @@ export function registerJobsIpc(on: Register, d: JobsIpcDeps): void {
   on(IPC.jobs.start, StartJobRequestSchema, async (req): Promise<{ jobId: string }> => {
     // Order: shape, then sources (06 §5.1), then who may read them, then the key (01 §6.2).
     if (req.inputs.length === 0) fail('E_BAD_REQUEST', 'Add at least one source');
-    authorizeInputs(req, d);
+    const resolved = authorizeInputs(req, d);
     if (!(await d.apiKeyReady())) throw new IpcFailure(NO_API_KEY);
-    const r = await d.jobs.start(req);
-    d.drops.consume(req.inputs.flatMap((i) => (i.kind === 'file' ? [i.path] : [])));
+    const r = await d.jobs.start(resolved);
+    d.drops.consume(resolved.inputs.flatMap((i) => (i.kind === 'file' ? [i.id] : [])));
     return r;
   });
   on(IPC.jobs.list, NoPayload, (): JobSnapshot[] => d.jobs.list());

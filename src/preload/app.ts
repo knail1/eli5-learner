@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
-import { IPC, type IpcChannel } from './contract';
+import { IPC, type DropRegistration, type IpcChannel, type IpcResult, type StartJobRequest } from './contract';
 import type { Eli5Api } from './api';
 
 /** Marshalling only; no logic (01 §2). */
@@ -13,9 +13,29 @@ const on =
     return () => ipcRenderer.removeListener(ch, listener);
   };
 
+/**
+ * 06 §11: main's opaque id for each path of a trusted drop, keyed by path. The renderer keeps
+ * working with paths; jobs.start swaps in the id main minted, and main reads only its own path.
+ */
+const dropIds = new Map<string, string>();
+let pendingDrops: Promise<void> = Promise.resolve();
+
+function withDropIds(r: StartJobRequest): StartJobRequest {
+  return {
+    ...r,
+    inputs: r.inputs.map((i) => {
+      const id = i.kind === 'file' && i.origin === 'drop' ? dropIds.get(i.path) : undefined;
+      return id === undefined ? i : { ...i, id };
+    }),
+  };
+}
+
 const api: Eli5Api = {
   jobs: {
-    start: (r) => invoke(IPC.jobs.start, r),
+    start: async (r) => {
+      await pendingDrops;
+      return invoke(IPC.jobs.start, withDropIds(r));
+    },
     list: () => invoke(IPC.jobs.list),
     cancel: (jobId) => invoke(IPC.jobs.cancel, { jobId }),
     retry: (jobId) => invoke(IPC.jobs.retry, { jobId }),
@@ -88,7 +108,7 @@ contextBridge.exposeInMainWorld('eli5', api);
 /**
  * 06 §11, 03 §6.3: main never trusts a raw path from the page. This capture-phase listener runs in
  * the isolated world before the renderer's own drop handler, ignores synthetic events, and tells
- * main which paths a real drop produced; `eli5:jobs:start` accepts only those (or pasted ones).
+ * main which paths a real drop produced; main answers with the ids `eli5:jobs:start` must carry.
  */
 window.addEventListener(
   'drop',
@@ -96,7 +116,14 @@ window.addEventListener(
     if (!e.isTrusted) return;
     const files = Array.from(e.dataTransfer?.files ?? []);
     const paths = files.map((f) => webUtils.getPathForFile(f)).filter((p) => p !== '');
-    if (paths.length > 0) void invoke(IPC.sources.registerDrop, { paths });
+    if (paths.length === 0) return;
+    const registered = (invoke(IPC.sources.registerDrop, { paths }) as Promise<IpcResult<DropRegistration[]>>).then(
+      (res) => {
+        if (res.ok) for (const reg of res.value) dropIds.set(reg.path, reg.inputId);
+      },
+      () => undefined,
+    );
+    pendingDrops = pendingDrops.then(() => registered);
   },
   true,
 );

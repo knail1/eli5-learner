@@ -58,23 +58,33 @@ describe('eli5:jobs:* (06 §11)', () => {
     expect(h.jobs.started).toHaveLength(0);
   });
 
-  it('rejects a raw file path that was never registered by a drop or paste (E_FORBIDDEN)', async () => {
+  it('rejects a raw file path that is not a registered drop id (E_FORBIDDEN)', async () => {
     const h = await setup();
     const r = await h.call(IPC.jobs.start, { inputs: [file('/etc/hosts')], options: opts });
     expect(r).toMatchObject({ ok: false, error: { code: 'E_FORBIDDEN' } });
+    // A path that was dropped is still refused unless the input carries main's id for it.
+    await h.call(IPC.sources.registerDrop, { paths: ['/etc/hosts'] });
+    expect(await h.call(IPC.jobs.start, { inputs: [file('/etc/hosts')], options: opts })).toMatchObject({
+      ok: false,
+      error: { code: 'E_FORBIDDEN' },
+    });
     expect(h.jobs.started).toHaveLength(0);
   });
 
-  it('accepts a dropped path after eli5:sources:register-drop and strips renderer-supplied snapshots', async () => {
+  it("register-drop returns opaque ids; jobs:start maps them back to main's path (06 §11)", async () => {
     const h = await setup();
     const p = path.join(h.userData, 'deck.pptx');
-    expect(await h.call(IPC.sources.registerDrop, { paths: [p] })).toEqual({ ok: true, value: undefined });
-    const forged = { ...file(p), snapshot: { copyPath: '/etc/passwd', sizeBytes: 1, mtimeMs: 1 } };
+    const reg = await h.call<{ inputId: string; path: string }[]>(IPC.sources.registerDrop, { paths: [p] });
+    expect(reg).toMatchObject({ ok: true, value: [{ path: p }] });
+    const inputId = reg.ok ? reg.value[0]!.inputId : '';
+    expect(inputId).toMatch(/^[a-z0-9-]{1,64}$/);
+    // The renderer-supplied path and snapshot are ignored; main's registered path is used.
+    const forged = { ...file('/etc/passwd', inputId), snapshot: { copyPath: '/etc/passwd', sizeBytes: 1, mtimeMs: 1 } };
     const r = await h.call(IPC.jobs.start, { inputs: [forged], options: opts });
     expect(r).toEqual({ ok: true, value: { jobId: 'job-1' } });
-    expect(h.jobs.started[0]?.inputs[0]).toEqual(file(p));
+    expect(h.jobs.started[0]?.inputs[0]).toEqual(file(p, inputId));
     // A registration is consumed by a successful start.
-    expect(await h.call(IPC.jobs.start, { inputs: [file(p)], options: opts })).toMatchObject({
+    expect(await h.call(IPC.jobs.start, { inputs: [file(p, inputId)], options: opts })).toMatchObject({
       ok: false,
       error: { code: 'E_FORBIDDEN' },
     });
@@ -83,14 +93,15 @@ describe('eli5:jobs:* (06 §11)', () => {
   it('keeps a registration when the start fails, so the draft can be retried', async () => {
     const h = await setup();
     const p = path.join(h.userData, 'deck.pptx');
-    await h.call(IPC.sources.registerDrop, { paths: [p] });
+    const reg = await h.call<{ inputId: string }[]>(IPC.sources.registerDrop, { paths: [p] });
+    const inputId = reg.ok ? reg.value[0]!.inputId : '';
     h.keyReady.value = false;
-    expect(await h.call(IPC.jobs.start, { inputs: [file(p)], options: opts })).toMatchObject({
+    expect(await h.call(IPC.jobs.start, { inputs: [file(p, inputId)], options: opts })).toMatchObject({
       ok: false,
       error: { code: 'E_NO_API_KEY' },
     });
     h.keyReady.value = true;
-    expect(await h.call(IPC.jobs.start, { inputs: [file(p)], options: opts })).toMatchObject({ ok: true });
+    expect(await h.call(IPC.jobs.start, { inputs: [file(p, inputId)], options: opts })).toMatchObject({ ok: true });
   });
 
   it('rejects register-drop with relative paths', async () => {
@@ -101,7 +112,7 @@ describe('eli5:jobs:* (06 §11)', () => {
     });
   });
 
-  it('accepts file paths that came from a clipboard read (03 §6.2 step 1)', async () => {
+  it('accepts file inputs that came from a clipboard read, by their main-minted id (03 §6.2 step 1)', async () => {
     const h = await setup();
     const p = path.join(h.userData, 'notes.md');
     h.clipboard.data['public.file-url'] = `file://${p}`;
@@ -110,7 +121,10 @@ describe('eli5:jobs:* (06 §11)', () => {
     });
     expect(r.ok && r.value[0]).toMatchObject({ kind: 'file', origin: 'paste', path: p });
     const input = r.ok ? r.value[0]! : undefined;
-    expect(await h.call(IPC.jobs.start, { inputs: [input], options: opts })).toMatchObject({ ok: true });
+    expect(await h.call(IPC.jobs.start, { inputs: [{ ...input, path: '/etc/passwd' }], options: opts })).toMatchObject({
+      ok: true,
+    });
+    expect(h.jobs.started[0]?.inputs[0]).toMatchObject({ path: p });
   });
 
   it('accepts staged text only from the request draft and the chip id (03 §13)', async () => {

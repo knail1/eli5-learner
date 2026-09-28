@@ -42,6 +42,8 @@ export { authorizeInputs } from './jobs';
 export type { JobsPort } from './jobs';
 export { docUrl, openInViewer } from './library';
 export { snapshotClipboard } from './clipboard';
+export { createQuitHandler, QUIT_BOUND_MS } from './quit';
+export type { QuitStep } from './quit';
 export type { AsyncClipboard } from './clipboard';
 export type { LibraryPort, DocumentActions } from './library';
 
