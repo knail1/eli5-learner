@@ -14,6 +14,12 @@ Drop in source material, optionally type a few clarifying specifics, hit Enter, 
 
 The document opens in the app's viewer and in any browser.
 
+<img src="images/main_screen.png" alt="The main window: the Library sidebar on the left, an In depth explainer in the viewer, and the input zone at the bottom with drop area, URL field, specifics and Start" width="820">
+
+The ELI5 tab rebuilds the same material in plain words, with analogies and pictures:
+
+<img src="images/eli5_version.png" alt="The ELI5 tab of the same document: short plain-language sections and a 'Think of it like' analogy" width="820">
+
 ## Features
 
 - **Fire-and-forget generation.** No modals and no mid-job questions. A source that fails is skipped and listed in the document's references. Jobs can be queued.
@@ -33,6 +39,12 @@ The document opens in the app's viewer and in any browser.
   - *Create a separate ELI5 for this section*
 
   Only that section is regenerated, in place.
+
+  <img src="images/highlight_expander.png" alt="Selecting a passage opens a small menu: Expand this, re-explain it, Give me an analogy, Go deeper, Create a separate ELI5, and an optional note" width="560">
+
+  While it works, the section is marked "Updating…" and the status line shows the job, which you can cancel:
+
+  <img src="images/updating_section.png" alt="A section outlined and marked Updating, with the status line 'Updating section' and a Cancel button" width="640">
 - **Section ELI5 tabs.** Focused ELI5 tabs, spun off from any passage and labeled by topic. You can close them.
 - **Library and menu bar.** Every document is listed in a sidebar. The menu bar shows the last three, and the app keeps running in the menu bar when the window is closed.
 - **Merge suggestions.** After a job finishes, the app suggests merging related documents. The suggestion never interrupts you.
@@ -139,6 +151,21 @@ Signing and notarization run only when credentials are set (`CSC_LINK`/`CSC_KEY_
 attempt, open System Settings > Privacy & Security and click **Open Anyway** next to the ELI5
 Learner message. Or, after copying the app to Applications, run
 `xattr -dr com.apple.quarantine "/Applications/ELI5 Learner.app"`.
+
+### API key and the macOS Keychain
+
+Add your Claude or OpenAI key in **Settings → AI**. The app stores it only in the macOS Keychain, as a
+password item with service **"ELI5 Learner"** (account `llm.claude.apiKey` or `llm.openai.apiKey`).
+It is never written to `settings.json` or the logs, and the Settings screen can save or clear it but
+never read it back. You can see the item in the Keychain Access app by searching for "ELI5 Learner".
+
+When the app first reads the key, macOS asks for permission:
+
+<img src="images/keychain-access.png" alt="macOS dialog: ELI5 Learner wants to use your confidential information stored in 'ELI5 Learner' in your keychain, with Always Allow, Deny and Allow" width="520">
+
+Click **Always Allow**. Unsigned builds get a new code identity every time they are rebuilt, so macOS
+asks again after each rebuild; a build signed with a stable identity (a Developer ID, see above)
+asks only once. **Deny** is safe: the app then cannot use the key and asks you to add one in Settings.
 
 ### Generation-quality evals
 
