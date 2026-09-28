@@ -1,0 +1,31 @@
+{
+  "name": "claude/stall",
+  "interactions": [
+    {
+      "request": { "path": "/v1/messages" },
+      "response": {
+        "status": 200,
+        "stall": true,
+        "sse": [
+          {
+            "event": "message_start",
+            "data": {
+              "type": "message_start",
+              "message": {
+                "id": "msg_stall",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-opus-5-5",
+                "content": [],
+                "stop_reason": null,
+                "stop_sequence": null,
+                "usage": { "input_tokens": 5, "output_tokens": 1 }
+              }
+            }
+          }
+        ]
+      },
+      "repeat": true
+    }
+  ]
+}

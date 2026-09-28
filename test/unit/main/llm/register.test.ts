@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULTS, DEFAULT_MODELS, type Settings } from '../../../../src/main/config/schema';
 import { NotAvailableInEdition } from '../../../../src/main/editions/errors';
 import { Registry } from '../../../../src/main/editions/registry';
-import { LLMError, defaultPromptPolicy, registerPublic } from '../../../../src/main/llm';
+import { LLMError, defaultPromptPolicy, registerPublic, resetLlmRuntime } from '../../../../src/main/llm';
 import type { GenerationRequest, ProviderId } from '../../../../src/main/llm';
 
 const withProvider = (provider: ProviderId): Settings => ({ ...DEFAULTS, llm: { ...DEFAULTS.llm, provider } });
@@ -22,21 +22,23 @@ describe('registerPublic (02 §4, 01 §6)', () => {
     expect(reg.llm().model).toBe(DEFAULT_MODELS.claude);
   });
 
-  it('edition info reports bedrock unavailable (stub) and the placeholders available', () => {
+  it('edition info reports bedrock unavailable (stub) and claude/openai available', () => {
     const reg = new Registry({ edition: 'public', getSettings: () => DEFAULTS });
     registerPublic(reg);
     const byId = Object.fromEntries(reg.info().llmProviders.map((p) => [p.id, p.available]));
     expect(byId).toEqual({ claude: true, openai: true, bedrock: false });
   });
 
-  it('M0 placeholders reject with not_available and testConnection never throws', async () => {
+  it('without a configured key, claude/openai fail with auth at call time and testConnection never throws', async () => {
+    resetLlmRuntime();
     for (const id of ['claude', 'openai'] as const) {
       const reg = new Registry({ edition: 'public', getSettings: () => withProvider(id) });
       registerPublic(reg);
       const p = reg.llm();
       const e = await p.generate(req).catch((x: unknown) => x);
       expect(e).toBeInstanceOf(LLMError);
-      expect((e as LLMError).kind).toBe('not_available');
+      expect((e as LLMError).kind).toBe('auth');
+      expect((e as LLMError).message).toBe('No API key set');
       const t = await p.testConnection();
       expect(t.ok).toBe(false);
     }

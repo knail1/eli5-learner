@@ -2,7 +2,8 @@ import { z } from 'zod';
 
 /**
  * Structured model output (02 §10). Types are inferred from these schemas.
- * M1: JSON Schema export for provider-native structured output and the semantic checks of 02 §10.1.
+ * The strict JSON Schema export for provider-native structured output is at the end of this file;
+ * semantic checks (02 §10.1) live in structured.ts.
  */
 
 export const ChartSpecSchema = z.object({
@@ -105,3 +106,84 @@ export const DRAFT_SCHEMAS = {
   MergeMatchDraft: MergeMatchDraftSchema,
 } as const;
 export type DraftSchemaName = keyof typeof DRAFT_SCHEMAS;
+
+// ---------------------------------------------------------------------------------------------
+// JSON Schema export for provider-native structured output (02 §5, §6, §10)
+// ---------------------------------------------------------------------------------------------
+
+type Json = Record<string, unknown>;
+
+/** Keywords that strict structured-output modes reject; zod re-checks them after the call. */
+const UNSUPPORTED = [
+  'minItems',
+  'maxItems',
+  'minimum',
+  'maximum',
+  'exclusiveMinimum',
+  'exclusiveMaximum',
+  'minLength',
+  'maxLength',
+  'pattern',
+  'format',
+  'default',
+];
+
+function nullable(s: Json): Json {
+  const t = s.type;
+  if (typeof t === 'string') return { ...s, type: [t, 'null'] };
+  if (Array.isArray(t)) return t.includes('null') ? s : { ...s, type: [...(t as string[]), 'null'] };
+  return { anyOf: [s, { type: 'null' }] };
+}
+
+function strictify(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(strictify);
+  if (typeof node !== 'object' || node === null) return node;
+  const out: Json = {};
+  for (const [k, v] of Object.entries(node as Json)) {
+    if (UNSUPPORTED.includes(k)) continue;
+    if (k === 'oneOf') out.anyOf = strictify(v);
+    else if (k === 'const') out.enum = [v];
+    else out[k] = strictify(v);
+  }
+  if (out.type === 'object' && typeof out.properties === 'object' && out.properties !== null) {
+    const props = out.properties as Json;
+    const required = new Set(Array.isArray(out.required) ? (out.required as string[]) : []);
+    for (const key of Object.keys(props)) {
+      if (!required.has(key)) props[key] = nullable(props[key] as Json);
+    }
+    out.required = Object.keys(props);
+    out.additionalProperties = false;
+  }
+  return out;
+}
+
+/**
+ * Strict JSON Schema (draft 2020-12) for a zod schema: every property required, optional fields
+ * nullable, `additionalProperties: false`, unions as anyOf, numeric/length bounds removed. This is
+ * the form OpenAI strict mode requires and Claude's output_config accepts (02 §6).
+ */
+export function toStrictJsonSchema(schema: z.ZodType): Json {
+  return strictify(z.toJSONSchema(schema, { target: 'draft-2020-12', io: 'output' })) as Json;
+}
+
+const jsonSchemaCache = new Map<DraftSchemaName, Json>();
+
+export function draftJsonSchema(name: DraftSchemaName): Json {
+  let s = jsonSchemaCache.get(name);
+  if (!s) {
+    s = toStrictJsonSchema(DRAFT_SCHEMAS[name]);
+    jsonSchemaCache.set(name, s);
+  }
+  return s;
+}
+
+/** Strict mode sends `null` for absent optional fields; drop those keys before zod validation. */
+export function stripNullProperties(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(stripNullProperties);
+  if (typeof v !== 'object' || v === null) return v;
+  const out: Json = {};
+  for (const [k, x] of Object.entries(v as Json)) {
+    if (x !== null) out[k] = stripNullProperties(x);
+  }
+  return out;
+}

@@ -1,0 +1,33 @@
+{
+  "name": "openai/image",
+  "interactions": [
+    {
+      "request": {
+        "path": "/v1/chat/completions",
+        "match": {
+          "messages": [
+            { "role": "developer" },
+            {
+              "role": "user",
+              "content": [
+                { "type": "text", "text": "[Image: diagram.png]" },
+                { "type": "image_url", "image_url": { "detail": "high" } },
+                { "type": "text" }
+              ]
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "openaiCompletion": {
+          "model": "gpt-5",
+          "content": "The diagram shows two boxes joined by an arrow.",
+          "finish_reason": "stop",
+          "usage": { "prompt_tokens": 900, "completion_tokens": 12 }
+        }
+      },
+      "repeat": true
+    }
+  ]
+}

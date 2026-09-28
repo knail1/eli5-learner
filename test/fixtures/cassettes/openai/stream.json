@@ -1,0 +1,61 @@
+{
+  "name": "openai/stream",
+  "interactions": [
+    {
+      "request": { "path": "/v1/chat/completions", "match": { "stream": true } },
+      "response": {
+        "status": 200,
+        "sse": [
+          {
+            "data": {
+              "id": "chatcmpl-1",
+              "object": "chat.completion.chunk",
+              "created": 1700000000,
+              "model": "gpt-5",
+              "choices": [{ "index": 0, "delta": { "role": "assistant", "content": "" }, "finish_reason": null }]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-1",
+              "object": "chat.completion.chunk",
+              "created": 1700000000,
+              "model": "gpt-5",
+              "choices": [{ "index": 0, "delta": { "content": "Widgets " }, "finish_reason": null }]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-1",
+              "object": "chat.completion.chunk",
+              "created": 1700000000,
+              "model": "gpt-5",
+              "choices": [{ "index": 0, "delta": { "content": "are made in batches." }, "finish_reason": null }]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-1",
+              "object": "chat.completion.chunk",
+              "created": 1700000000,
+              "model": "gpt-5",
+              "choices": [{ "index": 0, "delta": {}, "finish_reason": "length" }]
+            }
+          },
+          {
+            "data": {
+              "id": "chatcmpl-1",
+              "object": "chat.completion.chunk",
+              "created": 1700000000,
+              "model": "gpt-5",
+              "choices": [],
+              "usage": { "prompt_tokens": 20, "completion_tokens": 7, "total_tokens": 27 }
+            }
+          },
+          { "data": "[DONE]" }
+        ]
+      },
+      "repeat": true
+    }
+  ]
+}

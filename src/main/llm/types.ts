@@ -62,6 +62,8 @@ export interface GenerationRequest {
   cacheSystemPrompt?: boolean;
   signal?: AbortSignal;
   timeoutMs?: number; // overrides llm.timeoutMs for this call
+  /** Called before each retry wait (02 §7.1 step 6); 06 shows " (retrying)" while it runs. */
+  onRetry?: (attempt: number, waitMs: number) => void;
 }
 
 export interface TokenUsage {

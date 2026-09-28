@@ -1,0 +1,21 @@
+{
+  "name": "openai/structured",
+  "interactions": [
+    {
+      "request": {
+        "path": "/v1/chat/completions",
+        "match": { "response_format": { "type": "json_schema", "json_schema": { "strict": true } } }
+      },
+      "response": {
+        "status": 200,
+        "openaiCompletion": {
+          "model": "gpt-5",
+          "content": "{\"title\":\"Widget supply\",\"topicSlugHint\":\"widget-supply\",\"summary\":\"How Example Widgets Inc. plans supply.\"}",
+          "finish_reason": "stop",
+          "usage": { "prompt_tokens": 300, "completion_tokens": 40 }
+        }
+      },
+      "repeat": true
+    }
+  ]
+}
