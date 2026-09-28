@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Widget Catalog</title>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+    <script>
+      // Client-rendered shell: the article appears 300 ms after load (13 §6.4).
+      setTimeout(function () {
+        var p =
+          'Example Widgets Inc. builds its catalog in the browser. Every widget has a size, a color and a material, ' +
+          'and the catalog groups them by the job they do rather than by how they look. ';
+        var html = '<article><h1>The Widget Catalog, Explained</h1>';
+        for (var i = 0; i < 14; i++) html += '<p>' + p + 'Section ' + (i + 1) + ' covers one family of widgets.</p>';
+        html += '</article>';
+        document.getElementById('root').innerHTML = html;
+      }, 300);
+    </script>
+  </body>
+</html>
