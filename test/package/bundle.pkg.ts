@@ -1,4 +1,5 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import fuses from '@electron/fuses';
 import { expect, test } from '@playwright/test';
@@ -31,10 +32,57 @@ const listed = (dir: string): string[] =>
 
 test.beforeEach(requirePackage);
 
+/** Packed out/main JavaScript: the entry, the extract worker and every dynamic-import chunk. */
+const packedMainJs = (): string[] =>
+  listAsar(ASAR)
+    .map((f) => f.path)
+    .filter((f) => f.startsWith('out/main/') && f.endsWith('.js'));
+
+/** codesign writes its report to stderr. */
+const codesign = (...args: string[]) => spawnSync('codesign', args, { encoding: 'utf8' });
+
+/** The 12 §7.8 entitlement rule: allow-jit only. */
+function expectOnlyAllowJit(plist: string): void {
+  expect(plist).toContain('<key>com.apple.security.cs.allow-jit</key>');
+  expect(plist).not.toContain('com.apple.security.cs.allow-unsigned-executable-memory');
+  expect(plist).not.toContain('com.apple.security.cs.disable-library-validation');
+  expect([...plist.matchAll(/<key>([^<]+)<\/key>/g)].map((m) => m[1])).toEqual(['com.apple.security.cs.allow-jit']);
+}
+
 test('an unsigned arm64 dmg and app are in release/', () => {
-  const dmgs = readdirSync(RELEASE).filter((f) => f.endsWith('.dmg'));
-  expect(dmgs.some((f) => f.startsWith(PRODUCT) && f.includes('arm64'))).toBe(true);
+  const dmgs = readdirSync(RELEASE).filter((f) => f.startsWith(PRODUCT) && f.endsWith('-arm64.dmg'));
+  expect(dmgs.length).toBeGreaterThan(0);
   expect(existsSync(EXE)).toBe(true);
+  // Apple silicon only (01 §8.3).
+  expect(execFileSync('lipo', ['-archs', EXE], { encoding: 'utf8' }).trim().split(/\s+/)).toEqual(['arm64']);
+  // Public build without credentials: ad-hoc signed, no team identity, and a valid seal so it launches.
+  const info = codesign('-dv', APP);
+  expect(info.status, info.stderr).toBe(0);
+  expect(info.stderr).toContain('Signature=adhoc');
+  expect(info.stderr).toContain('TeamIdentifier=not set');
+  const verify = codesign('--verify', '--deep', '--strict', APP);
+  expect(verify.status, verify.stderr).toBe(0);
+});
+
+test('entitlements grant allow-jit only (12 §7.8)', () => {
+  expectOnlyAllowJit(readFileSync('build/entitlements.mac.plist', 'utf8'));
+  // A signed build embeds them; the ad-hoc public build may carry none, which grants nothing.
+  const embedded = codesign('-d', '--entitlements', '-', '--xml', EXE);
+  expect(embedded.status, embedded.stderr).toBe(0);
+  if (embedded.stdout.includes('<plist')) expectOnlyAllowJit(embedded.stdout);
+});
+
+test('release/ was built from the current out/ (no stale artifact)', () => {
+  const packed = packedMainJs();
+  expect(packed).toContain('out/main/index.js');
+  for (const f of packed)
+    expect(readAsarText(ASAR, f) === readFileSync(f, 'utf8'), `${f} differs from out/`).toBe(true);
+  expect(readAsarText(ASAR, 'out/renderer/index.html')).toBe(readFileSync('out/renderer/index.html', 'utf8'));
+  // Content, not mtime, ties the app to out/ (a rebuild of identical sources stays valid); the dmg
+  // must then be packed from this app, not left over from an earlier run.
+  const packedAt = statSync(ASAR).mtimeMs;
+  const dmgs = readdirSync(RELEASE).filter((f) => f.startsWith(PRODUCT) && f.endsWith('-arm64.dmg'));
+  expect(dmgs.some((f) => statSync(path.join(RELEASE, f)).mtimeMs >= packedAt)).toBe(true);
 });
 
 test('the Electron fuses in 12 §7.8 are set', async () => {
@@ -70,15 +118,26 @@ test('the asar holds out/**, package.json and production dependencies only', () 
   // Never shipped (01 §8.3): tests, spec, enterprise overlay, docs, the doc-runtime pre-step, maps.
   const forbidden = /(^|\/)(test|spec|enterprise|docs|src)\/|^build\/|\.map$|\.test\.[cm]?[jt]sx?$/;
   expect(files.filter((f) => !f.startsWith('node_modules/') && forbidden.test(f))).toEqual([]);
-  // Dev dependencies stay out of the app.
-  for (const dev of ['electron', 'vitest', '@playwright', 'electron-builder', 'typescript', 'exceljs']) {
-    expect(
-      files.some((f) => f.startsWith(`node_modules/${dev}/`)),
-      dev,
-    ).toBe(false);
+  // Dev dependencies stay out of the app (01 §7), unless one is also a runtime dependency.
+  const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
+  const devOnly = Object.keys(pkg.devDependencies ?? {}).filter((d) => !(d in (pkg.dependencies ?? {})));
+  expect(devOnly).toContain('electron');
+  const shipped = files.filter((f) => devOnly.some((d) => f.startsWith(`node_modules/${d}/`)));
+  expect(shipped).toEqual([]);
+});
+
+test('no test-only code ships in any out/main chunk (13 §5)', () => {
+  const packed = packedMainJs();
+  expect(packed).toContain('out/main/extract-worker.js');
+  expect(packed.some((f) => f.startsWith('out/main/chunks/'))).toBe(true);
+  for (const f of packed) {
+    const js = readAsarText(ASAR, f);
+    // The ELI5_LLM_FAKE check itself survives in dead code; the fake module never does.
+    for (const needle of ['FakeProvider', 'loadFakeScript']) expect(js.includes(needle), `${f}: ${needle}`).toBe(false);
   }
-  // The FakeProvider exists only in test builds (13 §5).
-  expect(readAsarText(ASAR, 'out/main/index.js')).not.toContain('FakeProvider');
 });
 
 test('extraResources ship prompts, skills, help, pdf-render, pdfjs and tray icons', () => {

@@ -87,18 +87,25 @@ test('Settings open', async () => {
 });
 
 test('bundled prompts and skills load from resourcesPath', async () => {
-  // Bootstrap loads every prompt from resourcePath('prompts') and throws on a missing one
-  // (02 §10), before IPC is registered; the skills library is built beside it (02 §11). A working
-  // IPC round trip after boot therefore means both loaded from Contents/Resources.
+  // Bootstrap loads every prompt from resourcePath('prompts') and throws on a missing one (02 §10)
+  // before IPC is registered, so a working IPC round trip means the prompts loaded.
   expect(await win.evaluate(() => window.eli5.jobs.list())).toMatchObject({ ok: true });
   const log = await readFile(path.join(userData, 'logs', 'main.log'), 'utf8');
   for (const bad of ['"level":"error"', 'pipeline.init-failed', 'llm.skills-watch-failed', 'Prompt file']) {
     expect(log, bad).not.toContain(bad);
   }
+  // Skills resolve at startup (02 §11); the temp profile has no user skills, so both come from
+  // Contents/Resources/skills.
+  const loaded = log
+    .split('\n')
+    .filter((l) => l.includes('"event":"pipeline.skills-loaded"'))
+    .map((l) => JSON.parse(l) as { count?: number; kind?: string });
+  expect(loaded).toHaveLength(1);
+  expect(loaded[0]?.kind?.split(',')).toEqual(expect.arrayContaining(['beautiful-doc', 'eli5']));
 });
 
-/** The app renderer entry: file:// out/renderer, or a custom app scheme serving it from the asar. */
-const APP_PAGE = /^(file:.*\/renderer|[a-z0-9]+:\/\/app)\/index\.html$/;
+/** The app renderer entry, served from the asar over eli5app:// (12 §7.8: never file://). */
+const APP_PAGE = /^eli5app:\/\/app\/index\.html(#.*)?$/;
 
 /** The main window's page; the viewer and pdf-render views are other CDP targets. */
 async function appWindow(b: Browser): Promise<Page> {

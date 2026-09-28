@@ -144,6 +144,30 @@ describe('createPipelineDeps (06 §2, M1 handoff wiring)', () => {
     rt.dispose();
   });
 
+  it('logs the resolved skill names once at startup, so a packaged build can prove skills loaded', async () => {
+    const { userData } = await tmpLibrary();
+    const settings: Settings = { ...DEFAULTS };
+    const infos: [string, unknown][] = [];
+    const noop = (): void => {};
+    const rt = createPipelineDeps({
+      registry: registry(settings),
+      settings: () => settings,
+      keyStore: new MemoryKeyStore(),
+      library: library(),
+      userData,
+      resourcePath: (rel) => path.join(RESOURCES, rel),
+      workerEntry: 'x',
+      watchSkills: false,
+      log: { info: (e, f) => infos.push([e, f]), warn: noop, error: noop, debug: noop },
+      extractServices: {
+        renderPdfPages: async () => [],
+        normalizeImage: async () => ({ ok: false, code: 'corrupt' }),
+      },
+    });
+    expect(infos).toContainEqual(['pipeline.skills-loaded', { count: 2, kind: 'beautiful-doc,eli5' }]);
+    rt.dispose();
+  });
+
   it('user skills override bundled ones; an overlay theme wins over the skill theme', async () => {
     const { userData } = await tmpLibrary();
     const settings: Settings = { ...DEFAULTS };
