@@ -1,5 +1,5 @@
 import type { MenuItemConstructorOptions } from 'electron';
-import type { HelpTopic, LibraryFolder, LibraryLocation } from '../../preload/contract';
+import type { FindCommand, HelpTopic, LibraryFolder, LibraryLocation } from '../../preload/contract';
 
 /**
  * macOS application menu (11 §3.2 step 5, §9). There is no `role: 'quit'` item: Cmd+Q and Cmd+W
@@ -11,16 +11,19 @@ import type { HelpTopic, LibraryFolder, LibraryLocation } from '../../preload/co
  * shortcut table (src/renderer/src/a11y/shortcuts.ts) is the one place the action is defined. When
  * the app renderer has focus it handles the key itself and prevents the default, so the item does
  * not fire a second time.
+ *
+ * The Edit > Find items (Find in Document, Find Next, Find Previous, Find in Library) send their
+ * command to the app renderer over `eli5:app:find-command` instead of a forwarded key, because
+ * Option changes the key an Option+Cmd+F event reports.
  */
 
 /** Window shortcuts mirrored as menu items (11 §9). */
-export type MenuShortcutId = 'new-draft' | 'focus-url' | 'focus-filter' | 'toggle-sidebar' | 'prev-doc' | 'next-doc';
+export type MenuShortcutId = 'new-draft' | 'focus-url' | 'toggle-sidebar' | 'prev-doc' | 'next-doc';
 
 /** `sendInputEvent` keyCode (with the `meta` modifier) that the renderer maps back to each id. */
 export const MENU_SHORTCUT_KEYS: Record<MenuShortcutId, string> = {
   'new-draft': 'N',
   'focus-url': 'L',
-  'focus-filter': 'F',
   'toggle-sidebar': '\\',
   'prev-doc': '[',
   'next-doc': ']',
@@ -40,6 +43,8 @@ export interface AppMenuActions {
    * renderer handles them itself (11 §9).
    */
   docHistory(dir: 'undo' | 'redo'): void;
+  /** Edit > Find: run the command in the app renderer, whichever surface has focus (11 §9). */
+  find(command: FindCommand): void;
 }
 
 export const MENU_IDS = {
@@ -50,6 +55,10 @@ export const MENU_IDS = {
   reloadViewer: 'reload-viewer',
   undoDocument: 'undo-document',
   redoDocument: 'redo-document',
+  findInDocument: 'find-in-document',
+  findNext: 'find-next',
+  findPrevious: 'find-previous',
+  findInLibrary: 'find-in-library',
 } as const;
 
 const shortcutItem = (
@@ -107,7 +116,37 @@ export function appMenuTemplate(
         { role: 'paste' },
         { role: 'selectAll' },
         { type: 'separator' },
-        shortcutItem(actions, 'focus-filter', 'Find in Library', 'CmdOrCtrl+F'),
+        {
+          // macOS convention: Edit > Find. Cmd+F without a document open focuses the Library filter.
+          label: 'Find',
+          submenu: [
+            {
+              id: MENU_IDS.findInDocument,
+              label: 'Find in Document…',
+              accelerator: 'CmdOrCtrl+F',
+              click: () => actions.find('find'),
+            },
+            {
+              id: MENU_IDS.findNext,
+              label: 'Find Next',
+              accelerator: 'CmdOrCtrl+G',
+              click: () => actions.find('find-next'),
+            },
+            {
+              id: MENU_IDS.findPrevious,
+              label: 'Find Previous',
+              accelerator: 'Shift+CmdOrCtrl+G',
+              click: () => actions.find('find-previous'),
+            },
+            { type: 'separator' },
+            {
+              id: MENU_IDS.findInLibrary,
+              label: 'Find in Library',
+              accelerator: 'Alt+CmdOrCtrl+F',
+              click: () => actions.find('find-in-library'),
+            },
+          ],
+        },
       ],
     },
     {

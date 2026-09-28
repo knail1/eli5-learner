@@ -5,6 +5,7 @@ import {
   VIEWER_CHANNELS,
   type AuthStatus,
   type EditionInfo,
+  type FindInDocumentRequest,
   type IpcChannel,
   type ModelsResult,
   type TestConnectionResult,
@@ -18,6 +19,7 @@ import { ContextMenuRequest, handleContextMenu } from '../shell';
 import { safeOpenExternal } from '../security';
 import type { ClipboardPort } from '../sources';
 import { DropRegistry } from './drops';
+import { FindRequestSchema } from './schemas';
 import {
   fail,
   makeHandle,
@@ -68,6 +70,10 @@ export interface IpcDeps {
     setVisible(v: boolean): void;
     /** Focuses the viewer view's webContents (11 §12 viewer focus handoff). */
     focus(): void;
+    /** findInPage on the viewer (11 §5.3 find bar); results reach the app as `eli5:viewer:find-result`. */
+    find(r: FindInDocumentRequest): void;
+    /** stopFindInPage('clearSelection'). */
+    stopFind(): void;
   };
   /** Push an event to the app renderer. */
   sendToApp(channel: IpcChannel, payload: unknown): void;
@@ -163,6 +169,11 @@ export function registerIpc(d: IpcDeps): () => void {
   on(IPC.viewer.setBounds, Bounds, (b) => d.viewer.setBounds(b));
   on(IPC.viewer.setVisible, z.object({ visible: z.boolean() }), (p) => d.viewer.setVisible(p.visible));
   on(IPC.viewer.focus, NoPayload, () => d.viewer.focus());
+  // Find in document (11 §5.3): app window only, like every channel not in VIEWER_CHANNELS.
+  on(IPC.viewer.find, FindRequestSchema, (r): void => {
+    d.viewer.find(r);
+  });
+  on(IPC.viewer.stopFind, NoPayload, () => d.viewer.stopFind());
   on(IPC.viewer.openExternal, z.object({ url: z.string().max(2048) }), async (p, e) => {
     if (!(await safeOpenExternal(p.url, e.sender.id))) fail('E_RATE_LIMITED', 'Link not opened');
   });
@@ -218,6 +229,8 @@ const EVENT_CHANNELS = new Set<string>([
   IPC.doc.sectionBusy,
   IPC.doc.historyChanged,
   IPC.app.navigate,
+  IPC.app.findCommand,
+  IPC.viewer.findResult,
   IPC.settings.changed,
   IPC.publish.progress,
   IPC.test.trayClick,

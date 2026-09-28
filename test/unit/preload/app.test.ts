@@ -142,6 +142,14 @@ describe('app preload', () => {
       [api.sources!.classifyText!, ['ABC-123'], IPC.sources.classifyText, { text: 'ABC-123' }],
       [api.library!.revealRoot!, [], IPC.library.revealRoot, undefined],
       [api.viewer!.focus!, [], IPC.viewer.focus, undefined],
+      [api.viewer!.find!, ['widget'], IPC.viewer.find, { text: 'widget' }],
+      [
+        api.viewer!.find!,
+        ['widget', { forward: false, again: true }],
+        IPC.viewer.find,
+        { text: 'widget', forward: false, again: true },
+      ],
+      [api.viewer!.stopFind!, [], IPC.viewer.stopFind, undefined],
       [api.suggestions!.accept!, ['s-1'], IPC.suggestions.accept, { suggestionId: 's-1' }],
       [api.publish!.run!, ['solar-power', 'local'], IPC.publish.run, { slug: 'solar-power', targetId: 'local' }],
       [api.publish!.reveal!, ['file:///x'], IPC.publish.reveal, { url: 'file:///x' }],
@@ -151,6 +159,18 @@ describe('app preload', () => {
       await fn(...args);
       expect(invoke).toHaveBeenCalledWith(channel, payload);
     }
+  });
+
+  it('subscribes find results and find menu commands to their events (11 §5.3)', async () => {
+    const { ipcRenderer } = await import('electron');
+    const api = exposed.eli5 as {
+      viewer: { onFindResult(cb: (e: unknown) => void): () => void };
+      app: { onFindCommand(cb: (e: unknown) => void): () => void };
+    };
+    api.viewer.onFindResult(() => {});
+    api.app.onFindCommand(() => {});
+    expect(ipcRenderer.on).toHaveBeenCalledWith(IPC.viewer.findResult, expect.any(Function));
+    expect(ipcRenderer.on).toHaveBeenCalledWith(IPC.app.findCommand, expect.any(Function));
   });
 
   it('subscribes app.onCycleRegion to eli5:app:cycle-region (11 §12)', async () => {

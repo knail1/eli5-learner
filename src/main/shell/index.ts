@@ -13,6 +13,8 @@ export {
   setViewerBounds,
   setViewerVisible,
   focusViewer,
+  findInDocument,
+  stopFindInDocument,
   isViewerAttached,
   showMainWindow,
   hideMainWindow,
@@ -58,6 +60,8 @@ export type { LifecycleApp } from './lifecycle';
 export { appMenuTemplate, libraryItemMenuTemplate, MENU_IDS, MENU_SHORTCUT_KEYS } from './app-menu';
 export type { AppMenuActions, LibraryItemMenuActions, LibraryItemMenuOrganize, MenuShortcutId } from './app-menu';
 export { createHelpOpener, HELP_FILES, PUBLIC_README_URL } from './menu-help';
+export { createFindInDocument, tabOfUrl } from './find';
+export type { FindInDocument, FindViewer, FoundInPage } from './find';
 export type { HelpOpener, HelpOpenerDeps } from './menu-help';
 export {
   parseWindowState,

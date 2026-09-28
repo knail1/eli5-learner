@@ -537,6 +537,25 @@ button.icon-button {
   gap: 8px;
   width: 100%;
 }
+/* Find bar (11 §5.3): a row between the header and the viewer slot, which shrinks to make room. */
+.find-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 24px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.find-field {
+  flex: 0 1 320px;
+  min-width: 120px;
+}
+.find-count {
+  min-width: 80px;
+  font-size: 12px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 .viewer-slot {
   flex: 1;
   min-height: 0;

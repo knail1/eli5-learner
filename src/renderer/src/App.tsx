@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import type { CatalogEntry, LibraryOrganization, Settings, SettingsSection, UiRoute } from '../../preload/contract';
+import type {
+  CatalogEntry,
+  FindCommand,
+  LibraryOrganization,
+  Settings,
+  SettingsSection,
+  UiRoute,
+} from '../../preload/contract';
 import { AnnouncerProvider } from './a11y/Announcer';
 import { matchShortcut } from './a11y/shortcuts';
 import { EditionProvider, FeatureGate } from './edition/FeatureGate';
@@ -13,6 +20,7 @@ import { SettingsScreen, SignInIndicator } from './settings/SettingsScreen';
 import { StatusArea } from './status/StatusArea';
 import { SuggestionsPanel } from './suggestions/SuggestionsPanel';
 import { DocHeader } from './viewer/DocHeader';
+import { FindBar, type FindBarHandle } from './viewer/FindBar';
 import { NotFound, Welcome } from './viewer/ViewerEmpty';
 import { ViewerSlot } from './viewer/ViewerSlot';
 
@@ -220,6 +228,50 @@ function Shell() {
   const routeRef = useRef(route);
   routeRef.current = route;
 
+  // ---- find in document (11 §5.3 find bar, §9) ----
+  // The bar belongs to the document on screen: another document, or any other route, closes it.
+  // The last query survives so Cmd+F reopens the bar with it selected.
+  const [findOpen, setFindOpen] = useState(false);
+  const findBar = useRef<FindBarHandle>(null);
+  const findQuery = useRef('');
+  useEffect(() => setFindOpen(false), [selectedSlug]);
+  const closeFind = useCallback(() => {
+    setFindOpen(false);
+    void window.eli5.viewer.focus();
+  }, []);
+
+  const focusFilter = useCallback(() => {
+    if (narrowRef.current) setNarrowOpen(true);
+    else setSidebar((s) => ({ ...s, collapsed: false }));
+    requestAnimationFrame(() => filterRef.current?.focus());
+  }, []);
+
+  /** Cmd+F / Cmd+G / Shift+Cmd+G / Option+Cmd+F, from a key here or the Edit > Find menu. */
+  const runFind = useCallback(
+    (command: FindCommand) => {
+      if (command === 'find-in-library') {
+        focusFilter();
+        return;
+      }
+      if (!selectedRef.current) {
+        // No document on screen (welcome, Settings, Trash): Cmd+F finds in the Library instead.
+        if (command === 'find') focusFilter();
+        return;
+      }
+      const bar = findBar.current;
+      if (!bar) {
+        // Opening runs the previous query, if any, from the first match.
+        setFindOpen(true);
+        return;
+      }
+      if (command === 'find') bar.focus();
+      else if (command === 'find-next') bar.next();
+      else bar.previous();
+    },
+    [focusFilter],
+  );
+  useEffect(() => window.eli5.app.onFindCommand((e) => runFind(e.command)), [runFind]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
@@ -247,10 +299,13 @@ function Shell() {
           if (narrowRef.current) setNarrowOpen((o) => !o);
           else setSidebar((s) => ({ ...s, collapsed: !s.collapsed }));
           break;
+        case 'find':
+        case 'find-next':
+        case 'find-previous':
+          runFind(m.id);
+          break;
         case 'focus-filter':
-          if (narrowRef.current) setNarrowOpen(true);
-          else setSidebar((s) => ({ ...s, collapsed: false }));
-          requestAnimationFrame(() => filterRef.current?.focus());
+          runFind('find-in-library');
           break;
         case 'prev-doc': {
           const d = docs[at <= 0 ? 0 : at - 1];
@@ -275,9 +330,9 @@ function Shell() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [leaveSettings, openDoc, openSettings]);
+  }, [leaveSettings, openDoc, openSettings, runFind]);
 
-  const layoutKey = `${collapsed ? 0 : sidebar.width}`;
+  const layoutKey = `${collapsed ? 0 : sidebar.width}:${findOpen ? 1 : 0}`;
   const style = useMemo(
     () => ({ '--sidebar-w': collapsed ? '0px' : `${sidebar.width}px` }) as CSSProperties,
     [collapsed, sidebar.width],
@@ -331,6 +386,14 @@ function Shell() {
                     Retry
                   </button>
                 </p>
+              )}
+              {findOpen && (
+                <FindBar
+                  handle={findBar}
+                  initialQuery={findQuery.current}
+                  onQueryChange={(q) => (findQuery.current = q)}
+                  onClose={closeFind}
+                />
               )}
               <ViewerSlot slug={shown.slug} layoutKey={layoutKey} />
             </>

@@ -84,6 +84,9 @@ const api: Eli5Api = {
     setBounds: (r) => invoke(IPC.viewer.setBounds, r),
     setVisible: (visible) => invoke(IPC.viewer.setVisible, { visible }),
     focus: () => invoke(IPC.viewer.focus),
+    find: (text, opts) => invoke(IPC.viewer.find, { text, ...opts }),
+    stopFind: () => invoke(IPC.viewer.stopFind),
+    onFindResult: on(IPC.viewer.findResult),
   },
   llm: {
     testConnection: (provider) => invoke(IPC.llm.testConnection, provider ? { provider } : undefined),
@@ -120,6 +123,7 @@ const api: Eli5Api = {
   app: {
     onNavigate: on(IPC.app.navigate),
     onCycleRegion: on(IPC.app.cycleRegion),
+    onFindCommand: on(IPC.app.findCommand),
     contextMenu: (r) => invoke(IPC.app.contextMenu, r),
     testNotification: () => invoke(IPC.app.testNotification),
     openNotificationSettings: () => invoke(IPC.app.openNotificationSettings),

@@ -70,6 +70,7 @@ The ELI5 tab rebuilds the same material in plain words, with analogies, simple d
 - **Section ELI5 tabs.** Focused ELI5 tabs, spun off from any passage and labeled by topic. You can close them.
 - **Real photos for real-world scenes.** People, places and everyday situations are shown with open-licensed stock photos (Openverse, with Wikimedia Commons as a fallback) instead of hand-drawn pictures; lists, flows and comparisons stay clean diagrams. Photos are embedded in the file, each with a credit and license marked "Illustrative stock photo". Only a few generic search words leave your Mac, and a setting turns it off.
 - **Library and menu bar.** Every document is listed in a sidebar, which you can prune with folders (drag documents in), an Archive and a recoverable Trash: swipe a document left to archive it or right to trash it, with Undo. The menu bar shows the last three, and the app keeps running in the menu bar when the window is closed.
+- **Find.** Cmd+F searches the open document, with a match count and Cmd+G / Shift+Cmd+G to step through matches; Option+Cmd+F filters the Library.
 - **Merge suggestions.** When a new document covers the same or a related topic as one already in your
   Library, the app notices when the job finishes. It offers to merge the new material into the existing
   document to enrich it, instead of leaving two near-copies. The match doesn't have to be the same link:

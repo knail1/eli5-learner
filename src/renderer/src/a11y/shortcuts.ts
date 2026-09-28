@@ -8,6 +8,9 @@ export type ShortcutId =
   | 'new-draft'
   | 'settings'
   | 'toggle-sidebar'
+  | 'find'
+  | 'find-next'
+  | 'find-previous'
   | 'focus-filter'
   | 'prev-doc'
   | 'next-doc'
@@ -17,6 +20,8 @@ export type ShortcutId =
 
 export interface KeyLike {
   key: string;
+  /** Physical key; Option changes `key` (Option+F reports "ƒ" on a US layout). */
+  code?: string;
   metaKey: boolean;
   ctrlKey: boolean;
   shiftKey: boolean;
@@ -34,7 +39,10 @@ export const SHORTCUTS: readonly { keys: string; id: ShortcutId; label: string }
   { keys: 'Cmd+N', id: 'new-draft', label: 'Focus drop box and clear the draft' },
   { keys: 'Cmd+,', id: 'settings', label: 'Open Settings' },
   { keys: 'Cmd+\\', id: 'toggle-sidebar', label: 'Toggle sidebar' },
-  { keys: 'Cmd+F', id: 'focus-filter', label: 'Focus Library filter' },
+  { keys: 'Cmd+F', id: 'find', label: 'Find in document (Library filter when no document is open)' },
+  { keys: 'Cmd+G', id: 'find-next', label: 'Find next match' },
+  { keys: 'Shift+Cmd+G', id: 'find-previous', label: 'Find previous match' },
+  { keys: 'Option+Cmd+F', id: 'focus-filter', label: 'Focus Library filter' },
   { keys: 'Cmd+[', id: 'prev-doc', label: 'Previous document' },
   { keys: 'Cmd+]', id: 'next-doc', label: 'Next document' },
   { keys: 'Cmd+1…9', id: 'nth-doc', label: 'Open the nth document' },
@@ -46,8 +54,11 @@ export function matchShortcut(e: KeyLike): ShortcutMatch | null {
   if (e.key === 'F6' && !e.metaKey && !e.ctrlKey && !e.altKey) {
     return { id: e.shiftKey ? 'prev-region' : 'next-region' };
   }
-  if (!e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return null;
+  if (!e.metaKey || e.ctrlKey) return null;
   const k = e.key.toLowerCase();
+  // Find (11 §9): Option+Cmd+F is Find in Library; Shift+Cmd+G is Find Previous.
+  if (e.altKey) return !e.shiftKey && (e.code === 'KeyF' || k === 'f' || k === 'ƒ') ? { id: 'focus-filter' } : null;
+  if (e.shiftKey) return k === 'g' ? { id: 'find-previous' } : null;
   switch (k) {
     case 'l':
       return { id: 'focus-url' };
@@ -58,7 +69,9 @@ export function matchShortcut(e: KeyLike): ShortcutMatch | null {
     case '\\':
       return { id: 'toggle-sidebar' };
     case 'f':
-      return { id: 'focus-filter' };
+      return { id: 'find' };
+    case 'g':
+      return { id: 'find-next' };
     case '[':
       return { id: 'prev-doc' };
     case ']':

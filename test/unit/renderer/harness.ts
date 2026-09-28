@@ -62,6 +62,8 @@ export interface FakeApi {
       | 'settings'
       | 'navigate'
       | 'cycle-region'
+      | 'find-result'
+      | 'find-command'
       | 'auth'
       | 'doc'
       | 'doc-history'
@@ -133,6 +135,9 @@ export function installFakeApi(edition: EditionInfo = PUBLIC_EDITION): FakeApi {
       setBounds: resolved(ok(undefined)),
       setVisible: resolved(ok(undefined)),
       focus: resolved(ok(undefined)),
+      find: resolved(ok(undefined)),
+      stopFind: resolved(ok(undefined)),
+      onFindResult: on('find-result'),
     },
     llm: {
       testConnection: resolved(ok({ ok: true, model: 'model-x' })),
@@ -169,6 +174,7 @@ export function installFakeApi(edition: EditionInfo = PUBLIC_EDITION): FakeApi {
     app: {
       onNavigate: on('navigate'),
       onCycleRegion: on('cycle-region'),
+      onFindCommand: on('find-command'),
       contextMenu: resolved(notImplemented),
       testNotification: resolved(notImplemented),
       openNotificationSettings: resolved(notImplemented),

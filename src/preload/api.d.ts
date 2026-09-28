@@ -1,6 +1,8 @@
 import type {
   AppNavigateEvent,
   CycleRegionEvent,
+  FindCommandEvent,
+  FindResultEvent,
   ApiKeyProvider,
   AuthStatus,
   CatalogEntry,
@@ -102,6 +104,11 @@ export interface Eli5Api {
     setVisible(v: boolean): R<void>;
     /** F6 into the viewer: main focuses the view's webContents (11 §12). */
     focus(): R<void>;
+    /** Find in the document shown in the viewer (11 §5.3 find bar). */
+    find(text: string, opts?: { forward?: boolean; again?: boolean }): R<void>;
+    /** Ends the search and clears its highlight. */
+    stopFind(): R<void>;
+    onFindResult(cb: (e: FindResultEvent) => void): Unsub;
   };
   llm: {
     testConnection(provider?: ProviderId): R<TestConnectionResult>;
@@ -141,6 +148,8 @@ export interface Eli5Api {
     onNavigate(cb: (e: AppNavigateEvent) => void): Unsub;
     /** F6 / Shift+F6 pressed inside the viewer; the app cycles on from the viewer region. */
     onCycleRegion(cb: (e: CycleRegionEvent) => void): Unsub;
+    /** Edit > Find menu items, sent while the viewer may have focus (11 §9). */
+    onFindCommand(cb: (e: FindCommandEvent) => void): Unsub;
     contextMenu(r: { kind: 'library-item'; slug: string }): R<void>;
     /** 11 §14.7. */
     testNotification(): R<TestNotificationResult>;

@@ -7,6 +7,7 @@ import type { Registry } from '../../../../src/main/editions';
 import type { IpcServices } from '../../../../src/main/ipc';
 import type {
   CatalogEntry,
+  FindInDocumentRequest,
   IpcResult,
   JobSnapshot,
   LibraryFolder,
@@ -185,6 +186,8 @@ export interface Harness {
   rootRevealed: { count: number };
   /** `eli5:viewer:focus` calls (11 §12 viewer focus handoff). */
   viewerFocused: { count: number };
+  /** `eli5:viewer:find` requests and `eli5:viewer:stop-find` calls (11 §5.3 find bar). */
+  find: { requests: FindInDocumentRequest[]; stops: number };
   keyReady: { value: boolean };
   userData: string;
   dispose: () => void;
@@ -227,6 +230,7 @@ export async function setup(o: SetupOptions = {}): Promise<Harness> {
     revealed: [],
     rootRevealed: { count: 0 },
     viewerFocused: { count: 0 },
+    find: { requests: [], stops: 0 },
     keyReady: { value: true },
     userData,
     handlers,
@@ -246,6 +250,10 @@ export async function setup(o: SetupOptions = {}): Promise<Harness> {
       setVisible: () => {},
       focus: () => {
         h.viewerFocused.count++;
+      },
+      find: (r) => h.find.requests.push(r),
+      stopFind: () => {
+        h.find.stops++;
       },
     },
     sendToApp: (channel, payload) => h.sent.push({ channel, payload }),

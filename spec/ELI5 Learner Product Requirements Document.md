@@ -54,7 +54,7 @@ The app runs as a normal window plus a persistent menu bar item. Closing the win
 **Main window, modeled on the Claude app and VS Code**
 
 - **Left sidebar, Library:** every finished document, newest first, titled by topic. Clicking one renders it in the main area. Documents can be filed in folders, archived, or moved to the Trash so a long list stays manageable (see Organizing the Library).
-- **Main area, Viewer:** renders the generated HTML directly in an embedded Electron view. The user never sees raw HTML.
+- **Main area, Viewer:** renders the generated HTML directly in an embedded Electron view. The user never sees raw HTML. Cmd+F finds text in the open document: a find bar above the viewer shows the match count ("3 of 12"), Cmd+G and Shift+Cmd+G step through the matches, and Escape closes it. Option+Cmd+F searches the Library instead (as does Cmd+F when no document is open).
 - **Input zone:** one drop box accepting drag and drop, paste (Cmd+V), and a URL field, plus an optional single line or multiline text field for clarifying specifics. Enter starts generation.
 - **Status area (lower right):** a simple, human readable status line per job, for example Reading sources, Extracting content, Generating document, Done. No verbose logs.
 - **Suggestions area:** where post generation merge suggestions wait for the user (see Library section).

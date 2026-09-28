@@ -23,6 +23,7 @@ describe('appMenuTemplate (11 §3.2 step 5, §9)', () => {
     reloadViewer: vi.fn(),
     openHelp: vi.fn(),
     docHistory: vi.fn(),
+    find: vi.fn(),
   };
   const all = flatten(appMenuTemplate(actions, { appName: 'ELI5 Learner', devTools: false }));
 
@@ -92,13 +93,13 @@ describe('application menu mirrors the window shortcuts (11 §9)', () => {
     reloadViewer: vi.fn(),
     openHelp: vi.fn(),
     docHistory: vi.fn(),
+    find: vi.fn(),
   };
   const all = flatten(appMenuTemplate(actions, { appName: 'ELI5 Learner', devTools: false }));
 
   const mirrored: [MenuShortcutId, string][] = [
     ['new-draft', 'CmdOrCtrl+N'],
     ['focus-url', 'CmdOrCtrl+L'],
-    ['focus-filter', 'CmdOrCtrl+F'],
     ['toggle-sidebar', 'CmdOrCtrl+\\'],
     ['prev-doc', 'CmdOrCtrl+['],
     ['next-doc', 'CmdOrCtrl+]'],
@@ -114,6 +115,23 @@ describe('application menu mirrors the window shortcuts (11 §9)', () => {
 
   it('forwards each shortcut as the Cmd+key its accelerator names (the renderer maps it back, settings-shortcuts test)', () => {
     for (const [id, accel] of mirrored) expect(`CmdOrCtrl+${MENU_SHORTCUT_KEYS[id]}`, id).toBe(accel);
+  });
+
+  it('Edit > Find holds Find in Document, Find Next, Find Previous and Find in Library (macOS convention)', () => {
+    const edit = appMenuTemplate(actions, { appName: 'ELI5 Learner', devTools: false }).find((m) => m.label === 'Edit');
+    const find = (edit?.submenu as MenuItemConstructorOptions[]).find((i) => i.label === 'Find');
+    const items = (find?.submenu as MenuItemConstructorOptions[]).filter((i) => i.type !== 'separator');
+    expect(items.map((i) => [i.id, i.label, i.accelerator])).toEqual([
+      [MENU_IDS.findInDocument, 'Find in Document…', 'CmdOrCtrl+F'],
+      [MENU_IDS.findNext, 'Find Next', 'CmdOrCtrl+G'],
+      [MENU_IDS.findPrevious, 'Find Previous', 'Shift+CmdOrCtrl+G'],
+      [MENU_IDS.findInLibrary, 'Find in Library', 'Alt+CmdOrCtrl+F'],
+    ]);
+    actions.find.mockClear();
+    items.forEach(click);
+    expect(actions.find.mock.calls).toEqual([['find'], ['find-next'], ['find-previous'], ['find-in-library']]);
+    // Find items send their own command to the app; none is a forwarded Cmd+key shortcut.
+    expect(all.some((i) => i.id === 'shortcut-focus-filter')).toBe(false);
   });
 
   it('Cmd+R reloads the viewer, never the app renderer', () => {

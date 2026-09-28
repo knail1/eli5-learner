@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MENU_SHORTCUT_KEYS, type MenuShortcutId } from '../../../src/main/shell/app-menu';
 import { loadRenderer } from './harness';
 
-type Key = { key: string; metaKey: boolean; shiftKey: boolean; ctrlKey: boolean; altKey: boolean };
+type Key = { key: string; code?: string; metaKey: boolean; shiftKey: boolean; ctrlKey: boolean; altKey: boolean };
 type ShortcutId = string;
 const { SHORTCUTS, matchShortcut } = await loadRenderer<{
   SHORTCUTS: readonly { id: ShortcutId }[];
@@ -27,7 +27,6 @@ describe('window shortcuts mirrored by the application menu (11 §9)', () => {
   const forwarded: [string, ShortcutId][] = [
     ['N', 'new-draft'],
     ['L', 'focus-url'],
-    ['F', 'focus-filter'],
     ['\\', 'toggle-sidebar'],
     ['[', 'prev-doc'],
     [']', 'next-doc'],
@@ -48,6 +47,20 @@ describe('window shortcuts mirrored by the application menu (11 §9)', () => {
     expect(matchShortcut(key('1'))).toEqual({ id: 'nth-doc', index: 0 });
     expect(matchShortcut(key('9'))).toEqual({ id: 'nth-doc', index: 8 });
     expect(matchShortcut(key('0'))).toBeNull();
+  });
+
+  it('Cmd+F finds in the document, Cmd+G / Shift+Cmd+G step, Option+Cmd+F focuses the Library filter', () => {
+    expect(matchShortcut(key('f'))).toEqual({ id: 'find' });
+    expect(matchShortcut(key('F'))).toEqual({ id: 'find' });
+    expect(matchShortcut(key('g'))).toEqual({ id: 'find-next' });
+    expect(matchShortcut(key('G', { shift: true }))).toEqual({ id: 'find-previous' });
+    expect(matchShortcut(key('g', { shift: true }))).toEqual({ id: 'find-previous' });
+    // Option turns F into ƒ on a US layout; the physical key still counts.
+    expect(matchShortcut({ ...key('ƒ', { alt: true }), code: 'KeyF' })).toEqual({ id: 'focus-filter' });
+    expect(matchShortcut(key('f', { alt: true }))).toEqual({ id: 'focus-filter' });
+    expect(matchShortcut(key('f', { alt: true, shift: true }))).toBeNull();
+    expect(matchShortcut(key('f', { shift: true }))).toBeNull();
+    expect(matchShortcut(key('g', { alt: true }))).toBeNull();
   });
 
   it('F6 and Shift+F6 cycle focus regions without Cmd', () => {

@@ -242,7 +242,10 @@ describe('shortcuts (11 §9)', () => {
     expect(matchShortcut(k('n', { metaKey: true }))?.id).toBe('new-draft');
     expect(matchShortcut(k(',', { metaKey: true }))?.id).toBe('settings');
     expect(matchShortcut(k('\\', { metaKey: true }))?.id).toBe('toggle-sidebar');
-    expect(matchShortcut(k('f', { metaKey: true }))?.id).toBe('focus-filter');
+    expect(matchShortcut(k('f', { metaKey: true }))?.id).toBe('find');
+    expect(matchShortcut(k('f', { metaKey: true, altKey: true }))?.id).toBe('focus-filter');
+    expect(matchShortcut(k('g', { metaKey: true }))?.id).toBe('find-next');
+    expect(matchShortcut(k('G', { metaKey: true, shiftKey: true }))?.id).toBe('find-previous');
     expect(matchShortcut(k('[', { metaKey: true }))?.id).toBe('prev-doc');
     expect(matchShortcut(k(']', { metaKey: true }))?.id).toBe('next-doc');
     expect(matchShortcut(k('3', { metaKey: true }))).toEqual({ id: 'nth-doc', index: 2 });

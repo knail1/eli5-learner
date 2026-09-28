@@ -12,7 +12,14 @@ import {
   protocol,
   session,
 } from 'electron';
-import { IPC, type LibraryLocation, type UiRoute, type ViewerBounds } from '../../preload/contract';
+import {
+  IPC,
+  type FindCommand,
+  type FindInDocumentRequest,
+  type LibraryLocation,
+  type UiRoute,
+  type ViewerBounds,
+} from '../../preload/contract';
 import { resourcePath } from '../config';
 import { APP_CSP_DEV, APP_CSP_PROD, SECURE_WEB_PREFERENCES, log, registerSurface, safeOpenExternal } from '../security';
 import {
@@ -25,6 +32,7 @@ import {
 } from './app-menu';
 import { APP_ENTRY_URL, APP_SCHEME, createAppProtocolHandler, isAppRendererUrl } from './app-protocol';
 import type { FolderChooserDeps } from './choose-folder';
+import { createFindInDocument } from './find';
 import { createHelpOpener, type HelpOpener } from './menu-help';
 import { createSettingsServices } from './settings-services';
 import { ERROR_PAGE, RELOAD_FRAGMENT, closeAction, crashTracker, shell, viewerErrorPage } from './lifecycle';
@@ -181,6 +189,35 @@ function forwardShortcut(id: MenuShortcutId): void {
   wc.sendInputEvent({ type: 'keyUp', keyCode, modifiers: ['meta'] });
 }
 
+/**
+ * Edit > Find (11 §9): Find in Document and Find in Library bring the app forward and focus it (the
+ * find bar or the Library filter takes focus); Find Next / Previous leave focus where it is, so they
+ * also step through matches while the document has focus.
+ */
+function sendFindCommand(command: FindCommand): void {
+  if (command === 'find' || command === 'find-in-library') {
+    showMainWindow();
+    mainWebContents()?.focus();
+  }
+  mainWebContents()?.send(IPC.app.findCommand, { command });
+}
+
+/** Find in the document shown in the viewer (11 §5.3 find bar); results go to the app renderer. */
+const finder = createFindInDocument({
+  viewer: () => viewerWebContents(),
+  send: (e) => mainWebContents()?.send(IPC.viewer.findResult, e),
+});
+
+/** `eli5:viewer:find`: ignored while no document is shown (the view is detached). */
+export function findInDocument(r: FindInDocumentRequest): void {
+  if (viewerAttached) finder.find(r);
+}
+
+/** `eli5:viewer:stop-find`: ends the search and clears its highlight. */
+export function stopFindInDocument(): void {
+  finder.stop();
+}
+
 export function installAppMenu(): void {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate(
@@ -197,6 +234,7 @@ export function installAppMenu(): void {
             if (viewerAttached) viewerWebContents()?.reload();
           },
           docHistory: (dir) => shellHooks().docHistory?.(dir),
+          find: sendFindCommand,
           openHelp: (topic) => {
             void helpOpener()
               .open(topic)
@@ -362,6 +400,8 @@ export function createMainWindow(): BrowserWindow {
   installViewerKeyHandoff(viewer.webContents, mainWebContents, (dir) =>
     mainWebContents()?.send(IPC.app.cycleRegion, { dir }),
   );
+  // Find in document (11 §5.3): results and resets for this viewer go to the app renderer.
+  finder.attach();
   // Detached until the renderer shows the doc route (11 §5.1).
   viewer.setVisible(false);
   viewerAttached = false;

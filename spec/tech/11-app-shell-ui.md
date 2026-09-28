@@ -52,9 +52,10 @@ hidden in the public build), *Configuration, scope, and open items* (settings sc
 | `src/main/shell/lifecycle.ts` | main | Single-instance lock, `activate`, quit flag |
 | `src/main/shell/viewer.ts` | main | The `WebContentsView` viewer: bounds, visibility, load by slug |
 | `src/main/shell/notifications.ts` | main | Completion notification: `createNotifier`, click routing, reference retention (§14) |
+| `src/main/shell/find.ts` | main | Find in document: `findInPage` on the viewer, results and resets to the app (§5.3) |
 | `src/renderer/App.tsx` | renderer | Top-level layout grid and route switch |
 | `src/renderer/library/` | renderer | `LibrarySidebar`, `LibraryItem`, `LibraryFilter` |
-| `src/renderer/viewer/` | renderer | `ViewerSlot`, `DocHeader`, `ViewerEmpty` |
+| `src/renderer/viewer/` | renderer | `ViewerSlot`, `DocHeader`, `FindBar`, `ViewerEmpty` |
 | `src/renderer/input/` | renderer | `InputZone`, `DropBox`, `SourceChip`, `UrlField`, `ClarifyField`, `GlossaryToggle` |
 | `src/renderer/status/` | renderer | `StatusArea`, `JobLine` |
 | `src/renderer/suggestions/` | renderer | `SuggestionsPanel`, `SuggestionCard` |
@@ -222,6 +223,8 @@ so renderer DOM can never draw over the viewer rectangle. Therefore:
   view. Returning to `doc` re-adds it and re-sends bounds.
 - `ViewerSlot` reports its rect via `eli5:viewer:set-bounds` on mount, on `ResizeObserver` changes,
   on sidebar drag (throttled to one per animation frame), and after the window's `resize`.
+- The find bar (§5.3) is a row between the document header and `ViewerSlot`, never an overlay: the
+  slot shrinks while the bar is open and reports its new rect.
 
 ### 5.2 Library sidebar
 
@@ -300,6 +303,31 @@ so renderer DOM can never draw over the viewer rectangle. Therefore:
 - On `eli5:doc:updated {slug, sectionId?, tabKey?}` for the open document, main reloads the viewer
   and sends `eli5:doc:scroll-to` (08). If the updated slug is not the open document, the shell does
   nothing beyond the Library update.
+- **Find in document** (`viewer/FindBar.tsx`, `src/main/shell/find.ts`). `Cmd+F` (Edit > Find >
+  Find in Document…) with a document shown opens a find bar above the viewer slot (it takes layout
+  space; the slot shrinks). It holds a search field, the match count, previous / next icon buttons
+  (inline SVG chevrons, `aria-label` "Previous match" / "Next match") and **Done**. The bar is
+  `role="search"` ("Find in document"); the count is a polite live region reading "3 of 12" or
+  "No matches".
+  - The field is focused on open. Reopening shows the previous query selected and searches it
+    again. `Cmd+F` while the bar is open refocuses the field and selects its text.
+  - Search as you type, debounced 150 ms, case-insensitive: `eli5:viewer:find {text}` starts a new
+    search. `Enter` / `Cmd+G` go to the next match and `Shift+Enter` / `Shift+Cmd+G` to the
+    previous one (`{text, forward, again: true}`); `Enter` before the debounce fires searches at
+    once. Clearing the field ends the search.
+  - `Escape` (anywhere in the bar) or **Done** closes it: `eli5:viewer:stop-find` clears the
+    highlight (`stopFindInPage('clearSelection')`) and focus returns to the viewer.
+  - Main runs `webContents.findInPage` on the viewer and forwards each `found-in-page` result of the
+    latest request as `eli5:viewer:find-result {kind: 'result', activeMatchOrdinal, matches,
+    finalUpdate}`; results of superseded or stopped requests are dropped.
+  - While a search is active, a reload of the viewer (section update, undo, merge) sends
+    `{kind: 'reset', reason: 'reload'}`: the bar clears its count and the next `Enter` starts a new
+    search, so the post-update scroll to the changed section is not overridden. A switch between
+    the document's tabs (the runtime's `#tab=<key>` in-page navigation) sends `{kind: 'reset',
+    reason: 'tab'}` and the bar searches again, so the count covers the tab now shown.
+  - Opening another document, or any other route, closes the bar. With no document shown (welcome,
+    not found, Trash, Settings), `Cmd+F` focuses the Library filter instead.
+  - The field is a text field, so `Cmd+Z` in it undoes typing, not the document (§9).
 - Drops onto the viewer are ignored: the doc preload cancels `dragover`/`drop` so a dropped file
   never navigates the viewer. Users drop onto the input zone or the sidebar (both accept drops).
 
@@ -510,15 +538,27 @@ where a menu item exists, so they appear in the Help menu search.
 | `Cmd+N` | Focus drop box and clear the draft | Window |
 | `Cmd+,` | Open Settings | Window |
 | `Cmd+\` | Toggle sidebar | Window |
-| `Cmd+F` | Focus Library filter | Window |
+| `Cmd+F` | Find in document: open the find bar (§5.3), or refocus it; focuses the Library filter when no document is shown | Window |
+| `Cmd+G` / `Shift+Cmd+G` | Next / previous match of the find bar's query (opens the bar when closed) | Window, and the viewer (Edit > Find menu) |
+| `Enter` / `Shift+Enter` | Next / previous match | Find field |
+| `Option+Cmd+F` | Focus Library filter (Find in Library) | Window |
 | `Cmd+[` / `Cmd+]` | Previous / next document in Library order | Window |
 | `Cmd+1`…`Cmd+9` | Open the nth Library document | Window |
 | `F6` / `Shift+F6` | Cycle focus regions: sidebar → viewer → input zone → status → suggestions | Window |
 | `Cmd+W`, `Cmd+Q` | Close window (hide) | Window (§3.2) |
-| `Escape` | Clear filter / leave settings / close inline hint | Context |
+| `Escape` | Clear filter / close the find bar / leave settings / close inline hint | Context |
 | `Cmd+R` | Reload viewer (not the app) | Viewer focused |
 | `Cmd+Z` / `Shift+Cmd+Z` | Undo / redo the open document's last change (09 §4.1); `Cmd+Z` first undoes a pending Library move (below) | Window, outside text fields |
 | `Cmd+Backspace` | Move the focused Library row to the Trash (§5.2) | Library row |
+
+The find shortcuts are items of the Edit menu's **Find** submenu (macOS convention): **Find in
+Document…** `Cmd+F`, **Find Next** `Cmd+G`, **Find Previous** `Shift+Cmd+G`, then **Find in
+Library** `Option+Cmd+F`. When the app renderer has focus it handles the keys itself and prevents
+the default, as for the other shortcuts. While the viewer has focus the keys are not handled by the
+document or the viewer's `before-input-event` handoff, so the menu items fire; they send
+`eli5:app:find-command {command}` to the app renderer (not a forwarded key, because Option changes
+the key an Option+Cmd+F event reports). Find in Document and Find in Library bring the window
+forward and focus the app renderer; Find Next and Find Previous leave focus where it is.
 
 `Cmd+R` never reloads the React app in production builds; the default `reload` role is not in the
 application menu. Shortcuts inside the document (selection menu) are owned by 08.
@@ -549,6 +589,10 @@ Additions to the 01 §5.2 baseline, same conventions (`IpcResult<T>`, zod valida
 | `eli5:viewer:set-visible` | R→M | shell/viewer | `{visible: boolean}` | `void` |
 | `eli5:viewer:focus` | R→M | shell/viewer | — | `void` (focuses the attached viewer view, §12) |
 | `eli5:app:cycle-region` | M→R | shell | — | `CycleRegionEvent {dir: 1 \| -1}` (F6 / Shift+F6 pressed in the viewer, §12) |
+| `eli5:viewer:find` | R→M | shell/find | `FindInDocumentRequest {text: string (1–200 chars); forward?: boolean; again?: boolean}` | `void` (`findInPage` on the attached viewer, case-insensitive; without `again` a new search). App window only |
+| `eli5:viewer:stop-find` | R→M | shell/find | — | `void` (`stopFindInPage('clearSelection')`). App window only |
+| `eli5:viewer:find-result` | M→R | shell/find | — | `FindResultEvent`: `{kind: 'result'; activeMatchOrdinal; matches; finalUpdate}` for the latest request, or `{kind: 'reset'; reason: 'reload' \| 'tab'}` (§5.3) |
+| `eli5:app:find-command` | M→R | shell | — | `FindCommandEvent {command: 'find' \| 'find-next' \| 'find-previous' \| 'find-in-library'}` (Edit > Find menu items, §9) |
 | `eli5:sources:classify-text` | R→M | sources (03) | `{text: string}` (≤ 2048 chars) | `{kind: 'url' \| 'bare' \| 'invalid'; label: string}` |
 | `eli5:settings:choose-folder` | R→M | shell | `{key: 'publish.local.dir'}` | `{path: string} \| {cancelled: true}` (main shows the open panel, validates, and saves the key) |
 | `eli5:settings:open-help` | R→M | shell | `{topic: 'readme' \| 'publish-pages' \| 'licenses'}` | `void` (main maps the topic to the public README URL, `resources/help/publish-github-pages.html` or `resources/skills/THIRD_PARTY.md` and opens it with the default app; a missing file is `E_NOT_FOUND`). The renderer never names a path or URL |
@@ -562,8 +606,9 @@ folders, Archive and Trash channels (`eli5:library:organization`, `create-folder
 `organization-changed` and `moved` events) are owned by 09 §11.
 
 `window.eli5` gains `app: { onNavigate(cb): Unsubscribe; contextMenu(p); testNotification();
-openNotificationSettings(); onCycleRegion(cb): Unsubscribe }`,
-`viewer.setVisible(v)`, `viewer.focus()`, `sources.classifyText(t)`, `library.revealRoot()`, `settings.chooseFolder(k)`, and `settings.openHelp(topic)`. There is deliberately no renderer channel to quit the app (§3.2).
+openNotificationSettings(); onCycleRegion(cb): Unsubscribe; onFindCommand(cb): Unsubscribe }`,
+`viewer.setVisible(v)`, `viewer.focus()`, `viewer.find(text, {forward?, again?})`, `viewer.stopFind()`,
+`viewer.onFindResult(cb)`, `sources.classifyText(t)`, `library.revealRoot()`, `settings.chooseFolder(k)`, and `settings.openHelp(topic)`. There is deliberately no renderer channel to quit the app (§3.2).
 
 ## 11. Enterprise-only UI
 
@@ -622,7 +667,8 @@ sign-in lifecycle itself is HOOK-AUTH-01; publishers are HOOK-PUB-01..04.
 
 - **Landmarks.** Sidebar `nav` ("Library"), viewer region `main`, input zone `form` ("New
   explainer"), status area `region` ("Jobs"), suggestions `region` ("Suggestions"). F6 cycles them
-  (§9).
+  (§9). The find bar, when open, is a `search` landmark ("Find in document") inside the viewer
+  region, with its match count as a polite live region (§5.3).
 - **Live regions.** One polite announcer (`aria-live="polite"`) for: job started, job done ("Done:
   {title}"), job failed (assertive only for `failed`), new suggestion. Intermediate stage changes are
   **not** announced, to avoid chatter; the status text is still readable on focus.
@@ -839,6 +885,11 @@ click shows the main window on Settings > Notifications.
 - [ ] **Undo** and **Redo** icon buttons sit left of Reveal in Finder, show the change label in their
       tooltip, are disabled when unavailable or while a section of the document is busy, and
       `Cmd+Z` / `Shift+Cmd+Z` undo and redo the document only when focus is outside text fields.
+- [ ] With a document open, `Cmd+F` opens the find bar above the viewer (the viewer shrinks), typing
+      shows "x of y" or "No matches", `Cmd+G` / `Shift+Cmd+G` and `Enter` / `Shift+Enter` step
+      through matches, `Escape` closes the bar, clears the highlight and focuses the viewer; the Edit
+      > Find items work while the viewer has focus; `Option+Cmd+F`, and `Cmd+F` with no document
+      shown, focus the Library filter.
 - [ ] `eli5:jobs:start` is sent as `{inputs, options: {clarifyingInput, glossary}}`.
 - [ ] In the public build, non-URL text in the URL field classifies as `invalid` and shows the inline
       error; no job starts.

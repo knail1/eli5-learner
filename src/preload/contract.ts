@@ -130,10 +130,16 @@ export const IPC = {
     setVisible: 'eli5:viewer:set-visible',
     openExternal: 'eli5:viewer:open-external',
     focus: 'eli5:viewer:focus',
+    /** App-only (11 §5.3 find bar): findInPage / stopFindInPage on the viewer. */
+    find: 'eli5:viewer:find',
+    stopFind: 'eli5:viewer:stop-find',
+    findResult: 'eli5:viewer:find-result',
   },
   app: {
     navigate: 'eli5:app:navigate',
     cycleRegion: 'eli5:app:cycle-region',
+    /** Edit > Find menu items (11 §9), so they work while the viewer has focus. */
+    findCommand: 'eli5:app:find-command',
     contextMenu: 'eli5:app:context-menu',
     testNotification: 'eli5:app:test-notification',
     openNotificationSettings: 'eli5:app:open-notification-settings',
@@ -529,6 +535,33 @@ export interface AppNavigateEvent {
 /** F6 (1) or Shift+F6 (-1) pressed while the viewer had focus (11 §12 viewer focus handoff). */
 export interface CycleRegionEvent {
   dir: 1 | -1;
+}
+
+/**
+ * `eli5:viewer:find` (11 §5.3 find bar). Case-insensitive; `text` is 1 to 200 characters. Without
+ * `again` it starts a new search (first match); with `again` it moves to the next match, or the
+ * previous one when `forward` is false.
+ */
+export interface FindInDocumentRequest {
+  text: string;
+  forward?: boolean;
+  again?: boolean;
+}
+
+/**
+ * `eli5:viewer:find-result` (M→R): the viewer's `found-in-page` result for the latest request, or a
+ * reset when the viewer reloaded or the document switched tabs while a search was active.
+ */
+export type FindResultEvent =
+  | { kind: 'result'; activeMatchOrdinal: number; matches: number; finalUpdate: boolean }
+  | { kind: 'reset'; reason: 'reload' | 'tab' };
+
+/** Edit > Find menu items (11 §9). */
+export type FindCommand = 'find' | 'find-next' | 'find-previous' | 'find-in-library';
+
+/** `eli5:app:find-command` (M→R). */
+export interface FindCommandEvent {
+  command: FindCommand;
 }
 
 // ---------------------------------------------------------------------------
