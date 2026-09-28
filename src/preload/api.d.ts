@@ -114,5 +114,7 @@ declare global {
   interface Window {
     eli5: Eli5Api;
     eli5Doc?: Eli5DocApi;
+    /** Test builds only (13 §8.1): enter the input zone as if these paths were dropped. */
+    __eli5Test?: { dropPaths(paths: string[]): Promise<void> };
   }
 }

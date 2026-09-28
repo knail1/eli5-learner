@@ -21,10 +21,12 @@ vi.mock('electron', () => ({
 
 type DropListener = (e: unknown) => void;
 const listeners: { type: string; fn: DropListener; capture: unknown }[] = [];
+const dispatched: Event[] = [];
 
 beforeAll(async () => {
   (globalThis as unknown as { window: unknown }).window = {
     addEventListener: (type: string, fn: DropListener, capture: unknown) => listeners.push({ type, fn, capture }),
+    dispatchEvent: (e: Event) => dispatched.push(e),
   };
   await import('../../../src/preload/app');
 });
@@ -94,5 +96,25 @@ describe('app preload', () => {
     const req = { inputs: [{ id: 'chip-9', kind: 'file', origin: 'drop', path: '/z/other.md' }], options: {} };
     await api.jobs.start(req);
     expect(invoke).toHaveBeenLastCalledWith(IPC.jobs.start, req);
+  });
+
+  it('test builds expose __eli5Test.dropPaths: registers like a trusted drop, then enters the input zone (13 §8.1)', async () => {
+    invoke.mockClear();
+    dispatched.length = 0;
+    const t = exposed.__eli5Test as { dropPaths(paths: string[]): Promise<void> };
+    await t.dropPaths(['/d/brief.md']);
+    expect(invoke).toHaveBeenCalledWith(IPC.sources.registerDrop, { paths: ['/d/brief.md'] });
+    const ev = dispatched.at(-1) as CustomEvent<unknown> | undefined;
+    expect(ev?.type).toBe('eli5:test:drop-paths');
+    expect(ev?.detail).toEqual(['/d/brief.md']);
+    const api = exposed.eli5 as { jobs: { start(r: unknown): Promise<unknown> } };
+    await api.jobs.start({
+      inputs: [{ id: 'chip-4', kind: 'file', origin: 'drop', path: '/d/brief.md' }],
+      options: {},
+    });
+    expect(invoke).toHaveBeenLastCalledWith(IPC.jobs.start, {
+      inputs: [{ id: 'drop-1', kind: 'file', origin: 'drop', path: '/d/brief.md' }],
+      options: {},
+    });
   });
 });

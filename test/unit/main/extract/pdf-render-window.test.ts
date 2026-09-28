@@ -8,7 +8,7 @@ import {
   resolveRenderResource,
   type PdfRenderWindowOptions,
 } from '../../../../src/main/extract';
-import { isAllowedRenderRequest } from '../../../../src/main/extract/pdf-render-window';
+import { isAllowedRenderRequest, renderResponseHeaders } from '../../../../src/main/extract/pdf-render-window';
 
 const roots = { pdfRender: '/app/resources/pdf-render', pdfjs: '/app/node_modules/pdfjs-dist/build' };
 
@@ -37,7 +37,20 @@ describe('render resources over eli5res://', () => {
     expect(isAllowedRenderRequest('file:///etc/hosts')).toBe(false);
     expect(PDF_RENDER_SCHEME_PRIVILEGES).toEqual({
       scheme: 'eli5res',
-      privileges: { standard: true, secure: true, supportFetchAPI: true },
+      // render.html (eli5res://pdf-render) imports pdf.mjs from eli5res://pdfjs: a cross-origin module
+      // load, which Chromium refuses for a custom scheme unless it is CORS-enabled.
+      privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
+    });
+  });
+
+  it('lets only the render page load pdf.js across origins', () => {
+    expect(renderResponseHeaders('/app/node_modules/pdfjs-dist/build/pdf.mjs')).toEqual({
+      'content-type': 'text/javascript; charset=utf-8',
+      'access-control-allow-origin': 'eli5res://pdf-render',
+    });
+    expect(renderResponseHeaders('/app/resources/pdf-render/render.html')).toEqual({
+      'content-type': 'text/html; charset=utf-8',
+      'access-control-allow-origin': 'eli5res://pdf-render',
     });
   });
 });

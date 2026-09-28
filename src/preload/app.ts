@@ -117,13 +117,30 @@ window.addEventListener(
     const files = Array.from(e.dataTransfer?.files ?? []);
     const paths = files.map((f) => webUtils.getPathForFile(f)).filter((p) => p !== '');
     if (paths.length === 0) return;
-    const registered = (invoke(IPC.sources.registerDrop, { paths }) as Promise<IpcResult<DropRegistration[]>>).then(
-      (res) => {
-        if (res.ok) for (const reg of res.value) dropIds.set(reg.path, reg.inputId);
-      },
-      () => undefined,
-    );
-    pendingDrops = pendingDrops.then(() => registered);
+    void registerDrop(paths);
   },
   true,
 );
+
+/** Registers a drop's paths with main; jobs.start waits for every pending registration. */
+function registerDrop(paths: string[]): Promise<void> {
+  const registered = (invoke(IPC.sources.registerDrop, { paths }) as Promise<IpcResult<DropRegistration[]>>).then(
+    (res) => {
+      if (res.ok) for (const reg of res.value) dropIds.set(reg.path, reg.inputId);
+    },
+    () => undefined,
+  );
+  pendingDrops = pendingDrops.then(() => registered);
+  return registered;
+}
+
+// 13 §8.1: Playwright cannot synthesize a native drop. Test builds take the paths a drop would have
+// resolved, register them like a trusted drop, and enter the input zone's handler.
+if (__ELI5_TEST__) {
+  contextBridge.exposeInMainWorld('__eli5Test', {
+    dropPaths: async (paths: string[]): Promise<void> => {
+      await registerDrop(paths);
+      window.dispatchEvent(new CustomEvent('eli5:test:drop-paths', { detail: paths }));
+    },
+  });
+}

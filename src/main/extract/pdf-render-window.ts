@@ -17,11 +17,16 @@ export const PDF_RENDER_PARTITION = 'eli5-pdf-render';
 export const PDF_RENDER_PAGE_URL = `${PDF_RENDER_SCHEME}://pdf-render/render.html`;
 export const PDF_RENDER_PORT_CHANNEL = 'eli5:extract:render-port';
 
-/** Pass to protocol.registerSchemesAsPrivileged before app ready (04 §6.3 step 1). */
+/**
+ * Pass to protocol.registerSchemesAsPrivileged before app ready (04 §6.3 step 1). corsEnabled: the
+ * page (eli5res://pdf-render) imports pdf.mjs from eli5res://pdfjs, a cross-origin module load.
+ */
 export const PDF_RENDER_SCHEME_PRIVILEGES: Electron.CustomScheme = {
   scheme: PDF_RENDER_SCHEME,
-  privileges: { standard: true, secure: true, supportFetchAPI: true },
+  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
 };
+
+const PDF_RENDER_ORIGIN = `${PDF_RENDER_SCHEME}://pdf-render`;
 
 export interface RenderRoots {
   /** resources/pdf-render (render.html, render.js, normalize.js, preload.cjs). */
@@ -36,6 +41,11 @@ const MIME: Record<string, string> = {
   '.mjs': 'text/javascript; charset=utf-8',
   '.json': 'application/json',
 };
+
+/** Response headers for a resolved render resource: only the render page may read it cross-origin. */
+export function renderResponseHeaders(file: string): Record<string, string> {
+  return { 'content-type': MIME[path.extname(file)] ?? 'text/plain', 'access-control-allow-origin': PDF_RENDER_ORIGIN };
+}
 
 /**
  * Maps eli5res://pdf-render/<file> and eli5res://pdfjs/<file> to files under the two roots.
@@ -121,7 +131,7 @@ export class PdfRenderWindow {
         if (!file) return new Response('not found', { status: 404 });
         try {
           const body = await readFile(file);
-          return new Response(body, { headers: { 'content-type': MIME[path.extname(file)] ?? 'text/plain' } });
+          return new Response(body, { headers: renderResponseHeaders(file) });
         } catch {
           return new Response('not found', { status: 404 });
         }
