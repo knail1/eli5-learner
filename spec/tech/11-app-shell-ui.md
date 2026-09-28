@@ -427,7 +427,7 @@ export type SettingsSection =
 | AI provider | Provider radio: Claude, OpenAI. Providers with `available:false` in `EditionInfo.llmProviders` are **not shown** (so the dormant `bedrock` value never appears in the public build) | `llm.provider` |
 | API key | Password field + **Save**, state "Key saved in Keychain" or "No key", **Remove**, **Test connection** | `eli5:settings:set-api-key`, `has-api-key`, `clear-api-key`, `eli5:llm:test-connection` |
 | Model | Combobox: suggestions from `eli5:llm:models`, free text allowed | `llm.model` |
-| Documents | "Explain domain specific terms by default" switch | `glossary.defaultOn` |
+| Documents | "Explain domain specific terms by default" switch; "Use stock photos for real-world scenes" switch with a one-line privacy note (07 §7.4) | `glossary.defaultOn`, `images.stockPhotos` |
 | Library | Location (read only), document count, read-only reason if any, + **Reveal in Finder** | `eli5:library:info` (09), `eli5:library:reveal-root` |
 | Publishing | Export folder (read-only path + **Choose…**, which opens a native open panel for directories), "Reveal in Finder after export" switch, link "How to set up a Pages repository" (10 §8) | `publish.local.dir`, `publish.local.revealAfter` (10, 12) |
 | Notifications | See "Notifications section" below | `notifications.enabled`, `notifications.clickAction`, `notifications.preferredLink` (12 §3); `eli5:app:test-notification`, `eli5:app:open-notification-settings` |

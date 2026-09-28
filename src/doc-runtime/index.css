@@ -717,6 +717,24 @@ figure.annotated figcaption,
 .fig-notes li.is-active {
   background: var(--highlight);
 }
+/* Stock photo (07 §7.4): shown at most 1200 px wide, with its credit under the caption */
+figure.stock-photo .fig-media img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+.fig-credit {
+  display: block;
+  margin-top: 4px;
+  font: 12px/1.4 var(--font-sans);
+  color: var(--muted);
+}
+.fig-credit cite {
+  font-style: italic;
+}
+.fig-credit a {
+  color: inherit;
+}
 
 /* Stepper */
 .stepper {

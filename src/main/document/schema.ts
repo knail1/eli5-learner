@@ -114,6 +114,19 @@ export const DocumentModelSchema = z.object({
       height: z.number(),
       sha256: z.string(),
       label: z.string(),
+      credit: z
+        .object({
+          kind: z.literal('stock-photo'),
+          title: z.string(),
+          creator: z.string().optional(),
+          license: z.enum(['cc0', 'pdm', 'by', 'by-sa']),
+          licenseVersion: z.string().optional(),
+          licenseUrl: z.string().optional(),
+          sourceUrl: z.string().optional(),
+          sourceName: z.string(),
+          via: z.string().optional(),
+        })
+        .optional(),
     }),
   ),
   theme: z.object({ id: z.string(), version: z.string(), source: z.enum(['default', 'skill', 'overlay']) }),

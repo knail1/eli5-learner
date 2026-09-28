@@ -3,6 +3,7 @@ import { renderChartFigure } from '../charts';
 import { attrs, esc, escAttr } from '../html';
 import { toDataUri } from '../images';
 import { renderInline, renderInlineMany, type DfnAnchor } from '../inline-md';
+import { creditHtml } from './credit';
 import type { AssetRef, DocBlock, GlossaryNote } from '../types';
 
 export interface BlockContext {
@@ -89,8 +90,11 @@ function renderFigure(b: Extract<DocBlock, { type: 'figure' }>, ctx: BlockContex
   const notes = anns.length
     ? `<ol class="fig-notes">${anns.map((a, i) => `<li id="${ctx.idBase}-n${i + 1}">${esc(a.text)}</li>`).join('')}</ol>`
     : '';
+  // 07 §7.4: a stock photo always carries its credit in the caption.
+  const credit = ref.credit ? `<span class="fig-credit">${creditHtml(ref.credit)}</span>` : '';
+  const caption = b.caption ? esc(b.caption) : '';
   return (
-    '<figure class="annotated"><div class="fig-media">' +
+    `<figure class="${ref.credit ? 'annotated stock-photo' : 'annotated'}"><div class="fig-media">` +
     `<img${attrs([
       ['src', toDataUri(ref.mime, bytes)],
       ['alt', b.alt || b.caption],
@@ -100,7 +104,7 @@ function renderFigure(b: Extract<DocBlock, { type: 'figure' }>, ctx: BlockContex
     ])}>` +
     markers +
     '</div>' +
-    (b.caption ? `<figcaption>${esc(b.caption)}</figcaption>` : '') +
+    (caption || credit ? `<figcaption>${caption}${caption && credit ? ' ' : ''}${credit}</figcaption>` : '') +
     notes +
     '</figure>'
   );

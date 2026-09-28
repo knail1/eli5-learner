@@ -1,9 +1,18 @@
 /** URL fetching (05): fetchUrl() for the public web lane. */
 import { createFetcher, type Fetcher } from './fetcher';
 import { configureSession } from './network';
-import type { FetchContext, FetchOutcome, LoginSignature, NetworkConfigurator } from './types';
+import type {
+  BytesOutcome,
+  BytesRequest,
+  FetchContext,
+  FetchOutcome,
+  LoginSignature,
+  NetworkConfigurator,
+} from './types';
 
 export type {
+  BytesOutcome,
+  BytesRequest,
   FetchContext,
   FetchedArticle,
   FetchedBinary,
@@ -61,6 +70,14 @@ function current(): Promise<Fetcher> {
 /** 05 §2: never throws except AbortError on ctx.signal (and programmer errors). */
 export async function fetchUrl(url: string, ctx: FetchContext): Promise<FetchOutcome> {
   return (await current()).fetchUrl(url, ctx);
+}
+
+/**
+ * 05 §4.8: small in-memory GET for app-initiated downloads (stock photo search and images, 07 §7.4)
+ * through the fetch session, politeness and private-address guard. Never throws except AbortError.
+ */
+export async function fetchBytes(url: string, o: BytesRequest): Promise<BytesOutcome> {
+  return (await current()).fetchBytes(url, o);
 }
 
 /** Pipeline calls this when a job ends: drops the per-job dedupe cache and clears fetch cookies (05 §3, §4.2). */

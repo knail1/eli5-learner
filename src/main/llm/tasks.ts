@@ -24,6 +24,7 @@ import type {
   DraftSchemaName,
   GlossaryDraft,
   MergeMatchDraft,
+  PhotoPickDraft,
   SectionDraft,
   SummaryDraft,
 } from './schemas/draft';
@@ -56,6 +57,8 @@ export interface PreparedContent {
 export interface StepCtx {
   clarifyingInput: string;
   signal: AbortSignal;
+  /** Offer `photo` blocks in the writing prompts (settings images.stockPhotos, 07 §7.4). Default false. */
+  photos?: boolean;
   onRetry?: (attempt: number, waitMs: number) => void;
 }
 
@@ -78,6 +81,15 @@ export interface SectionActionInput {
   note?: string;
   sourceExcerpt?: string;
   signal: AbortSignal;
+}
+
+/** One stock-photo slot shown to the photo-pick call (07 §7.4); candidate labels match the images. */
+export interface PhotoPickSlot {
+  id: string; // "s1"
+  purpose: string;
+  alt: string;
+  sensitive: boolean;
+  candidates: { label: string; title: string; license: string }[]; // label "s1-c1"
 }
 
 export interface MergeCandidate {
@@ -109,6 +121,34 @@ const ACTION_PROMPT: Record<SectionAction, PromptId> = {
   deeper: 'section-deeper',
   'eli5-tab': 'section-eli5-tab',
 };
+
+/**
+ * The `{{photoInstructions}}` of the writing prompts (07 §7.4). Photos: real-world scenes only; the
+ * query is sent to a public search, so it is short and generic. Off: diagrams only.
+ */
+const PHOTO_QUERY_RULES =
+  '`query` is 2 to 5 lowercase generic words for what is visible, in the words a stock photo would be titled with (e.g. "courthouse exterior", "person worried looking at laptop", "people talking around table"). ' +
+  'It is sent to a public photo search, so it never names people, organizations, places, products or case details and never quotes the sources. ' +
+  '`purpose` says in one sentence what the photo should show and why, `alt` describes the ideal photo in plain words, `caption` (optional) is one short sentence, ' +
+  'and `sensitive` is true for crime, victims, abuse, health or grief so only photos without identifiable faces are used. ' +
+  'The app finds an open-licensed stock photo, credits it, and drops the block when nothing fits, so never refer to the photo in the text.';
+
+export const PHOTO_INSTRUCTIONS = {
+  eli5: {
+    on:
+      'Real-world scenes (people, places, objects in the world, what an experience looks like) get a `photo` block instead of a drawing. ' +
+      'When the topic involves people or places, use 2 to 4 photos in the tab: always one in the opening section to set the scene, and one wherever an idea happens somewhere real (a room, a building, a workplace, people doing something). ' +
+      PHOTO_QUERY_RULES +
+      ' At most one `photo` block per section and six in the whole tab; a section with a photo needs no diagram.',
+    off: 'Do not use `photo` blocks. A section about people, places or experiences gets no picture unless a structured diagram fits.',
+  },
+  indepth: {
+    on:
+      'A `photo` block may illustrate a real-world scene (a place, an object, what an experience looks like) when it genuinely helps the reader; never use one for data or structure, and use at most two in the whole tab. ' +
+      PHOTO_QUERY_RULES,
+    off: 'Do not use `photo` blocks.',
+  },
+} as const;
 
 const CONTENT_MODE = {
   raw: 'the original source content',
@@ -153,6 +193,9 @@ export function sectionText(s: SectionDraft): string {
         break;
       case 'figure':
         lines.push(`Figure: ${b.caption}`);
+        break;
+      case 'photo':
+        lines.push(`Photo: ${b.alt}`);
         break;
       case 'stepper':
         lines.push(b.title, ...b.steps.map((st, i) => `${i + 1}. ${st.label}: ${st.md}`));
@@ -205,6 +248,15 @@ export interface LlmTasks {
   summarize(indepth: DocumentDraftTab, ctx: StepCtx): Promise<StepResult<SummaryDraft>>;
   runSectionAction(input: SectionActionInput): Promise<SectionDraft | DocumentDraftTab>;
   matchMerge(summary: string, candidates: MergeCandidate[], signal?: AbortSignal): Promise<MergeMatchDraft>;
+  /**
+   * 07 §7.4: one low-effort vision call (more only when the model takes fewer images per request)
+   * that picks a stock photo per slot, 0 = none fits. No call when the model cannot see images.
+   */
+  pickPhotos(input: {
+    slots: PhotoPickSlot[];
+    images: ImageInput[];
+    signal: AbortSignal;
+  }): Promise<StepResult<PhotoPickDraft>>;
 }
 
 interface RunOpts {
@@ -331,6 +383,8 @@ export function createTasks(deps: TaskDeps): LlmTasks {
       clarifyingInput: input.clarifyingInput,
       sourceList: sourceListText(input.sourceList),
       overflowAddendum: '',
+      // The longer variant, so the budget holds whichever the write uses.
+      photoInstructions: PHOTO_INSTRUCTIONS.indepth.on,
     };
     const rendered = deps.prompts.render('in-depth', { ...vars, content: '' });
     const system = preamble ? `${preamble}\n\n${rendered.system}` : rendered.system;
@@ -482,17 +536,76 @@ export function createTasks(deps: TaskDeps): LlmTasks {
     return { mode: 'notes', notes, promptText: text, images: [], ...base, usage, prompts: [...prompts] };
   }
 
+  async function pickPhotos(input: {
+    slots: PhotoPickSlot[];
+    images: ImageInput[];
+    signal: AbortSignal;
+  }): Promise<StepResult<PhotoPickDraft>> {
+    const limits = deps.provider().limits;
+    let usage: TokenUsage = ZERO_USAGE;
+    const picks: PhotoPickDraft['picks'] = [];
+    let tag = ''; // set once a call runs
+    if (!limits.supportsImages) return { draft: { picks }, usage, prompt: tag };
+    const byLabel = new Map(input.images.map((i) => [i.label, i]));
+    // Batches of whole slots within the model's per-request image limit.
+    const batches: PhotoPickSlot[][] = [];
+    let cur: PhotoPickSlot[] = [];
+    let n = 0;
+    for (const slot of input.slots) {
+      const k = slot.candidates.length;
+      if (k === 0 || k > limits.maxImagesPerRequest) continue;
+      if (cur.length && n + k > limits.maxImagesPerRequest) {
+        batches.push(cur);
+        cur = [];
+        n = 0;
+      }
+      cur.push(slot);
+      n += k;
+    }
+    if (cur.length) batches.push(cur);
+    for (const batch of batches) {
+      const images = batch.flatMap((s) => s.candidates.flatMap((c) => byLabel.get(c.label) ?? []));
+      const text = batch
+        .map((s) =>
+          [
+            `Slot ${s.id}`,
+            `Purpose: ${s.purpose}`,
+            `Ideal photo: ${s.alt}`,
+            `Sensitive topic: ${s.sensitive ? 'yes' : 'no'}`,
+            'Candidates:',
+            ...s.candidates.map((c, i) => `- ${c.label} (candidate ${i + 1}): "${c.title}", ${c.license}`),
+          ].join('\n'),
+        )
+        .join('\n\n');
+      const r = await run<PhotoPickDraft>(
+        'photo-pick',
+        { slots: wrapSource('photo candidates', text) },
+        { images, signal: input.signal },
+      );
+      usage = addUsage(usage, r.usage);
+      tag = r.tag;
+      const ids = new Set(batch.map((s) => s.id));
+      picks.push(...r.data.picks.filter((p) => ids.has(p.slot)));
+    }
+    return { draft: { picks }, usage, prompt: tag };
+  }
+
   return {
     prepareContent,
+    pickPhotos,
 
     generateIndepth: (p, ctx) =>
       writeTab('in-depth', 'indepth', p, ctx, {
+        photoInstructions: ctx.photos ? PHOTO_INSTRUCTIONS.indepth.on : PHOTO_INSTRUCTIONS.indepth.off,
         glossaryInstructions: ctx.glossary
           ? 'A glossary is built separately from your finished text and can only explain terms that appear in it. Keep every acronym the source uses, spelled out at first use with the acronym in parentheses, for example "customer acquisition cost (CAC)", and use the acronym after that.'
           : '',
       }),
 
-    generateEli5: (p, ctx) => writeTab('eli5', 'eli5', p, ctx, {}),
+    generateEli5: (p, ctx) =>
+      writeTab('eli5', 'eli5', p, ctx, {
+        photoInstructions: ctx.photos ? PHOTO_INSTRUCTIONS.eli5.on : PHOTO_INSTRUCTIONS.eli5.off,
+      }),
 
     async generateGlossary(indepth, ctx) {
       const text = indepth.sections.map((s, i) => `[Section ${i}]\n${sectionText(s)}`).join('\n\n');

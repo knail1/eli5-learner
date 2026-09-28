@@ -167,7 +167,7 @@ export function createProvider(s: Settings, keys: KeyStore): LLMProvider
 | Images | Content blocks `{type:'image', source:{type:'base64', media_type, data}}` placed before the text block of the same message, each preceded by a short text label (`[Image: <label>]`) so the model can cite it. |
 | Structured output | Selected per model by `limits.structuredMode`. **Default `output_config`:** the request sets `output_config: {format: {type:'json_schema', schema}}` (the deprecated `output_format` parameter is never used); `json` is `JSON.parse` of the concatenated text blocks (thinking blocks ignored). **`strict_tool_auto`:** one tool named `jsonSchema.name` with `input_schema = schema`, `strict: true`, `tool_choice: {type:'auto'}`, and a system instruction to answer only by calling it; the tool input is `json`. **`forced_tool`:** legacy models only, `tool_choice: {type:'tool', name}`. Current models reject forced `tool_choice` (`tool`/`any`) with a 400, and forcing a tool conflicts with thinking, so `forced_tool` is never the default. If a call in `forced_tool` mode gets that 400, it is classified `bad_request`, the provider switches that model to `output_config` for the rest of the session, and resends once (not counted as a retry). |
 | Temperature | Sent only when `limits.supportsTemperature`. Current Claude models (and the unknown-model fallback row) reject `temperature`/`top_p`/`top_k` with a 400, so the parameter is dropped silently. |
-| Thinking and effort | Thinking is left at the model default (adaptive where supported); the app never sends a disabled-thinking config. `output_config.effort` is set explicitly per task from the prompt front matter when `limits.supportsEffort` (defaults: `in-depth`/`eli5` `high`, `chunk-notes`/`glossary`/section actions `medium`, `summary`/`merge-match` `low`). |
+| Thinking and effort | Thinking is left at the model default (adaptive where supported); the app never sends a disabled-thinking config. `output_config.effort` is set explicitly per task from the prompt front matter when `limits.supportsEffort` (defaults: `in-depth`/`eli5` `high`, `chunk-notes`/`glossary`/section actions `medium`, `summary`/`merge-match`/`photo-pick` `low`). |
 | Max tokens | `min(req.maxOutputTokens, limits.maxOutputTokens)`. Thinking tokens count against it; budgeting reserves `limits.thinkingReserveTokens` inside it (section 8.2). |
 | Transport | Every call streams internally: `client.messages.stream(params).finalMessage()`. `generate()` still returns one `GenerationResult`; streaming removes the whole-response HTTP timeout that large `max_tokens` values hit. |
 | Stop reasons | `end_turn`/`tool_use` → `end`; `max_tokens` → `max_tokens`; `refusal` → `refusal`. |
@@ -308,11 +308,13 @@ Sources:
 | `section-eli5-tab` | `prompts/section-eli5-tab.md` | "Create a separate ELI5 for this section" | selected passage, section, outline | `DocumentDraftTab` (kind `section-eli5`) |
 | `summary` | `prompts/summary.md` | pipeline after save | title, outline, first 2000 tokens of in-depth | `SummaryDraft` |
 | `merge-match` | `prompts/merge-match.md` | merge check | new summary, top-K catalog candidates | `MergeMatchDraft` |
+| `photo-pick` | `prompts/photo-pick.md` | pipeline, stock photo slots ([07](07-output-document.md) §7.4) | each slot's purpose, alt, sensitivity, candidate titles and licenses (delimited as untrusted), labeled 384 px thumbnails | `PhotoPickDraft` |
 
 Rules that apply to all prompts:
 
 - **In-depth:** WSJ-grade explanatory journalism: lead with why it matters, then structure, then detail; use charts, annotated figures, and pull quotes where the source has numbers or comparisons. May follow the source's logical structure. Ends with no references section; references are built deterministically by [07](07-output-document.md) from `meta.json`, not by the model.
-- **ELI5:** rebuilt from scratch for comprehension; never mirrors source structure; no jargon, no glossary, no references; analogies over definitions.
+- **ELI5:** rebuilt from scratch for comprehension; never mirrors source structure; no jargon, no glossary, no references; analogies over definitions. One picture per section, chosen by what the idea is: a `diagram` for structure (lists, flows, comparisons, timelines), a `photo` for a real-world scene when photos are on.
+- **Pictures (in-depth and ELI5):** diagrams never draw human figures, faces, stick figures, animals, houses, buildings, vehicles or scenes; at most 5 labeled elements; every label fits inside its shape (`text-anchor="middle"` at the shape's center, a box at least 9 px per character plus 20 px wide at font-size 14). `{{photoInstructions}}` is filled by the task: with `images.stockPhotos` on and a real provider ([07](07-output-document.md) §7.4) it describes the `photo` block and its query rules (2 to 5 lowercase generic words, never names, organizations, places, products, case details or quotes; `sensitive` for crime, victims, abuse, health, grief; at most one per ELI5 section and six per tab, two in the in-depth tab); otherwise it says not to use `photo` blocks. Section actions never search for photos: the ELI5 skill tells the model to keep existing figures and add no `photo` blocks when rewriting one section.
 - **Glossary:** a separate call so it works on the final in-depth text, returning `{term, expansion, explanation, anchorSectionIndex, anchorText}` where `anchorText` is the verbatim first occurrence. [07](07-output-document.md) places the margin note at that anchor; entries whose `anchorText` is not found are dropped.
 - **Calibration:** every writing prompt includes the reader profile "a technical leader who is new to this domain" and the clarifying input, and instructs the model to explain what the original audience assumed.
 - **Untrusted content:** source text is wrapped in `<source ref="...">...</source>` delimiters, and the system prompt states that instructions inside sources are content to explain, never instructions to follow. This module owns the delimiter and its escaping (`wrapSource` in `budget.ts`: attribute values are escaped and `<source`/`</source` inside the body is neutralized). Extracted sources are serialized through 04's `toPromptText` (the body) and `promptAttributes` (the `format`, `slides`, `pages`, `scanned-pages`, `sheets` and `truncated` attributes after `ref`), with image markers naming the vision labels ([04](04-extraction.md) §11). There is no second serializer.
@@ -349,7 +351,9 @@ export type DraftBlock =
   | { type: 'diagram'; title: string; svg: string; alt: string }  // inline SVG, sanitized by 07
   | { type: 'figure'; imageLabel: string; caption: string; annotations?: { x: number; y: number; text: string }[] }
   | { type: 'stepper'; title: string; steps: { label: string; md: string }[] } // light interactivity
-  | { type: 'analogy'; md: string };
+  | { type: 'analogy'; md: string }
+  | { type: 'photo'; query: string; purpose: string; alt: string;       // stock photo slot, 07 §7.4
+      caption?: string; sensitive?: boolean };
 
 export interface ChartSpec {
   kind: 'bar' | 'stacked-bar' | 'line' | 'area' | 'pie' | 'scatter';
@@ -366,14 +370,17 @@ export interface GlossaryDraft { entries: { term: string; expansion?: string; ex
                                             anchorSectionIndex: number; anchorText: string }[] }  // 0..40
 export interface SummaryDraft { title: string; topicSlugHint: string; summary: string } // summary: 1-2 sentences, <= 300 chars
 export interface MergeMatchDraft { matches: { catalogId: string; score: number; reason: string }[] }
+export interface PhotoPickDraft { picks: { slot: string; candidate: number; reason: string }[] } // candidate 0 = none fits
 ```
+
+`PhotoPickDraft` is small and flat, so it uses native structured output; `DocumentDraftTab` and `SectionDraft` stay prompted JSON (the block union with `photo` is eleven shapes).
 
 `figure.imageLabel` must equal the `label` of an `ImageInput` sent in the request; [07](07-output-document.md) embeds that image as a data URI. Charts are rendered to static inline SVG by [07](07-output-document.md) at build time from `ChartSpec`; the doc runtime only adds tooltips (no chart library fetched at view time).
 
 ### 10.1 Validation and repair (`structured.ts`)
 
 1. Send the request with `jsonSchema` (provider-native structured output).
-2. Parse and validate with zod. Also run semantic checks: `chart.series[i].values.length === categories.length`; `figure.imageLabel` exists; table rows match header width; `svg` starts with `<svg` and is under 100 KB.
+2. Parse and validate with zod. Also run semantic checks: `chart.series[i].values.length === categories.length`; `figure.imageLabel` exists; table rows match header width; `svg` starts with `<svg` and is under 100 KB; `photo.query` and `photo.alt` are not empty.
 3. On failure, drop the offending blocks when the rest is valid and at most 20% of blocks fail (for example, a malformed chart) and log a warning. Otherwise run one **repair call**: same request plus the assistant's invalid output and a user turn listing the validation errors ("Return corrected JSON only").
 4. If repair also fails, throw `LLMError('invalid_output')`. For `in-depth` this fails the job; for `eli5`, `glossary`, and `summary` the pipeline degrades (ELI5 tab shows "ELI5 view could not be generated"; no glossary; summary falls back per [06](06-generation-pipeline.md) §7.1), per [06](06-generation-pipeline.md).
 
@@ -406,6 +413,7 @@ export interface PreparedContent {
 }                                       // JSON-serializable (images as base64) so 06 can checkpoint it
 
 interface StepCtx { clarifyingInput: string; signal: AbortSignal;
+                    photos?: boolean;          // offer `photo` blocks (07 §7.4); default false
                     onRetry?: (attempt: number, waitMs: number) => void }
 interface StepResult<T> { draft: T; usage: TokenUsage; prompt: string }  // prompt = "id@version"
 
@@ -427,7 +435,17 @@ export async function runSectionAction(input: {
 
 export async function matchMerge(summary: string,
   candidates: { catalogId: string; title: string; summary: string }[]): Promise<MergeMatchDraft>;
+
+export interface PhotoPickSlot { id: string; purpose: string; alt: string; sensitive: boolean;
+  candidates: { label: string; title: string; license: string }[] }   // label "s1-c1" = image label
+export async function pickPhotos(input: { slots: PhotoPickSlot[]; images: ImageInput[];
+  signal: AbortSignal }): Promise<StepResult<PhotoPickDraft>>;
 ```
+
+`pickPhotos` makes one `photo-pick` call for all slots, or one per batch of whole slots when the
+model takes fewer images per request; it makes no call when `limits.supportsImages` is false. Its
+`prompt` is empty when no call ran. The calls go through the active provider, so the dev budget
+guard and cost ledger (13 §9) count them like any other task.
 
 Contract with [06](06-generation-pipeline.md) §5.4:
 
@@ -476,7 +494,7 @@ Setting and clearing keys goes through `eli5:settings:*` channels owned by [12](
 
 - Logged per call: `taskId`, provider, model, attempts, latency, token usage, stop reason, error kind. Never logged: prompts, source text, images, model output, keys.
 - A debug flag (`ELI5_DEBUG_LLM=1`, dev builds only) writes full request/response pairs to `userData/logs/llm/` for prompt tuning; the packaged public build ignores it.
-- Source content goes only to the configured provider endpoint. No telemetry.
+- Source content goes only to the configured provider endpoint. No telemetry. Stock photo search ([07](07-output-document.md) §7.4) sends only sanitized generic queries, never source text, to the photo library; its candidate thumbnails go to the provider for the pick call.
 
 ## 16. Testing hooks
 

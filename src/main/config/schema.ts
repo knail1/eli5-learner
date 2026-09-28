@@ -32,6 +32,14 @@ export const SettingsSchema = z
       })
       .strict()
       .prefault({}),
+    images: z
+      .object({
+        // 07 §7.4: open-licensed stock photos for real-world scenes. Only short generic search
+        // terms leave the machine. An organization can lock it off (HOOK-CFG-01 managed values).
+        stockPhotos: z.boolean().default(true),
+      })
+      .strict()
+      .prefault({}),
     sources: z
       .object({
         mcp: z

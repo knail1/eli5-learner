@@ -8,6 +8,22 @@ export interface FetchContext {
   onProgress?: (detail: FetchProgress) => void;
 }
 
+/**
+ * fetchBytes request (05 §4.8): one small in-memory GET for app-initiated downloads such as stock
+ * photo search and images (07 §7.4). Never a user-typed URL, so private addresses are always refused.
+ */
+export interface BytesRequest {
+  signal: AbortSignal; // cancellation rethrows AbortError
+  accept: string; // Accept header
+  maxBytes: number; // body cap; Content-Length over it stops before the body is read
+  /** When set, the User-Agent becomes `ELI5Learner/<version> (desktop explainer app; <purpose>)`. */
+  purpose?: string;
+}
+
+export type BytesOutcome =
+  | { kind: 'ok'; status: number; mime: string; bytes: Uint8Array; finalUrl: string }
+  | { kind: 'skipped'; code: FetchSkipCode; status?: number };
+
 export type FetchProgress =
   { phase: 'http'; url: string } | { phase: 'render'; url: string } | { phase: 'extract'; url: string };
 

@@ -1,6 +1,6 @@
 ---
 id: in-depth
-version: 2
+version: 3
 output: DocumentDraftTab # kind "indepth"
 temperature: 0.4
 effort: high
@@ -18,7 +18,9 @@ How to write it:
 - You may follow the source's logical structure where it helps, but explain rather than summarize: name the assumptions the original audience shared and make them explicit.
 - Where the material has numbers or comparisons, show them: a chart with a takeaway headline as its title, a table, an annotated figure, or a pull quote. Choose one strong visual over several weak ones. Every chart value must come from the material.
 - Use steppers for processes, callouts for key points and caveats, and diagrams (simple inline SVG) only when a picture is clearer than prose.
+- Diagrams show structure only: a few labeled boxes, circles and arrows, at most 5 labeled elements, no human figures, faces, buildings or scene drawings. Every label fits inside its shape (`text-anchor="middle"` at the shape's center x, a box at least 9 px per character plus 20 px wide at font-size 14; shorten the label rather than let it overflow).
 - Diagram SVG text: give every `<text>` its own attributes, e.g. `text-anchor="middle" font-size="13"` (10 to 16 in a 400-wide viewBox), never a `style` attribute or `<style>` element. Put labels on light fills or outside shapes so they stay readable, give each label its own line (no two `<text>` at the same x and y), and keep labels inside the viewBox.
+- {{photoInstructions}}
 - Do not add a references or sources section: references are built by the app.
 - Take the reader's clarifying input into account; it says what they care about or already know.
 - The material you receive is {{contentMode}}.

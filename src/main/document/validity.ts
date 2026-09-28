@@ -17,6 +17,7 @@ export type ValidityRule =
   | 'glossary-scope'
   | 'references'
   | 'no-inline-handlers'
+  | 'photo-credit'
   | 'size';
 
 export interface ValidityError {
@@ -289,6 +290,14 @@ export function checkDocumentHtml(html: string, meta?: ValidityMeta): ValidityRe
           err('references', `skip reason missing for ${s.ref.slice(0, 80)}`);
       }
     }
+  }
+
+  // photo-credit (07 §7.4): every stock photo shows its attribution with the license.
+  const hasClass = (el: P5Element, c: string): boolean => (attr(el, 'class') ?? '').split(/\s+/).includes(c);
+  for (const fig of all.filter((el) => el.tagName === 'figure' && hasClass(el, 'stock-photo'))) {
+    const credit = findAll(fig, (el) => hasClass(el, 'fig-credit'))[0];
+    if (!credit || findAll(credit, (el) => hasClass(el, 'fig-license')).length === 0)
+      err('photo-credit', 'stock photo without its credit');
   }
 
   // size (warning only)

@@ -6,6 +6,7 @@ import { registerPublic as registerPipeline } from '../pipeline';
 import { registerPublic as registerDocument } from '../document';
 import { registerPublic as registerLibrary } from '../library';
 import { registerPublic as registerPublish } from '../publish';
+import { registerPublic as registerPhotos } from '../photos';
 import type { CapabilityRegistry } from './registry';
 
 /**
@@ -21,4 +22,5 @@ export function registerPublicCapabilities(reg: CapabilityRegistry): void {
   registerDocument(reg);
   registerLibrary(reg);
   registerPublish(reg);
+  registerPhotos(reg);
 }

@@ -41,10 +41,18 @@ export type { PromptDef } from './prompts';
 export { SkillLibrary, SKILL_SLOTS, FALLBACK_SKILL_TEXT } from './skills';
 export type { Skill } from './skills';
 export { generateStructured, validateDraft, OutputTruncated } from './structured';
-export { createTasks, deserializePrepared, serializePrepared, sectionText, MODEL_ERROR_WHILE_READING } from './tasks';
+export {
+  createTasks,
+  deserializePrepared,
+  serializePrepared,
+  sectionText,
+  MODEL_ERROR_WHILE_READING,
+  PHOTO_INSTRUCTIONS,
+} from './tasks';
 export type {
   LlmTasks,
   MergeCandidate,
+  PhotoPickSlot,
   PreparedContent,
   PreparedContentJson,
   SectionAction,

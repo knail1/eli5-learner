@@ -51,6 +51,7 @@ Four layers share one ID per hook:
 | HOOK-PIPE-01 | Enterprise job policy | [06-generation-pipeline.md](./06-generation-pipeline.md) | `registerPipelinePolicy` | default concurrency, retry, retention | `pipeline.maxConcurrentJobs` |
 | HOOK-DOC-01 | Organization document theme and branding | [07-output-document.md](./07-output-document.md) | `registerDocTheme` | neutral theme, "Made with ELI5 Learner" | none |
 | HOOK-DOC-02 | References for organization sources | [07-output-document.md](./07-output-document.md) | `registerReferenceFormatter` | never produces `kind:'org'` | none |
+| HOOK-DOC-03 | Organization-approved image library | [07-output-document.md](./07-output-document.md) | `registerStockImageProvider` | public open-licensed photo search; a stub turns photos off | `images.stockPhotos` (lockable via HOOK-CFG-01) |
 | HOOK-LIB-01 | Enterprise library storage policy | [09-library-storage.md](./09-library-storage.md) | `registerLibraryPolicy` | library root per 09 §3.1, 30-day trash | library root setting |
 | HOOK-LIB-02 | Merge eligibility across source sensitivity | [09-library-storage.md](./09-library-storage.md) | `registerMergeEligibility` | every pair eligible (`() => true`) | none |
 | HOOK-PUB-01 | Organization cloud drive publisher | [10-publishing.md](./10-publishing.md) | `registerPublisher('drive')` | `drive.stub.ts`, `available:false` | `publish.drive.*` |
@@ -208,6 +209,15 @@ The one-paragraph summaries below are not the contract. The callout in the defin
   - whether and how canonical organization URLs are linked;
   - ticket ID display format;
   - fields that must be omitted from documents shared organization-wide.
+
+**HOOK-DOC-03 · Organization-approved image library.** Defined in [07-output-document.md](./07-output-document.md).
+- *Public:* stock photos come from a public open-licensed photo search (Openverse, then Wikimedia Commons), with only short generic search terms leaving the machine; `approved-library.stub.ts` is documented but not registered.
+- *Binding supplies:*
+  - the approved image library's search and download endpoints, or the decision to turn stock photos off;
+  - how the library authenticates (inside the overlay, never in the settings file);
+  - the license and credit text its images carry;
+  - whether search terms may leave the organization, and any extra query rules;
+  - whether `images.stockPhotos` is locked (through HOOK-CFG-01 managed values).
 
 ### LIB
 

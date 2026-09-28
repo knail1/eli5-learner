@@ -24,9 +24,11 @@ import type { Job, JobWarning } from '../types';
 import { addWarning, throwIfAborted, type StageContext } from './context';
 import {
   GEN,
+  decodePhotos,
   loadContents,
   type DocumentStepOutput,
   type GlossaryStepOutput,
+  type PhotosStepOutput,
   type SummaryStepOutput,
 } from './generate';
 
@@ -105,6 +107,9 @@ export async function saveStage(ctx: StageContext): Promise<CatalogEntry> {
     ? ((await store.readJson(job.id, GEN.glossary)) as GlossaryStepOutput | null)
     : null;
   const prepJson = (await store.readJson(job.id, GEN.prepared)) as PreparedContentJson | null;
+  // Optional (07 §7.4): absent when photos were off or the job predates them.
+  const photosOut = (await store.readJson(job.id, GEN.photos)) as PhotosStepOutput | null;
+  const photos = decodePhotos(photosOut);
   if (!doc || !summary || !prepJson) throw new PipelineFailure('INTERNAL', 'generation-artifact-missing');
   const prep = deserializePrepared(prepJson);
   skippedWarnings(job);
@@ -129,6 +134,7 @@ export async function saveStage(ctx: StageContext): Promise<CatalogEntry> {
       eli5: doc.eli5,
       glossary: glossary?.draft ?? null,
       images: prep.images.map((i) => ({ label: i.label, mime: i.mediaType, bytes: new Uint8Array(i.data) })),
+      photos,
       resolved: job.resolved,
       skipped: job.skipped,
       theme,
@@ -158,7 +164,7 @@ export async function saveStage(ctx: StageContext): Promise<CatalogEntry> {
       generation: {
         provider: doc.provider.id,
         model: doc.provider.model,
-        prompts: uniq([...prep.prompts, ...doc.prompts, glossary?.prompt, summary.prompt]),
+        prompts: uniq([...prep.prompts, ...doc.prompts, glossary?.prompt, summary.prompt, photosOut?.prompt]),
       },
       warnings: job.warnings,
       merges: [],

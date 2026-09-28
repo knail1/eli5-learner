@@ -95,8 +95,11 @@ export interface FigureDocBlock {
   annotations?: { x: number; y: number; text: string }[];
 }
 
-/** DraftBlock with figures resolved to assets; every other variant is identical (07 §3). */
-export type DocBlock = Exclude<DraftBlock, { type: 'figure' }> | FigureDocBlock;
+/**
+ * DraftBlock with figures resolved to assets; every other variant is identical (07 §3). `photo`
+ * slots never reach the model: build turns a resolved one into a figure and drops the rest (07 §7.4).
+ */
+export type DocBlock = Exclude<DraftBlock, { type: 'figure' } | { type: 'photo' }> | FigureDocBlock;
 export type DocBlockType = DocBlock['type'];
 
 export interface AssetRef {
@@ -106,6 +109,43 @@ export interface AssetRef {
   height: number;
   sha256: string;
   label: string;
+  /** Stock photos only (07 §7.4): the attribution rendered under every figure that shows it. */
+  credit?: AssetCredit;
+}
+
+/** Licenses a stock photo may carry: reuse and modification allowed, no NC or ND (07 §7.4). */
+export type StockLicense = 'cc0' | 'pdm' | 'by' | 'by-sa';
+
+/** Attribution for an open-licensed stock photo (07 §7.4): title, creator, source, license. */
+export interface AssetCredit {
+  kind: 'stock-photo';
+  title: string;
+  creator?: string;
+  license: StockLicense;
+  licenseVersion?: string;
+  /** http(s) only; anything else is rendered as plain text. */
+  licenseUrl?: string;
+  /** The work's page at its source; http(s) only. */
+  sourceUrl?: string;
+  /** Where the work is hosted, e.g. "Flickr" or "Wikimedia Commons". */
+  sourceName: string;
+  /** The search service that found it, e.g. "Openverse". */
+  via?: string;
+}
+
+/**
+ * A resolved stock photo slot (07 §7.4), already downscaled and re-encoded by the pipeline. `slot`
+ * is photoSlotKey(tab, sectionIndex, blockIndex) of the draft `photo` block it fills.
+ */
+export interface StockPhotoInput {
+  slot: string;
+  mime: 'image/jpeg' | 'image/png';
+  bytes: Uint8Array;
+  width: number;
+  height: number;
+  alt: string;
+  caption: string;
+  credit: AssetCredit;
 }
 
 // ---------------------------------------------------------------------------
@@ -237,6 +277,8 @@ export interface BuildInput {
   eli5: DocumentDraftTab | null; // null -> placeholder tab (06 §7.1)
   glossary: GlossaryDraft | null; // null when the glossary toggle is off
   images: { label: string; mime: string; bytes: Uint8Array }[]; // ImageInput labels (02)
+  /** Resolved stock photo slots (07 §7.4); unresolved `photo` blocks are dropped. */
+  photos?: readonly StockPhotoInput[];
   resolved: ResolvedSource[];
   skipped: SkippedSource[];
   theme: DocTheme; // already resolved (theme.ts resolveDocTheme)

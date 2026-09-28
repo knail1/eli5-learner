@@ -41,6 +41,7 @@ const LEAVES = [
   'llm.provider',
   'llm.model',
   'glossary.defaultOn',
+  'images.stockPhotos',
   'publish.local.dir',
   'publish.local.revealAfter',
   'notifications.enabled',
@@ -120,6 +121,17 @@ describe('locked keys are read-only (HOOK-CFG-01)', () => {
     await click(section(host, 'documents').querySelector('input[role="switch"]'));
     await wait(350);
     expect(fake.api.settings.set).not.toHaveBeenCalled();
+  });
+
+  it('an organization can lock stock photos off (images.stockPhotos)', async () => {
+    description({ locked: ['images.stockPhotos'] });
+    const host = await mount({ ...settings(), images: { stockPhotos: false } });
+    const switches = Array.from(section(host, 'documents').querySelectorAll<HTMLInputElement>('input[role="switch"]'));
+    const photos = switches.find((i) => i.parentElement?.textContent?.includes('stock photos'));
+    expect(photos?.checked).toBe(false);
+    expect(photos?.disabled).toBe(true);
+    // The glossary default is not locked.
+    expect(switches.find((i) => i !== photos)?.disabled).toBe(false);
   });
 
   it('no managed notes in the public build (nothing locked)', async () => {
