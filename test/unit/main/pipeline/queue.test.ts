@@ -1,8 +1,16 @@
-import { readdir, readFile, stat, writeFile, mkdir } from 'node:fs/promises';
+import { constants as fsConst } from 'node:fs';
+import { copyFile, readdir, readFile, stat, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { LibraryError } from '../../../../src/main/library';
-import { PipelineFailure, PipelineRequestError, type Job, type SectionJobPayload } from '../../../../src/main/pipeline';
+import type { Logger, LogFields } from '../../../../src/main/security';
+import {
+  PipelineFailure,
+  PipelineRequestError,
+  type Job,
+  type PipelineDeps,
+  type SectionJobPayload,
+} from '../../../../src/main/pipeline';
 import { validateDocument } from '../../../helpers/doc-validity';
 import { defaultScript, fileInput, harness, urlInput } from './harness';
 
@@ -13,6 +21,56 @@ const exists = (p: string): Promise<boolean> =>
     () => false,
   );
 const jobsDir = (userData: string): string => path.join(userData, 'jobs');
+
+/** Records warn events; everything else is dropped. */
+function recordingLog(): Logger & { warns: { event: string; fields?: LogFields }[] } {
+  const warns: { event: string; fields?: LogFields }[] = [];
+  return {
+    warns,
+    info: () => {},
+    debug: () => {},
+    error: () => {},
+    warn: (event, fields) => warns.push({ event, ...(fields ? { fields } : {}) }),
+  };
+}
+
+/** Every file under `dir`, recursively, as [path, contents]. */
+async function allFiles(dir: string): Promise<[string, string][]> {
+  const out: [string, string][] = [];
+  for (const e of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) out.push(...(await allFiles(p)));
+    else out.push([p, await readFile(p, 'latin1')]);
+  }
+  return out;
+}
+
+/**
+ * A copy function whose forced clone always fails and whose other copies wait for `release()`. Use
+ * with `snapshotInlineCopyMaxBytes: 0` so every unclonable file is copied in the background.
+ */
+function slowCopy(fail = false): {
+  copyFile: NonNullable<PipelineDeps['copyFile']>;
+  release: () => void;
+  plain: number;
+} {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const state = {
+    plain: 0,
+    release: () => release(),
+    copyFile: async (src: string, dst: string, mode?: number): Promise<void> => {
+      if (mode !== undefined && (mode & fsConst.COPYFILE_FICLONE_FORCE) !== 0) {
+        throw Object.assign(new Error('clone not supported'), { code: 'ENOTSUP' });
+      }
+      state.plain++;
+      await gate;
+      if (fail) throw Object.assign(new Error('copy failed'), { code: 'EIO' });
+      await copyFile(src, dst);
+    },
+  };
+  return state;
+}
 
 describe('enqueue (06 §5.1)', () => {
   it('rejects zero sources with E_BAD_REQUEST and persists a job before returning', async () => {
@@ -43,6 +101,45 @@ describe('enqueue (06 §5.1)', () => {
     await h.reached(jobId, 'generating');
     await h.queue.cancel(jobId);
     await h.finished(jobId);
+  });
+
+  it('returns before a copy that cannot be cloned finishes; reading waits for it (06 §5.1 step 2, §9.2)', async () => {
+    const copy = slowCopy();
+    const h = await harness({ deps: { copyFile: copy.copyFile, snapshotInlineCopyMaxBytes: 0 } });
+    const t0 = Date.now();
+    const { jobId } = await h.queue.start({ inputs: [fileInput('sources/text/notes.md')], options: opts });
+    expect(Date.now() - t0).toBeLessThan(1000);
+    // Persisted before the copy finished, without a copyPath yet.
+    const rec = JSON.parse(await readFile(path.join(jobsDir(h.userData), `${jobId}.json`), 'utf8')) as Job;
+    const first = rec.inputs[0];
+    expect(first?.kind === 'file' && first.snapshot?.copyPath).toBeFalsy();
+    await h.reached(jobId, 'reading');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(h.queue.get(jobId)?.status).toBe('reading');
+    expect(h.extractCalls).toEqual([]);
+    copy.release();
+    const job = await h.finished(jobId);
+    expect(job.status).toBe('done');
+    expect(copy.plain).toBe(1);
+    const input = job.inputs[0];
+    expect(input?.kind === 'file' && input.snapshot?.copyPath).toBe(
+      path.join(jobsDir(h.userData), jobId, 'inputs', '0-notes.md'),
+    );
+    expect(job.resolved.map((r) => r.ref)).toEqual(['notes.md']);
+  });
+
+  it('a background copy that fails skips the file with "file changed or moved" (06 §9.2)', async () => {
+    const copy = slowCopy(true);
+    const h = await harness({ deps: { copyFile: copy.copyFile, snapshotInlineCopyMaxBytes: 0 } });
+    const { jobId } = await h.queue.start({
+      inputs: [fileInput('sources/text/notes.md'), urlInput('https://example.com/widgets')],
+      options: opts,
+    });
+    copy.release();
+    const job = await h.finished(jobId);
+    expect(job.status).toBe('done');
+    expect(job.skipped).toEqual([expect.objectContaining({ ref: 'notes.md', code: 'file-changed' })]);
+    expect(job.skipped[0]?.reason).toMatch(/changed or moved/i);
   });
 
   it('refuses new jobs while the library is read-only', async () => {
@@ -194,6 +291,35 @@ describe('partial and total failure (06 §7)', () => {
     expect(k.fake.calls).toEqual([]);
   });
 
+  it('never retries an LLM call itself: an exhausted retryable in-depth error ends LLM_UNAVAILABLE (06 §5.4)', async () => {
+    for (const kind of ['server', 'overloaded'] as const) {
+      const h = await harness({ script: defaultScript({ errors: { 'in-depth': kind } }) });
+      const { jobId } = await h.queue.start({ inputs: [fileInput('sources/text/notes.md')], options: opts });
+      const job = await h.finished(jobId);
+      expect(job.failure?.code, kind).toBe('LLM_UNAVAILABLE');
+      expect(
+        h.fake.calls.filter((c) => c.taskId === 'in-depth'),
+        kind,
+      ).toHaveLength(1);
+    }
+  });
+
+  it('a null ELI5 draft (02 threw after its retries) saves a regenerable placeholder tab (06 §7.1)', async () => {
+    const h = await harness({ script: defaultScript({ errors: { eli5: 'timeout' } }) });
+    const { jobId } = await h.queue.start({ inputs: [fileInput('sources/text/notes.md')], options: opts });
+    const job = await h.finished(jobId);
+    expect(job.status).toBe('done');
+    expect(job.warnings.map((w) => w.kind)).toEqual(['eli5-placeholder']);
+    const meta = await h.lib.getMeta(job.result?.topicSlug ?? '');
+    expect(meta.warnings.map((w) => w.kind)).toContain('eli5-placeholder');
+    // One placeholder section with a normal SectionId, so 08's regenerate-in-place can target it.
+    expect(meta.tabs.find((t) => t.key === 'eli5')).toMatchObject({ kind: 'eli5', sectionCount: 1 });
+    const html = await readFile(h.lib.docPath(job.result?.topicSlug ?? ''), 'utf8');
+    expect(html).toContain('The ELI5 version could not be generated.');
+    expect(new Set(html.match(/\bsec-eli5-[0-9a-f]{8}\b/g))).toHaveProperty('size', 1);
+    expect(validateDocument(html, meta).errors).toEqual([]);
+  });
+
   it('maps LLMError kinds (06 §5.4 rule 2)', async () => {
     const cases = [
       ['server', 'LLM_UNAVAILABLE'],
@@ -231,6 +357,136 @@ describe('partial and total failure (06 §7)', () => {
     const html = await readFile(h.lib.docPath(job.result?.topicSlug ?? ''), 'utf8');
     expect(html).toContain('The ELI5 version could not be generated.');
     expect(validateDocument(html, meta).errors).toEqual([]);
+  });
+});
+
+describe('image budget (06 §5.3 step 1)', () => {
+  it('reserves every standalone image before any other source is extracted', async () => {
+    const seen: { ref: string; images: number; ok: boolean; pendingAtStart: number; usedAtStart: number }[] = [];
+    const base: { run?: PipelineDeps['createExtractRunner'] } = {};
+    const h = await harness({
+      deps: {
+        createExtractRunner: (jobId) => {
+          const r = (base.run as PipelineDeps['createExtractRunner'])(jobId);
+          return {
+            extract: async (s, x) => {
+              // Shrink the budget to two images on the first call so the ordering decides who fits.
+              if (!seen.length) x.budget.apply({ ...x.budget.snapshot(), maxImages: 2 });
+              const at = x.budget.snapshot();
+              const out = await r.extract(s, x);
+              seen.push({
+                ref: s.ref,
+                ok: out.ok,
+                images: out.ok ? out.content.images.length : 0,
+                pendingAtStart: at.pendingStandalone,
+                usedAtStart: at.usedImages,
+              });
+              return out;
+            },
+            dispose: () => r.dispose(),
+          };
+        },
+      },
+    });
+    base.run = (await harness()).deps.createExtractRunner;
+    const { jobId } = await h.queue.start({
+      inputs: [
+        fileInput('sources/docx/table-image.docx'),
+        fileInput('sources/images/diagram.png'),
+        fileInput('sources/images/photo.jpg'),
+        fileInput('sources/images/screenshot-tall.png'),
+      ],
+      options: opts,
+    });
+    const job = await h.finished(jobId);
+    expect(job.status).toBe('done');
+    // Standalone images first; the docx only after all three were announced or reserved.
+    expect(seen.map((s) => s.ref)).toEqual(['diagram.png', 'photo.jpg', 'screenshot-tall.png', 'table-image.docx']);
+    expect(seen[0]?.pendingAtStart).toBe(3);
+    // Two standalone images fit, the third is skipped, and the docx keeps its text but no images.
+    expect(seen.slice(0, 2).map((s) => s.images)).toEqual([1, 1]);
+    expect(job.skipped).toEqual([
+      expect.objectContaining({ ref: 'screenshot-tall.png', code: 'image-budget-exceeded' }),
+    ]);
+    expect(seen[3]).toMatchObject({ ok: true, images: 0, usedAtStart: 2 });
+  });
+});
+
+describe('merge check isolation (06 §10)', () => {
+  it('a merge check that throws or rejects leaves the job done with one done event and a warning', async () => {
+    for (const mode of ['throw', 'reject'] as const) {
+      const log = recordingLog();
+      const h = await harness({
+        deps: {
+          log,
+          onMergeCheck:
+            mode === 'throw'
+              ? () => {
+                  throw new Error('boom');
+                }
+              : () => Promise.reject(new Error('boom')),
+        },
+      });
+      const { jobId } = await h.queue.start({ inputs: [fileInput('sources/text/notes.md')], options: opts });
+      const job = await h.finished(jobId);
+      await new Promise((r) => setTimeout(r, 10));
+      expect(h.queue.get(jobId)?.status, mode).toBe('done');
+      expect(job.failure).toBeUndefined();
+      expect(
+        h.done.filter((d) => d.jobId === jobId),
+        mode,
+      ).toHaveLength(1);
+      expect(
+        log.warns.map((w) => w.event),
+        mode,
+      ).toContain('pipeline.merge-check-failed');
+      expect(h.lib.list()).toHaveLength(1);
+    }
+  });
+});
+
+describe('job storage (06 §9.1)', () => {
+  it('keeps records and staging under <userData>/jobs/ with no credentials, and nothing job-related in the library', async () => {
+    // Sentinel API key assembled at runtime (13: no secret-shaped literals in the repo).
+    const sentinel = ['sk', 'ant', 'api03', 'SENTINEL', 'x'.repeat(24)].join('-');
+    const keyStore = new Map([['claude', sentinel]]);
+    let scanned: [string, string][] = [];
+    const h = await harness({
+      deps: { hasApiKey: async () => keyStore.has('claude') },
+      tasks: (t) => ({
+        ...t,
+        summarize: async (d, s) => {
+          scanned = await allFiles(path.join(h.userData, 'jobs'));
+          return t.summarize(d, s);
+        },
+      }),
+    });
+    const prev = process.env.ELI5_TEST_SENTINEL_KEY;
+    process.env.ELI5_TEST_SENTINEL_KEY = sentinel;
+    try {
+      const { jobId } = await h.queue.start({
+        inputs: [fileInput('sources/text/notes.md'), urlInput('https://example.com/widgets')],
+        options: opts,
+      });
+      const job = await h.finished(jobId);
+      expect(job.status).toBe('done');
+      // Mid-run: the record, inputs, extracted and gen artifacts all live under jobs/.
+      const names = scanned.map(([p]) => path.relative(path.join(h.userData, 'jobs'), p));
+      expect(names).toContain(`${jobId}.json`);
+      expect(names.some((n) => n.startsWith(`${jobId}/inputs/`))).toBe(true);
+      expect(names.some((n) => n.startsWith(`${jobId}/extracted/`))).toBe(true);
+      expect(names.some((n) => n.startsWith(`${jobId}/gen/`))).toBe(true);
+      const after = await allFiles(path.join(h.userData, 'jobs'));
+      for (const [p, text] of [...scanned, ...after]) expect(text.includes(sentinel), p).toBe(false);
+      // The library holds only the document folder, the catalog and its own staging root.
+      const lib = await allFiles(h.lib.root);
+      expect(lib.some(([p]) => path.basename(p) === `${jobId}.json`)).toBe(false);
+      expect(lib.some(([p]) => /[\\/](jobs|inputs|extracted|gen)[\\/]/.test(path.relative(h.lib.root, p)))).toBe(false);
+      for (const [p, text] of lib) expect(text.includes(sentinel), p).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.ELI5_TEST_SENTINEL_KEY;
+      else process.env.ELI5_TEST_SENTINEL_KEY = prev;
+    }
   });
 });
 

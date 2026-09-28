@@ -255,6 +255,10 @@ export interface PipelineDeps {
   /** Waits between saving attempts (06 §5.7: 1 retry after 2 s). */
   sleep?: (ms: number) => Promise<void>;
   progressDebounceMs?: number;
+  /** fs.copyFile for input snapshots (06 §9.2); injected in tests to simulate a volume without clones. */
+  copyFile?: (src: string, dst: string, mode?: number) => Promise<void>;
+  /** Unclonable files up to this size are copied inline, larger ones in the background (06 §9.2). */
+  snapshotInlineCopyMaxBytes?: number;
 }
 
 /** PipelineDeps with every default filled in (queue.ts). */

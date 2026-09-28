@@ -19,6 +19,22 @@ export async function resolvedArtifactsExist(resolved: readonly ResolvedSource[]
   return true;
 }
 
+/** Waits for `p`, but gives up as soon as the job is cancelled (06 §8.1: cancel within 2 s). */
+async function abortable(p: Promise<void>, signal: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  let onAbort = (): void => {};
+  const aborted = new Promise<void>((resolve) => {
+    onAbort = resolve;
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  try {
+    await Promise.race([p, aborted]);
+  } finally {
+    signal.removeEventListener('abort', onAbort);
+  }
+  throwIfAborted(signal);
+}
+
 export async function readStage(ctx: StageContext): Promise<void> {
   const { job, deps } = ctx;
   // Resume: sources already resolved are not refetched while their staged artifacts exist (§5.2 step 4).
@@ -26,6 +42,8 @@ export async function readStage(ctx: StageContext): Promise<void> {
     job.progress.sourcesDone = job.progress.sourcesTotal;
     return;
   }
+  // 06 §9.2: a copy that could not be cloned finishes before its file is read.
+  await abortable(ctx.inputsReady(), ctx.signal);
   job.resolved = [];
   job.skipped = [];
   job.progress.sourcesTotal = job.inputs.length;

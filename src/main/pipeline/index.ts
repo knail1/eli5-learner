@@ -58,7 +58,7 @@ export { PipelineFailure, PipelineRequestError, failureFromError, failureMessage
 export { inProcessExtractRunner } from './runner';
 export type { InProcessExtractOptions } from './runner';
 export { dedupeInputs, snapshotInputs } from './inputs';
-export type { SnapshotOptions } from './inputs';
+export type { CopyFileFn, PendingCopy, SnapshotOptions, SnapshotResult } from './inputs';
 export { fallbackSummary } from './stages/generate';
 export { SAVE_RETRY_DELAY_MS } from './stages/save';
 export { parseThemeTokens } from './theme';

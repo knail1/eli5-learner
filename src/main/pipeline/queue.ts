@@ -7,7 +7,7 @@ import { monotonicFactory } from 'ulid';
 import { STAGING_DIR } from '../library';
 import { log as defaultLog } from '../security';
 import { PipelineFailure, PipelineRequestError, failureFromError } from './errors';
-import { dedupeInputs, snapshotInputs } from './inputs';
+import { dedupeInputs, runPendingCopy, snapshotInputs, type PendingCopy } from './inputs';
 import { createJob, isRetryable, isTerminal, snapshotOf } from './job';
 import { checkpointOf, resetToReading, stageIndex, type StageContext } from './stages/context';
 import { extractStage } from './stages/extract';
@@ -71,6 +71,8 @@ export class JobQueue {
   private readonly lanes: Record<JobKind, JobId[]> = { create: [], section: [] };
   private readonly running = new Map<JobId, Running>();
   private readonly runs = new Map<JobId, Promise<void>>();
+  /** Background snapshot copies per job; reading waits for them (06 §9.2). */
+  private readonly copies = new Map<JobId, Promise<void>>();
   private readonly changed = new Set<ChangedListener>();
   private readonly doneListeners = new Set<DoneListener>();
   private readonly lastLine = new Map<JobId, string>();
@@ -171,9 +173,9 @@ export class JobQueue {
     return this.runs.get(id) ?? Promise.resolve();
   }
 
-  /** Resolves when no job is running. */
+  /** Resolves when no job is running and no snapshot copy is in flight. */
   async idle(): Promise<void> {
-    while (this.runs.size) await Promise.all([...this.runs.values()]);
+    while (this.runs.size || this.copies.size) await Promise.all([...this.runs.values(), ...this.copies.values()]);
   }
 
   private position(job: Job): number {
@@ -218,21 +220,48 @@ export class JobQueue {
     if (this.d.library.readOnly) throw new PipelineRequestError('E_LIBRARY_READ_ONLY', 'The Library is read-only');
     const now = this.d.clock.now();
     const id = this.d.ids.jobId(now);
-    const inputs = await snapshotInputs(dedupeInputs(req.inputs), {
+    const { inputs, pending } = await snapshotInputs(dedupeInputs(req.inputs), {
       stagingDir: this.store.stagingDir(id),
       userData: this.d.userData,
       copyMaxBytes: this.d.policy.snapshotCopyMaxBytes,
       ...(req.draftId ? { draftId: req.draftId } : {}),
+      ...(this.d.copyFile ? { copyFile: this.d.copyFile } : {}),
+      ...(this.d.snapshotInlineCopyMaxBytes !== undefined
+        ? { inlineCopyMaxBytes: this.d.snapshotInlineCopyMaxBytes }
+        : {}),
     });
     const job = createJob({ id, kind: 'create', now, inputs, options: { ...req.options } });
     await this.store.save(job);
     this.jobs.set(id, job);
+    if (pending.length) this.startCopies(job, pending);
     this.lanes.create.push(id);
     this.d.log.info('pipeline.enqueued', { jobId: id, kind: 'create', count: inputs.length });
     this.updatePower();
     this.emit(job);
     this.pump();
     return { jobId: id };
+  }
+
+  /**
+   * 06 §9.2: copies that could not be cloned run after `jobs:start` returns. Each sets `copyPath` when
+   * it settles, so a failed copy is skipped by the resolver as `file changed or moved`. A crash while
+   * copying leaves no `copyPath`; the resolver then checks the original's size and mtime instead.
+   */
+  private startCopies(job: Job, pending: readonly PendingCopy[]): void {
+    const all = Promise.all(
+      pending.map(async (p) => {
+        const ok = await runPendingCopy(p, this.d.copyFile);
+        const input = job.inputs[p.index];
+        if (input?.kind === 'file' && input.snapshot) input.snapshot.copyPath = p.dst;
+        if (!ok) this.d.log.warn('pipeline.snapshot-copy-failed', { jobId: job.id, index: p.index });
+      }),
+    )
+      .then(async () => {
+        if (!isTerminal(job.status)) await this.store.save(job);
+      })
+      .catch((err: unknown) => this.d.log.error('pipeline.snapshot-copy-failed', { jobId: job.id }, err))
+      .finally(() => this.copies.delete(job.id));
+    this.copies.set(job.id, all);
   }
 
   /** Section jobs (08) enter the Section lane (06 §8.2); started by 08's channels. */
@@ -389,6 +418,7 @@ export class JobQueue {
         rt.commitStarted = started;
         this.emit(job);
       },
+      inputsReady: () => this.copies.get(job.id) ?? Promise.resolve(),
     };
     // The reservation lives on the runtime so the failure path can release it (06 §5.7 step 4).
     Object.defineProperty(ctx, 'reservation', {

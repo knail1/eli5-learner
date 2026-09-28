@@ -2,6 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { onTestFinished, vi } from 'vitest';
+import type { KeyStore, SettingsStore } from '../../../../src/main/config';
+import type { Registry } from '../../../../src/main/editions';
 import type {
   CatalogEntry,
   IpcResult,
@@ -136,9 +138,17 @@ export interface Harness {
   userData: string;
   dispose: () => void;
   handlers: Map<string, Listener>;
+  settings: SettingsStore;
+  keyStore: KeyStore;
+  registry: Registry;
 }
 
-export async function setup(): Promise<Harness> {
+export interface SetupOptions {
+  /** Default: a fresh MemoryKeyStore. */
+  keyStore?: KeyStore;
+}
+
+export async function setup(o: SetupOptions = {}): Promise<Harness> {
   const { registerIpc } = await import('../../../../src/main/ipc');
   const { SettingsStore } = await import('../../../../src/main/config');
   const { MemoryKeyStore } = await import('../../../../src/main/config');
@@ -150,7 +160,11 @@ export async function setup(): Promise<Harness> {
   const settings = new SettingsStore({ dir: userData });
   await settings.load();
   const registry = new Registry({ edition: 'public', getSettings: () => settings.get() });
+  const keyStore = o.keyStore ?? new MemoryKeyStore();
   const h: Omit<Harness, 'call' | 'dispose'> = {
+    settings,
+    keyStore,
+    registry,
     sent: [],
     jobs: new FakeJobs(),
     library: new FakeLibrary(),
@@ -169,7 +183,7 @@ export async function setup(): Promise<Harness> {
       isAppUrl: (u) => u.origin === APP_ORIGIN,
     },
     settings,
-    keyStore: new MemoryKeyStore(),
+    keyStore,
     registry,
     viewer: { setBounds: () => {}, setVisible: () => {} },
     sendToApp: (channel, payload) => h.sent.push({ channel, payload }),

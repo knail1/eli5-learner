@@ -19,6 +19,8 @@ export interface StageContext {
   setRunningSteps(steps: readonly JobStep[]): void;
   /** Called right before library.commitDocument(); cancel is refused from then on (06 §8.1). */
   setCommitStarted(started: boolean): void;
+  /** Resolves when the job's background snapshot copies have settled (06 §9.2). */
+  inputsReady(): Promise<void>;
   /** The slug reservation held by saving, released on failure or cancel (06 §5.7 step 4). */
   reservation?: SlugReservation;
 }

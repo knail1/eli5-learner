@@ -7,32 +7,21 @@ import {
   type EditionInfo,
   type IpcChannel,
   type ModelsResult,
-  type Settings,
-  type SettingsDescription,
   type TestConnectionResult,
 } from '../../preload/contract';
-import { ProviderIdSchema, type DeepPartial } from '../config';
+import { ProviderIdSchema } from '../config';
 import type { SettingsStore } from '../config';
 import { account, type KeyStore } from '../config';
-import { checkApiKeyFormat } from '../config';
 import type { Registry } from '../editions';
 import { suggestedModels } from '../llm';
 import { ContextMenuRequest, handleContextMenu } from '../shell';
-import { log } from '../security';
 import { safeOpenExternal } from '../security';
 import type { ClipboardPort } from '../sources';
 import { DropRegistry } from './drops';
-import {
-  fail,
-  makeHandle,
-  NoPayload,
-  WithWarnings,
-  type HandlerRegistrar,
-  type Register,
-  type SenderIdentity,
-} from './handle';
+import { fail, makeHandle, NoPayload, type HandlerRegistrar, type Register, type SenderIdentity } from './handle';
 import { registerJobsIpc, type JobsPort } from './jobs';
 import { registerLibraryIpc, type DocumentActions, type LibraryPort } from './library';
+import { registerSettingsIpc } from './settings';
 import { registerSourcesIpc } from './sources';
 
 export { assertSender, toIpcError, IpcFailure, fail, makeHandle, NO_API_KEY } from './handle';
@@ -83,7 +72,6 @@ const Bounds = z.object({
   width: z.number().finite().min(0),
   height: z.number().finite().min(0),
 });
-const KeyProvider = z.enum(['claude', 'openai']);
 
 /**
  * Registers every channel in 01 §5.2 and the M→R pushes. Channels owned by later milestones answer
@@ -104,28 +92,7 @@ export function registerIpc(d: IpcDeps): () => void {
   registerLibraryIpc(on, { library: d.library, documents: d.documents });
 
   // ---- settings (12 §5) ----
-  on(IPC.settings.get, NoPayload, (): Settings => d.settings.get());
-  on(IPC.settings.set, z.record(z.string(), z.unknown()), async (patch): Promise<Settings> => {
-    const next = await d.settings.set(patch as DeepPartial<Settings>);
-    d.registry.invalidateLLM();
-    return next;
-  });
-  on(IPC.settings.setApiKey, z.object({ provider: KeyProvider, key: z.string().max(4096) }), async (p) => {
-    const checked = checkApiKeyFormat(p.provider, p.key);
-    if (!checked.ok) fail('E_KEY_FORMAT', "That doesn't look like an API key");
-    await d.keyStore.set(account(p.provider), checked.key);
-    d.registry.invalidateLLM();
-    log.info('settings.api-key-saved', { provider: p.provider });
-    return checked.warning ? new WithWarnings(undefined, [checked.warning]) : undefined;
-  });
-  on(IPC.settings.hasApiKey, z.object({ provider: KeyProvider }), (p) => d.keyStore.has(account(p.provider)));
-  on(IPC.settings.clearApiKey, z.object({ provider: KeyProvider }), async (p) => {
-    await d.keyStore.delete(account(p.provider));
-    d.registry.invalidateLLM();
-  });
-  on(IPC.settings.describe, NoPayload, async (): Promise<SettingsDescription> =>
-    d.settings.describe(await d.keyStore.available()),
-  );
+  registerSettingsIpc(on, { settings: d.settings, keyStore: d.keyStore, registry: d.registry });
 
   // ---- edition (01 §6.2) ----
   on(IPC.edition.info, NoPayload, (): EditionInfo => d.registry.info());
