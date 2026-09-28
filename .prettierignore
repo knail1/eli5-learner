@@ -7,3 +7,5 @@ package-lock.json
 *.md
 .github/
 .claude/
+resources/skills/eli5/upstream/
+resources/skills/beautiful-doc/html-effectiveness/
