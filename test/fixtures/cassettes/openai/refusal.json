@@ -1,0 +1,18 @@
+{
+  "name": "openai/refusal",
+  "interactions": [
+    {
+      "request": { "path": "/v1/chat/completions" },
+      "response": {
+        "status": 200,
+        "openaiCompletion": {
+          "model": "gpt-5",
+          "refusal": "I can't help with that.",
+          "finish_reason": "stop",
+          "usage": { "prompt_tokens": 10, "completion_tokens": 5 }
+        }
+      },
+      "repeat": true
+    }
+  ]
+}

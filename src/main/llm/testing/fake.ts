@@ -14,9 +14,12 @@ import type {
 } from '../types';
 
 /** Test-only scripted provider (13 §6.1, 02 §16). Never registered in package builds. */
+/** Inline JSON text, a fixture path read via `readFile`, or an inline JSON object. */
+export type FakeResponse = string | { [key: string]: unknown };
+
 export interface FakeScript {
-  /** Response JSON (inline, or a file path read via `readFile`) keyed by PromptId; array = successive calls. */
-  responses: Partial<Record<PromptId, string | string[]>>;
+  /** Responses keyed by PromptId; an array lists successive calls (the last one repeats). */
+  responses: Partial<Record<PromptId, FakeResponse | FakeResponse[]>>;
   /** Inject per task; a single kind applies to every call, an array applies per call index. */
   errors?: Partial<Record<PromptId, LLMErrorKind | LLMErrorKind[]>>;
   latencyMs?: number; // default 0
@@ -94,7 +97,12 @@ export class FakeProvider implements LLMProvider {
     return Promise.resolve(tokens(inputChars(req)));
   }
 
+  /** Real providers test with a tiny "summary" call; a scripted "summary" error fails the test too. */
   testConnection(): Promise<ConnectionCheck> {
+    const spec = this.script.errors?.summary;
+    const kind = Array.isArray(spec) ? spec[0] : spec;
+    if (kind !== undefined)
+      return Promise.resolve({ ok: false, error: new LLMError(kind, `FakeProvider injected ${kind}`) });
     return Promise.resolve({ ok: true, model: this.model });
   }
 
@@ -162,7 +170,8 @@ export class FakeProvider implements LLMProvider {
     };
   }
 
-  private resolve(raw: string, taskId: PromptId): string {
+  private resolve(raw: FakeResponse, taskId: PromptId): string {
+    if (typeof raw !== 'string') return JSON.stringify(raw);
     if (looksInline(raw)) return raw;
     if (!this.readFile) {
       throw new LLMError('bad_request', `FakeProvider fixture for "${taskId}" is a path but no readFile was given`);

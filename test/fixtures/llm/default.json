@@ -1,0 +1,219 @@
+{
+  "responses": {
+    "in-depth": {
+      "kind": "indepth",
+      "title": "How Example Widgets Inc. Plans Its Widget Supply",
+      "dek": "A synthetic walkthrough of forecasting, buffers and the trade-offs behind them.",
+      "sections": [
+        {
+          "heading": "Why the plan matters",
+          "blocks": [
+            {
+              "type": "paragraph",
+              "md": "Example Widgets Inc. sells **widgets** through three channels. Its supply plan decides how many to build each quarter, and a bad plan either strands cash in inventory or leaves shelves empty."
+            },
+            {
+              "type": "callout",
+              "tone": "keypoint",
+              "md": "The plan balances two costs: holding too much stock and running out."
+            }
+          ]
+        },
+        {
+          "heading": "Demand grew fastest online",
+          "blocks": [
+            {
+              "type": "chart",
+              "chart": {
+                "kind": "bar",
+                "title": "Online orders doubled in a year",
+                "subtitle": "Widget orders by channel, thousands",
+                "source": "Synthetic fixture data",
+                "unit": "k",
+                "categories": ["Retail", "Wholesale", "Online"],
+                "series": [
+                  { "name": "Last year", "values": [40, 30, 20] },
+                  { "name": "This year", "values": [42, 28, 40] }
+                ],
+                "highlight": { "category": "Online", "note": "Up 100%" }
+              }
+            },
+            {
+              "type": "table",
+              "caption": "Orders by channel (thousands)",
+              "header": ["Channel", "Last year", "This year"],
+              "rows": [
+                ["Retail", "40", "42"],
+                ["Wholesale", "30", "28"],
+                ["Online", "20", "40"]
+              ]
+            }
+          ]
+        },
+        {
+          "heading": "How the forecast is built",
+          "blocks": [
+            {
+              "type": "stepper",
+              "title": "From orders to a build plan",
+              "steps": [
+                { "label": "Collect", "md": "Gather last quarter's orders per channel." },
+                { "label": "Forecast", "md": "Project demand using a simple moving average." },
+                { "label": "Buffer", "md": "Add **safety stock** for uncertainty." },
+                { "label": "Commit", "md": "Publish the build plan to the factory." }
+              ]
+            },
+            {
+              "type": "list",
+              "ordered": false,
+              "items": ["The SKU count stays at twelve.", "Lead time is six weeks."]
+            }
+          ]
+        },
+        {
+          "heading": "What to watch next",
+          "blocks": [
+            {
+              "type": "pullquote",
+              "text": "The buffer is the price of not knowing.",
+              "attribution": "Synthetic planning memo"
+            },
+            {
+              "type": "diagram",
+              "title": "Plan flow",
+              "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 200 40\"><rect x=\"5\" y=\"5\" width=\"60\" height=\"30\"/><rect x=\"135\" y=\"5\" width=\"60\" height=\"30\"/><line x1=\"65\" y1=\"20\" x2=\"135\" y2=\"20\" stroke=\"black\"/></svg>",
+              "alt": "Forecast box connected to build plan box"
+            },
+            {
+              "type": "paragraph",
+              "md": "If online growth continues, the buffer for that channel will need to grow too."
+            }
+          ]
+        }
+      ]
+    },
+    "eli5": {
+      "kind": "eli5",
+      "title": "Widgets, explained simply",
+      "dek": "Why a company keeps a few extra widgets on the shelf.",
+      "sections": [
+        {
+          "heading": "Guessing how many to make",
+          "blocks": [
+            {
+              "type": "analogy",
+              "md": "It is like buying snacks for a party when you do not know exactly how many friends will come."
+            },
+            {
+              "type": "paragraph",
+              "md": "Example Widgets Inc. has to guess how many widgets people will buy before they buy them."
+            }
+          ]
+        },
+        {
+          "heading": "Keeping a few extra",
+          "blocks": [
+            {
+              "type": "paragraph",
+              "md": "A small pile of extra widgets means nobody leaves empty-handed, but extras cost money to store."
+            },
+            {
+              "type": "callout",
+              "tone": "note",
+              "md": "More online shoppers means a bigger pile is needed."
+            }
+          ]
+        }
+      ]
+    },
+    "glossary": {
+      "entries": [
+        {
+          "term": "SKU",
+          "expansion": "Stock keeping unit",
+          "explanation": "A code for one distinct product variant that a company tracks in inventory.",
+          "anchorSectionIndex": 2,
+          "anchorText": "SKU"
+        },
+        {
+          "term": "safety stock",
+          "explanation": "Extra inventory held to cover demand that is higher than forecast.",
+          "anchorSectionIndex": 2,
+          "anchorText": "safety stock"
+        }
+      ]
+    },
+    "chunk-notes": {
+      "notes": "Example Widgets Inc. plans widget supply quarterly from channel orders with a safety buffer.",
+      "keyFacts": ["Online orders rose from 20k to 40k.", "Lead time is six weeks."],
+      "tables": [],
+      "chartCandidates": [],
+      "jargon": ["SKU", "safety stock"],
+      "sourceRefs": []
+    },
+    "section-expand": {
+      "heading": "How the forecast is built, step by step",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "md": "The forecast starts from last quarter's orders and smooths them with a moving average so one unusual week does not swing the plan."
+        },
+        {
+          "type": "callout",
+          "tone": "keypoint",
+          "md": "Smoothing trades responsiveness for stability."
+        }
+      ]
+    },
+    "section-reexplain": {
+      "heading": "How the forecast is built, another way",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "md": "Think of the forecast as an average of recent weeks: it follows the trend without chasing every bump."
+        }
+      ]
+    },
+    "section-analogy": {
+      "heading": "How the forecast is built",
+      "blocks": [
+        {
+          "type": "analogy",
+          "md": "Forecasting is like a weather report for orders: usually close, never exact. The analogy stops working because customers, unlike clouds, respond to prices."
+        }
+      ]
+    },
+    "section-deeper": {
+      "heading": "How the forecast is built, in depth",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "md": "A moving average lags turning points. When online demand accelerates, the forecast underestimates it for a few weeks, which is exactly when the safety stock is consumed."
+        }
+      ]
+    },
+    "section-eli5-tab": {
+      "kind": "section-eli5",
+      "title": "Forecasts, simply",
+      "sections": [
+        {
+          "heading": "A good guess",
+          "blocks": [
+            {
+              "type": "analogy",
+              "md": "Guessing orders is like guessing how many pancakes the family will eat on Sunday."
+            }
+          ]
+        }
+      ]
+    },
+    "summary": {
+      "title": "How Example Widgets Inc. Plans Its Widget Supply",
+      "topicSlugHint": "widget-supply-planning",
+      "summary": "A synthetic explainer on how a widget maker forecasts demand by channel and sizes its safety stock."
+    },
+    "merge-match": {
+      "matches": []
+    }
+  }
+}

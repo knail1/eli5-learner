@@ -1,0 +1,29 @@
+{
+  "name": "claude/tool-auto",
+  "interactions": [
+    {
+      "request": {
+        "path": "/v1/messages",
+        "match": {
+          "tool_choice": { "type": "auto" },
+          "tools": [{ "name": "summary_draft", "strict": true }]
+        }
+      },
+      "response": {
+        "status": 200,
+        "claudeMessage": {
+          "model": "claude-opus-5-5",
+          "content": [
+            {
+              "type": "tool_use",
+              "name": "summary_draft",
+              "input": { "title": "Widget supply", "topicSlugHint": "widget-supply", "summary": "Via strict tool." }
+            }
+          ],
+          "stop_reason": "tool_use",
+          "usage": { "input_tokens": 100, "output_tokens": 30 }
+        }
+      }
+    }
+  ]
+}

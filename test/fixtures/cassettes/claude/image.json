@@ -1,0 +1,32 @@
+{
+  "name": "claude/image",
+  "interactions": [
+    {
+      "request": {
+        "path": "/v1/messages",
+        "match": {
+          "messages": [
+            {
+              "role": "user",
+              "content": [
+                { "type": "text", "text": "[Image: diagram.png]" },
+                { "type": "image", "source": { "type": "base64", "media_type": "image/png" } },
+                { "type": "text" }
+              ]
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "claudeMessage": {
+          "model": "claude-opus-5-5",
+          "content": [{ "type": "text", "text": "The diagram shows two boxes joined by an arrow." }],
+          "stop_reason": "end_turn",
+          "usage": { "input_tokens": 1200, "output_tokens": 12 }
+        }
+      },
+      "repeat": true
+    }
+  ]
+}

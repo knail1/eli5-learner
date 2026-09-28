@@ -62,6 +62,8 @@ export interface GenerationRequest {
   cacheSystemPrompt?: boolean;
   signal?: AbortSignal;
   timeoutMs?: number; // overrides llm.timeoutMs for this call
+  /** Called before each retry wait (02 §7.1 step 6); 06 shows " (retrying)" while it runs. */
+  onRetry?: (attempt: number, waitMs: number) => void;
 }
 
 export interface TokenUsage {
@@ -106,7 +108,8 @@ export interface LLMProvider {
   generate(req: GenerationRequest): Promise<GenerationResult>;
   generateWithImages(req: GenerationRequest): Promise<GenerationResult>;
   stream?(req: GenerationRequest): AsyncIterable<StreamChunk>;
-  countTokens?(req: Pick<GenerationRequest, 'system' | 'messages'>): Promise<number>;
+  /** Callers pass the request through PromptPolicy.preSendFilter first (HOOK-LLM-02). */
+  countTokens?(req: Pick<GenerationRequest, 'system' | 'messages' | 'signal'>): Promise<number>;
   testConnection(): Promise<ConnectionCheck>;
 }
 

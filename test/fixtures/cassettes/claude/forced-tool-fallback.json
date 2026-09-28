@@ -1,0 +1,41 @@
+{
+  "name": "claude/forced-tool-fallback",
+  "interactions": [
+    {
+      "request": {
+        "path": "/v1/messages",
+        "match": { "tool_choice": { "type": "tool", "name": "summary_draft" } }
+      },
+      "response": {
+        "status": 400,
+        "body": {
+          "type": "error",
+          "error": {
+            "type": "invalid_request_error",
+            "message": "tool_choice: type \"tool\" and \"any\" are not supported for this model."
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "path": "/v1/messages",
+        "match": { "output_config": { "format": { "type": "json_schema" } } }
+      },
+      "response": {
+        "status": 200,
+        "claudeMessage": {
+          "model": "claude-legacy-test",
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"title\":\"Widget supply\",\"topicSlugHint\":\"widget-supply\",\"summary\":\"Fallback worked.\"}"
+            }
+          ],
+          "stop_reason": "end_turn",
+          "usage": { "input_tokens": 100, "output_tokens": 20 }
+        }
+      }
+    }
+  ]
+}

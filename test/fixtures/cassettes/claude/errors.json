@@ -1,0 +1,67 @@
+{
+  "name": "claude/errors",
+  "interactions": [
+    {
+      "request": { "path": "/v1/messages", "match": { "messages": [{ "content": "contract:error:auth" }] } },
+      "response": {
+        "status": 401,
+        "headers": { "request-id": "req_cassette" },
+        "body": { "type": "error", "error": { "type": "authentication_error", "message": "invalid x-api-key" } }
+      },
+      "repeat": true
+    },
+    {
+      "request": { "path": "/v1/messages", "match": { "messages": [{ "content": "contract:error:bad_request" }] } },
+      "response": {
+        "status": 400,
+        "body": {
+          "type": "error",
+          "error": { "type": "invalid_request_error", "message": "messages: roles must alternate" }
+        }
+      },
+      "repeat": true
+    },
+    {
+      "request": { "path": "/v1/messages", "match": { "messages": [{ "content": "contract:error:rate_limited" }] } },
+      "response": {
+        "status": 429,
+        "headers": { "retry-after": "1" },
+        "body": { "type": "error", "error": { "type": "rate_limit_error", "message": "Rate limited" } }
+      },
+      "repeat": true
+    },
+    {
+      "request": { "path": "/v1/messages", "match": { "messages": [{ "content": "contract:error:overloaded" }] } },
+      "response": {
+        "status": 529,
+        "body": { "type": "error", "error": { "type": "overloaded_error", "message": "Overloaded" } }
+      },
+      "repeat": true
+    },
+    {
+      "request": { "path": "/v1/messages", "match": { "messages": [{ "content": "contract:error:server" }] } },
+      "response": {
+        "status": 500,
+        "body": { "type": "error", "error": { "type": "api_error", "message": "Internal server error" } }
+      },
+      "repeat": true
+    },
+    {
+      "request": {
+        "path": "/v1/messages",
+        "match": { "messages": [{ "content": "contract:error:context_overflow" }] }
+      },
+      "response": {
+        "status": 400,
+        "body": {
+          "type": "error",
+          "error": {
+            "type": "invalid_request_error",
+            "message": "prompt is too long: 1200000 tokens > 1000000 maximum"
+          }
+        }
+      },
+      "repeat": true
+    }
+  ]
+}

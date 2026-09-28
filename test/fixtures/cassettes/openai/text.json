@@ -1,0 +1,21 @@
+{
+  "name": "openai/text",
+  "interactions": [
+    {
+      "request": {
+        "path": "/v1/chat/completions",
+        "match": { "stream": true, "stream_options": { "include_usage": true } }
+      },
+      "response": {
+        "status": 200,
+        "openaiCompletion": {
+          "model": "gpt-5-2026-01-01",
+          "content": "Example Widgets Inc. makes widgets.",
+          "finish_reason": "stop",
+          "usage": { "prompt_tokens": 42, "completion_tokens": 9, "cached_tokens": 10 }
+        }
+      },
+      "repeat": true
+    }
+  ]
+}
