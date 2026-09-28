@@ -42,3 +42,18 @@ export function NotFound() {
     </section>
   );
 }
+
+/**
+ * Viewer load failure (11 §8). Replaces the slot, so the native viewer is detached while it shows;
+ * Retry opens the document again.
+ */
+export function ViewerFailed(p: { onRetry(): void }) {
+  return (
+    <section className="welcome" aria-labelledby="vf-title">
+      <h1 id="vf-title">Could not display this document.</h1>
+      <button type="button" onClick={p.onRetry}>
+        Retry
+      </button>
+    </section>
+  );
+}

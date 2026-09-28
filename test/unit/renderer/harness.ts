@@ -56,7 +56,10 @@ export interface FakeApi {
 
 const resolved = <T>(v: IpcResult<T>) => vi.fn(async () => v);
 
-/** Every invoke answers like the M1b main process: M2-owned handlers return E_INTERNAL. */
+/**
+ * Every invoke answers like the M1b main process (M2-owned handlers return E_INTERNAL), except
+ * `library.open`, which succeeds so doc routes mount the viewer slot.
+ */
 export function installFakeApi(edition: EditionInfo = PUBLIC_EDITION): FakeApi {
   const listeners = new Map<string, Set<Listener>>();
   const on = (name: string) =>
@@ -83,7 +86,7 @@ export function installFakeApi(edition: EditionInfo = PUBLIC_EDITION): FakeApi {
     },
     library: {
       list: resolved(notImplemented),
-      open: resolved(notImplemented),
+      open: resolved(ok(undefined)),
       reveal: resolved(notImplemented),
       info: resolved(notImplemented),
       onChanged: on('library'),

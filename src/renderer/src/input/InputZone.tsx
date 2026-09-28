@@ -22,6 +22,7 @@ import {
   isStaged,
   isTextField,
   newDraft,
+  resolveDropPaths,
   splitTokens,
   startErrorMessage,
   startRequest,
@@ -59,7 +60,7 @@ export function InputZone(p: InputZoneProps) {
   const [glossaryTouched, setGlossaryTouched] = useState(false);
   const [urlError, setUrlError] = useState<string | null>(null);
   const [hint, setHint] = useState<Hint>(null);
-  const [startError, setStartError] = useState<string | null>(null);
+  const [startError, setStartError] = useState<Hint>(null);
   const [dragDepth, setDragDepth] = useState(0);
   const [starting, setStarting] = useState(false);
   const lastStart = useRef(0);
@@ -119,7 +120,9 @@ export function InputZone(p: InputZoneProps) {
     async (dt: DataTransfer) => {
       const files = Array.from(dt.files);
       if (files.length > 0) {
-        addPaths(files.map((f) => window.eli5.files.pathFor(f)));
+        const { paths, failed } = resolveDropPaths(files, (f) => window.eli5.files.pathFor(f));
+        addPaths(paths);
+        if (failed.length > 0) showHint({ text: `Could not add ${failed.join(', ')}` }, true);
         return;
       }
       const uris = dt
@@ -276,8 +279,8 @@ export function InputZone(p: InputZoneProps) {
       announce('Started');
       dropBox.current?.focus();
     } else {
-      // 6. Keep the draft intact.
-      setStartError(startErrorMessage(r.error));
+      // 6. Keep the draft intact. A key missing at start time (01 §6.2) links to Settings like step 3.
+      setStartError({ text: startErrorMessage(r.error), settingsLink: r.error.code === 'E_NO_API_KEY' });
     }
   };
 
@@ -427,8 +430,16 @@ export function InputZone(p: InputZoneProps) {
         </button>
       </div>
       {startError && (
-        <p className="inline-error" role="note">
-          {startError}
+        <p className="inline-error start-error" role="note">
+          {startError.text}
+          {startError.settingsLink && (
+            <>
+              {' '}
+              <button type="button" className="link" onClick={p.onOpenSettings}>
+                Open Settings
+              </button>
+            </>
+          )}
         </p>
       )}
     </form>

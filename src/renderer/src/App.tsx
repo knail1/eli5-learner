@@ -11,7 +11,7 @@ import { SettingsScreen, SignInIndicator } from './settings/SettingsScreen';
 import { StatusArea } from './status/StatusArea';
 import { SuggestionsPanel } from './suggestions/SuggestionsPanel';
 import { DocHeader } from './viewer/DocHeader';
-import { NotFound, Welcome } from './viewer/ViewerEmpty';
+import { NotFound, ViewerFailed, Welcome } from './viewer/ViewerEmpty';
 import { ViewerSlot } from './viewer/ViewerSlot';
 
 export type { UiRoute, SettingsSection };
@@ -107,19 +107,40 @@ function Shell() {
     });
   }, [loadLibrary]);
 
+  // ---- opening a document in the viewer (11 §5.2, §8, §13) ----
+  const [docError, setDocError] = useState<{ slug: string; message: string } | null>(null);
+  const openSeq = useRef(0);
+  const openInViewer = useCallback(
+    (slug: string) => {
+      const seq = ++openSeq.current;
+      setDocError(null);
+      void window.eli5.library.open(slug).then((r) => {
+        // Only the latest open decides what the viewer area shows.
+        if (r.ok || seq !== openSeq.current) return;
+        // Gone from the Library: reload it so the route resolves to the missing-files state.
+        if (r.error.code === 'E_NOT_FOUND') void loadLibrary();
+        else setDocError({ slug, message: r.error.message });
+      });
+    },
+    [loadLibrary],
+  );
+
   // ---- routes (11 §6) ----
-  const go = useCallback((next: UiRoute) => {
-    startupDone.current = true;
-    setRouteState((cur) => {
-      if (sameRoute(cur, next)) return cur;
-      if (next.view === 'settings' && cur.view !== 'settings') previous.current = cur;
-      return next;
-    });
-    if (next.view === 'doc') {
-      rememberDoc(next.slug);
-      void window.eli5.library.open(next.slug);
-    }
-  }, []);
+  const go = useCallback(
+    (next: UiRoute) => {
+      startupDone.current = true;
+      setRouteState((cur) => {
+        if (sameRoute(cur, next)) return cur;
+        if (next.view === 'settings' && cur.view !== 'settings') previous.current = cur;
+        return next;
+      });
+      if (next.view === 'doc') {
+        rememberDoc(next.slug);
+        openInViewer(next.slug);
+      }
+    },
+    [openInViewer],
+  );
 
   // Startup: the last opened document if it still exists, else welcome.
   useEffect(() => {
@@ -267,7 +288,11 @@ function Shell() {
           {shown.view === 'doc' && (
             <>
               <DocHeader slug={shown.slug} entry={entry} />
-              <ViewerSlot slug={shown.slug} layoutKey={layoutKey} />
+              {docError?.slug === shown.slug ? (
+                <ViewerFailed onRetry={() => openInViewer(shown.slug)} />
+              ) : (
+                <ViewerSlot slug={shown.slug} layoutKey={layoutKey} />
+              )}
             </>
           )}
           {shown.view === 'welcome' && (

@@ -46,6 +46,29 @@ export function fileInput(path: string, origin: SourceOrigin = 'drop'): SourceIn
   return { id: newInputId(), kind: 'file', origin, path };
 }
 
+/**
+ * Resolves dropped files to paths with `files.pathFor` (11 §5.4 step 1). A file the preload cannot
+ * resolve (it throws or returns '') is reported by name instead of failing the whole drop.
+ */
+export function resolveDropPaths<F extends { name: string }>(
+  files: readonly F[],
+  pathFor: (f: F) => string,
+): { paths: string[]; failed: string[] } {
+  const paths: string[] = [];
+  const failed: string[] = [];
+  for (const f of files) {
+    let p = '';
+    try {
+      p = pathFor(f);
+    } catch {
+      // reported below
+    }
+    if (p) paths.push(p);
+    else failed.push(f.name || 'a file');
+  }
+  return { paths, failed };
+}
+
 export function baseName(p: string): string {
   const parts = p.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? p;
