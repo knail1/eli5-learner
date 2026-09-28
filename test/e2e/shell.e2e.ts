@@ -85,9 +85,11 @@ test('layout regions and empty states render on a fresh profile', async () => {
   // Status area sits in the lower right.
   const status = await win.getByRole('region', { name: 'Jobs' }).boundingBox();
   const input = await win.getByRole('form', { name: 'New explainer' }).boundingBox();
-  const viewport = win.viewportSize() ?? { width: 1280, height: 820 };
+  // Electron pages have no Playwright viewport, and the window can be clamped to a small screen (CI
+  // runners), so measure the page's real width instead of assuming the 1280 px default.
+  const pageWidth = await win.evaluate(() => document.documentElement.clientWidth);
   expect(status && input && status.x > input.x).toBe(true);
-  expect(status && status.x + status.width).toBeGreaterThan(viewport.width - 5);
+  expect(status && status.x + status.width).toBeGreaterThan(pageWidth - 5);
 });
 
 test('application menu has no quit role and binds Cmd+Q/Cmd+W to Close Window', async () => {

@@ -2,7 +2,6 @@
  * Synthetic drafts for the golden documents (13 §5, §7). Every DraftBlock variant and every chart
  * kind appears at least once. Images are generated in memory (no binary files in the repo).
  */
-import { deflateSync } from 'node:zlib';
 import type { BuildInput, DocTheme } from '../../../src/main/document';
 import { defaultDocTheme, passThroughNormalizer } from '../../../src/main/document';
 import type { DocumentDraftTab, GlossaryDraft } from '../../../src/main/llm';
@@ -38,6 +37,35 @@ function chunk(type: string, data: Uint8Array): Uint8Array {
   return out;
 }
 
+/**
+ * A zlib stream of uncompressed "stored" deflate blocks. Unlike deflateSync, whose output varies with
+ * the zlib build and CPU, these bytes depend only on the input, so golden documents stay identical.
+ */
+function storedZlib(data: Uint8Array): Uint8Array {
+  const blocks = Math.max(1, Math.ceil(data.length / 0xffff));
+  const out = new Uint8Array(2 + blocks * 5 + data.length + 4);
+  out.set([0x78, 0x01], 0); // deflate, 32K window, no preset dictionary; (0x78 << 8 | 0x01) % 31 === 0
+  let o = 2;
+  for (let i = 0; i < blocks; i++) {
+    const part = data.subarray(i * 0xffff, Math.min(data.length, (i + 1) * 0xffff));
+    out[o] = i === blocks - 1 ? 1 : 0; // BFINAL on the last block, BTYPE 00 (stored)
+    out[o + 1] = part.length & 0xff;
+    out[o + 2] = part.length >>> 8;
+    out[o + 3] = ~part.length & 0xff;
+    out[o + 4] = (~part.length >>> 8) & 0xff;
+    out.set(part, o + 5);
+    o += 5 + part.length;
+  }
+  let a = 1;
+  let b = 0;
+  for (const byte of data) {
+    a = (a + byte) % 65521;
+    b = (b + a) % 65521;
+  }
+  new DataView(out.buffer).setUint32(o, ((b << 16) | a) >>> 0); // Adler-32, big-endian
+  return out;
+}
+
 /** A w×h PNG with a diagonal two-color pattern. */
 export function makePng(w: number, h: number, alpha = false): Uint8Array {
   const bpp = alpha ? 4 : 3;
@@ -61,7 +89,7 @@ export function makePng(w: number, h: number, alpha = false): Uint8Array {
   const parts = [
     new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk('IHDR', ihdr),
-    chunk('IDAT', new Uint8Array(deflateSync(raw))),
+    chunk('IDAT', storedZlib(raw)),
     chunk('IEND', new Uint8Array()),
   ];
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
