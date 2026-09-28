@@ -21,6 +21,7 @@ const mainModules = [
 export default tseslint.config(
   {
     ignores: [
+      '.claude/**',
       'out/**',
       'build/**',
       'dist/**',
