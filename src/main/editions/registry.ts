@@ -146,6 +146,7 @@ export class Registry implements CapabilityRegistry {
   private uiFeatures = new Set<UiFeature>();
   // HOOK-UI-03: the public default lives here, so no module registration is needed.
   private notification: NotificationPolicy = { hideTitle: false };
+  private notificationRegistered = false;
 
   constructor(opts: RegistryOptions) {
     this.edition = opts.edition;
@@ -285,7 +286,8 @@ export class Registry implements CapabilityRegistry {
   }
   registerNotificationPolicy(p: NotificationPolicy): void {
     this.assertOpen();
-    this.onReplace('slot', 'notificationPolicy');
+    if (this.notificationRegistered) this.onReplace('slot', 'notificationPolicy');
+    this.notificationRegistered = true;
     this.notification = { hideTitle: p.hideTitle };
   }
 

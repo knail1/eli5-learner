@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DEFAULTS } from '../../../../src/main/config';
 import { Registry } from '../../../../src/main/editions';
 import { registerPublicCapabilities } from '../../../../src/main/editions/public';
@@ -20,6 +20,16 @@ describe('notificationPolicy registry slot (HOOK-UI-03)', () => {
     const reg = registry();
     reg.registerNotificationPolicy({ hideTitle: true });
     expect(reg.notificationPolicy()).toEqual({ hideTitle: true });
+  });
+
+  it('reports a replacement only on the second registration', () => {
+    const onReplace = vi.fn();
+    const reg = new Registry({ edition: 'public', getSettings: () => DEFAULTS, onReplace });
+    registerPublicCapabilities(reg);
+    reg.registerNotificationPolicy({ hideTitle: true });
+    expect(onReplace).not.toHaveBeenCalledWith('slot', 'notificationPolicy');
+    reg.registerNotificationPolicy({ hideTitle: false });
+    expect(onReplace).toHaveBeenCalledWith('slot', 'notificationPolicy');
   });
 
   it('refuses registration after freeze', () => {

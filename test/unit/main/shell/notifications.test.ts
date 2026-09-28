@@ -152,11 +152,37 @@ describe('createNotifier documentReady (11 §14.2, §14.3)', () => {
     expect(FakeNotification.created).toHaveLength(1);
   });
 
-  it('posts nothing when notifications are unsupported', () => {
+  it('posts nothing when notifications are unsupported and logs notification.fallback (§13)', () => {
+    const info = vi.spyOn(log, 'info');
     const h = harness();
     h.supported = false;
     createNotifier(h.deps).documentReady(ready);
     expect(FakeNotification.created).toHaveLength(0);
+    expect(info).toHaveBeenCalledWith('notification.fallback', { slug: 'solar-power', kind: 'app' });
+  });
+
+  it('does not log notification.fallback when merely disabled', () => {
+    const info = vi.spyOn(log, 'info');
+    const h = harness();
+    h.settings = { ...h.settings, enabled: false };
+    createNotifier(h.deps).documentReady(ready);
+    expect(info).not.toHaveBeenCalledWith('notification.fallback', expect.anything());
+  });
+
+  it('swallows a throwing show(), releases its slot, and logs notification.fallback (§13)', () => {
+    const info = vi.spyOn(log, 'info');
+    const error = vi.spyOn(log, 'error');
+    const h = harness();
+    const notifier = createNotifier(h.deps);
+    const show = vi.spyOn(FakeNotification.prototype, 'show').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    expect(() => notifier.documentReady(ready)).not.toThrow();
+    show.mockRestore();
+    expect(notifier.liveCount()).toBe(0);
+    expect(info).toHaveBeenCalledWith('notification.fallback', { slug: 'solar-power', kind: 'app' });
+    expect(info).not.toHaveBeenCalledWith('notification.shown', expect.anything());
+    expect(error).not.toHaveBeenCalled();
   });
 
   it('logs notification.shown with slug and kind only, never the title', () => {
@@ -338,6 +364,19 @@ describe('test notification (11 §14.7)', () => {
     h.supported = false;
     expect(createNotifier(h.deps).test()).toEqual({ shown: false, reason: 'unsupported' });
     expect(FakeNotification.created).toHaveLength(0);
+  });
+
+  it('reports unsupported, never rejects, when show() throws', () => {
+    const info = vi.spyOn(log, 'info');
+    const h = harness();
+    const notifier = createNotifier(h.deps);
+    const show = vi.spyOn(FakeNotification.prototype, 'show').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    expect(notifier.test()).toEqual({ shown: false, reason: 'unsupported' });
+    show.mockRestore();
+    expect(notifier.liveCount()).toBe(0);
+    expect(info).toHaveBeenCalledWith('notification.fallback', { kind: 'app' });
   });
 
   it('reports disabled and posts nothing', () => {

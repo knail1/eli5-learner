@@ -123,7 +123,8 @@ export function createNotifier(deps: NotifierDeps): Notifier {
   const live = new Map<string, NotificationLike>();
   let seq = 0;
 
-  const post = (keyBase: string, body: string, onClick: () => void): void => {
+  /** Returns false when show() throws (11 §13): the entry is released and nothing escapes. */
+  const post = (keyBase: string, body: string, onClick: () => void): boolean => {
     const key = `${keyBase}:${deps.now()}:${seq++}`;
     const n = new deps.Notification({ title: NOTIFICATION_TITLE, body, silent: true });
     n.on('click', () => {
@@ -137,7 +138,13 @@ export function createNotifier(deps: NotifierDeps): Notifier {
       oldest.close();
     }
     live.set(key, n);
-    n.show();
+    try {
+      n.show();
+      return true;
+    } catch {
+      live.delete(key);
+      return false;
+    }
   };
 
   const openApp = async (slug: string): Promise<void> => {
@@ -178,17 +185,25 @@ export function createNotifier(deps: NotifierDeps): Notifier {
 
   return {
     documentReady(e) {
-      if (blocked()) return;
-      post(e.slug, notificationBody(e.title, deps.policy().hideTitle), () => onClick(e.slug));
+      if (!deps.isSupported()) return log.info('notification.fallback', { slug: e.slug, kind: 'app' });
+      if (!deps.settings().enabled) return;
+      if (!post(e.slug, notificationBody(e.title, deps.policy().hideTitle), () => onClick(e.slug))) {
+        return log.info('notification.fallback', { slug: e.slug, kind: 'app' });
+      }
       log.info('notification.shown', { slug: e.slug, kind: 'ready' });
     },
     test() {
       const reason = blocked();
       if (reason) return reason;
-      post('test', TEST_BODY, () => {
+      const shown = post('test', TEST_BODY, () => {
         deps.showMainWindow();
         deps.navigate({ view: 'settings', section: 'notifications' });
       });
+      if (!shown) {
+        // 11 §13: a throwing show() is treated as unsupported; the IPC call never rejects.
+        log.info('notification.fallback', { kind: 'app' });
+        return { shown: false, reason: 'unsupported' };
+      }
       log.info('notification.shown', { kind: 'test' });
       return { shown: true };
     },
