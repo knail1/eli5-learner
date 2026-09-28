@@ -25,7 +25,7 @@ import {
 import type { FolderChooserDeps } from './choose-folder';
 import { createHelpOpener, type HelpOpener } from './menu-help';
 import { createSettingsServices } from './settings-services';
-import { ERROR_PAGE, RELOAD_FRAGMENT, closeAction, crashTracker, shell } from './lifecycle';
+import { ERROR_PAGE, RELOAD_FRAGMENT, closeAction, crashTracker, shell, viewerErrorPage } from './lifecycle';
 import { installViewerKeyHandoff } from './viewer-keys';
 import {
   WINDOW_DEFAULTS,
@@ -301,9 +301,11 @@ export function createMainWindow(): BrowserWindow {
       void win.loadURL(ERROR_PAGE);
     }
   });
-  // Error page recovery: the Reload link (a same-document fragment) or Return (11 §3.2).
-  win.webContents.on('did-navigate-in-page', (_e, url, isMainFrame) => {
-    if (showingErrorPage && isMainFrame && url.endsWith(RELOAD_FRAGMENT)) reloadRenderer();
+  // Error page recovery: the Reload link (a navigation to the sentinel, held here) or Return (11 §3.2).
+  win.webContents.on('will-navigate', (e, url) => {
+    if (!showingErrorPage || url !== RELOAD_FRAGMENT) return;
+    e.preventDefault();
+    reloadRenderer();
   });
   win.webContents.on('before-input-event', (e, input) => {
     if (!showingErrorPage || input.type !== 'keyDown' || input.key !== 'Enter') return;
@@ -319,12 +321,28 @@ export function createMainWindow(): BrowserWindow {
     },
   });
   const viewer = viewerView;
+  // The document the viewer last crashed on (01 §9); the crash page's Retry may navigate back to it.
+  let crashedDocUrl: string | undefined;
   registerSurface(viewer.webContents, 'viewer', (url) => {
     const current = viewer.webContents.getURL();
     if (!current) return false;
+    if (current.startsWith('data:')) return crashedDocUrl !== undefined && url.href === crashedDocUrl;
     const cur = new URL(current);
     // Same document only; fragment changes allowed (12 §7.2 step 3).
     return url.protocol === 'eli5doc:' && url.host === cur.host && url.pathname === cur.pathname;
+  });
+  // Viewer crash (01 §9): reload the document once; a second crash within 60 s shows "Could not
+  // display this document" in the viewer slot, with Retry back to that document.
+  const viewerCrashes = crashTracker();
+  viewer.webContents.on('render-process-gone', (_e, d) => {
+    log.warn('viewer.gone', { kind: d.reason });
+    const wc = viewer.webContents;
+    if (shell.isQuitting || wc.isDestroyed()) return;
+    const url = wc.getURL();
+    if (url.startsWith('eli5doc:')) crashedDocUrl = url;
+    if (!crashedDocUrl) return;
+    if (viewerCrashes.record(Date.now()) === 'reload') void wc.loadURL(crashedDocUrl);
+    else void wc.loadURL(viewerErrorPage(crashedDocUrl));
   });
   // F6, Shift+F6 and Cmd+1…9 pressed in the viewer go back to the app renderer (11 §12).
   installViewerKeyHandoff(viewer.webContents, mainWebContents, (dir) =>

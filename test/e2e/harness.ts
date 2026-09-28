@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { _electron as electron, expect, type ElectronApplication, type Page } from '@playwright/test';
 
 /**
@@ -102,22 +103,32 @@ export class Harness {
     return { app, win };
   }
 
-  /** Stops one app that the spec has finished with (e.g. before a relaunch on the same dirs). */
+  /** Modal-guard calls recorded in one app's main process (13 §8.1); [] once it has exited. */
+  private modalCalls(app: ElectronApplication): Promise<string[]> {
+    return app
+      .evaluate(() => (globalThis as { __modalCalls?: string[] }).__modalCalls ?? [])
+      .catch(() => [] as string[]);
+  }
+
+  /** afterEach for specs that share one app across tests: zero modal calls so far, app kept running. */
+  async assertNoModals(): Promise<void> {
+    for (const a of this.running) expect(await this.modalCalls(a)).toEqual([]);
+  }
+
+  /** Stops one app that the spec has finished with (e.g. before a relaunch), after the modal check. */
   async close(app: ElectronApplication): Promise<void> {
     const i = this.running.indexOf(app);
     if (i >= 0) this.running.splice(i, 1);
+    const modals = await this.modalCalls(app);
     await app.close().catch(() => {});
+    expect(modals).toEqual([]);
   }
 
   /** afterEach: every still-running app recorded zero modal calls (13 §8.1), then closes. */
   async closeAll(): Promise<void> {
-    for (const a of this.running) {
-      const modals = await a
-        .evaluate(() => (globalThis as { __modalCalls?: string[] }).__modalCalls ?? [])
-        .catch(() => [] as string[]);
-      expect(modals).toEqual([]);
-    }
+    const modals = await Promise.all(this.running.map((a) => this.modalCalls(a)));
     for (const a of this.running.splice(0)) await a.close().catch(() => {});
+    expect(modals.flat()).toEqual([]);
   }
 
   async cleanup(): Promise<void> {
@@ -126,11 +137,11 @@ export class Harness {
   }
 }
 
-/** A copy of the default fake script with overrides (latency, extra or replaced responses). */
+/** A copy of the default fake script with overrides (latency, extra or replaced responses, injected errors). */
 export async function writeScript(
   dirs: Dirs,
   name: string,
-  patch: { latencyMs?: number; responses?: Record<string, unknown> },
+  patch: { latencyMs?: number; responses?: Record<string, unknown>; errors?: Record<string, string | string[]> },
 ): Promise<string> {
   const script = JSON.parse(await readFile(DEFAULT_SCRIPT, 'utf8')) as FakeScript;
   const file = path.join(dirs.root, `${name}.json`);
@@ -139,6 +150,7 @@ export async function writeScript(
     JSON.stringify({
       ...script,
       ...(patch.latencyMs !== undefined ? { latencyMs: patch.latencyMs } : {}),
+      ...(patch.errors ? { errors: patch.errors } : {}),
       responses: { ...script.responses, ...patch.responses },
     }),
   );
@@ -179,6 +191,24 @@ export async function viewerUrl(app: ElectronApplication): Promise<string> {
   });
 }
 
+/**
+ * Clicks Start until the draft clears. Start is debounced 400 ms against a double Enter (11 §5.4),
+ * so a click right after the previous start is ignored by design.
+ */
+export async function startDraft(win: Page): Promise<void> {
+  await expect(async () => {
+    await win.getByRole('button', { name: 'Start' }).click();
+    await expect(win.getByRole('list', { name: 'Added sources' })).toHaveCount(0, { timeout: 500 });
+  }).toPass();
+}
+
+/** The saved `index.html` of a Library document, under the resolved library root (09 §3). */
+export async function docPath(win: Page, slug: string): Promise<string> {
+  const info = await win.evaluate(() => window.eli5.library.info());
+  if (!info.ok) throw new Error('library info unavailable');
+  return path.join(info.value.root, slug, 'index.html');
+}
+
 /** Drop one text source, Start, and wait for its `Done:` line; returns the new Library entry. */
 export async function generate(
   l: Launched,
@@ -186,12 +216,148 @@ export async function generate(
 ): Promise<{ id: string; topicSlug: string; title: string }> {
   const before = new Set((await libraryEntries(l.win)).map((e) => e.id));
   await dropFiles(l.win, [rel]);
-  await l.win.getByRole('button', { name: 'Start' }).click();
+  await startDraft(l.win);
   await expect
     .poll(async () => (await libraryEntries(l.win)).filter((e) => !before.has(e.id)).length, { timeout: 30_000 })
     .toBe(1);
   const entry = (await libraryEntries(l.win)).find((e) => !before.has(e.id));
   if (!entry) throw new Error('no new Library entry');
   await expect(jobText(l.win)).toHaveText(new RegExp(`^Done: `));
+  // 13 §7.2: every e2e-generated document passes the runtime probe.
+  await probeDocument(l.app, await docPath(l.win, entry.topicSlug));
   return entry;
+}
+
+/** One request the FakeProvider received (13 §6.1 step 4), flattened for assertions. */
+export interface RecordedCall {
+  taskId: string;
+  imageCount: number;
+  /** All message text of the request, joined. */
+  text: string;
+}
+
+/** Every request the test build's FakeProvider(s) recorded, in order (13 §8.2 E2). */
+export async function fakeCalls(app: ElectronApplication): Promise<RecordedCall[]> {
+  return app.evaluate(() => {
+    type Call = { taskId: string; imageCount: number; messages: { text: string }[] };
+    const providers = (globalThis as { __eli5FakeProviders?: { calls: Call[] }[] }).__eli5FakeProviders ?? [];
+    return providers.flatMap((p) =>
+      p.calls.map((c) => ({
+        taskId: c.taskId,
+        imageCount: c.imageCount,
+        text: c.messages.map((m) => m.text).join('\n'),
+      })),
+    );
+  });
+}
+
+/** Records shell.openPath / openExternal / showItemInFolder instead of reaching Finder or a browser. */
+export async function spyShell(app: ElectronApplication): Promise<() => Promise<[string, string][]>> {
+  await app.evaluate(({ shell }) => {
+    const calls: [string, string][] = [];
+    (globalThis as { __shellCalls?: unknown }).__shellCalls = calls;
+    const s = shell as unknown as Record<string, unknown>;
+    s.openPath = (p: string) => (calls.push(['openPath', p]), Promise.resolve(''));
+    s.openExternal = (u: string) => (calls.push(['openExternal', u]), Promise.resolve());
+    s.showItemInFolder = (p: string) => void calls.push(['showItemInFolder', p]);
+  });
+  return () => app.evaluate(() => (globalThis as { __shellCalls?: [string, string][] }).__shellCalls ?? []);
+}
+
+/** What the runtime probe saw (13 §7.2). `wide` is the glossary layout before and after the resize. */
+export interface ProbeReport {
+  requests: string[];
+  consoleErrors: string[];
+  tabs: string[];
+  notes: number;
+  wide: boolean[];
+}
+
+let probeSeq = 0;
+
+/**
+ * 13 §7.2 runtime rule: opens `file` in a hidden BrowserWindow on its own partition, whose
+ * webRequest records and cancels every non-`file:`/`data:` request, then switches every tab,
+ * toggles every glossary note, resizes below the 1100 px glossary breakpoint and does it again.
+ */
+export async function runProbe(app: ElectronApplication, file: string): Promise<ProbeReport> {
+  const partition = `eli5-probe-${String(process.pid)}-${String(++probeSeq)}`;
+  return app.evaluate(
+    async ({ BrowserWindow, session }, { url, partition }) => {
+      const requests: string[] = [];
+      const consoleErrors: string[] = [];
+      const ses = session.fromPartition(partition);
+      ses.webRequest.onBeforeRequest((d, cb) => {
+        if (/^(file|data):/i.test(d.url)) return cb({});
+        requests.push(d.url);
+        cb({ cancel: true });
+      });
+      const w = new BrowserWindow({
+        show: false,
+        width: 1280,
+        height: 900,
+        useContentSize: true,
+        webPreferences: { partition, sandbox: true, contextIsolation: true, backgroundThrottling: false },
+      });
+      const wc = w.webContents;
+      wc.on('console-message', (e: unknown, lvl?: unknown, msg?: unknown) => {
+        // Electron 44 passes one details object; older builds passed (event, level, message).
+        const ev = e as { level?: unknown; message?: unknown };
+        const level = ev.level ?? lvl;
+        if (level === 'error' || level === 3) consoleErrors.push(String(ev.message ?? msg));
+      });
+      wc.on('render-process-gone', (_e, d) => consoleErrors.push(`renderer gone: ${d.reason}`));
+      const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      // Every tab in turn; in each, every glossary note's summary twice (open/close, then back).
+      const walk = `(async () => {
+        const tick = () => new Promise((r) => setTimeout(r, 30));
+        const keys = [];
+        for (const b of document.querySelectorAll('nav.tabbar [role="tab"]')) {
+          b.click(); await tick();
+          keys.push((b.getAttribute('aria-controls') || '').replace(/^tab-/, ''));
+          for (const s of document.querySelectorAll('.tabpanel:not([hidden]) details.gl-note > summary')) {
+            s.click(); await tick(); s.click(); await tick();
+          }
+        }
+        return { keys, notes: document.querySelectorAll('details.gl-note').length,
+          wide: document.documentElement.classList.contains('gl-wide') };
+      })()`;
+      try {
+        await w.loadURL(url);
+        const first = (await wc.executeJavaScript(walk)) as { keys: string[]; notes: number; wide: boolean };
+        w.setContentSize(800, 900);
+        for (let i = 0; i < 40 && (await wc.executeJavaScript('innerWidth')) !== 800; i++) await pause(50);
+        await pause(150);
+        const second = (await wc.executeJavaScript(walk)) as { wide: boolean };
+        await pause(150);
+        return { requests, consoleErrors, tabs: first.keys, notes: first.notes, wide: [first.wide, second.wide] };
+      } finally {
+        ses.webRequest.onBeforeRequest(null);
+        w.destroy();
+      }
+    },
+    { url: pathToFileURL(file).href, partition },
+  );
+}
+
+/**
+ * The pass condition of 13 §7.2 for a generated document: zero requests, zero console errors, both
+ * built-in tabs walked, and the glossary switched from margin notes to inline below the breakpoint.
+ */
+export async function probeDocument(app: ElectronApplication, file: string): Promise<ProbeReport> {
+  const r = await runProbe(app, file);
+  expect(r.requests, `network requests from ${file}`).toEqual([]);
+  expect(r.consoleErrors, `console errors from ${file}`).toEqual([]);
+  expect(r.tabs.slice(0, 2)).toEqual(['indepth', 'eli5']);
+  expect(r.wide).toEqual([true, false]);
+  return r;
+}
+
+/** Opens a Library entry by title from the sidebar. */
+export async function openFromLibrary(win: Page, title: string): Promise<void> {
+  await win
+    .getByRole('navigation', { name: 'Library' })
+    .getByRole('button', { name: new RegExp(title) })
+    .first()
+    .click();
 }

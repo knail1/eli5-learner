@@ -56,6 +56,8 @@ export function ViewerSlot(p: { slug: string; layoutKey: string; slotRef?: Ref<H
       className="viewer-slot"
       data-testid="viewer-slot"
       tabIndex={-1}
+      // A named region: aria-label is not permitted on a role-less div (11 §12, axe).
+      role="region"
       aria-label="Document"
     />
   );

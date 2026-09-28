@@ -3,13 +3,13 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { validateDocument } from '../helpers/doc-validity';
-import { probeDocument } from './probe';
 import {
   Harness,
   TEST_KEY,
   TITLE,
   generate,
   libraryEntries,
+  probeDocument,
   viewerUrl,
   writeScript,
   type Dirs,
@@ -27,6 +27,8 @@ test.describe.configure({ mode: 'serial' });
 
 const h = new Harness();
 test.afterAll(() => h.cleanup());
+// Modal guard after every test (13 §8.1), including those sharing the reading app.
+test.afterEach(() => h.assertNoModals());
 
 interface SpyRecord {
   title: string;
@@ -92,9 +94,6 @@ function outside(html: string, sectionId: string): string {
   const rest = html.slice(0, start) + html.slice(end);
   return rest.replace(/<script type="application\/json" id="eli5-model">[\s\S]*?<\/script>/, '');
 }
-
-/** 13 §7.2: every document an e2e flow writes makes zero requests at runtime. */
-const CLEAN = { booted: true, requests: [], consoleErrors: [] };
 
 const readJson = async <T>(file: string): Promise<T> => JSON.parse(await readFile(file, 'utf8')) as T;
 
@@ -168,7 +167,7 @@ test.describe('reading a finished document', () => {
     );
     const report = validateDocument(after);
     expect(report.errors).toEqual([]);
-    expect(await probeDocument(l.app, docFile())).toMatchObject(CLEAN);
+    await probeDocument(l.app, docFile());
     const meta = await readJson<{ actions?: { action: string }[] }>(metaFile());
     expect(meta.actions?.map((a) => a.action)).toEqual(['expand']);
     // A section action never notifies (11 §14.2, E16).
@@ -190,7 +189,8 @@ test.describe('reading a finished document', () => {
     const added = meta.tabs.find((t) => t.kind === 'section-eli5');
     expect(added?.label).toBe('ELI5: Why the plan matters');
     expect(validateDocument(await readFile(docFile(), 'utf8')).errors).toEqual([]);
-    expect(await probeDocument(l.app, docFile())).toMatchObject({ ...CLEAN, tabs: 3 });
+    // The probe walks the third tab too.
+    expect((await probeDocument(l.app, docFile())).tabs).toEqual(['indepth', 'eli5', added?.key]);
 
     // Two-step inline confirm, no modal (08 §7.2).
     const close = viewer.getByRole('button', { name: 'Close tab ELI5: Why the plan matters' });
@@ -283,7 +283,7 @@ test('E11: a related document is suggested; one suggestion is dismissed, another
   expect(html).toMatch(/data-merge-marker="[^"]+"/);
   expect(html).toContain('Added from:');
   expect(validateDocument(html).errors).toEqual([]);
-  expect(await probeDocument(l.app, path.join(dirs.library, a.topicSlug, 'index.html'))).toMatchObject(CLEAN);
+  await probeDocument(l.app, path.join(dirs.library, a.topicSlug, 'index.html'));
   await expect(stat(path.join(dirs.library, c.topicSlug))).rejects.toThrow();
   const meta = await readJson<{ merges?: unknown[]; mergedFromCount?: number }>(
     path.join(dirs.library, a.topicSlug, 'meta.json'),
@@ -327,7 +327,7 @@ test('local publish writes the copy to publish.local.dir and the link actions wo
   const exportedFile = path.join(exportDir, exported[0] ?? '');
   const copy = await readFile(exportedFile, 'utf8');
   expect(validateDocument(copy).errors).toEqual([]);
-  expect(await probeDocument(l.app, exportedFile)).toMatchObject(CLEAN);
+  await probeDocument(l.app, exportedFile);
   expect(copy).toContain(TITLE);
   // Settings asked for no reveal.
   expect(await shellCalls()).toEqual([]);

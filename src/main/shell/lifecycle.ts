@@ -60,10 +60,14 @@ export function crashTracker(windowMs = 60_000): { record(now: number): 'reload'
   };
 }
 
-/** In-page fragment the error page's Reload link navigates to; main watches for it (11 §3.2). */
-export const RELOAD_FRAGMENT = '#eli5-reload';
+/**
+ * Target of the error page's Reload link (11 §3.2). A bare `#fragment` link never navigates on a
+ * `data:` page and `about:` links skip `will-navigate`, so the link names this never-resolving
+ * `.invalid` URL (RFC 2606); every surface guard refuses it and main turns it into a reload.
+ */
+export const RELOAD_FRAGMENT = 'https://eli5-learner.invalid/reload';
 
-/** Static, script-free page: the Reload link is a same-document fragment, so no JS or preload. */
+/** Static, script-free page: the Reload link is a navigation main intercepts, so no JS or preload. */
 export const ERROR_PAGE =
   'data:text/html;charset=utf-8,' +
   encodeURIComponent(
@@ -72,3 +76,22 @@ export const ERROR_PAGE =
       '<p>Something went wrong. ' +
       `<a href="${RELOAD_FRAGMENT}" role="button" autofocus style="margin-left:.5em">Reload</a></p></body>`,
   );
+
+/**
+ * Viewer slot state after a second viewer crash within 60 s (01 §9, 11 §8 "Could not display this
+ * document." + Retry). Script-free; Retry is a plain link back to the document, which the viewer's
+ * navigation policy admits from this page only.
+ */
+export function viewerErrorPage(docUrl: string): string {
+  const href = docUrl.replace(/[&"<>]/g, (c) => `&#${c.charCodeAt(0)};`);
+  return (
+    'data:text/html;charset=utf-8,' +
+    encodeURIComponent(
+      '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="color-scheme" content="light dark">' +
+        '<title>ELI5 Learner</title>' +
+        '<body style="font:15px -apple-system,sans-serif;display:grid;place-items:center;height:100vh;margin:0">' +
+        '<main><p>Could not display this document. ' +
+        `<a href="${href}" role="button" autofocus style="margin-left:.5em">Retry</a></p></main></body></html>`,
+    )
+  );
+}

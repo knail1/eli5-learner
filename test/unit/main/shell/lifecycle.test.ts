@@ -7,6 +7,7 @@ import {
   installLifecycle,
   quitApp,
   shell,
+  viewerErrorPage,
   type LifecycleApp,
 } from '../../../../src/main/shell/lifecycle';
 
@@ -105,5 +106,28 @@ describe('renderer error page (11 §3.2)', () => {
     expect(html).toContain(`<a href="${RELOAD_FRAGMENT}" role="button"`);
     expect(html).toContain('>Reload</a>');
     expect(html).not.toMatch(/<script/i);
+  });
+});
+
+describe('viewer error page (11 §3.2)', () => {
+  const decode = (url: string): string => {
+    expect(url.startsWith('data:text/html;charset=utf-8,')).toBe(true);
+    return decodeURIComponent(url.slice(url.indexOf(',') + 1));
+  };
+
+  it('offers Retry as a script-free link back to the document', () => {
+    const html = decode(viewerErrorPage('eli5doc://doc/widget-plan/index.html'));
+    expect(html).toContain('Could not display this document.');
+    expect(html).toMatch(/<a href="eli5doc:\/\/doc\/widget-plan\/index\.html" role="button"[^>]*>Retry<\/a>/);
+    expect(html).not.toMatch(/<script/i);
+  });
+
+  it('escapes the document URL inside the href attribute', () => {
+    const html = decode(viewerErrorPage('eli5doc://doc/a"b<c&d>/index.html'));
+    expect(html).toContain('href="eli5doc://doc/a&#34;b&#60;c&#38;d&#62;/index.html" role="button"');
+    // The quote cannot close the attribute and nothing becomes markup.
+    expect(html).not.toContain('a"b');
+    expect(html).not.toContain('<c');
+    expect(html.match(/<a /g)).toHaveLength(1);
   });
 });
