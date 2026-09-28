@@ -131,6 +131,7 @@ export const IPC = {
     clearApiKey: 'eli5:settings:clear-api-key',
     describe: 'eli5:settings:describe',
     chooseFolder: 'eli5:settings:choose-folder',
+    openHelp: 'eli5:settings:open-help',
     changed: 'eli5:settings:changed',
   },
   edition: {
@@ -204,6 +205,13 @@ export type FolderSettingKey = 'publish.local.dir';
 
 /** `eli5:settings:choose-folder` result: main showed the panel, validated and saved the key. */
 export type ChooseFolderResult = { path: string } | { cancelled: true };
+
+/**
+ * `eli5:settings:open-help` topics (11 §7 Publishing and About, HOOK-UI-02): the public README,
+ * the bundled Pages help page (10 §8) and the bundled skills' license notices. Main maps each topic
+ * to a fixed URL or file; the renderer never names a path.
+ */
+export type HelpTopic = 'readme' | 'publish-pages' | 'licenses';
 
 // ---------------------------------------------------------------------------
 // Sources and auth (03)

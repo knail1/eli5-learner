@@ -1,16 +1,24 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ApiKeyProvider, ProviderId } from '../../../../preload/contract';
 import { useEdition } from '../../edition/FeatureGate';
-import { SaveNote, SettingsSectionFrame, type SectionProps } from '../save';
+import { LockedNote, SaveNote, SettingsSectionFrame, type SectionProps } from '../save';
 
-/** Settings > AI provider, API key, model (11 §7). */
+/**
+ * Settings > AI provider, API key, model (11 §7). Managed keys are read-only (HOOK-CFG-01); the key
+ * field never shows a stored key (12 §5.2).
+ */
+
+/** 12 §13 E_KEYCHAIN_UNAVAILABLE text. */
+const KEYCHAIN_TEXT = 'Keychain access denied. Unlock or allow access, then retry';
 
 const PROVIDER_LABEL: Record<string, string> = { claude: 'Claude', openai: 'OpenAI', bedrock: 'Bedrock' };
 
-export function AiSection(p: SectionProps & { onKeyChanged(): void }) {
+export function AiSection(p: SectionProps & { onKeyChanged(): void; keychainAvailable?: boolean }) {
   const edition = useEdition();
   const { state, save } = p.saver;
   const s = p.settings;
+  const providerLocked = p.isLocked('llm.provider');
+  const modelLocked = p.isLocked('llm.model');
   // Unavailable providers are not shown, so dormant bedrock never appears in the public build.
   const providers = (
     edition?.llmProviders ?? [
@@ -26,23 +34,33 @@ export function AiSection(p: SectionProps & { onKeyChanged(): void }) {
       <ProviderPicker
         providers={providers}
         value={s.llm.provider}
-        onChange={(v) => save('llm.provider', { llm: { provider: v as ProviderId, model: null } })}
+        disabled={providerLocked}
+        // 12 §3.2: a provider change resets the model unless that key is managed.
+        onChange={(v) =>
+          save('llm.provider', {
+            llm: modelLocked ? { provider: v as ProviderId } : { provider: v as ProviderId, model: null },
+          })
+        }
       />
+      <LockedNote locked={providerLocked} />
       <SaveNote s={state['llm.provider']} />
+      {p.keychainAvailable === false && <p className="inline-error">{KEYCHAIN_TEXT}</p>}
       {(s.llm.provider === 'claude' || s.llm.provider === 'openai') && (
         <ApiKeyPanel provider={s.llm.provider} onChanged={p.onKeyChanged} />
       )}
       <ModelField
         provider={s.llm.provider}
         value={s.llm.model}
+        readOnly={modelLocked}
         onChange={(v) => save('llm.model', { llm: { model: v } })}
       />
+      <LockedNote locked={modelLocked} />
       <SaveNote s={state['llm.model']} />
     </SettingsSectionFrame>
   );
 }
 
-function ProviderPicker(p: { providers: string[]; value: string; onChange(v: string): void }) {
+function ProviderPicker(p: { providers: string[]; value: string; disabled: boolean; onChange(v: string): void }) {
   // Optimistic until eli5:settings:changed confirms.
   const [value, setValue] = useState(p.value);
   useEffect(() => setValue(p.value), [p.value]);
@@ -54,7 +72,9 @@ function ProviderPicker(p: { providers: string[]; value: string; onChange(v: str
             type="radio"
             name="provider"
             checked={value === id}
+            disabled={p.disabled}
             onChange={() => {
+              if (p.disabled) return;
               setValue(id);
               p.onChange(id);
             }}
@@ -149,7 +169,12 @@ function ApiKeyPanel(p: { provider: ApiKeyProvider; onChanged(): void }) {
   );
 }
 
-function ModelField(p: { provider: ProviderId; value: string | null; onChange(v: string | null): void }) {
+function ModelField(p: {
+  provider: ProviderId;
+  value: string | null;
+  readOnly: boolean;
+  onChange(v: string | null): void;
+}) {
   const [text, setText] = useState(p.value ?? '');
   const [suggested, setSuggested] = useState<string[]>([]);
   const [placeholder, setPlaceholder] = useState('');
@@ -179,6 +204,7 @@ function ModelField(p: { provider: ProviderId; value: string | null; onChange(v:
         list="model-suggestions"
         placeholder={placeholder}
         value={text}
+        readOnly={p.readOnly}
         onFocus={() => {
           editing.current = true;
         }}
@@ -186,6 +212,7 @@ function ModelField(p: { provider: ProviderId; value: string | null; onChange(v:
           editing.current = false;
         }}
         onChange={(e) => {
+          if (p.readOnly) return;
           setText(e.target.value);
           p.onChange(e.target.value.trim() || null);
         }}

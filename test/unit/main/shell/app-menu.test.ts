@@ -1,6 +1,12 @@
 import type { MenuItemConstructorOptions } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
-import { appMenuTemplate, libraryItemMenuTemplate, MENU_IDS } from '../../../../src/main/shell/app-menu';
+import {
+  appMenuTemplate,
+  libraryItemMenuTemplate,
+  MENU_IDS,
+  MENU_SHORTCUT_KEYS,
+  type MenuShortcutId,
+} from '../../../../src/main/shell/app-menu';
 
 function flatten(items: MenuItemConstructorOptions[]): MenuItemConstructorOptions[] {
   return items.flatMap((i) => [i, ...(Array.isArray(i.submenu) ? flatten(i.submenu) : [])]);
@@ -10,7 +16,13 @@ const click = (i: MenuItemConstructorOptions | undefined) =>
   i?.click?.({} as Electron.MenuItem, undefined, {} as Electron.KeyboardEvent);
 
 describe('appMenuTemplate (11 §3.2 step 5, §9)', () => {
-  const actions = { hideWindow: vi.fn(), openSettings: vi.fn() };
+  const actions = {
+    hideWindow: vi.fn(),
+    openSettings: vi.fn(),
+    shortcut: vi.fn(),
+    reloadViewer: vi.fn(),
+    openHelp: vi.fn(),
+  };
   const all = flatten(appMenuTemplate(actions, { appName: 'ELI5 Learner', devTools: false }));
 
   it('has no quit or reload role', () => {
@@ -52,6 +64,58 @@ describe('appMenuTemplate (11 §3.2 step 5, §9)', () => {
   it('adds DevTools only in dev builds', () => {
     const dev = flatten(appMenuTemplate(actions, { appName: 'ELI5 Learner', devTools: true }));
     expect(dev.map((i) => i.role)).toContain('toggleDevTools');
+  });
+});
+
+describe('application menu mirrors the window shortcuts (11 §9)', () => {
+  const actions = {
+    hideWindow: vi.fn(),
+    openSettings: vi.fn(),
+    shortcut: vi.fn(),
+    reloadViewer: vi.fn(),
+    openHelp: vi.fn(),
+  };
+  const all = flatten(appMenuTemplate(actions, { appName: 'ELI5 Learner', devTools: false }));
+
+  const mirrored: [MenuShortcutId, string][] = [
+    ['new-draft', 'CmdOrCtrl+N'],
+    ['focus-url', 'CmdOrCtrl+L'],
+    ['focus-filter', 'CmdOrCtrl+F'],
+    ['toggle-sidebar', 'CmdOrCtrl+\\'],
+    ['prev-doc', 'CmdOrCtrl+['],
+    ['next-doc', 'CmdOrCtrl+]'],
+  ];
+
+  it.each(mirrored)('%s has a menu item with accelerator %s that runs the shortcut in the app', (id, accel) => {
+    const item = all.find((i) => i.id === `shortcut-${id}`);
+    expect(item?.accelerator).toBe(accel);
+    actions.shortcut.mockClear();
+    click(item);
+    expect(actions.shortcut).toHaveBeenCalledWith(id);
+  });
+
+  it('forwards each shortcut as the Cmd+key its accelerator names (the renderer maps it back, settings-shortcuts test)', () => {
+    for (const [id, accel] of mirrored) expect(`CmdOrCtrl+${MENU_SHORTCUT_KEYS[id]}`, id).toBe(accel);
+  });
+
+  it('Cmd+R reloads the viewer, never the app renderer', () => {
+    const r = all.find((i) => i.accelerator === 'CmdOrCtrl+R');
+    expect(r).toMatchObject({ id: MENU_IDS.reloadViewer, label: 'Reload Document' });
+    expect(r?.role).toBeUndefined();
+    click(r);
+    expect(actions.reloadViewer).toHaveBeenCalledOnce();
+  });
+
+  it('every accelerator is unique', () => {
+    const accels = all.map((i) => i.accelerator).filter(Boolean);
+    expect(new Set(accels).size).toBe(accels.length);
+  });
+
+  it('the Help menu opens the README, the Pages help page and the license notices (HOOK-UI-02)', () => {
+    const help = appMenuTemplate(actions, { appName: 'ELI5 Learner', devTools: false }).find((m) => m.role === 'help');
+    const items = (help?.submenu as MenuItemConstructorOptions[]).filter((i) => i.type !== 'separator');
+    items.forEach(click);
+    expect(actions.openHelp.mock.calls.map((c: unknown[]) => c[0])).toEqual(['readme', 'publish-pages', 'licenses']);
   });
 });
 

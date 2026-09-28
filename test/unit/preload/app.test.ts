@@ -125,6 +125,7 @@ describe('app preload', () => {
       [api.app!.testNotification!, [], IPC.app.testNotification, undefined],
       [api.app!.openNotificationSettings!, [], IPC.app.openNotificationSettings, undefined],
       [api.settings!.chooseFolder!, ['publish.local.dir'], IPC.settings.chooseFolder, { key: 'publish.local.dir' }],
+      [api.settings!.openHelp!, ['licenses'], IPC.settings.openHelp, { topic: 'licenses' }],
       [api.sources!.classifyText!, ['ABC-123'], IPC.sources.classifyText, { text: 'ABC-123' }],
       [api.library!.revealRoot!, [], IPC.library.revealRoot, undefined],
       [api.suggestions!.accept!, ['s-1'], IPC.suggestions.accept, { suggestionId: 's-1' }],

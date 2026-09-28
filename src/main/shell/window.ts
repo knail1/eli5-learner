@@ -1,9 +1,30 @@
+import { access } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { BrowserWindow, Menu, WebContentsView, app, nativeTheme, screen, session } from 'electron';
+import {
+  BrowserWindow,
+  Menu,
+  WebContentsView,
+  app,
+  shell as electronShell,
+  nativeTheme,
+  screen,
+  dialog,
+  session,
+} from 'electron';
 import { IPC, type UiRoute, type ViewerBounds } from '../../preload/contract';
-import { APP_CSP_DEV, APP_CSP_PROD, SECURE_WEB_PREFERENCES, log, registerSurface } from '../security';
-import { appMenuTemplate, libraryItemMenuTemplate, type LibraryItemMenuActions } from './app-menu';
+import { resourcePath } from '../config';
+import { APP_CSP_DEV, APP_CSP_PROD, SECURE_WEB_PREFERENCES, log, registerSurface, safeOpenExternal } from '../security';
+import {
+  MENU_SHORTCUT_KEYS,
+  appMenuTemplate,
+  libraryItemMenuTemplate,
+  type LibraryItemMenuActions,
+  type MenuShortcutId,
+} from './app-menu';
+import type { FolderChooserDeps } from './choose-folder';
+import { createHelpOpener, type HelpOpener } from './menu-help';
+import { createSettingsServices } from './settings-services';
 import { ERROR_PAGE, RELOAD_FRAGMENT, closeAction, crashTracker, shell } from './lifecycle';
 import {
   WINDOW_DEFAULTS,
@@ -102,6 +123,51 @@ export function navigate(route: UiRoute): void {
   mainWebContents()?.send(IPC.app.navigate, { route });
 }
 
+/** Rate-limit key for links main opens on its own behalf (Help menu, Settings help links). */
+const MAIN_SENDER_ID = -1;
+let help: HelpOpener | undefined;
+
+/** HOOK-UI-02 help links, shared by the Help menu and `eli5:settings:open-help` (11 §7). */
+export function helpOpener(): HelpOpener {
+  help ??= createHelpOpener({
+    resourcePath,
+    exists: (p) =>
+      access(p).then(
+        () => true,
+        () => false,
+      ),
+    openPath: (p) => electronShell.openPath(p),
+    showItemInFolder: (p) => electronShell.showItemInFolder(p),
+    openExternal: (url) => safeOpenExternal(url, MAIN_SENDER_ID),
+  });
+  return help;
+}
+
+/** The Settings slots for IpcServices (11 §7): the folder panel sheets on the main window when open. */
+export function settingsServices(
+  d: Pick<FolderChooserDeps, 'settings' | 'libraryRoot'>,
+): ReturnType<typeof createSettingsServices> {
+  return createSettingsServices({
+    ...d,
+    showOpenDialog: (opts) => {
+      const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+      return win ? dialog.showOpenDialog(win, opts) : dialog.showOpenDialog(opts);
+    },
+    help: helpOpener(),
+  });
+}
+
+/** Menu item for a window shortcut: run it in the app renderer, even when the viewer had focus (11 §9). */
+function forwardShortcut(id: MenuShortcutId): void {
+  showMainWindow();
+  const wc = mainWebContents();
+  if (!wc) return;
+  wc.focus();
+  const keyCode = MENU_SHORTCUT_KEYS[id];
+  wc.sendInputEvent({ type: 'keyDown', keyCode, modifiers: ['meta'] });
+  wc.sendInputEvent({ type: 'keyUp', keyCode, modifiers: ['meta'] });
+}
+
 export function installAppMenu(): void {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate(
@@ -111,6 +177,18 @@ export function installAppMenu(): void {
           openSettings: () => {
             showMainWindow();
             navigate({ view: 'settings' });
+          },
+          shortcut: forwardShortcut,
+          // Cmd+R reloads the document, never the app renderer (11 §9).
+          reloadViewer: () => {
+            if (viewerAttached) viewerWebContents()?.reload();
+          },
+          openHelp: (topic) => {
+            void helpOpener()
+              .open(topic)
+              .then((ok) => {
+                if (!ok) log.warn('help.unavailable', { kind: topic });
+              });
           },
         },
         { appName: 'ELI5 Learner', devTools: !app.isPackaged },

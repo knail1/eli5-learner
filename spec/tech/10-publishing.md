@@ -50,7 +50,7 @@ src/main/publish/
   drive.stub.ts       DrivePublisherStub  -> NotAvailableInEdition(HOOK-PUB-01)
   git.stub.ts         GitPublisherStub    -> NotAvailableInEdition(HOOK-PUB-03)
 resources/help/
-  publish-github-pages.html   in-app help page (§8), self-contained, opened in the viewer
+  publish-github-pages.html   in-app help page (§8), self-contained, opened with the default app
 ```
 
 ## 3. Types
@@ -575,9 +575,11 @@ The PRD requires the returned link to be "one click to copy or open in the defau
 
 ## 8. Help page: rendering HTML to GitHub Pages with GitHub Actions
 
-Shipped as `resources/help/publish-github-pages.html`, a self-contained page opened in the viewer
-from Settings → Publishing → "How to set up a Pages repository", and also useful to anyone reading
-the repository. It is generic: it works for any repository and any owner, and it never mentions a
+Shipped as `resources/help/publish-github-pages.html`, a self-contained page that main opens
+with the default app (`eli5:settings:open-help`, 11 §10) from Settings → Publishing → "How to set up
+a Pages repository", and also useful to anyone reading the repository. It is not shown in the
+viewer: the viewer loads only catalogued Library documents (09 §11, 12 §7.7), and the page needs no
+app chrome. It is generic: it works for any repository and any owner, and it never mentions a
 specific organization. Outline:
 
 1. **What you get.** Every document pushed to `<docsPath>/<slug>/index.html` becomes reachable at

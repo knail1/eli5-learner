@@ -53,6 +53,7 @@ import {
   seedTray,
   setViewerBounds,
   setViewerVisible,
+  settingsServices,
   shell,
   showMainWindow,
   VIEWER_PARTITION,
@@ -198,6 +199,8 @@ async function bootstrap(): Promise<void> {
   //                  10  publish          PublishService      src/main/publish/service.ts
   //                  11  notifications    NotificationControls src/main/shell/notifications.ts
   //                  11  folders          FolderChooser       src/main/shell/choose-folder.ts
+  //                  11  help             HelpLinks           src/main/shell/menu-help.ts
+  //                  (folders and help are plugged: settingsServices(), src/main/shell/window.ts)
   //   notifier       11  Notifier (createNotifier)             src/main/shell/notifications.ts
   // ---------------------------------------------------------------------------------------------
   const m3: { sectionRunner?: SectionRunner; services: Partial<IpcServices>; notifier?: Notifier } = {
@@ -271,7 +274,8 @@ async function bootstrap(): Promise<void> {
   // M3-PLUG 09:  m3.services.suggestions = createMergeSuggestions({ library, ... });
   // M3-PLUG 10:  m3.services.publish = createPublishService({ registry, library, settings, ... });
   // M3-PLUG 11:  m3.notifier = createNotifier({ ... }); m3.services.notifications = { ... };
-  // M3-PLUG 11:  m3.services.folders = createFolderChooser({ dialog, settings, ... });
+  // 11 §7: Settings folder chooser and help links (the Help menu shares the same opener).
+  Object.assign(m3.services, settingsServices({ settings, libraryRoot: library.root }));
 
   // 6. IPC, windows, Tray
   registerIpc({
