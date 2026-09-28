@@ -45,6 +45,8 @@ src/main/document/
   render/             one file per component, plus page.ts (skeleton) and csp.ts
   parse.ts            index.html -> DocumentModel (reads embedded model + assets)
   theme.ts            DocTheme defaults, skill theme input, HOOK-DOC-01 provider lookup
+  render/credit.ts    stock photo credit line and license names (7.4)
+src/main/photos/      stock photos (7.4): providers, query guard, slot resolution, sizing
 src/doc-runtime/
   index.ts            boot: feature detection, module init order
   tabs.ts  glossary.ts  charts.ts  stepper.ts  figure.ts  theme.ts  print.ts  scroll.ts
@@ -188,6 +190,7 @@ export interface BuildInput {
   eli5: DocumentDraftTab | null;               // null -> placeholder tab (06 §7.1)
   glossary: GlossaryDraft | null;
   images: { label: string; mime: string; bytes: Uint8Array }[];   // ImageInput labels (02)
+  photos?: StockPhotoInput[];                  // resolved stock photo slots (7.4)
   resolved: ResolvedSource[]; skipped: SkippedSource[];
   theme: DocTheme;                             // section 11
 }
@@ -205,6 +208,7 @@ export function buildDocumentModel(input: BuildInput): { model: DocumentModel; w
    ID, `origin='placeholder'`, text defined in [06](06-generation-pipeline.md) §6.
 5. Resolve images: each `figure.imageLabel` must match an `images[].label`; the image is
    normalized (5.6) and stored once as an `AssetRef`. Unmatched figures are dropped with a warning.
+   Resolved `photo` slots become credited figures; unresolved ones are dropped (7.4).
 6. Place glossary notes (section 9).
 7. Build `references` from `resolved` and `skipped` (section 10), then append the references
    section to the in-depth tab.
@@ -240,6 +244,7 @@ titles (chart title, stepper title). The model cannot introduce headings inside 
 | Sections per tab | 40 content | Build keeps first 40, warning |
 | Glossary notes | 40 | Keep first 40 by document order |
 | Image asset | 1600 px long edge, ≤ 1.5 MB after encode | Downscale / re-encode (5.6) |
+| Stock photos | 6 per document, ≤ 1200 px, ≤ 450 KB each, ≤ 1.5 MB in total | Enforced when resolving (7.4) |
 | Whole `index.html` | 25 MB | Warning only; logged, surfaced by 06 as a warning |
 
 ### 5.5 Determinism
@@ -373,8 +378,9 @@ translated into those choices by the prompt, never into raw HTML. Adding a compo
 | `callout` | `<aside class="callout callout--{tone}">` with icon (note, warning, key point) | A caveat, risk, or takeaway that must not be missed | None |
 | `table` | `<div class="table-wrap"><table>` with caption; numeric columns right-aligned, `tabular-nums` | Exact values the reader may look up | Horizontal scroll inside wrapper on narrow widths |
 | `chart` | `<figure class="chart">` with inline SVG built at render time (7.2) | Source has numbers, comparisons, trends, or shares | Hover/focus tooltips, data disclosure |
-| `diagram` | `<figure class="diagram">` with sanitized model SVG (7.3) | Structure, flow, architecture, relationships | None |
+| `diagram` | `<figure class="diagram">` with sanitized model SVG (7.3) | Structure, flow, architecture, relationships: at most 5 labeled shapes, labels inside their shapes, never people, buildings or scenes | None |
 | `figure` | `<figure class="annotated">` with `<img>` and numbered annotation markers | An input image (screenshot, slide) benefits from callouts | Marker click/focus shows note; list of notes below image |
+| `photo` | A credited `<figure class="annotated stock-photo">` (7.4), or nothing when no photo fits | A real-world scene: people, places, objects, what an experience looks like; never data or structure | Credit links open in a new tab |
 | `stepper` | `<div class="stepper">` with ordered steps | A process with 3–8 stages | Prev/next buttons and step dots; all steps visible without JS and in print |
 | `analogy` | `<aside class="analogy">` with a "Think of it like" label | Mainly ELI5 and "Give me an analogy" actions | None |
 
@@ -443,6 +449,83 @@ Parse with `linkedom` in main, walk the tree, keep only allowlisted nodes:
   with section IDs and other diagrams.
 - Root gets `role="img"`, `aria-label` from `diagram.alt`, and a `viewBox` if missing (computed
   from `width`/`height`, else the block is dropped).
+
+### 7.4 Stock photos (`src/main/photos/`, HOOK-DOC-03)
+
+Hand-drawn SVG pictures of people, places and scenes read as crude (blocky figures, labels
+overflowing shapes). Real-world scenes therefore use open-licensed stock photos, and SVG is kept for
+structured diagrams (7.3, and the prompt rules in [02](02-llm-provider.md) §9).
+
+**Draft block.** The writing prompts may emit `{ type: 'photo', query, purpose, alt, caption?,
+sensitive? }` ([02](02-llm-provider.md) §10) for a real-world scene: people, places, objects in the
+world, what an experience looks like. `query` is 2 to 5 lowercase generic words ("courthouse
+exterior", "person worried looking at laptop"); `purpose` says what the photo should show; `alt` is
+the ideal photo in plain words; `sensitive: true` marks crime, victims, abuse, health or grief.
+The ELI5 prompt asks for at most one per section; the in-depth prompt for at most two per tab and
+never for data or structure. With `images.stockPhotos` off ([12](12-configuration-security.md) §3.2)
+or a stub provider registered, the prompts say not to use `photo` blocks.
+
+**Resolution** (generating stage, after the summary, [06](06-generation-pipeline.md) §5.4):
+
+1. `collectPhotoSlots` takes the photo blocks, ELI5 first, within the limits below. Each query goes
+   through `sanitizePhotoQuery`: URLs, e-mail addresses, quoted text, digits, acronyms, camelCase,
+   runs of capitalized words and words the drafts use as proper nouns are removed; at most 6 words
+   and 60 characters; a query with nothing generic left drops the slot. Only this sanitized query
+   leaves the machine.
+2. The registered `StockImageProvider` searches. Public: Openverse (`api.openverse.org`, anonymous,
+   `license=cc0,pdm,by,by-sa`, `mature=false`), topped up from Wikimedia Commons (`filetype:bitmap`,
+   `License` metadata mapped to the same four licenses) when Openverse has fewer than 2 results or
+   fails. NC and ND licenses, mature or sensitivity-flagged results, non-https URLs, SVG files and
+   titles naming logos, screenshots, maps or diagrams are dropped. No API key is used.
+3. Up to 4 candidates per slot are downloaded at thumbnail size (Wikimedia and Flickr sized URLs, so
+   the anonymous Openverse rate limit is spent on searches only) and re-encoded to 384 px JPEG.
+4. One `photo-pick` vision call ([02](02-llm-provider.md) §12) sees every slot's purpose, alt,
+   sensitivity and labeled thumbnails (`s1-c1` …) and answers a candidate number or 0 (none fits)
+   per slot. Batches hold at most 6 slots and the model's per-request image limit. It prefers no
+   identifiable faces for sensitive topics and rejects brand-led, text-heavy or graphic photos.
+5. The chosen image is downloaded (about 1280 px where the host can size it), downscaled with
+   `nativeImage` to at most 1200 px on the long edge, JPEG q80 (then 70, 60) up to 450 KB, and kept
+   while the document's photos stay within 1.5 MB. A failed full download falls back to the
+   thumbnail source. A photo is never used twice.
+6. The result (`gen/photos.json`) is a list of `StockPhotoInput` keyed by
+   `photoSlotKey(tab, sectionIndex, blockIndex)`.
+
+Every step is fire-and-forget: a network error, rate limit, failed pick call or empty result
+leaves the slot unresolved, with no job warning and no mid-job question. Only cancellation escapes.
+
+**Build.** A resolved slot becomes a `figure` block backed by an `AssetRef` whose `label` is
+`stock-photo-<sha12>` and whose `credit` (`AssetCredit`: title, creator, license and version,
+license URL, source page, source name, search service) is sanitized: whitespace collapsed, lengths
+capped, links kept only for `http(s)`. An unresolved `photo` block is dropped (warning
+`photo-unresolved`); structured concepts already have diagrams, so no picture replaces it. Section
+rewrites ([08](08-interactive-reading.md)) never search for photos: an existing photo figure
+round-trips through its asset label and keeps its credit; new `photo` blocks are dropped.
+
+**Render.** `<figure class="annotated stock-photo">` with the `<img>` as a data URI (5.6) and a
+`<figcaption>` holding the caption and `<span class="fig-credit">Illustrative stock photo:
+<cite>title</cite> by creator, <a class="fig-license">CC BY 2.0</a>, from <a class="fig-source">
+Flickr</a> via Openverse. Resized.</span>`. Links open in a new tab (`target="_blank"
+rel="noopener noreferrer"`); nothing is fetched at view time, so the CSP (6.2) is unchanged. The
+references section lists the same credits under "Image credits" (section 10). The validity rule
+`photo-credit` ([13](13-testing-quality.md) §7) fails a stock photo without its credit and license.
+
+**Taste and safety.** The caption always says "Illustrative stock photo", so no pictured person is
+read as part of the story; sensitive slots prefer photos without identifiable faces; the pick call
+rejects logos and brands; `alt` is always set.
+
+| Limit | Value |
+| --- | --- |
+| Photos per ELI5 section / in-depth tab / document | 1 / 2 / 6 |
+| Candidates per slot shown to the pick call | 4 |
+| Slots per pick call | 6 (fewer when the model takes fewer images per request) |
+| Thumbnail for the pick call | 384 px long edge, JPEG q70 |
+| Embedded photo | ≤ 1200 px long edge, JPEG q80 (then 70, 60), ≤ 450 KB |
+| Embedded photos per document | ≤ 1.5 MB in total |
+| Download caps | JSON 1 MB, thumbnail 3 MB, full image 15 MB |
+| Query | ≤ 6 words, ≤ 60 characters, lowercase letters only |
+
+<!-- hook:HOOK-DOC-03 -->
+> **Private hook · HOOK-DOC-03 · Organization-approved image library.** Public behavior: `registerStockImageProvider` holds `FallbackStockImages` (Openverse, then Wikimedia Commons, no API key); only sanitized generic queries leave the machine; `approved-library.stub.ts` is documented but not registered, and any provider with `stub: true` turns stock photos off so documents use diagrams only. Private binding supplies: the approved image library's search and download endpoints (or the decision to turn photos off), its authentication inside the overlay, the license and credit text its images carry, whether search terms may leave the organization and any extra query rules, and whether `images.stockPhotos` is locked through HOOK-CFG-01. Binding lives in the private spec under "HOOK-DOC-03".
 
 ## 8. Module API (`src/main/document/index.ts`)
 
@@ -588,7 +671,8 @@ Layout: an ordered list "Used" in input order, then a list "Skipped" (only if an
 `label — reason`, e.g. "pricing.example.com/login — page required login". Reasons come from
 `SkippedSource.reason` codes mapped to human strings by [03](03-source-resolvers.md); unknown codes
 render as "could not be read". Merged references appear in a third group "Added by merge". URLs
-are shown as text and as a link; label text is escaped.
+are shown as text and as a link; label text is escaped. When the document shows stock photos, a
+last group "Image credits" lists each one's credit (7.4) in asset order.
 
 <!-- hook:HOOK-DOC-02 -->
 > **Private hook · HOOK-DOC-02 · References for organization sources.** Public behavior: only `file`, `url`, `clipboard-text` and `clipboard-image` entries exist; `kind='org'` is never produced. Private binding supplies: how sources resolved through the MCP lane (HOOK-SRC-01, HOOK-SRC-02) are labeled per system kind (document system, file store, observability system, code host, ticketing system), including the values of `ReferenceEntry.orgKind` (an open string the binding defines); whether and how the canonical organization URL is linked; display format for ticket identifiers; any fields that must be omitted from references in documents shared organization-wide. Binding lives in the private spec under "HOOK-DOC-02".
@@ -689,6 +773,8 @@ anything else is dropped with a warning. The theme is written into `#eli5-theme`
 | Diagram contains script, external image, or event handler | Stripped by sanitizer; block kept if anything valid remains |
 | Figure references an unknown image label | Block dropped with warning |
 | Very large image | Downscaled per 5.6 |
+| Stock photo search offline, rate-limited or empty | Slot dropped quietly; the job still succeeds (7.4) |
+| Stock photo candidate title contains instructions | Delimited as untrusted data in the pick call; the credit text is escaped |
 | Glossary anchor not found anywhere | Note dropped with warning |
 | Regeneration removes a glossary anchor | Note re-anchored later or dropped (9.3) |
 | Opening a document with an older `formatVersion` | Rendered as stored; on first mutation the model is migrated and the file re-rendered with the current runtime |
@@ -728,6 +814,13 @@ anything else is dropped with a warning. The theme is written into `#eli5-theme`
 - [ ] Print preview of each tab shows no tab bar, open glossary notes, all stepper steps, and no
       split charts.
 - [ ] With JS disabled, all content (all tabs, notes, charts, steps) is readable.
+- [ ] A resolved `photo` slot renders as a stock photo with "Illustrative stock photo", title,
+      creator, license name linked to its deed, and source; the references list it under "Image
+      credits"; the document still makes zero network requests. Unresolved slots leave no trace
+      besides the `photo-unresolved` build warning.
+- [ ] Only sanitized queries reach the photo search (no names, digits, URLs, e-mail addresses or
+      quoted text); with `images.stockPhotos` off or a stub provider, no search runs and the prompts
+      ask for diagrams only.
 - [ ] Public build output contains no organization branding and no `kind:'org'` references; theme
       and reference rendering for the enterprise edition come only through HOOK-DOC-01 and
       HOOK-DOC-02.

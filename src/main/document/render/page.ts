@@ -3,7 +3,7 @@
 import { canonicalJson, scriptSafeJson } from '../canonical-json';
 import { attrs, capText, esc } from '../html';
 import { DEFAULT_FOOTER, defaultDocTheme, themeCss } from '../theme';
-import type { AssetRef, DocRuntime, DocTheme, DocumentModel, RenderOptions, Section, Tab } from '../types';
+import type { AssetCredit, AssetRef, DocRuntime, DocTheme, DocumentModel, RenderOptions, Section, Tab } from '../types';
 import { renderBlock } from './blocks';
 import { documentCsp } from './csp';
 import { renderReferencesBody } from './references';
@@ -39,6 +39,14 @@ function ctxOf(model: DocumentModel, assets: ReadonlyMap<string, Uint8Array>): C
   return { model, assets, assetRefs: new Map(model.assets.map((a) => [a.id, a])) };
 }
 
+/** Credits of the stock photos some figure shows, in asset order (07 §7.4). */
+function shownCredits(model: DocumentModel): AssetCredit[] {
+  const shown = new Set<string>();
+  for (const t of model.tabs)
+    for (const s of t.sections) for (const b of s.blocks) if (b.type === 'figure') shown.add(b.assetId);
+  return model.assets.flatMap((a) => (a.credit && shown.has(a.id) ? [a.credit] : []));
+}
+
 function sectionHtml(c: Ctx, tab: Tab, s: Section): string {
   const isRefs = s.kind === 'references';
   const open = `<section${attrs([
@@ -55,7 +63,7 @@ function sectionHtml(c: Ctx, tab: Tab, s: Section): string {
   const head = `<h2 id="${s.id}-h">${esc(s.heading)}</h2>`;
   let body: string;
   if (isRefs) {
-    body = renderReferencesBody(c.model.references);
+    body = renderReferencesBody(c.model.references, shownCredits(c.model));
   } else {
     const notes = tab.kind === 'indepth' ? c.model.glossary.filter((n) => n.sectionId === s.id) : [];
     body = s.blocks

@@ -61,6 +61,9 @@ export const SettingsSchema = z.object({
   glossary: z.object({
     defaultOn: z.boolean().default(true),
   }).strict().default({}),
+  images: z.object({
+    stockPhotos: z.boolean().default(true),               // 07 §7.4; lockable (HOOK-CFG-01)
+  }).strict().default({}),
   sources: z.object({
     mcp: z.object({
       url: z.string().url().refine(u => u.startsWith('https://'), 'https only').nullable().default(null),
@@ -114,6 +117,7 @@ Sibling modules own the **meaning** of their keys (02 for `llm.*`, 05 for `fetch
 | `llm.maxConcurrency` | int 1..6 | 2 | 02 | |
 | `llm.bedrock.*` | record | `{}` | 02 | Dormant |
 | `glossary.defaultOn` | boolean | `true` | 06, 11 | Initial state of the per-job "Explain domain specific terms" toggle |
+| `images.stockPhotos` | boolean | `true` | 06, 07 §7.4, 11 | Settings > Documents "Use stock photos for real-world scenes". On: the writing prompts may request open-licensed stock photos, searched with short generic queries. Off: diagrams only and no photo search. An organization forces it off with a HOOK-CFG-01 managed value (the switch is then locked) or by registering a stub image provider (HOOK-DOC-03) |
 | `sources.mcp.url` | https URL or null | `null` | 03 | Dormant; ignored by `mcp.stub.ts` |
 | `fetch.network.*` | record | `{}` | 05 | Dormant (HOOK-FETCH-01) |
 | `pipeline.maxConcurrentJobs` | int 1..3 | 1 | 06 | Create-lane slots (06 §4.1) |
@@ -452,6 +456,9 @@ A document cannot read settings, keys, other documents, the library catalog, or 
 | --- | --- | --- |
 | Source content (file text, images, clipboard, fetched page text) | Yes, only in LLM requests | The one configured provider endpoint (02) |
 | Public URLs entered by the user | Yes | That URL's host (05), with the Chromium user agent plus an `ELI5Learner/<version>` token (05 §4.3). No cookies, keys, or user identifiers are sent |
+| Stock photo search terms (only with `images.stockPhotos` on) | Yes: at most 6 generic lowercase words per photo slot, sanitized in code (no names, digits, URLs, e-mail addresses or quoted text, 07 §7.4), never source text | The public photo search: `api.openverse.org`, and `commons.wikimedia.org` as the fallback (or the HOOK-DOC-03 library), with the `ELI5Learner/<version> (…; open-licensed stock photo search)` user agent (05 §4.8) |
+| Stock photo downloads | Requests only | The image hosts the search returned (for example `upload.wikimedia.org`, `live.staticflickr.com`), through the fetch session with the private-address guard and byte caps (05 §4.8). Chosen photos are embedded as data URIs, so documents still make no requests at view time |
+| Stock photo thumbnails | Yes, in the one pick request | The configured LLM provider (02 §12 `pickPhotos`) |
 | Clarifying input, selection text, notes | Yes, only in LLM requests | Configured provider |
 | Generated documents, catalog, meta | No | Local library (09). The public build has only the local publisher (10) |
 | API keys | Only as the auth header to their own provider | Provider API |
@@ -462,6 +469,7 @@ A document cannot read settings, keys, other documents, the library catalog, or 
 Enforcement:
 
 - A main-process `session.defaultSession.webRequest.onBeforeRequest` filter on the **app and viewer sessions** allows only `self` origins and the Vite dev server in dev. The app UI and viewer never make network calls themselves.
+- Stock photo requests are made only by `src/main/photos/` through the fetch module's `fetchBytes` (05 §4.8), never with a direct network import.
 - LLM SDK clients are created only in `src/main/llm/` with base URLs from 02's provider table. The ESLint rule `no-restricted-imports` bans `node:http`, `node:https`, `undici`, and global `fetch` outside `src/main/llm/` and `src/main/fetch/`.
 - The enterprise edition may add content rules before `send()` (HOOK-LLM-02) and routes authenticated sources through the MCP lane (HOOK-SRC-01, HOOK-SRC-03). The app never holds the organization credentials (HOOK-AUTH-01).
 
@@ -556,6 +564,7 @@ CI gates (run on every push and PR):
 - [ ] App and viewer response-header CSPs match §7.4. Generated documents carry the 07 §6.2 meta CSP; both are enforced in the viewer, and a document cannot make network requests in the viewer or in an external browser.
 - [ ] `eli5doc` privileges are registered before `ready`, and the handler is registered with `protocol.handle` on the `eli5-viewer` session. It serves only `<slug>/index.html` for catalogued slugs and `help/<file>.html` from `resources/help/`, and returns 404 for everything else, including `meta.json`, dot-paths, traversal, and symlink escapes.
 - [ ] The schema declares `pipeline.maxConcurrentJobs`, `publish.local.dir`, and `publish.local.revealAfter` with the defaults in §3.2.
+- [ ] The schema declares `images.stockPhotos` (default `true`), Settings > Documents shows it as a switch, and a managed value locks it. With it off no stock photo request is made.
 - [ ] `shell.openExternal` is used only for validated `http(s)` URLs, with a rate limit.
 - [ ] Hidden fetch windows have no preload, use unique non-persistent partitions, have all permissions denied, and are destroyed after use. No certificate override exists in the public build.
 - [ ] The Electron fuses in §7.8 are set in the packaged app. Release builds are signed with the hardened runtime and notarized.

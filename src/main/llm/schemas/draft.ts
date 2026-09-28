@@ -42,6 +42,17 @@ export const DraftBlockSchema = z.discriminatedUnion('type', [
     steps: z.array(z.object({ label: z.string(), md: z.string() })),
   }),
   z.object({ type: z.literal('analogy'), md: z.string() }),
+  // A request for an open-licensed stock photo of a real-world scene (07 §7.4). The app searches for
+  // it with `query` (short and generic, never names or source text) and replaces the block with a
+  // credited figure, or drops it when nothing fits.
+  z.object({
+    type: z.literal('photo'),
+    query: z.string(),
+    purpose: z.string(),
+    alt: z.string(),
+    caption: z.string().optional(),
+    sensitive: z.boolean().optional(),
+  }),
 ]);
 export type DraftBlock = z.infer<typeof DraftBlockSchema>;
 
@@ -96,6 +107,12 @@ export const MergeMatchDraftSchema = z.object({
 });
 export type MergeMatchDraft = z.infer<typeof MergeMatchDraftSchema>;
 
+/** The stock-photo choice for each photo slot (07 §7.4): `candidate` 0 = none fits, else 1..n. */
+export const PhotoPickDraftSchema = z.object({
+  picks: z.array(z.object({ slot: z.string(), candidate: z.number().int().min(0), reason: z.string() })),
+});
+export type PhotoPickDraft = z.infer<typeof PhotoPickDraftSchema>;
+
 /** Schema names usable in prompt front matter `output:` (02 §9, §16 prompt lint). */
 export const DRAFT_SCHEMAS = {
   DocumentDraftTab: DocumentDraftTabSchema,
@@ -104,6 +121,7 @@ export const DRAFT_SCHEMAS = {
   GlossaryDraft: GlossaryDraftSchema,
   SummaryDraft: SummaryDraftSchema,
   MergeMatchDraft: MergeMatchDraftSchema,
+  PhotoPickDraft: PhotoPickDraftSchema,
 } as const;
 export type DraftSchemaName = keyof typeof DRAFT_SCHEMAS;
 

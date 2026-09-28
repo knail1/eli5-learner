@@ -8,6 +8,7 @@ import type { PipelinePolicy } from '../pipeline';
 import type { DocTheme, ReferenceFormatter } from '../document';
 import type { LibraryPolicy, MergeEligibility } from '../library';
 import type { PrePublishPolicy, Publisher, SecretScanner } from '../publish';
+import type { StockImageProvider } from '../photos';
 import type { NotificationPolicy } from '../shell';
 import type { UiFeature, EditionInfo } from '../../preload/contract';
 import type { Edition } from './types';
@@ -44,6 +45,7 @@ export interface CapabilityRegistry {
   registerPipelinePolicy(p: PipelinePolicy): void; // HOOK-PIPE-01
   registerDocTheme(t: DocTheme): void; // HOOK-DOC-01
   registerReferenceFormatter(fn: ReferenceFormatter): void; // HOOK-DOC-02
+  registerStockImageProvider(p: StockImageProvider): void; // HOOK-DOC-03
   registerLibraryPolicy(p: LibraryPolicy): void; // HOOK-LIB-01
   registerMergeEligibility(fn: MergeEligibility): void; // HOOK-LIB-02
   registerSecretScanner(s: SecretScanner): void; // HOOK-PUB-03
@@ -71,6 +73,8 @@ export interface CapabilityRegistry {
   pipelinePolicy(): PipelinePolicy;
   docTheme(): DocTheme;
   referenceFormatter(): ReferenceFormatter;
+  /** HOOK-DOC-03; public: Openverse with a Wikimedia Commons fallback. A stub turns stock photos off. */
+  stockImages(): StockImageProvider;
   libraryPolicy(): LibraryPolicy;
   mergeEligibility(): MergeEligibility;
   secretScanner(): SecretScanner;
@@ -106,6 +110,7 @@ type Slot =
   | 'pipelinePolicy'
   | 'docTheme'
   | 'referenceFormatter'
+  | 'stockImages'
   | 'libraryPolicy'
   | 'mergeEligibility'
   | 'secretScanner'
@@ -263,6 +268,9 @@ export class Registry implements CapabilityRegistry {
   registerReferenceFormatter(fn: ReferenceFormatter): void {
     this.setSlot('referenceFormatter', fn);
   }
+  registerStockImageProvider(p: StockImageProvider): void {
+    this.setSlot('stockImages', p);
+  }
   registerLibraryPolicy(p: LibraryPolicy): void {
     this.setSlot('libraryPolicy', p);
   }
@@ -365,6 +373,9 @@ export class Registry implements CapabilityRegistry {
   referenceFormatter(): ReferenceFormatter {
     return this.getSlot('referenceFormatter');
   }
+  stockImages(): StockImageProvider {
+    return this.getSlot('stockImages');
+  }
   libraryPolicy(): LibraryPolicy {
     return this.getSlot('libraryPolicy');
   }
@@ -393,6 +404,7 @@ export class Registry implements CapabilityRegistry {
       'pipelinePolicy',
       'docTheme',
       'referenceFormatter',
+      'stockImages',
       'libraryPolicy',
       'mergeEligibility',
       'secretScanner',

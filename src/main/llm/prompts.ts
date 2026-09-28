@@ -37,8 +37,18 @@ export const PROMPT_VARS: Readonly<Record<PromptId, readonly string[]>> = {
     'sourceList',
     'content',
     'overflowAddendum',
+    'photoInstructions',
   ],
-  eli5: ['skills', 'contentMode', 'visibleOutputTokens', 'imageLabels', 'clarifyingInput', 'sourceList', 'content'],
+  eli5: [
+    'skills',
+    'contentMode',
+    'visibleOutputTokens',
+    'imageLabels',
+    'clarifyingInput',
+    'sourceList',
+    'content',
+    'photoInstructions',
+  ],
   glossary: ['clarifyingInput', 'indepthText'],
   'chunk-notes': ['chunkIndex', 'chunkCount', 'clarifyingInput', 'sourceList', 'content'],
   'section-expand': ['skills', 'tabKind', 'outline', 'section', 'prevText', 'nextText', 'selection', 'note'],
@@ -58,6 +68,7 @@ export const PROMPT_VARS: Readonly<Record<PromptId, readonly string[]>> = {
   'section-eli5-tab': ['skills', 'outline', 'section', 'selection', 'note'],
   summary: ['title', 'outline', 'indepthExcerpt'],
   'merge-match': ['summary', 'candidates'],
+  'photo-pick': ['slots'],
 };
 
 export class PromptError extends Error {

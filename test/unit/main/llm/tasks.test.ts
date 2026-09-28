@@ -70,19 +70,23 @@ describe('task functions (02 §12) with FakeProvider and the default script', ()
     expect(p.promptText).not.toContain('<source ref="x">'); // delimiter in content is neutralised
     const indepth = await tasks.generateIndepth(p, { ...ctx, glossary: true });
     expect(DocumentDraftTabSchema.parse(indepth.draft).kind).toBe('indepth');
-    expect(indepth.prompt).toBe('in-depth@2');
+    expect(indepth.prompt).toBe('in-depth@3');
     const eli5 = await tasks.generateEli5(p, ctx);
     expect(eli5.draft.kind).toBe('eli5');
-    expect(eli5.prompt).toBe('eli5@3');
+    expect(eli5.prompt).toBe('eli5@4');
     // SVG text rules (real-document regression): attributes, not style; readable, non-overlapping labels.
     for (const task of ['eli5', 'in-depth'] as const) {
       const sys = fake.calls.find((c) => c.taskId === task)?.system ?? '';
       expect(sys, task).toMatch(/text-anchor="middle"/);
       expect(sys, task).toMatch(/never a `style` attribute/i);
     }
-    // The ELI5 view is picture-first: one illustrated diagram per section (user request).
+    // The ELI5 view is picture-first: one picture per section (user request), a diagram for structure;
+    // real-world scenes are photos, never SVG drawings of people or places (user feedback).
     const eli5System = fake.calls.find((c) => c.taskId === 'eli5')?.system ?? '';
-    expect(eli5System).toMatch(/every section gets one illustrated `diagram`/i);
+    expect(eli5System).toMatch(/give every section one picture/i);
+    expect(eli5System).toMatch(/Structured ideas .* get a `diagram` block/i);
+    expect(eli5System).toMatch(/No human figures, faces, stick figures/);
+    expect(eli5System).toMatch(/At most 5 labeled elements/);
     const glossary = await tasks.generateGlossary(indepth.draft, ctx);
     expect(glossary.draft.entries.length).toBeGreaterThan(0);
     expect(glossary.prompt).toBe('glossary@2');

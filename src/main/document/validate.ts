@@ -2,7 +2,7 @@
 // stripping, table/chart/diagram/stepper limits.
 import type { DraftBlock } from '../llm';
 import { normalizeChart } from './charts';
-import { collapseWs } from './html';
+import { capText, collapseWs } from './html';
 import { mintDiagramPrefix } from './ids';
 import { inlineText } from './inline-md';
 import type { IdSource } from './section-id';
@@ -23,11 +23,19 @@ export interface ConvertContext {
   idSource: IdSource;
   /** Figure image label -> asset id, or undefined when the label is unknown (07 §5.1 step 5). */
   resolveFigure(label: string): string | undefined;
+  /**
+   * Stock photo slot at `blockIndex` of the section -> its embedded asset (07 §7.4), or undefined
+   * when the slot was not resolved. Absent (section rewrites): every photo slot is dropped.
+   */
+  resolvePhoto?(blockIndex: number): { assetId: string; alt: string; caption: string } | undefined;
   warn(w: string): void;
 }
 
+export const MAX_PHOTO_CAPTION = 200;
+export const MAX_PHOTO_ALT = 300;
+
 /** Converts one draft block; null drops it. */
-export function convertBlock(b: DraftBlock, ctx: ConvertContext): DocBlock | null {
+export function convertBlock(b: DraftBlock, ctx: ConvertContext, blockIndex = -1): DocBlock | null {
   switch (b.type) {
     case 'paragraph': {
       if (collapseWs(b.md) === '') return null;
@@ -103,6 +111,16 @@ export function convertBlock(b: DraftBlock, ctx: ConvertContext): DocBlock | nul
         ...(annotations.length ? { annotations } : {}),
       };
     }
+    case 'photo': {
+      const r = blockIndex >= 0 ? ctx.resolvePhoto?.(blockIndex) : undefined;
+      if (!r) {
+        ctx.warn('photo-unresolved');
+        return null;
+      }
+      const caption = capText(collapseWs(r.caption), MAX_PHOTO_CAPTION);
+      const alt = capText(collapseWs(r.alt), MAX_PHOTO_ALT) || caption;
+      return { type: 'figure', assetId: r.assetId, caption, alt };
+    }
     case 'stepper': {
       const steps = b.steps.filter((s) => collapseWs(s.label) !== '' || collapseWs(s.md) !== '');
       if (steps.length < 2) {
@@ -122,8 +140,8 @@ export function convertBlock(b: DraftBlock, ctx: ConvertContext): DocBlock | nul
 
 export function convertBlocks(blocks: readonly DraftBlock[], ctx: ConvertContext): DocBlock[] {
   const out: DocBlock[] = [];
-  for (const b of blocks) {
-    const c = convertBlock(b, ctx);
+  for (const [i, b] of blocks.entries()) {
+    const c = convertBlock(b, ctx, i);
     if (c) out.push(c);
   }
   return out;

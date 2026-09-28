@@ -68,6 +68,7 @@ The ELI5 tab rebuilds the same material in plain words, with analogies and pictu
 
   <img src="images/protective_order_expanded.png" alt="The expanded section 'The specific danger for people with protective orders': a definition paragraph, a Key point callout, and a four-step walkthrough 'How a protective order normally protects someone' with Previous and Next buttons" width="640">
 - **Section ELI5 tabs.** Focused ELI5 tabs, spun off from any passage and labeled by topic. You can close them.
+- **Real photos for real-world scenes.** People, places and everyday situations are shown with open-licensed stock photos (Openverse, with Wikimedia Commons as a fallback) instead of hand-drawn pictures; lists, flows and comparisons stay clean diagrams. Photos are embedded in the file, each with a credit and license marked "Illustrative stock photo". Only a few generic search words leave your Mac, and a setting turns it off.
 - **Library and menu bar.** Every document is listed in a sidebar. The menu bar shows the last three, and the app keeps running in the menu bar when the window is closed.
 - **Merge suggestions.** When a new document covers the same or a closely related topic as one already
   in your Library, the app notices when the job finishes. It offers to merge the new material into the
@@ -104,13 +105,14 @@ Every external capability sits behind an interface, so other backends can be swa
 | `SourceResolver` | Local files, clipboard, public URLs | MCP-brokered authenticated sources |
 | `Publisher` | Local directory | Organization cloud drive, GitHub Pages |
 
-The public build needs nothing but an API key: no accounts, no logins and no other services.
+The public build needs nothing but an API key: no accounts, no logins and no other keyed services. The optional stock photo search is anonymous.
 
 ## Configuration
 
 - LLM provider (Claude or OpenAI) and model name
 - API key, stored in the macOS Keychain
 - Default setting for "Explain domain-specific terms"
+- "Use stock photos for real-world scenes" (on by default)
 - Notifications: on or off, what a click opens (the document in the app, or its published link in your browser), a test button, and a shortcut to the macOS notification settings
 
 ## Not in v1

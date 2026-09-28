@@ -72,6 +72,7 @@ describe('settings sections (11 §7)', () => {
   // save's eli5:settings:changed echo arrives (as the provider picker already does).
   it.each([
     ['#settings-documents', 'Explain domain specific terms by default', true],
+    ['#settings-documents', 'Use stock photos for real-world scenes', true],
     ['#settings-publishing', 'Reveal in Finder after export', true],
     ['#settings-notifications', 'Notify me when a document is ready', true],
   ])('the %s switch "%s" flips immediately on click', async (section, label, initial) => {

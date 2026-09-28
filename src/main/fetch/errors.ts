@@ -104,6 +104,14 @@ export function netKindToSkip(kind: NetErrorKind): FetchSkipCode {
   }
 }
 
+/** Non-2xx status → skip code (05 §10). */
+export function httpErrorCode(status: number): FetchSkipCode {
+  if (status === 404) return 'http-not-found';
+  if (status === 410) return 'http-gone';
+  if (status === 429) return 'rate-limited';
+  return status >= 500 ? 'http-server-error' : 'http-client-error';
+}
+
 /** Retried once after 1 s (05 §9 "Network errors (reset, DNS temp failure)"). */
 export function isRetryableNet(kind: NetErrorKind): boolean {
   return kind === 'reset' || kind === 'dns-temporary';

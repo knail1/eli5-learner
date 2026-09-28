@@ -3,12 +3,12 @@ import type { DocumentDraftTab } from '../llm';
 import { DocumentBuildError } from './errors';
 import { capText, collapseWs } from './html';
 import { placeGlossary } from './glossary';
-import { assetIdFor, sha256Hex } from './images';
+import { assetIdFor, passThroughNormalizer, sha256Hex } from './images';
 import { defaultReferenceFormatter } from './references';
 import { DOC_RUNTIME_VERSION } from './runtime-assets';
 import { cryptoIdSource, ELI5_TAB_KEY, INDEPTH_TAB_KEY, mintSectionId, type IdSource } from './section-id';
 import { docThemeRef } from './theme';
-import type { AssetRef, BuildInput, BuildResult, DocumentModel, Section, Tab } from './types';
+import type { AssetCredit, AssetRef, BuildInput, BuildResult, DocumentModel, Section, Tab } from './types';
 import { convertBlocks } from './validate';
 
 export const MAX_TITLE = 120;
@@ -22,12 +22,53 @@ export const ELI5_PLACEHOLDER_HEADING = 'ELI5 version unavailable';
 export const ELI5_PLACEHOLDER_TEXT =
   "The ELI5 version could not be generated. Select this text and choose *This isn't clear, re-explain it* to try again.";
 
+/** Key of the draft `photo` block at (tab, section, block) that a StockPhotoInput fills (07 §7.4). */
+export function photoSlotKey(tab: 'indepth' | 'eli5', sectionIndex: number, blockIndex: number): string {
+  return `${tab}:${sectionIndex}:${blockIndex}`;
+}
+
+function httpOnly(u: string | undefined): string | undefined {
+  if (!u) return undefined;
+  try {
+    const p = new URL(u);
+    return p.protocol === 'http:' || p.protocol === 'https:' ? p.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Credit text comes from the internet: whitespace collapsed, lengths capped, links http(s) only. */
+export function sanitizeCredit(c: AssetCredit): AssetCredit {
+  const text = (s: string | undefined, max: number): string => capText(collapseWs(s ?? ''), max);
+  const creator = text(c.creator, 120);
+  const version = text(c.licenseVersion, 10);
+  const licenseUrl = httpOnly(c.licenseUrl);
+  const sourceUrl = httpOnly(c.sourceUrl);
+  const via = text(c.via, 60);
+  return {
+    kind: 'stock-photo',
+    title: text(c.title, 200) || 'Untitled',
+    ...(creator ? { creator } : {}),
+    license: c.license,
+    ...(version ? { licenseVersion: version } : {}),
+    ...(licenseUrl ? { licenseUrl } : {}),
+    ...(sourceUrl ? { sourceUrl } : {}),
+    sourceName: text(c.sourceName, 60) || 'unknown source',
+    ...(via ? { via } : {}),
+  };
+}
+
 export interface SectionBuildContext {
   tabKey: string;
   now: string;
   idSource: IdSource;
   taken: Set<string>;
   resolveFigure(label: string): string | undefined;
+  /** Stock photo slot at (draft section index, block index) -> asset (07 §7.4). */
+  resolvePhoto?(
+    sectionIndex: number,
+    blockIndex: number,
+  ): { assetId: string; alt: string; caption: string } | undefined;
   warn(w: string): void;
   /** When given, receives the draft index of each kept section (07 §9.1 step 2 indexes drafts). */
   draftIndices?: number[];
@@ -41,9 +82,11 @@ export function buildSections(drafts: DocumentDraftTab['sections'], ctx: Section
       ctx.warn('sections-capped');
       break;
     }
+    const resolvePhoto = ctx.resolvePhoto;
     const blocks = convertBlocks(d.blocks, {
       idSource: ctx.idSource,
       resolveFigure: ctx.resolveFigure,
+      ...(resolvePhoto ? { resolvePhoto: (bi: number) => resolvePhoto(di, bi) } : {}),
       warn: ctx.warn,
     });
     if (blocks.length === 0) {
@@ -98,6 +141,35 @@ export function buildDocumentModel(input: BuildInput): BuildResult {
     return id;
   };
 
+  // 07 §7.4: resolved stock photo slots become credited assets (bytes already downscaled by 06).
+  const photosBySlot = new Map((input.photos ?? []).map((p) => [p.slot, p]));
+  const resolvePhotoIn =
+    (tab: 'indepth' | 'eli5') =>
+    (si: number, bi: number): { assetId: string; alt: string; caption: string } | undefined => {
+      const p = photosBySlot.get(photoSlotKey(tab, si, bi));
+      if (!p) return undefined;
+      const norm = passThroughNormalizer({ label: p.slot, mime: p.mime, bytes: p.bytes });
+      if (!norm) {
+        warn('image-not-normalized');
+        return undefined;
+      }
+      const sha = sha256Hex(norm.bytes);
+      const id = assetIdFor(sha);
+      if (!assets.has(id)) {
+        assets.set(id, norm.bytes);
+        assetRefs.push({
+          id,
+          mime: norm.mime,
+          width: norm.width,
+          height: norm.height,
+          sha256: sha,
+          label: `stock-photo-${sha.slice(0, 12)}`,
+          credit: sanitizeCredit(p.credit),
+        });
+      }
+      return { assetId: id, alt: p.alt, caption: p.caption };
+    };
+
   // Steps 1-3.
   const title = capText(collapseWs(input.indepth.title), MAX_TITLE) || 'Untitled';
   const dek = input.indepth.dek ? capText(collapseWs(input.indepth.dek), MAX_DEK) : '';
@@ -106,10 +178,13 @@ export function buildDocumentModel(input: BuildInput): BuildResult {
   const indepthSections = buildSections(input.indepth.sections, {
     ...sctx,
     tabKey: INDEPTH_TAB_KEY,
+    resolvePhoto: resolvePhotoIn('indepth'),
     draftIndices,
   });
   if (indepthSections.length === 0) throw new DocumentBuildError('empty_indepth');
-  const eli5Sections = input.eli5 ? buildSections(input.eli5.sections, { ...sctx, tabKey: ELI5_TAB_KEY }) : [];
+  const eli5Sections = input.eli5
+    ? buildSections(input.eli5.sections, { ...sctx, tabKey: ELI5_TAB_KEY, resolvePhoto: resolvePhotoIn('eli5') })
+    : [];
 
   const indepth: Tab = {
     key: INDEPTH_TAB_KEY,

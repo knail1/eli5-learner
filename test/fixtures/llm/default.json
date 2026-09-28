@@ -214,6 +214,9 @@
     },
     "merge-match": {
       "matches": []
+    },
+    "photo-pick": {
+      "picks": []
     }
   }
 }

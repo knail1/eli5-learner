@@ -42,7 +42,9 @@ export default defineConfig({
             { lines: 85 },
           ]),
         ),
-        ...Object.fromEntries(['sources', 'fetch', 'publish', 'llm'].map((d) => [`src/main/${d}/**`, { lines: 75 }])),
+        ...Object.fromEntries(
+          ['sources', 'fetch', 'publish', 'llm', 'photos'].map((d) => [`src/main/${d}/**`, { lines: 75 }]),
+        ),
         'src/doc-runtime/**': { lines: 80 },
       },
     },

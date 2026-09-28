@@ -16,6 +16,7 @@ export type {
   JobIds,
   ExtractRunner,
   PipelineDeps,
+  PipelinePhotos,
   PipelineLibrary,
   PowerSaveBlocker,
   SectionRunContext,

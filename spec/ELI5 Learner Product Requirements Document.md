@@ -29,6 +29,7 @@ Build the public v1 now. Every enterprise capability sits behind an interface th
 | Source access | Local files, clipboard, public URLs | Adds authenticated organization URLs and ticket links via MCP (hooks: HOOK-SRC-01, HOOK-SRC-02) |
 | Publishing | Save to local directory only | Organization cloud drive (org wide share + link returned) and Git push with secret scanning (hooks: HOOK-PUB-01, HOOK-PUB-03) |
 | Document location | App project directory | App project directory (moving into sibling monorepo projects is future work) |
+| Illustrative photos | Open-licensed stock photos from public photo libraries, found with anonymous searches (no key, no account) | An organization-approved image library, or photos turned off (hook: HOOK-DOC-03) |
 
 **Seam requirements**
 
@@ -36,7 +37,7 @@ Build the public v1 now. Every enterprise capability sits behind an interface th
 - Define a `SourceResolver` interface. Ship file, clipboard, and public URL resolvers. Leave a documented MCP resolver stub (hooks: HOOK-SRC-01, HOOK-SRC-05).
 - Define a `Publisher` interface. Ship a local publisher. Leave documented cloud drive and Git publisher stubs (hooks: HOOK-PUB-01, HOOK-PUB-03).
 - Enterprise only UI (publish buttons) is hidden or disabled in the public build via a build or config flag (hooks: HOOK-UI-01, HOOK-CFG-02).
-- Public build must run with nothing but an API key: no accounts, no credentials, no external services.
+- Public build must run with nothing but an API key: no accounts, no credentials, no external services that need either. The stock photo search is anonymous, sends only a few generic words, and can be turned off.
 
 ## App shell and layout
 
@@ -142,6 +143,15 @@ Each learning produces one self contained `index.html` with tabs across the top.
 - The builder must study how the Wall Street Journal presents graphics and explainers and apply those patterns.
 - Generation follows the HTML skills the user will supply (the ELI5 skill and the beautiful documentation skill), and the approach described in Thariq's "unreasonable effectiveness of HTML" article and GitHub repo. Both skills may be used for either tab.
 
+**Pictures (both tabs, mainly ELI5)**
+
+- Every ELI5 section gets one picture, chosen by what the idea is.
+- Structured ideas (lists, flows, comparisons, timelines) get a clean diagram: a few labeled boxes and arrows, labels that fit inside their shapes, never drawings of people, buildings or scenes.
+- Real-world scenes (people, places, objects, what an experience looks like) get a real open-licensed stock photo, embedded in the file, instead of a drawing. The in depth tab may use at most two where a photo genuinely helps.
+- Only short generic search words (for example "courthouse exterior") leave the Mac, never names, case details or source text. The app picks the best match with the configured model and skips the photo quietly when nothing fits or the search fails; the document is still produced.
+- Every photo carries a small caption credit (title, creator, license, source) marked "Illustrative stock photo", and is listed under "Image credits" in the references. Sensitive topics prefer photos without identifiable faces; logos and brands are avoided.
+- A setting turns stock photos off; then the document uses diagrams only.
+
 **In context glossary (in depth tab only)**
 
 - Optional per job: a toggle such as "Explain domain specific terms".
@@ -228,6 +238,7 @@ The public build saves locally only and pushes nothing. The enterprise edition a
 
 - LLM provider (Claude or OpenAI), API key stored in the macOS Keychain, model name.
 - Default for the "Explain domain specific terms" toggle.
+- "Use stock photos for real-world scenes" toggle (`images.stockPhotos`, default on). An organization can lock it off.
 - **Notifications** section:
   - "Notify me when a document is ready" toggle (`notifications.enabled`, default on).
   - "When I click a notification": "Open it in ELI5 Learner" (default) or "Open its published link in my browser" (`notifications.clickAction`), with a choice of which link: Most recent, Cloud drive, or GitHub Pages (`notifications.preferredLink`, default Most recent). The published link option is disabled in the public build with the note "Available when documents can be published to a cloud drive or GitHub Pages". Enterprise defaults and locking come from the overlay (hook: HOOK-UI-03).

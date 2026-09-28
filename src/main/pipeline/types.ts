@@ -19,11 +19,12 @@ import type {
   ImageNormalizer as DocImageNormalizer,
   ReferenceFormatter,
   SectionJobPayload,
+  StockPhotoInput,
 } from '../document';
 import type { Edition } from '../editions';
 import type { ExtractLimits, ExtractResult, JobImageBudget } from '../extract';
 import type { CatalogEntry, DocumentMeta, SlugReservation } from '../library';
-import type { LLMErrorKind, LlmTasks } from '../llm';
+import type { DocumentDraftTab, LLMErrorKind, LlmTasks } from '../llm';
 import type { Logger } from '../security';
 import type {
   LaneRouter,
@@ -36,6 +37,20 @@ import type {
 } from '../sources';
 
 export type { SectionJobPayload };
+
+/**
+ * Stock photo service (07 §7.4), wired by createPipelineDeps from the registry's StockImageProvider
+ * (HOOK-DOC-03), the pick task and nativeImage. Used only when settings images.stockPhotos is on.
+ */
+export interface PipelinePhotos {
+  /** False when the registered provider is a stub: photos are off and prompts ask for diagrams. */
+  available(): boolean;
+  /** Resolves the drafts' photo slots. May throw; the generating stage treats that as no photos. */
+  resolve(
+    drafts: { indepth: DocumentDraftTab; eli5: DocumentDraftTab | null },
+    ctx: { jobId: string; signal: AbortSignal },
+  ): Promise<{ photos: StockPhotoInput[]; prompt?: string }>;
+}
 
 export type {
   JobFailureCode,
@@ -214,7 +229,7 @@ export interface PipelineDeps {
   /** Electron app.getPath('userData'); jobs live in <userData>/jobs/ (06 §9.1). */
   userData: string;
   edition: Edition;
-  settings: () => Pick<Settings, 'pipeline' | 'llm'>;
+  settings: () => Pick<Settings, 'pipeline' | 'llm'> & Partial<Pick<Settings, 'images'>>;
   /** HOOK-PIPE-01 (registry.pipelinePolicy()). */
   policy: PipelinePolicy;
   /** registry.resolvers() in chain order (03 §4). */
@@ -240,6 +255,8 @@ export interface PipelineDeps {
   referenceFormatter?: ReferenceFormatter;
   /** 07 §5.6 image normalization (createNativeImageNormalizer in the app). */
   normalizeImage: DocImageNormalizer;
+  /** Stock photos (07 §7.4). Absent (Node without nativeImage): photo blocks are never offered. */
+  photos?: PipelinePhotos;
   /** Default: the bundled runtime (07 §2). */
   docRuntime?: DocRuntime;
   /** SectionId randomness (07 §4.2); SeededIdSource in tests. */

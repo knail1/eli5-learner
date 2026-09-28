@@ -110,7 +110,8 @@ Each directory has one public entry (`index.ts`) that is the only import path ot
 | `src/main/llm/` | `LLMProvider`, `claude.ts`, `openai.ts`, `bedrock.stub.ts` | `LLMProvider`, `GenerationRequest`, `GenerationResult` | 02 |
 | `src/main/sources/` | `SourceResolver`, file / clipboard / url resolvers, `mcp.stub.ts` | `SourceInput`, `ResolvedSource`, `SkippedSource` | 03 |
 | `src/main/extract/` | Per-format extractors, extract worker (`utilityProcess`), pdf-render window | `Extractor`, `ExtractedContent`, `ContentBlock` | 04 |
-| `src/main/fetch/` | HTTP fetch, Readability worker pool, hidden-window fallback, `configureSession()` | `fetchUrl()` | 05 |
+| `src/main/fetch/` | HTTP fetch, Readability worker pool, hidden-window fallback, `configureSession()`, small in-memory downloads | `fetchUrl()`, `fetchBytes()` | 05 |
+| `src/main/photos/` | Stock photos for real-world scenes: `StockImageProvider` (Openverse with a Wikimedia Commons fallback), query guard, slot resolution, photo sizing | `StockImageProvider`, `resolvePhotos()`, `collectPhotoSlots()` | 07 §7.4 |
 | `src/main/pipeline/` | Job queue, stages, status events | `Job`, `JobStatus`, `JobQueue` | 06 |
 | `src/main/document/` | HTML builder, section IDs, regenerate-in-place, tab add/remove | `DocumentModel`, `Tab`, `Section`, `SectionId` | 07, 08 |
 | `src/main/document/interactive/` | Section actions, busy tracking, viewer reload + scroll-to | `ScrollToEvent`, `SectionBusyEvent` | 08 |
@@ -129,7 +130,8 @@ Each directory has one public entry (`index.ts`) that is the only import path ot
 - `src/renderer`, `src/doc-runtime` may import only `src/preload/contract.ts` (types) and their
   own files. Never `src/main`.
 - `src/main/*` modules import each other only through `index.ts`. `pipeline` may depend on
-  `sources`, `extract`, `llm`, `document`, `library`; `document` may depend on `llm`; nothing depends
+  `sources`, `extract`, `llm`, `document`, `library`, `photos`; `document` may depend on `llm`;
+  `photos` may depend on `document`, `llm` (types and `sectionText`) and `fetch`; nothing depends
   on `pipeline` except `ipc`. `shell` does not depend on `pipeline` either: bootstrap
   (`src/main/index.ts`) wires the job queue's `done` event to the shell's notifier.
 - Only `src/main/editions/` knows about the overlay. Callers ask the registry for a capability.
@@ -442,7 +444,7 @@ cannot be switched to enterprise by editing settings.
 | Auth | `AuthBroker` reporting `unavailable` | overlay broker (HOOK-AUTH-01) |
 | Fetch | system proxy and trust store; no login signatures | network configurator (HOOK-FETCH-01), login signatures (HOOK-FETCH-02) |
 | Pipeline | `defaultPipelinePolicy` | overlay policy (HOOK-PIPE-01) |
-| Documents | default theme; public reference kinds | org theme (HOOK-DOC-01), org reference formatter (HOOK-DOC-02) |
+| Documents | default theme; public reference kinds; stock photos from Openverse with a Wikimedia Commons fallback | org theme (HOOK-DOC-01), org reference formatter (HOOK-DOC-02), approved image library or photos off (HOOK-DOC-03) |
 | Library | default storage policy; every pair merge-eligible | storage policy (HOOK-LIB-01), merge eligibility (HOOK-LIB-02) |
 | Publishers | `local`; `drive`, `git` → stubs; baseline secret scanner; no pre-publish policy | `local` + overlay (HOOK-PUB-01..04), pre-publish policy (HOOK-PUB-05) |
 | Settings | public schema; dormant keys accepted but inert | schema extended by overlay (HOOK-CFG-01) |
@@ -468,6 +470,7 @@ the private spec's checklist are built from it. A spec that adds a hook adds a r
 | HOOK-PIPE-01 | 06 | `registerPipelinePolicy` | `defaultPipelinePolicy` |
 | HOOK-DOC-01 | 07 | `registerDocTheme` | neutral default `DocTheme` |
 | HOOK-DOC-02 | 07 | `registerReferenceFormatter` | public formatter (never produces `kind:'org'`) |
+| HOOK-DOC-03 | 07 | `registerStockImageProvider` | Openverse, then Wikimedia Commons (`FallbackStockImages`); `approved-library.stub.ts` documented, not registered |
 | HOOK-LIB-01 | 09 | `registerLibraryPolicy` | root per 09 §3, 30-day retention |
 | HOOK-LIB-02 | 09 | `registerMergeEligibility` | `() => true` |
 | HOOK-PUB-01 | 10 | `registerPublisher('drive')` | `drive.stub.ts` |
@@ -522,6 +525,7 @@ export interface CapabilityRegistry {
   registerPipelinePolicy(p: PipelinePolicy): void;         // HOOK-PIPE-01
   registerDocTheme(t: DocTheme): void;                     // HOOK-DOC-01
   registerReferenceFormatter(fn: ReferenceFormatter): void;     // HOOK-DOC-02
+  registerStockImageProvider(p: StockImageProvider): void;  // HOOK-DOC-03; a `stub: true` provider turns photos off
   registerLibraryPolicy(p: LibraryPolicy): void;           // HOOK-LIB-01
   registerMergeEligibility(fn: MergeEligibility): void;    // HOOK-LIB-02; (a: DocumentMeta, b: DocumentMeta) => boolean
   registerSecretScanner(s: SecretScanner): void;           // HOOK-PUB-03
@@ -546,6 +550,7 @@ export interface CapabilityRegistry {
   pipelinePolicy(): PipelinePolicy;
   docTheme(): DocTheme;
   referenceFormatter(): ReferenceFormatter;
+  stockImages(): StockImageProvider;          // HOOK-DOC-03
   libraryPolicy(): LibraryPolicy;
   mergeEligibility(): MergeEligibility;
   secretScanner(): SecretScanner;
@@ -653,7 +658,7 @@ export class NotAvailableInEdition extends Error {
 > and how it is obtained (private repository, submodule or checkout step), the overlay entry file
 > and its `EditionOverlay.name`, the list of capabilities it registers, mapped to every hook in the
 > §6.1 hook index (HOOK-LLM-01/02, HOOK-AUTH-01, HOOK-SRC-01..05, HOOK-FETCH-01/02, HOOK-PIPE-01,
-> HOOK-DOC-01/02, HOOK-LIB-01/02, HOOK-PUB-01..05, HOOK-CFG-01/03, HOOK-UI-01..03 and
+> HOOK-DOC-01..03, HOOK-LIB-01/02, HOOK-PUB-01..05, HOOK-CFG-01/03, HOOK-UI-01..03 and
 > HOOK-TEST-01/02) with the registry slot used for each, extra runtime
 > dependencies the overlay needs, enterprise packaging identity (app ID, product name suffix,
 > signing identity, notarization credentials source, distribution channel), and the CI job that

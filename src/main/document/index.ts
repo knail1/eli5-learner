@@ -32,7 +32,15 @@ export { defaultReferenceFormatter, SKIPPED_REASON_FALLBACK } from './references
 export { registerPublic } from './register';
 
 // 07 §8 module API
-export { buildDocumentModel, ELI5_PLACEHOLDER_HEADING, ELI5_PLACEHOLDER_TEXT, MAX_SECTIONS_PER_TAB } from './build';
+export {
+  buildDocumentModel,
+  photoSlotKey,
+  sanitizeCredit,
+  ELI5_PLACEHOLDER_HEADING,
+  ELI5_PLACEHOLDER_TEXT,
+  MAX_SECTIONS_PER_TAB,
+} from './build';
+export { licenseName } from './render/credit';
 export { renderDocument, renderSectionHtml, documentCsp, scriptHash, TAB_LABEL_MAX } from './render';
 export {
   parseDocument,

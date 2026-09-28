@@ -74,7 +74,7 @@ Measured with `@vitest/coverage-v8` over `src/main/**` and `src/doc-runtime/**`,
 | Area | Line coverage floor | Notes |
 | --- | --- | --- |
 | `extract/`, `document/`, `library/`, `pipeline/`, `config/`, `editions/` | 85% | Deterministic logic; high bar |
-| `sources/`, `fetch/`, `publish/`, `llm/` | 75% | I/O-heavy; rest covered by contract and e2e |
+| `sources/`, `fetch/`, `publish/`, `llm/`, `photos/` | 75% | I/O-heavy; rest covered by contract and e2e |
 | `doc-runtime/` | 80% | jsdom tests of tabs, glossary collapse, selection bridge |
 | `renderer/` | 60% | Behavior covered mainly by e2e |
 
@@ -98,7 +98,8 @@ Each row lists the minimum required cases. Module specs add their own cases in t
 | `sources/` | `sniff()` per signature row incl. mismatched extension; clipboard routing precedence via fake `ClipboardPort` (image, rich text, plain text, file refs); URL normalization; lane routing with a synthetic rule list; dedupe and limits; `mcp.stub.ts` and ticket stub produce `SkippedSource` with the edition reason. ([03](03-source-resolvers.md)) |
 | `extract/` | One golden per format (§5.1): `toPromptText` byte-identical to `*.expected.txt`; pptx slide order from `sldIdLst`, speaker notes on correct slide; docx headings, lists, tables; text PDF page order; scanned PDF detection routes to images with injected fake `PdfPageRenderer`; xlsx caps; image re-encoding under size cap; zip-bomb and XML entity fixtures refused within 1 s. ([04](04-extraction.md)) |
 | `fetch/` | Against `fixture-server`: article extraction; client-rendered detection triggers hidden-window fallback (fallback itself faked in unit, real in e2e); login wall classified as skip; redirect limit; size cap; timeout; charset decoding; non-HTML content types routed to extraction. ([05](05-url-fetching.md)) |
-| `pipeline/` | State machine transitions `queued → reading → extracting → generating → saving → done`; `failed` on total failure codes; partial failure yields a document with skipped list; two queued jobs; cancellation; crash-resume from checkpoint; exact status-line strings from the table in [06 §6](06-generation-pipeline.md). |
+| `photos/` | All offline, with a fake `StockHttp` and fake `nativeImage`: `sanitizePhotoQuery` strips URLs, e-mail addresses, digits, quoted text, acronyms, camelCase, capitalized runs and the drafts' proper nouns, and caps words and length; Openverse requests `license=cc0,pdm,by,by-sa` and `mature=false` and drops NC/ND, mature, sensitivity-flagged, non-https and logo results; Commons maps `License` codes to the four allowed licenses; the fallback tops up and survives a failing primary; `collectPhotoSlots` applies the per-section, in-depth and document caps; `resolvePhotos` shows at most 4 labeled thumbnails per slot, honours 0 = none, ignores out-of-range picks, never repeats a photo, falls back to the thumbnail source, stays within the byte cap, is quiet on every failure and rethrows cancellation; photo sizing (384 px thumbnails; ≤ 1200 px, q80 then lower); the HOOK-DOC-03 stub. ([07 §7.4](07-output-document.md)) |
+| `pipeline/` | State machine transitions `queued → reading → extracting → generating → saving → done`; `failed` on total failure codes; partial failure yields a document with skipped list; two queued jobs; cancellation; crash-resume from checkpoint; exact status-line strings from the table in [06 §6](06-generation-pipeline.md); stock photos: resolved photos are embedded with credits, a failing photo service never fails the job or adds a warning, and with `images.stockPhotos` off or a stub provider no search runs and the prompts say not to use `photo` blocks. |
 | `document/` | Builder output passes `validateDocument` (§7); SectionIds unique and well-formed; `replaceSection` ([07](07-output-document.md)) replaces exactly one `<section>` and leaves every other byte of the file unchanged; add and remove Section ELI5 tab; glossary present only in In depth tab and only when enabled; references list includes skipped sources with reasons. ([07](07-output-document.md), [08](08-interactive-reading.md)) |
 | `library/` | `catalog.json` and `meta.json` schemas; atomic write (crash between temp write and rename leaves the previous catalog intact); newest-first ordering; last-3 list for the menu bar; merge suggestion threshold using a faked match result; accept appends a marked section and removes the standalone entry; dismiss keeps both. ([09](09-library-storage.md)) |
 | `publish/` | Local publisher writes to target dir; stubs throw with `HOOK-PUB-01`/`HOOK-PUB-03`; baseline secret scanner finds each pattern in a synthetic fixture and has no false positives on golden documents. ([10](10-publishing.md)) |
@@ -216,7 +217,7 @@ export interface ValidityError { rule: ValidityRule; detail: string; sectionId?:
 export type ValidityRule =
   | 'parse' | 'single-file' | 'no-external-ref' | 'csp' | 'section-id-format' | 'section-id-unique'
   | 'section-id-mirror' | 'tabs-match-meta' | 'default-tab' | 'glossary-scope' | 'references'
-  | 'no-inline-handlers' | 'size';
+  | 'no-inline-handlers' | 'photo-credit' | 'size';
 ```
 
 ### 7.1 Static rules
@@ -235,6 +236,7 @@ export type ValidityRule =
 | `glossary-scope` | Glossary callouts appear only inside the `indepth` panel. |
 | `references` | `indepth` ends with a references section listing every `meta.sourcesUsed` and `meta.sourcesSkipped` entry (with reason). |
 | `no-inline-handlers` | No `on*=` attributes; runtime wires events from its own script. |
+| `photo-credit` | Every `figure.stock-photo` contains a `.fig-credit` with a `.fig-license` ([07 §7.4](07-output-document.md)). |
 | `size` | Warning only, never an error: `bytes` > 25 MB adds a `size` entry to `warnings` ([07 §5.4](07-output-document.md) is the single source for this limit). |
 
 ### 7.2 Runtime rule: zero network requests

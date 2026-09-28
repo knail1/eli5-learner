@@ -1,4 +1,5 @@
 // Generating stage (06 §5.4): orders 02's task calls, maps failures, checkpoints each output.
+import type { StockPhotoInput } from '../../document';
 import type { ExtractedContent } from '../../extract';
 import {
   deserializePrepared,
@@ -20,12 +21,25 @@ export const GEN = {
   document: 'gen/document.json',
   glossary: 'gen/glossary.json',
   summary: 'gen/summary.json',
+  photos: 'gen/photos.json',
 } as const;
+
+/** gen/photos.json (07 §7.4): resolved stock photos, bytes as base64. */
+export interface PhotosStepOutput {
+  photos: (Omit<StockPhotoInput, 'bytes'> & { bytes: string })[];
+  prompt?: string;
+}
+
+export function decodePhotos(out: PhotosStepOutput | null): StockPhotoInput[] {
+  return (out?.photos ?? []).map((p) => ({ ...p, bytes: new Uint8Array(Buffer.from(p.bytes, 'base64')) }));
+}
 
 export interface DocumentStepOutput {
   indepth: DocumentDraftTab;
   eli5: DocumentDraftTab | null;
   prompts: string[];
+  /** The writing prompts offered `photo` blocks (07 §7.4). */
+  photos?: boolean;
   /** The provider the job started generating with (06 §12). */
   provider: { id: string; model: string };
 }
@@ -120,9 +134,11 @@ async function documentStep(ctx: StageContext, p: PreparedContent, step: StepCtx
     });
   const provider = deps.llmInfo();
   clearWarnings(job, 'eli5-placeholder');
+  const photos = photosOn(ctx);
+  const write: StepCtx = { ...step, photos };
   const [indepth, eli5] = await Promise.allSettled([
-    settle('indepth', deps.tasks.generateIndepth(p, { ...step, glossary: job.options.glossary })),
-    settle('eli5', deps.tasks.generateEli5(p, step)),
+    settle('indepth', deps.tasks.generateIndepth(p, { ...write, glossary: job.options.glossary })),
+    settle('eli5', deps.tasks.generateEli5(p, write)),
   ]);
   throwIfAborted(ctx.signal);
   if (indepth.status === 'rejected') throw indepth.reason; // required (06 §7.2); mapped by the runner
@@ -135,7 +151,43 @@ async function documentStep(ctx: StageContext, p: PreparedContent, step: StepCtx
     deps.log.warn('pipeline.step-degraded', { jobId: job.id, step: 'eli5', errorKind: errorKind(eli5.reason) });
     addWarning(job, stepWarning('eli5-placeholder'));
   }
-  return { indepth: indepth.value.draft, eli5: eli5Draft, prompts, provider };
+  return { indepth: indepth.value.draft, eli5: eli5Draft, prompts, provider, photos };
+}
+
+/** Stock photos are offered when the setting is on and a real (non-stub) provider is wired (07 §7.4). */
+function photosOn(ctx: StageContext): boolean {
+  const s = ctx.deps.settings();
+  return (s.images?.stockPhotos ?? false) && ctx.deps.photos !== undefined && ctx.deps.photos.available();
+}
+
+function hasPhotoBlocks(doc: DocumentStepOutput): boolean {
+  return [doc.indepth, doc.eli5].some((t) => t?.sections.some((s) => s.blocks.some((b) => b.type === 'photo')));
+}
+
+/**
+ * 07 §7.4: after the drafts, find stock photos for their photo slots. Fire-and-forget: any failure
+ * leaves the slots unresolved (build drops them) without a warning; only cancellation escapes.
+ */
+async function photosStep(ctx: StageContext, doc: DocumentStepOutput): Promise<void> {
+  const { job, deps, store } = ctx;
+  if ((await store.readJson(job.id, GEN.photos)) !== null) return;
+  let out: PhotosStepOutput = { photos: [] };
+  const service = deps.photos;
+  if (service && doc.photos && photosOn(ctx) && hasPhotoBlocks(doc)) {
+    throwIfAborted(ctx.signal);
+    ctx.setRunningSteps(['summary']);
+    try {
+      const r = await service.resolve({ indepth: doc.indepth, eli5: doc.eli5 }, { jobId: job.id, signal: ctx.signal });
+      out = {
+        photos: r.photos.map((p) => ({ ...p, bytes: Buffer.from(p.bytes).toString('base64') })),
+        ...(r.prompt ? { prompt: r.prompt } : {}),
+      };
+    } catch (err) {
+      throwIfAborted(ctx.signal);
+      deps.log.warn('pipeline.photos-skipped', { jobId: job.id, errorKind: errorKind(err) });
+    }
+  }
+  await store.writeJson(job.id, GEN.photos, out);
 }
 
 function errorKind(err: unknown): string {
@@ -204,6 +256,7 @@ export async function generateStage(ctx: StageContext): Promise<void> {
     await store.writeJson(job.id, GEN.summary, out);
     await persistStep('summary');
   }
+  await photosStep(ctx, doc);
   ctx.setRunningSteps([]);
   throwIfAborted(ctx.signal);
   cp.stage = 'saving';

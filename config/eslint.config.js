@@ -12,6 +12,7 @@ const mainModules = [
   'ipc',
   'library',
   'llm',
+  'photos',
   'pipeline',
   'publish',
   'security',

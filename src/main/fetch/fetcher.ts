@@ -1,14 +1,23 @@
 import type { Logger } from '../security';
+import { fetchBytes } from './bytes';
 import { LIMITS, type Limits } from './constants';
 import { classify } from './detect';
-import { abortError, isRetryableNet, reasonFor, type ReasonDetail } from './errors';
+import { abortError, httpErrorCode, isRetryableNet, reasonFor, type ReasonDetail } from './errors';
 import { httpFetch, type HttpResult } from './http';
 import { classifyLogin, domSignals, httpSignals, urlSignals, type LoginSignal } from './login-wall';
 import { Politeness, sleep as defaultSleep, type PoliteSlot } from './politeness';
 import type { ReadabilityResult, ReadabilityRunner } from './readability';
 import type { RenderOptions, RenderResult } from './render-window';
 import type { HttpTransport } from './transport';
-import type { FetchContext, FetchedArticle, FetchOutcome, FetchSkipCode, LoginSignature } from './types';
+import type {
+  BytesOutcome,
+  BytesRequest,
+  FetchContext,
+  FetchedArticle,
+  FetchOutcome,
+  FetchSkipCode,
+  LoginSignature,
+} from './types';
 import { isPrivateTarget, logUrl, systemLookup, validateUrl, type HostLookup } from './url';
 
 /** fetchUrl orchestration, budget, cancellation and per-job dedupe (05 §3). */
@@ -34,6 +43,8 @@ export interface Fetcher {
   fetchUrl(url: string, ctx: FetchContext): Promise<FetchOutcome>;
   /** Drops the job's dedupe cache and cookies (called by the pipeline when a job ends). */
   endJob(jobId: string): Promise<void>;
+  /** 05 §4.8: small in-memory GET (stock photos, 07 §7.4) on the same transport and politeness. */
+  fetchBytes(url: string, o: BytesRequest): Promise<BytesOutcome>;
 }
 
 const skipped = (code: FetchSkipCode, detail: ReasonDetail = {}, finalUrl?: string): FetchOutcome => ({
@@ -49,13 +60,6 @@ export function parseRetryAfter(v: string | undefined, now: number): number | nu
   if (/^\s*\d+\s*$/.test(v)) return Number(v) * 1000;
   const t = Date.parse(v);
   return Number.isNaN(t) ? null : Math.max(0, t - now);
-}
-
-function httpErrorCode(status: number): FetchSkipCode {
-  if (status === 404) return 'http-not-found';
-  if (status === 410) return 'http-gone';
-  if (status === 429) return 'rate-limited';
-  return status >= 500 ? 'http-server-error' : 'http-client-error';
 }
 
 export function createFetcher(deps: FetcherDeps): Fetcher {
@@ -282,6 +286,20 @@ export function createFetcher(deps: FetcherDeps): Fetcher {
     async endJob(jobId) {
       jobs.delete(jobId);
       await deps.onJobEnd?.(jobId).catch(() => {});
+    },
+    fetchBytes(url, o) {
+      return fetchBytes(
+        url,
+        {
+          transport: deps.transport,
+          lookup,
+          headers: deps.headers,
+          politeness,
+          limits: L,
+          ...(deps.log ? { log: deps.log } : {}),
+        },
+        o,
+      );
     },
   };
 }

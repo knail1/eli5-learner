@@ -64,6 +64,12 @@ export function blockErrors(b: DraftBlock, at: string, ctx: ValidationContext): 
       return b.rows.flatMap((r, i) =>
         r.length === b.header.length ? [] : [`${at}.rows[${i}]: ${r.length} cells but header has ${b.header.length}`],
       );
+    case 'photo': {
+      const errs: string[] = [];
+      if (!b.query.trim()) errs.push(`${at}.query: must be a few generic words`);
+      if (!b.alt.trim()) errs.push(`${at}.alt: must describe the photo`);
+      return errs;
+    }
     case 'diagram': {
       const errs: string[] = [];
       if (!b.svg.trimStart().startsWith('<svg')) errs.push(`${at}.svg: must start with <svg`);

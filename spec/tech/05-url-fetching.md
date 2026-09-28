@@ -31,6 +31,7 @@ The PRD rules apply here. Fetch first and render only as a fallback. Use no brow
 | --- | --- |
 | `fetch/index.ts` | `fetchUrl()` orchestration, budget, cancellation |
 | `fetch/http.ts` | Plain HTTP GET over an Electron session, redirects, caps, decoding |
+| `fetch/bytes.ts` | `fetchBytes()`: small in-memory GET for app-initiated downloads (section 4.8) |
 | `fetch/route.ts` | Content-type and magic-byte sniffing, routing table |
 | `fetch/readability.ts` | Worker-thread wrapper around `@mozilla/readability` + `jsdom` (imports the worker via `?nodeWorker`, section 5.2) |
 | `fetch/readability.worker.ts` | The worker entry point (no Electron imports), bundled by electron-vite as a separate chunk |
@@ -259,6 +260,25 @@ The charset is taken from the first of these that is present:
 4. UTF-8
 
 Decoding uses `TextDecoder(label, { fatal: false })`. An unknown label falls back to `windows-1252`, following the WHATWG encoding spec.
+
+### 4.8 Small in-memory downloads (`fetchBytes`)
+
+`fetchBytes(url, { signal, accept, maxBytes, purpose? }): Promise<BytesOutcome>` serves downloads
+the app starts itself, today only stock photo search and images ([07](07-output-document.md) §7.4).
+It uses the same `eli5-fetch` session, transport and proxy (HOOK-FETCH-01), politeness (section 9),
+redirect limit and header, body and stall timeouts as `fetchUrl`, and reads the body into memory.
+
+- The URL is never user-typed, so the private-address guard (4.4 rule 4) always applies: loopback,
+  private, link-local and `.local`/`.internal` targets, and redirects to them, are refused with
+  `blocked-private-address` before any request.
+- `Accept` is the caller's. With `purpose`, the `User-Agent` becomes `ELI5Learner/<version>
+  (desktop explainer app; <purpose>)`, as public APIs ask clients to identify themselves. `Cookie`,
+  `Authorization` and `Referer` are never sent.
+- `Content-Length` over `maxBytes` stops before the body is read; a body that grows past it is
+  cancelled. Both return `too-large`.
+- Non-2xx maps to the section 10 codes (`http-not-found`, `rate-limited`, …) with the status.
+- There is no content routing, no staging file, no render fallback and no per-job dedupe. It never
+  throws except `AbortError` on `signal`.
 
 ## 5. Readability extraction
 

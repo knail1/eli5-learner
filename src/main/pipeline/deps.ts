@@ -20,10 +20,11 @@ import {
 } from '../extract';
 import { endFetchJob as defaultEndFetchJob, fetchUrl as defaultFetchUrl } from '../fetch';
 import { createNativeImageReencoder, createTasks, PromptCatalogue, SkillLibrary, type LlmTasks } from '../llm';
+import { collectPhotoSlots, createNativePhotoOps, isStockStub, resolvePhotos } from '../photos';
 import { log as defaultLog, type Logger } from '../security';
 import { inProcessExtractRunner } from './runner';
 import { parseThemeTokens } from './theme';
-import type { ExtractRunner, JobId, PipelineDeps, PipelineLibrary } from './types';
+import type { ExtractRunner, JobId, PipelineDeps, PipelineLibrary, PipelinePhotos } from './types';
 
 /** The Electron surface the pipeline needs; injected so Node tests can pass fakes. */
 export interface PipelineElectron {
@@ -152,6 +153,24 @@ export function createPipelineDeps(o: CreatePipelineDepsOptions): PipelineRuntim
   const library = o.library;
   const runMergeCheck = library.runMergeCheck?.bind(library);
   const electron = o.electron;
+  // 07 §7.4: stock photos need nativeImage for sizing, so they exist only in the app.
+  const photos: PipelinePhotos | undefined = electron
+    ? {
+        available: () => !isStockStub(reg.stockImages()),
+        resolve: (drafts, { jobId, signal }) =>
+          resolvePhotos(collectPhotoSlots(drafts), {
+            provider: reg.stockImages(),
+            image: createNativePhotoOps(electron.nativeImage),
+            pick: async (req) => {
+              const r = await tasks.pickPhotos(req);
+              return { picks: r.draft.picks, ...(r.prompt ? { prompt: r.prompt } : {}) };
+            },
+            signal,
+            log,
+            jobId,
+          }),
+      }
+    : undefined;
   const deps: PipelineDeps = {
     userData: o.userData,
     edition: reg.edition,
@@ -182,6 +201,7 @@ export function createPipelineDeps(o: CreatePipelineDepsOptions): PipelineRuntim
     docTheme,
     referenceFormatter: reg.referenceFormatter(),
     normalizeImage: electron ? createNativeImageNormalizer(electron.nativeImage) : passThroughNormalizer,
+    ...(photos ? { photos } : {}),
     ...(runMergeCheck ? { onMergeCheck: (docId: string) => runMergeCheck(docId) } : {}),
     ...(electron
       ? {

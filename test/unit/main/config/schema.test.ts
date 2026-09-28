@@ -37,3 +37,13 @@ describe('notifications settings (12 §3.2, 11 §14)', () => {
     expect(isDormantPath('notifications.enabled')).toBe(false);
   });
 });
+
+describe('images settings (12 §3.2, 07 §7.4)', () => {
+  it('stock photos default on and accept only a boolean (strict)', () => {
+    expect(DEFAULTS.images).toEqual({ stockPhotos: true });
+    expect(SettingsSchema.parse({ images: { stockPhotos: false } }).images.stockPhotos).toBe(false);
+    expect(SettingsSchema.safeParse({ images: { stockPhotos: 'yes' } }).success).toBe(false);
+    expect(SettingsSchema.safeParse({ images: { provider: 'x' } }).success).toBe(false);
+    expect(isDormantPath('images.stockPhotos')).toBe(false);
+  });
+});
