@@ -163,9 +163,11 @@ Menu, top to bottom:
   finished documents are in the catalog (09), so sessions, sources, and failed jobs never appear
   (PRD *Menu bar item*).
 - Icon: a monochrome template image (`trayTemplate.png`, `@2x`) so macOS tints it for light and dark
-  menu bars. While `activeJobs > 0` the icon swaps to `trayBusyTemplate.png` (same glyph with a dot).
-  This is the only "busy" signal outside the window. The only native notification is the
-  completion notification for a finished document (§14); there is none for jobs starting or running.
+  menu bars: "eli5" in a thin font inside a thin oval, 32×18 pt. While `activeJobs > 0` the icon swaps
+  to `trayBusyTemplate.png` (the same mark with a dot on the oval's upper right). Regenerate both
+  with `npx electron scripts/generate-tray-icons.cjs`. This is the only "busy" signal outside the
+  window. The only native notification is the completion notification for a finished document
+  (§14); there is none for jobs starting or running.
 - Tooltip: "ELI5 Learner" or "ELI5 Learner — {n} job(s) running".
 - Clicking the icon opens the menu (`tray.setContextMenu`). There is no separate click action.
 
