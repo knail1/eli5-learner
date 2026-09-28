@@ -2,7 +2,7 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { FetchContext, FetchOutcome, FetchSkipCode } from '../../../../src/main/fetch';
 import { sha256Text } from '../../../../src/main/sources/io';
-import { mapFetchSkipCode, normalizeUrl, UrlResolver } from '../../../../src/main/sources/url';
+import { mapFetchSkipCode, normalizeUrl, refForUrl, UrlResolver } from '../../../../src/main/sources/url';
 import { DEFAULT_RESOLVE_LIMITS, type SkipCode, type SourceInput } from '../../../../src/main/sources/types';
 import * as fx from './fixtures';
 import { fakeCtx } from './helpers';
@@ -253,6 +253,27 @@ describe('UrlResolver (03 §7.2)', () => {
       'sources.url.skipped',
       expect.objectContaining({ kind: 'http-not-found', code: 'http-error' }),
     );
+  });
+
+  it('userinfo never reaches a skip ref (05: no credentials stored)', async () => {
+    const out = await r.resolve(
+      urlInput('https://user:s3cret@example.com/private#top'),
+      fakeCtx({
+        fetchUrl: () =>
+          Promise.resolve({ kind: 'skipped', code: 'credentials-in-url', reason: 'address contains credentials' }),
+      }),
+    );
+    expect(out.skipped).toEqual([
+      { ref: 'https://example.com/private#top', code: 'not-a-url', reason: 'address contains credentials' },
+    ]);
+    expect(JSON.stringify(out)).not.toContain('s3cret');
+  });
+
+  it('refForUrl strips userinfo from parsable and unparsable text alike', () => {
+    expect(refForUrl('https://u:p@Example.com/a')).toBe('https://example.com/a');
+    expect(refForUrl('https://u:p@exa mple.com/a')).toBe('https://exa mple.com/a');
+    expect(refForUrl('  not a url ')).toBe('not a url');
+    expect(refForUrl('mailto:a@example.com')).toBe('mailto:a@example.com');
   });
 
   it('invalid and non-web inputs are skipped without calling fetch', async () => {

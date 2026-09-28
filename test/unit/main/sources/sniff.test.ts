@@ -32,6 +32,28 @@ describe('sniff(): signature table (03 §5.2)', () => {
     expect(await sniff(far, 'x.txt')).toMatchObject({ ok: true, format: 'text' });
   });
 
+  it('a text file that mentions %PDF- is not a PDF; offset-0 signatures win over a later %PDF-', async () => {
+    const md = Buffer.from('# PDF notes\n\nEvery PDF begins with `%PDF-1.7`.\n');
+    expect(await sniff(md, 'notes.md')).toEqual({
+      ok: true,
+      format: 'markdown',
+      mediaType: 'text/markdown',
+      notes: [],
+    });
+    const jpegXmp = Buffer.concat([
+      Buffer.from([0xff, 0xd8, 0xff, 0xe1, 0x00, 0x40]),
+      Buffer.from('xmp: %PDF-1.4 producer'),
+    ]);
+    expect(await sniff(jpegXmp, 'photo.jpg')).toMatchObject({ ok: true, format: 'jpeg', notes: [] });
+    const pngText = Buffer.concat([fx.png(), Buffer.from('tEXt %PDF-1.4')]);
+    expect(await sniff(pngText, 'a.png')).toMatchObject({ ok: true, format: 'png', notes: [] });
+  });
+
+  it('%PDF- after a binary (non-text) preamble is still a PDF', async () => {
+    const macBinary = Buffer.concat([Buffer.alloc(128, 0), fx.pdf()]);
+    expect(await sniff(macBinary, 'x.pdf')).toMatchObject({ ok: true, format: 'pdf', notes: [] });
+  });
+
   it('rejects BM without a plausible DIB header size as bmp', async () => {
     const r = await sniff(fx.bmp(7), 'x.bmp');
     expect(r.ok && r.format === 'bmp').toBe(false);

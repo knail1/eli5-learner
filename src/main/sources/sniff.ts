@@ -140,7 +140,7 @@ function fail(code: 'unsupported-type' | 'legacy-office-format' | 'encrypted', d
 
 /** Binary family from magic bytes, or null when no signature matches. */
 async function magic(head: Buffer, ext: string, opts: SniffOptions): Promise<SniffResult | null> {
-  if (head.subarray(0, 1024).includes('%PDF-', 0, 'latin1')) return ok('pdf', []);
+  if (startsWith(head, PDF_MAGIC)) return ok('pdf', []);
   if (startsWith(head, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return ok('png', []);
   if (startsWith(head, [0xff, 0xd8, 0xff])) return ok('jpeg', []);
   if (startsWith(head, [0x47, 0x49, 0x46, 0x38]) && (head[4] === 0x37 || head[4] === 0x39) && head[5] === 0x61) {
@@ -176,11 +176,24 @@ async function magic(head: Buffer, ext: string, opts: SniffOptions): Promise<Sni
     if (AVIF_BRANDS.has(major) || (avif && !heicProper))
       return fail('unsupported-type', 'AVIF image; export as PNG or JPEG');
     if (HEIC_BRANDS.has(major)) return ok('heic', []);
-    return null;
   }
   if (startsWith(head, [0x7b, 0x5c, 0x72, 0x74, 0x66]))
     return fail('unsupported-type', 'RTF; save as .docx or plain text');
-  return null;
+  return lenientPdf(head) ? ok('pdf', []) : null;
+}
+
+const PDF_MAGIC = [0x25, 0x50, 0x44, 0x46, 0x2d]; // %PDF-
+
+/**
+ * 03 §5.2 first row: `%PDF-` within the first 1024 bytes. Checked after every offset-0 signature,
+ * and at a non-zero offset only when the preamble is blank or binary junk (as PDF readers tolerate):
+ * a text file that merely mentions `%PDF-` near its top stays text.
+ */
+function lenientPdf(head: Buffer): boolean {
+  const at = head.subarray(0, 1024).indexOf('%PDF-', 0, 'latin1');
+  if (at <= 0) return at === 0;
+  const preamble = head.subarray(0, at);
+  return /^\s*$/.test(preamble.toString('latin1')) || !textProbe(preamble).ok;
 }
 
 interface TextProbe {

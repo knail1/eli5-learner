@@ -63,6 +63,24 @@ export function normalizeUrl(raw: string): NormalizedUrl {
   return { ok: true, url, key: noFrag.href };
 }
 
+/** `scheme://user:pass@` at the start of text that did not parse as a URL. */
+const RAW_USERINFO = /^([a-z][a-z0-9+.-]*:\/\/)[^/?#@\s]*@/i;
+
+/**
+ * The `ref` for a URL input: the normalized URL with its fragment (03 §7.1 step 5), or the trimmed
+ * text when it does not parse. Userinfo is always removed so credentials never reach a skip record,
+ * the references list, or the saved job (05: no credentials are stored).
+ */
+export function refForUrl(raw: string): string {
+  const norm = normalizeUrl(raw);
+  if (!norm.ok) return raw.trim().replace(RAW_USERINFO, '$1');
+  if (norm.url.username === '' && norm.url.password === '') return norm.url.href;
+  const clean = new URL(norm.url.href);
+  clean.username = '';
+  clean.password = '';
+  return clean.href;
+}
+
 /** 03 §7.2 FetchSkipCode -> SkipCode table. */
 export function mapFetchSkipCode(code: FetchSkipCode): SkipCode {
   switch (code) {
@@ -194,7 +212,7 @@ export class UrlResolver implements SourceResolver {
   async resolve(input: SourceInput, ctx: ResolveContext): Promise<ResolveOutcome> {
     if (input.kind !== 'url') return { resolved: [], skipped: [skip(input.id, 'unsupported-type')] };
     const norm = normalizeUrl(input.url);
-    const ref = norm.ok ? norm.url.href : input.url.trim();
+    const ref = refForUrl(input.url);
     if (!norm.ok) return { resolved: [], skipped: [skip(ref, norm.code)] };
     if (norm.url.protocol === 'file:') return { resolved: [], skipped: [skip(ref, 'unsupported-scheme')] };
     // fetchUrl throws only AbortError; the chain maps it to `cancelled` (03 §7.2).

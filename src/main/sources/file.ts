@@ -102,6 +102,20 @@ async function resolveRegularFile(
 
 interface WalkState {
   resolvedCount: number;
+  /** Label for the dropped folder itself (its readdir failure is reported under this ref). */
+  rootRef: string;
+}
+
+/**
+ * Skip codes that only mean "nothing here the app can read" (03 §5.3 bullet 3). A folder whose skips
+ * are all of these collapses to one `empty` skip; any other skip (permission, size, read errors,
+ * limits) is kept so its specific reason still reaches the references list.
+ */
+const NOTHING_SUPPORTED = new Set<SkippedSource['code']>(['unsupported-type', 'legacy-office-format', 'encrypted']);
+const PLAIN_EMPTY = skip('', 'empty').reason;
+
+function onlyUnsupported(skips: readonly SkippedSource[]): boolean {
+  return skips.every((s) => NOTHING_SUPPORTED.has(s.code) || (s.code === 'empty' && s.reason === PLAIN_EMPTY));
 }
 
 /** Folder expansion (03 §5.3): depth-first, name order, hidden and package entries skipped. */
@@ -117,7 +131,7 @@ async function expandFolder(
   try {
     entries = await readdir(dir, { withFileTypes: true });
   } catch (err) {
-    out.skipped.push(pathErrorSkip(path.basename(dir), dir, err, ctx));
+    out.skipped.push(pathErrorSkip(depth === 1 ? state.rootRef : path.basename(dir), dir, err, ctx));
     return;
   }
   entries.sort((a, b) => nameCollator.compare(a.name, b.name));
@@ -210,8 +224,8 @@ export async function resolveFileInput(input: FileInput, ctx: ResolveContext): P
   }
   if (st.isDirectory()) {
     const out = none();
-    await expandFolder(input.id, real, ctx, 1, { resolvedCount: 0 }, out);
-    if (out.resolved.length === 0 && !ctx.signal.aborted) {
+    await expandFolder(input.id, real, ctx, 1, { resolvedCount: 0, rootRef: ref }, out);
+    if (out.resolved.length === 0 && !ctx.signal.aborted && onlyUnsupported(out.skipped)) {
       return skipped({ ref, code: 'empty', reason: 'Folder contained no supported files.' });
     }
     return out;

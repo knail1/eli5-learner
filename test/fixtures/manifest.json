@@ -374,9 +374,53 @@
       "provenance": "synthetic"
     },
     {
+      "path": "sources/unsupported/encrypted.docx",
+      "format": "unsupported",
+      "generator": "test/fixtures/build/unsupported.ts",
+      "sha256": "1f1a44549ba550d707a67e1c3171c1a35604e64a7ed1bda76e8a1d31d8a287b0",
+      "expect": {
+        "kind": "skip",
+        "skipCode": "encrypted"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/unsupported/generic-archive.bin",
+      "format": "unsupported",
+      "generator": "test/fixtures/build/unsupported.ts",
+      "sha256": "8297f5d11d306e64acca48db6a03d5b5699e3196c526fcddc17411f6a63f03c4",
+      "expect": {
+        "kind": "skip",
+        "skipCode": "unsupported-type"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/unsupported/legacy.doc",
+      "format": "unsupported",
+      "generator": "test/fixtures/build/unsupported.ts",
+      "sha256": "8bb37a66f9f3394e2e8df0bb9eed4f473c271499753ba1a00455770dac3a7db0",
+      "expect": {
+        "kind": "skip",
+        "skipCode": "legacy-office-format"
+      },
+      "provenance": "synthetic"
+    },
+    {
       "path": "sources/unsupported/memo.rtf",
       "format": "unsupported",
       "sha256": "1e2a78373f0fd7d0559f253d89f0f4b9f286d0f4f7ebe26b11c66081e16bee75",
+      "expect": {
+        "kind": "skip",
+        "skipCode": "unsupported-type"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/unsupported/photo.avif",
+      "format": "unsupported",
+      "generator": "test/fixtures/build/unsupported.ts",
+      "sha256": "592efa815ad8f1d864eba6ace9fd4fc8d72909aac44fda303ee0c4d5156091fb",
       "expect": {
         "kind": "skip",
         "skipCode": "unsupported-type"

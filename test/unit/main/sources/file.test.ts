@@ -1,10 +1,12 @@
 import { execFileSync } from 'node:child_process';
-import { chmod, mkdir, realpath, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, realpath, stat, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import os from 'node:os';
+import { describe, expect, it, vi } from 'vitest';
 import { FileResolver, resolveFileInput } from '../../../../src/main/sources/file';
 import { sha256Text } from '../../../../src/main/sources/io';
 import { DEFAULT_RESOLVE_LIMITS, type SourceInput } from '../../../../src/main/sources/types';
+import { UNSUPPORTED_FIXTURES } from '../../../fixtures/build/unsupported';
 import * as fx from './fixtures';
 import { fakeCtx } from './helpers';
 
@@ -252,6 +254,48 @@ describe('file resolver: folder expansion (03 §5.3)', () => {
       skipped: [{ ref: 'Archive', code: 'empty', reason: 'Folder contained no supported files.' }],
     });
   });
+
+  it('legacy, encrypted and empty files alone still collapse to the single empty skip', async () => {
+    const dir = await fx.tmpDir();
+    const root = path.join(dir, 'Old');
+    await fx.put(root, 'deck.ppt', fx.ole(['PowerPoint Document']));
+    await fx.put(root, 'locked.docx', fx.ole(['EncryptedPackage']));
+    await fx.put(root, 'blank.txt', '');
+    const out = await resolveFileInput(fileInput(root), fakeCtx());
+    expect(out.skipped).toEqual([{ ref: 'Old', code: 'empty', reason: 'Folder contained no supported files.' }]);
+  });
+
+  it('a folder whose only file is too large keeps the too-large skip (not "no supported files")', async () => {
+    const dir = await fx.tmpDir();
+    const root = path.join(dir, 'big');
+    await fx.put(root, 'huge.pdf', Buffer.concat([fx.pdf(), Buffer.alloc(200, 0x20)]));
+    const out = await resolveFileInput(
+      fileInput(root),
+      fakeCtx({ limits: { ...DEFAULT_RESOLVE_LIMITS, maxFileBytes: 100 } }),
+    );
+    expect(out).toEqual({ resolved: [], skipped: [expect.objectContaining({ ref: 'huge.pdf', code: 'too-large' })] });
+  });
+
+  it.skipIf(process.getuid?.() === 0)(
+    'an unreadable dropped folder -> permission-denied on the folder, with the privacy hint under Documents',
+    async () => {
+      const home = await realpath(await fx.tmpDir());
+      const spy = vi.spyOn(os, 'homedir').mockReturnValue(home);
+      const root = path.join(home, 'Documents', 'Private');
+      await fx.put(root, 'a.md', '# a\n');
+      await chmod(root, 0o300);
+      try {
+        const out = await resolveFileInput(fileInput(root), fakeCtx());
+        expect(out.resolved).toEqual([]);
+        expect(out.skipped).toHaveLength(1);
+        expect(out.skipped[0]).toMatchObject({ ref: 'Private', code: 'permission-denied' });
+        expect(out.skipped[0]?.reason).toContain('System Settings');
+      } finally {
+        await chmod(root, 0o700);
+        spy.mockRestore();
+      }
+    },
+  );
 });
 
 describe('FileResolver', () => {
@@ -276,4 +320,15 @@ describe('committed unsupported fixtures (13 §5.1 sources/unsupported/*)', () =
     expect(out.resolved).toEqual([]);
     expect(out.skipped[0]).toMatchObject({ ref: name, code });
   });
+
+  it.each(UNSUPPORTED_FIXTURES.map((f) => [f.name, f.code, f.build] as const))(
+    '%s -> %s, and its generator rebuilds the committed bytes',
+    async (name, code, build) => {
+      const p = path.join(dir, name);
+      const out = await resolveFileInput(fileInput(p), fakeCtx());
+      expect(out.resolved).toEqual([]);
+      expect(out.skipped).toEqual([expect.objectContaining({ ref: name, code })]);
+      expect(Buffer.compare(await readFile(p), await build())).toBe(0);
+    },
+  );
 });

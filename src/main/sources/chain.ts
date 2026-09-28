@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NotAvailableInEdition } from '../editions';
 import { ORG_SOURCE_DETAIL, skip } from './reasons';
-import { normalizeUrl } from './url';
+import { normalizeUrl, refForUrl } from './url';
 import type {
   LaneRoute,
   ResolveContext,
@@ -24,7 +24,7 @@ export function inputRef(input: SourceInput): string {
     case 'file':
       return path.basename(input.path) || input.path;
     case 'url':
-      return input.url.trim();
+      return refForUrl(input.url);
     case 'text':
     case 'image':
       return input.preview || (input.kind === 'image' ? 'Pasted image' : 'Pasted text');
@@ -89,12 +89,12 @@ function routeInput(input: SourceInput, ctx: ResolveContext): Routed | SkippedSo
   const bare = ctx.lanes.routeBare(raw);
   if (bare) return { input: { ...input, url: bare.url.href }, route: bare.route };
   const norm = normalizeUrl(raw);
-  if (!norm.ok) return skip(raw, norm.code);
+  if (!norm.ok) return skip(refForUrl(raw), norm.code);
   if (norm.url.protocol === 'file:') {
     try {
       return { input: { id: input.id, kind: 'file', origin: input.origin, path: fileURLToPath(norm.url) } };
     } catch {
-      return skip(raw, 'not-a-url');
+      return skip(refForUrl(raw), 'not-a-url');
     }
   }
   return { input: { ...input, url: norm.url.href }, route: ctx.lanes.route(norm.url) };
@@ -110,29 +110,8 @@ function candidatesFor(routed: Routed, resolvers: readonly SourceResolver[]): So
   });
 }
 
-async function resolveOne(
-  original: SourceInput,
-  ctx: ResolveContext,
-  resolvers: readonly SourceResolver[],
-): Promise<ResolveOutcome> {
-  const ref = inputRef(original);
-  if (ctx.signal.aborted) return one(skip(ref, 'cancelled'));
-
-  const routed = routeInput(original, ctx);
-  if (!('input' in routed)) return one(routed);
-  const { input, route } = routed;
-  const candidates = candidatesFor(routed, resolvers);
-
-  // 03 §8 step 3: an organization route with no resolver in this edition is skipped; it never falls
-  // back to the web lane (candidates are already restricted to the routed lane or resolver id).
-  const chosen =
-    route?.lane === 'mcp' && ctx.edition === 'public' ? undefined : candidates.find((r) => r.canResolve(input, ctx));
-  if (!chosen && route?.lane === 'mcp') {
-    ctx.log('sources.chain.org-route', { jobId: ctx.jobId, code: 'not-available-in-edition', sourceKind: 'url' });
-    return one(skip(inputRef(input), 'not-available-in-edition', ORG_SOURCE_DETAIL));
-  }
-  if (!chosen) return one(skip(inputRef(input), 'unsupported-type'));
-
+/** Run one resolver under the per-source deadline, mapping every failure to a skip (03 §4 step 2.4-2.5). */
+async function attempt(chosen: SourceResolver, input: SourceInput, ctx: ResolveContext): Promise<ResolveOutcome> {
   try {
     const out = await withTimeout(ctx.limits.perSourceTimeoutMs, ctx.signal, (signal) =>
       chosen.resolve(input, { ...ctx, signal }),
@@ -166,6 +145,48 @@ async function resolveOne(
     ctx.log('sources.chain.resolver-error', { ...fields, code: 'read-error', step: chosen.id });
     return one(skip(r, 'read-error'));
   }
+}
+
+async function resolveOne(
+  original: SourceInput,
+  ctx: ResolveContext,
+  resolvers: readonly SourceResolver[],
+): Promise<ResolveOutcome> {
+  const ref = inputRef(original);
+  if (ctx.signal.aborted) return one(skip(ref, 'cancelled'));
+
+  const routed = routeInput(original, ctx);
+  if (!('input' in routed)) return one(routed);
+  const { input, route } = routed;
+  const orgRoute = route?.lane === 'mcp';
+  const candidates = candidatesFor(routed, resolvers);
+
+  // 03 §8 steps 3-4: an organization route falls back to the web lane only when its rule allows it
+  // (noWebFallback: false); otherwise candidates stay restricted to the routed lane or resolver id.
+  const webFallback =
+    orgRoute && !route.noWebFallback
+      ? candidatesFor({ input, route: { lane: 'web', noWebFallback: false } }, resolvers).find((r) =>
+          r.canResolve(input, ctx),
+        )
+      : undefined;
+  const chosen = orgRoute && ctx.edition === 'public' ? undefined : candidates.find((r) => r.canResolve(input, ctx));
+  if (!chosen && webFallback) {
+    ctx.log('sources.chain.web-fallback', { jobId: ctx.jobId, sourceKind: 'url', reason: 'no-mcp-resolver' });
+    return attempt(webFallback, input, ctx);
+  }
+  if (!chosen && orgRoute) {
+    ctx.log('sources.chain.org-route', { jobId: ctx.jobId, code: 'not-available-in-edition', sourceKind: 'url' });
+    return one(skip(inputRef(input), 'not-available-in-edition', ORG_SOURCE_DETAIL));
+  }
+  if (!chosen) return one(skip(inputRef(input), 'unsupported-type'));
+
+  const out = await attempt(chosen, input, ctx);
+  if (!webFallback || out.resolved.length > 0 || ctx.signal.aborted) return out;
+  // The MCP lane failed for a route that permits it: retry once on the web lane. If that also
+  // fails, the MCP failure is the more useful reason and is the one reported.
+  ctx.log('sources.chain.web-fallback', { jobId: ctx.jobId, sourceKind: 'url', reason: 'mcp-failed' });
+  const retry = await attempt(webFallback, input, ctx);
+  return retry.resolved.length > 0 || ctx.signal.aborted ? retry : out;
 }
 
 /** Dedupe key (03 §4 step 4): sha256 for local content, URL without fragment for web/mcp. */

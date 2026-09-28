@@ -251,6 +251,20 @@ describe('resolveAll: URL handling and lane routing (03 §4 step 2.2, §8)', () 
     expect(resolve).not.toHaveBeenCalled();
   });
 
+  it('userinfo is stripped from chain-built refs (timeout, cancelled, invalid)', async () => {
+    const slow = scripted(() => new Promise(() => {}));
+    const out = await resolveAll(
+      [url('https://u:s3cret@e.test/slow'), url('https://u:s3cret@exa mple.test/')],
+      fakeCtx({ limits: { ...DEFAULT_RESOLVE_LIMITS, perSourceTimeoutMs: 30 } }),
+      [slow],
+    );
+    expect(out.skipped.map((s) => [s.ref, s.code])).toEqual([
+      ['https://e.test/slow', 'timeout'],
+      ['https://exa mple.test/', 'not-a-url'],
+    ]);
+    expect(JSON.stringify(out)).not.toContain('s3cret');
+  });
+
   it('file:// URLs are rewritten to file inputs', async () => {
     const dir = await fx.tmpDir();
     const p = await fx.put(dir, 'notes.md', fx.TEXT_BODY);
@@ -346,6 +360,81 @@ describe('resolveAll: URL handling and lane routing (03 §4 step 2.2, §8)', () 
     );
     expect(fetchUrl).not.toHaveBeenCalled();
     expect(out.skipped[0]?.code).toBe('not-available-in-edition');
+  });
+
+  describe('mcp routes with noWebFallback: false (03 §8 steps 3-4)', () => {
+    const soft: LaneRule[] = [
+      { id: 'soft', match: { hostGlob: '*.example.org' }, route: { lane: 'mcp', noWebFallback: false } },
+    ];
+    const web = (): SourceResolver => scripted(async (i) => [{ ...article(i.url, i.url), resolverId: 'url' }]);
+    const mcp = (behavior: 'skip' | 'throw' | 'ok'): SourceResolver => ({
+      id: 'mcp',
+      handles: ['url'],
+      lane: 'mcp',
+      canResolve: () => true,
+      resolve: async (i) => {
+        if (behavior === 'throw') throw new Error('mcp down');
+        if (behavior === 'skip')
+          return { resolved: [], skipped: [{ ref: 'x', code: 'sign-in-required', reason: 'r' }] };
+        return { resolved: [src({ ref: i.kind === 'url' ? i.url : '', lane: 'mcp', resolverId: 'mcp' })], skipped: [] };
+      },
+    });
+    const u = 'https://docs.example.org/page';
+
+    it('public edition (no mcp resolver): falls back to the web lane', async () => {
+      const out = await resolveAll([url(u)], fakeCtx({ lanes: buildLaneRouter(soft) }), [new McpResolverStub(), web()]);
+      expect(out.skipped).toEqual([]);
+      expect(out.resolved.map((s) => [s.resolverId, s.lane])).toEqual([['url', 'web']]);
+    });
+
+    it('enterprise, no mcp resolver claims: falls back to the web lane', async () => {
+      const out = await resolveAll([url(u)], fakeCtx({ edition: 'enterprise', lanes: buildLaneRouter(soft) }), [
+        new McpResolverStub(),
+        web(),
+      ]);
+      expect(out.resolved.map((s) => s.resolverId)).toEqual(['url']);
+    });
+
+    it.each(['skip', 'throw'] as const)('enterprise, mcp resolver fails (%s): retried on the web lane', async (b) => {
+      const out = await resolveAll([url(u)], fakeCtx({ edition: 'enterprise', lanes: buildLaneRouter(soft) }), [
+        mcp(b),
+        web(),
+      ]);
+      expect(out.skipped).toEqual([]);
+      expect(out.resolved.map((s) => s.resolverId)).toEqual(['url']);
+    });
+
+    it('enterprise, mcp resolver succeeds: the web lane is not used', async () => {
+      const w = vi.fn();
+      const out = await resolveAll([url(u)], fakeCtx({ edition: 'enterprise', lanes: buildLaneRouter(soft) }), [
+        mcp('ok'),
+        scripted(w),
+      ]);
+      expect(w).not.toHaveBeenCalled();
+      expect(out.resolved.map((s) => s.resolverId)).toEqual(['mcp']);
+    });
+
+    it('when the web fallback also fails, the mcp failure is reported', async () => {
+      const failing = scripted(async () => {
+        throw new Error('web down');
+      });
+      const out = await resolveAll([url(u)], fakeCtx({ edition: 'enterprise', lanes: buildLaneRouter(soft) }), [
+        mcp('skip'),
+        failing,
+      ]);
+      expect(out.skipped.map((s) => s.code)).toEqual(['sign-in-required']);
+    });
+
+    it('noWebFallback: true still never reaches the web lane when the mcp resolver fails', async () => {
+      const hard: LaneRule[] = [{ ...soft[0]!, route: { lane: 'mcp', noWebFallback: true } }];
+      const w = vi.fn();
+      const out = await resolveAll([url(u)], fakeCtx({ edition: 'enterprise', lanes: buildLaneRouter(hard) }), [
+        mcp('throw'),
+        scripted(w),
+      ]);
+      expect(w).not.toHaveBeenCalled();
+      expect(out.skipped.map((s) => s.code)).toEqual(['read-error']);
+    });
   });
 
   it('routeBare claims bare identifiers before normalization (enterprise router)', async () => {

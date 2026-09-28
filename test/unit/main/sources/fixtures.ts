@@ -8,6 +8,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import JSZip from 'jszip';
 import { afterEach } from 'vitest';
+import { ftyp, ole } from '../../../fixtures/build/unsupported';
+
+export { ftyp, ole };
 
 /** Shape Finder writes for NSFilenamesPboardType on a multi-file copy. */
 export const FINDER_PLIST = `<?xml version="1.0" encoding="UTF-8"?>
@@ -52,18 +55,6 @@ export function bmp(dibHeaderSize = 40): Buffer {
   return b;
 }
 
-/** ISO-BMFF `ftyp` box with a major brand and compatible brands. */
-export function ftyp(major: string, compat: string[]): Buffer {
-  const size = 16 + compat.length * 4;
-  const b = Buffer.alloc(size + 8);
-  b.writeUInt32BE(size, 0);
-  b.write('ftyp', 4, 'latin1');
-  b.write(major, 8, 'latin1');
-  b.writeUInt32BE(0, 12);
-  compat.forEach((c, i) => b.write(c, 16 + i * 4, 'latin1'));
-  return b;
-}
-
 const CT = {
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml',
   pptm: 'application/vnd.ms-powerpoint.presentation.macroEnabled.main+xml',
@@ -94,47 +85,6 @@ export async function genericZip(): Promise<Buffer> {
   const zip = new JSZip();
   zip.file('readme.txt', 'Example Widgets Inc. archive');
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
-}
-
-/**
- * Minimal OLE compound file (MS-CFB v3, 512-byte sectors): header, one FAT sector (sector 0), one
- * directory sector (sector 1) holding a root entry plus the named streams.
- */
-export function ole(streams: string[]): Buffer {
-  const SS = 512;
-  const FREE = 0xffffffff;
-  const END = 0xfffffffe;
-  const FATSECT = 0xfffffffd;
-  const header = Buffer.alloc(SS);
-  Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]).copy(header, 0);
-  header.writeUInt16LE(0x003e, 24);
-  header.writeUInt16LE(0x0003, 26);
-  header.writeUInt16LE(0xfffe, 28);
-  header.writeUInt16LE(9, 30);
-  header.writeUInt16LE(6, 32);
-  header.writeUInt32LE(1, 44); // one FAT sector
-  header.writeUInt32LE(1, 48); // directory starts at sector 1
-  header.writeUInt32LE(4096, 56);
-  header.writeUInt32LE(END, 60);
-  header.writeUInt32LE(0, 64);
-  header.writeUInt32LE(END, 68);
-  header.writeUInt32LE(0, 72);
-  for (let i = 0; i < 109; i++) header.writeUInt32LE(i === 0 ? 0 : FREE, 76 + i * 4);
-
-  const fat = Buffer.alloc(SS, 0xff);
-  fat.writeUInt32LE(FATSECT, 0);
-  fat.writeUInt32LE(END, 4);
-
-  const dir = Buffer.alloc(SS);
-  const names = ['Root Entry', ...streams].slice(0, 4);
-  names.forEach((name, i) => {
-    const o = i * 128;
-    const encoded = Buffer.from(`${name}\0`, 'utf16le');
-    encoded.copy(dir, o);
-    dir.writeUInt16LE(encoded.length, o + 64);
-    dir[o + 66] = i === 0 ? 5 : 2;
-  });
-  return Buffer.concat([header, fat, dir]);
 }
 
 /** Fresh temp dir removed after each test. */

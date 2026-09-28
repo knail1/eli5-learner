@@ -12,6 +12,7 @@ import { edition } from './editions/types';
 import { PDF_RENDER_SCHEME_PRIVILEGES } from './extract';
 import { configureFetch } from './fetch';
 import { registerIpc } from './ipc';
+import { sweepStaleDrafts } from './sources/drafts';
 import { DOC_SCHEME, createDocProtocolHandler, gitCheckIgnored, installDocProtocol, openLibrary } from './library';
 import { configureLlmRuntime, createLlmFetch, retryPolicyFromPipeline } from './llm';
 import { hardenApp } from './security/harden';
@@ -116,6 +117,9 @@ async function bootstrap(): Promise<void> {
     retry: retryPolicyFromPipeline(pipelinePolicy),
     timeouts: pipelinePolicy.llmTimeoutOverride,
   });
+
+  // Crash sweep of pre-job clipboard drafts older than 24 h (03 §6.1 step 6); never rejects.
+  void sweepStaleDrafts(userData);
 
   // Library root, process lock, catalog and reconcile (09 §3.1, §7, §8.4).
   const library = await openLibrary({

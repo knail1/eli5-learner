@@ -12,7 +12,7 @@ export { readZipEntry, oleStreamNames } from './containers';
 export { SKIP_REASONS, skipReason, skip, mapMcpErrorKind, ORG_SOURCE_DETAIL } from './reasons';
 export { resolveAll, inputRef } from './chain';
 export { FileResolver, fileResolver, resolveFileInput } from './file';
-export { UrlResolver, urlResolver, normalizeUrl, mapFetchSkipCode } from './url';
+export { UrlResolver, urlResolver, normalizeUrl, refForUrl, mapFetchSkipCode } from './url';
 export type { NormalizedUrl } from './url';
 export {
   ClipboardResolver,
