@@ -364,6 +364,26 @@
       "provenance": "synthetic"
     },
     {
+      "path": "sources/unsupported/empty.txt",
+      "format": "unsupported",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "expect": {
+        "kind": "skip",
+        "skipCode": "empty"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/unsupported/memo.rtf",
+      "format": "unsupported",
+      "sha256": "1e2a78373f0fd7d0559f253d89f0f4b9f286d0f4f7ebe26b11c66081e16bee75",
+      "expect": {
+        "kind": "skip",
+        "skipCode": "unsupported-type"
+      },
+      "provenance": "synthetic"
+    },
+    {
       "path": "sources/xlsx/budget.xlsx",
       "format": "xlsx",
       "generator": "test/fixtures/build/xlsx.ts",

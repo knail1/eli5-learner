@@ -45,12 +45,12 @@ describe('registerPublicCapabilities (01 §6.3)', () => {
     });
   });
 
-  it('orders default resolvers ticket, mcp by priority', () => {
+  it('orders default resolvers by 01 §6.2 priority', () => {
     expect(
       publicRegistry()
         .resolvers()
         .map((r) => r.id),
-    ).toEqual(['ticket', 'mcp']);
+    ).toEqual(['ticket', 'mcp', 'url', 'file', 'clipboard']);
   });
 
   it('stubs raise NotAvailableInEdition with their hook ids', async () => {
