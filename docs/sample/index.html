@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compound Interest Explained</title>
+<style>
+  :root { --bg:#fbfaf7; --fg:#1d1d1b; --muted:#6b6862; --accent:#0a5c8a; --accent2:#c7612b; --line:#e4e1da; --note:#fff6d9; --tab:#efece5; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#141412; --fg:#ecebe6; --muted:#a09d95; --accent:#6cb6e0; --accent2:#e8905f; --line:#2c2b28; --note:#2e2a1c; --tab:#23221f; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:17px/1.65 Georgia, "Times New Roman", serif; }
+  .sans { font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; }
+  nav { position:sticky; top:0; background:var(--bg); border-bottom:1px solid var(--line); display:flex; gap:4px; padding:10px 16px; z-index:1; }
+  nav button { font: 600 .9rem -apple-system, Arial, sans-serif; border:0; background:transparent; color:var(--muted); padding:8px 14px; border-radius:6px; cursor:pointer; }
+  nav button[aria-selected="true"] { background:var(--tab); color:var(--fg); }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 16px 64px; display:grid; grid-template-columns: minmax(0,1fr) 240px; gap: 40px; }
+  article { min-width:0; }
+  h1 { font: 700 2.3rem/1.1 -apple-system, "Helvetica Neue", Arial, sans-serif; letter-spacing:-.02em; margin:0 0 8px; }
+  .dek { color:var(--muted); font-size:1.15rem; margin:0 0 24px; }
+  h2 { font: 700 1.3rem -apple-system, Arial, sans-serif; margin: 36px 0 8px; }
+  blockquote { margin:28px 0; padding:0 0 0 20px; border-left:4px solid var(--accent2); font-size:1.35rem; line-height:1.4; font-style:italic; }
+  aside.margin { font: .85rem/1.5 -apple-system, Arial, sans-serif; }
+  .note { background:var(--note); border-radius:8px; padding:12px 14px; margin-bottom:16px; }
+  .note b { display:block; margin-bottom:4px; }
+  figure { margin: 24px 0; }
+  figcaption { font: .8rem -apple-system, Arial, sans-serif; color:var(--muted); margin-top:6px; }
+  .controls { font: .9rem -apple-system, Arial, sans-serif; display:flex; flex-wrap:wrap; gap:16px; align-items:center; margin-bottom:8px; }
+  input[type=range] { width: 160px; accent-color: var(--accent); }
+  svg { width:100%; height:auto; display:block; }
+  .legend span { display:inline-flex; align-items:center; gap:6px; margin-right:14px; }
+  .sw { width:12px; height:12px; border-radius:2px; display:inline-block; }
+  [hidden] { display:none !important; }
+  .refs { font: .85rem -apple-system, Arial, sans-serif; color:var(--muted); border-top:1px solid var(--line); margin-top:40px; padding-top:12px; }
+  @media (max-width: 760px) { .wrap { grid-template-columns: 1fr; } aside.margin { order:2; } }
+</style>
+</head>
+<body>
+<nav role="tablist">
+  <button role="tab" aria-selected="true" data-tab="depth">In depth</button>
+  <button role="tab" aria-selected="false" data-tab="eli5">ELI5</button>
+</nav>
+
+<section id="tab-depth" data-section-id="depth-root">
+  <div class="wrap">
+    <article>
+      <h1>The Quiet Engine of Wealth</h1>
+      <p class="dek">Compound interest rewards time more than money. A simple chart shows why starting early matters so much.</p>
+
+      <section data-section-id="depth-what">
+        <h2>What compounding is</h2>
+        <p>With <em>simple</em> interest you earn a return only on the money you put in. With <em>compound</em> interest you also earn a return on past returns. Each year's gains join the base that next year's gains are calculated on, so growth keeps speeding up.</p>
+      </section>
+
+      <blockquote>The difference between simple and compound interest is small in year one and enormous in year forty.</blockquote>
+
+      <section data-section-id="depth-chart">
+        <h2>See it grow</h2>
+        <div class="controls">
+          <label>Annual rate <input id="rate" type="range" min="1" max="12" value="7"> <b id="rateV">7%</b></label>
+          <label>Years <input id="years" type="range" min="5" max="50" value="30"> <b id="yearsV">30</b></label>
+        </div>
+        <figure>
+          <svg id="chart" viewBox="0 0 600 300" role="img" aria-label="Growth of $10,000 under simple and compound interest"></svg>
+          <figcaption class="legend">
+            <span><i class="sw" style="background:var(--accent)"></i>Compound</span>
+            <span><i class="sw" style="background:var(--accent2)"></i>Simple</span>
+            <span id="summary"></span>
+          </figcaption>
+        </figure>
+      </section>
+
+      <section data-section-id="depth-why">
+        <h2>Why time beats timing</h2>
+        <p>Growth is exponential, so the last years add the most. At 7%, money doubles about every ten years (the <em>rule of 72</em>: 72 ÷ 7 ≈ 10). Someone who starts ten years earlier gets one more doubling, and that doubling happens at the end, when the balance is largest.</p>
+      </section>
+
+      <div class="refs">
+        <b>References</b>: sample document generated to test GitHub Pages publishing. No external sources.
+      </div>
+    </article>
+    <aside class="margin">
+      <div class="note"><b>💡 APR vs APY</b>APR is the stated yearly rate. APY includes the effect of compounding within the year, so it's slightly higher when interest compounds monthly.</div>
+      <div class="note"><b>💡 Rule of 72</b>Divide 72 by the annual rate to estimate the years it takes to double. It's accurate enough for rates between about 4% and 12%.</div>
+    </aside>
+  </div>
+</section>
+
+<section id="tab-eli5" data-section-id="eli5-root" hidden>
+  <div class="wrap" style="grid-template-columns:1fr; max-width:680px">
+    <article>
+      <h1>Money That Makes Babies</h1>
+      <p class="dek">Why saving early is like planting a tree.</p>
+      <section data-section-id="eli5-seed">
+        <h2>The seed</h2>
+        <p>Imagine you plant one apple seed. It grows into a tree, and the tree drops apples. Each apple has seeds, and you plant those too. Soon you don't have one tree. You have a forest, and <b>you only planted one seed</b>.</p>
+      </section>
+      <section data-section-id="eli5-money">
+        <h2>Money works the same way</h2>
+        <p>When you save money, the bank gives you a little extra money each year. Next year, that extra money earns extra money too. It's like the apples growing new trees.</p>
+      </section>
+      <section data-section-id="eli5-early">
+        <h2>Why early matters</h2>
+        <p>The forest grows fastest at the end. If you plant your seed a few years earlier, you get a much bigger forest, not just a slightly bigger one.</p>
+      </section>
+    </article>
+  </div>
+</section>
+
+<script>
+  document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('nav button').forEach(x => x.setAttribute('aria-selected', x === b));
+    document.getElementById('tab-depth').hidden = b.dataset.tab !== 'depth';
+    document.getElementById('tab-eli5').hidden = b.dataset.tab !== 'eli5';
+  }));
+
+  const P = 10000, svg = document.getElementById('chart');
+  const fmt = n => '$' + Math.round(n).toLocaleString();
+  function draw() {
+    const r = +rate.value / 100, n = +years.value;
+    rateV.textContent = rate.value + '%'; yearsV.textContent = n;
+    const comp = [], simp = [];
+    for (let t = 0; t <= n; t++) { comp.push(P * Math.pow(1 + r, t)); simp.push(P * (1 + r * t)); }
+    const max = comp[n], W = 600, H = 300, L = 60, B = 30, T = 10, R = 10;
+    const x = t => L + (W - L - R) * t / n, y = v => H - B - (H - B - T) * v / max;
+    const path = arr => arr.map((v, t) => (t ? 'L' : 'M') + x(t).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ');
+    let g = '';
+    for (let i = 0; i <= 4; i++) {
+      const v = max * i / 4, yy = y(v).toFixed(1);
+      g += `<line x1="${L}" x2="${W-R}" y1="${yy}" y2="${yy}" stroke="var(--line)"/>` +
+           `<text x="${L-8}" y="${yy}" dy="4" text-anchor="end" font-size="11" fill="var(--muted)" font-family="Arial">${fmt(v)}</text>`;
+    }
+    g += `<text x="${L}" y="${H-8}" font-size="11" fill="var(--muted)" font-family="Arial">Year 0</text>` +
+         `<text x="${W-R}" y="${H-8}" text-anchor="end" font-size="11" fill="var(--muted)" font-family="Arial">Year ${n}</text>`;
+    g += `<path d="${path(simp)}" fill="none" stroke="var(--accent2)" stroke-width="2.5"/>`;
+    g += `<path d="${path(comp)}" fill="none" stroke="var(--accent)" stroke-width="3"/>`;
+    svg.innerHTML = g;
+    summary.textContent = `$10,000 → ${fmt(comp[n])} compound vs ${fmt(simp[n])} simple`;
+  }
+  rate.oninput = years.oninput = draw; draw();
+</script>
+</body>
+</html>

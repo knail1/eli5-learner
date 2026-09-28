@@ -155,6 +155,10 @@ release/
 # User-generated learnings (built from possibly private source material)
 docs/*
 !docs/.gitkeep
+# ...except the public GitHub Pages files (see .github/workflows/pages.yml)
+!docs/.nojekyll
+!docs/index.html
+!docs/sample/
 
 # Local secrets and config (.env* is covered above)
 *.pem

@@ -1,0 +1,37 @@
+# Publishes docs/ to GitHub Pages at https://knail1.github.io/eli5-learner/
+# One-time setup: Settings -> Pages -> Build and deployment -> Source: GitHub Actions.
+# Only files whitelisted in .gitignore (docs/index.html, docs/.nojekyll, docs/sample/)
+# are committed, so private generated learnings in docs/ never reach the site.
+name: Deploy docs to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs
+      - id: deployment
+        uses: actions/deploy-pages@v5
