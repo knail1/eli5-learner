@@ -69,4 +69,35 @@ describe('meta privacy (09 §5.2, HOOK-LIB-01)', () => {
     );
     expect(m.sourcesSkipped[0]?.ref).toBe('https://a.example/x');
   });
+
+  it('drops URL credentials and reduces file: and other schemes to a basename (09 §5.2)', () => {
+    const userinfo = ['alice', 'hunter' + '2'].join(':');
+    const withCreds = `https://${userinfo}@wiki.example.com/p?q=1#f`;
+    expect(sanitizeSourceRecord({ ref: withCreds, kind: 'url' }, 'full').ref).toBe('https://wiki.example.com/p?q=1');
+    const m = sanitizeMeta(
+      makeMeta({
+        sourcesUsed: [{ ref: withCreds, kind: 'url' }],
+        sourcesSkipped: [
+          { ref: withCreds, reason: 'r', code: 'not-a-url' },
+          { ref: 'file:///Users/alice/Secret%20Plans/plan.pdf', reason: 'r', code: 'unsupported-scheme' },
+          { ref: `smb://${userinfo}@files.example.com/share/budget.xlsx`, reason: 'r', code: 'unsupported-scheme' },
+          { ref: 'mailto:alice@example.com', reason: 'r', code: 'unsupported-scheme' },
+          { ref: '/Users/alice/deck.pptx', reason: 'r', code: 'unsupported-type' },
+          { ref: 'Pasted image 1', reason: 'r', code: 'unsupported-type' },
+        ],
+      }),
+      'full',
+    );
+    expect(m.sourcesUsed[0]?.ref).toBe('https://wiki.example.com/p?q=1');
+    expect(m.sourcesSkipped.map((s) => s.ref)).toEqual([
+      'https://wiki.example.com/p?q=1',
+      'plan.pdf',
+      'smb:budget.xlsx',
+      'mailto:',
+      'deck.pptx',
+      'Pasted image 1',
+    ]);
+    expect(JSON.stringify(m)).not.toContain('hunter');
+    expect(JSON.stringify(m)).not.toContain('alice');
+  });
 });

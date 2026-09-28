@@ -6,16 +6,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { log as defaultLog, type Logger } from '../security';
 import { catalogFile, diffEntries, entryFromMeta, newestFirst, sanitizeMeta, uuidFrom } from './catalog';
-import {
-  DIR_MODE,
-  TMP_MARKER,
-  errnoOf,
-  fsyncDir,
-  isErrno,
-  renameDirAtomic,
-  writeFileAtomic,
-  writeJsonAtomic,
-} from './fs-atomic';
+import { DIR_MODE, errnoOf, fsyncDir, isErrno, renameDirAtomic, writeFileAtomic, writeJsonAtomic } from './fs-atomic';
 import { LockSet, acquireProcessLock, releaseProcessLock } from './locks';
 import { catalogMigrations, compactTimestamp, metaMigrations, readVersioned } from './migrations';
 import { defaultLibraryPolicy } from './policy';
@@ -50,6 +41,20 @@ export const LOCK_FILE = 'library.lock';
 /** Leftover temp files older than this are deleted by reconcile (09 §4, §7 step 8). */
 export const TMP_MAX_AGE_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** Only the library's own temp files, `<target>.tmp-<pid>-<8 hex>` (09 §4, §3.2). */
+const TMP_FILE_RE = /\.tmp-\d+-[0-9a-f]{8}$/;
+
+/** 09 §7 steps 3-4 and pending migrations, applied in reconcile's phase 2. */
+interface ReconcilePatch {
+  migrate?: true;
+  topicSlug?: true;
+  id?: { from: string; to: string };
+}
+
+interface ScannedFolder {
+  meta: DocumentMeta;
+  patch: ReconcilePatch | undefined;
+}
 const CATALOG_KEY = '\0catalog';
 
 /** Status text for read-only mode (09 §8.5). */
@@ -77,13 +82,18 @@ export interface OpenLibraryOptions {
   logger?: Logger;
   /** Dev builds assert lock discipline (LOCK_NOT_HELD). Pass `!app.isPackaged`. */
   devChecks?: boolean;
-  /** Process lock (09 §8.4). Off only in unit tests that exercise other behavior. */
-  processLock?: {
-    startedAt: Date;
-    probe?: ProcessProbe;
-    executableName?: string;
-    pid?: number;
-  };
+  /**
+   * Process lock (09 §8.4). On by default with this process's start time
+   * (`Date.now() - process.uptime() * 1000`) and executable name; `false` turns it off (tests only).
+   */
+  processLock?:
+    | {
+        startedAt?: Date;
+        probe?: ProcessProbe;
+        executableName?: string;
+        pid?: number;
+      }
+    | false;
   /**
    * Dev-only `.gitignore` check (09 §3.1 step 2, §3.2). Returns false when the root is inside a
    * git work tree and not ignored. Default: none. Use `gitCheckIgnored` in the app.
@@ -136,20 +146,24 @@ export async function openLibrary(opts: OpenLibraryOptions): Promise<FsLibrary> 
   }
 
   let readOnly: ReadOnlyReason | undefined;
-  if (opts.processLock) {
+  const pl = opts.processLock === false ? undefined : (opts.processLock ?? {});
+  const lockFile = path.join(root, ELI5_DIR, LOCK_FILE);
+  const pid = pl?.pid ?? process.pid;
+  if (pl) {
     const res = await acquireProcessLock({
-      file: path.join(root, ELI5_DIR, LOCK_FILE),
+      file: lockFile,
       appVersion: opts.appVersion,
-      startedAt: opts.processLock.startedAt,
-      pid: opts.processLock.pid,
-      probe: opts.processLock.probe,
-      executableName: opts.processLock.executableName,
+      startedAt: pl.startedAt ?? new Date(Date.now() - process.uptime() * 1000),
+      pid,
+      probe: pl.probe,
+      executableName: pl.executableName ?? path.basename(process.execPath),
     });
     if (!res.acquired) {
       readOnly = 'locked';
       logger.warn('library.read-only', { kind: 'locked' });
     }
   }
+  const ownsProcessLock = pl !== undefined && readOnly === undefined;
 
   const lib = new FsLibrary({
     root,
@@ -159,12 +173,18 @@ export async function openLibrary(opts: OpenLibraryOptions): Promise<FsLibrary> 
     ids: opts.ids ?? cryptoIds,
     logger,
     devChecks: opts.devChecks ?? true,
-    ownsProcessLock: opts.processLock !== undefined && readOnly === undefined,
-    pid: opts.processLock?.pid ?? process.pid,
+    ownsProcessLock,
+    pid,
   });
   if (readOnly) lib.enterReadOnly(readOnly);
-  await lib.loadCatalog();
-  if (opts.reconcile ?? true) await lib.reconcile();
+  try {
+    await lib.loadCatalog();
+    if (opts.reconcile ?? true) await lib.reconcile();
+  } catch (err) {
+    // Do not leave our lock behind when startup fails (close() is unreachable for the caller).
+    await lib.close().catch(() => {});
+    throw err;
+  }
   return lib;
 }
 
@@ -245,14 +265,10 @@ export class FsLibrary implements Library {
 
   async getMeta(slug: string): Promise<DocumentMeta> {
     const file = this.docPath(slug, META_FILE);
-    const r = await readVersioned(file, {
-      schema: DocumentMetaSchema,
-      lenient: DocumentMetaSchema,
-      chain: metaMigrations,
-      current: META_SCHEMA_VERSION,
-      allowWrite: !this.readOnly && this.hasSlug(slug),
-      renameCorrupt: false,
-      now: () => this.d.clock.now(),
+    const r = await this.readMeta(file, !this.readOnly && this.hasSlug(slug)).catch((err: unknown) => {
+      // EISDIR, EACCES, ELOOP...: unreadable meta is invalid meta (09 §7 step 2).
+      this.d.logger.warn('library.meta-invalid', { slug, errno: errnoOf(err) });
+      throw new LibraryError('META_INVALID', { slug });
     });
     switch (r.status) {
       case 'ok':
@@ -266,6 +282,18 @@ export class FsLibrary implements Library {
         this.d.logger.warn('library.meta-invalid', { slug, kind: r.reason });
         throw new LibraryError('META_INVALID', { slug });
     }
+  }
+
+  private readMeta(file: string, allowWrite: boolean) {
+    return readVersioned(file, {
+      schema: DocumentMetaSchema,
+      lenient: DocumentMetaSchema,
+      chain: metaMigrations,
+      current: META_SCHEMA_VERSION,
+      allowWrite,
+      renameCorrupt: false,
+      now: () => this.d.clock.now(),
+    });
   }
 
   /** 09 §9: valid slug pattern and inside the real root, else PATH_OUTSIDE_ROOT. */
@@ -508,30 +536,38 @@ export class FsLibrary implements Library {
     );
   }
 
-  /** 09 §7. Reads meta.json only; folders without valid meta are skipped and never touched. */
+  /**
+   * 09 §7. Reads meta.json only; folders without valid meta are skipped and never touched.
+   * Phase 1 (catalog lock) scans read-only and rebuilds the catalog. Phase 2 applies the meta
+   * patches of steps 3-4 and pending migrations, each under its doc lock (09 §8.3 lock order: doc
+   * locks are never taken while the catalog lock is held), re-reading meta inside the lock.
+   */
   async reconcile(): Promise<void> {
-    const changed = await this.withCatalogLock(async () => {
-      const metas = await this.scanFolders();
+    const { changed, patches } = await this.withCatalogLock(async () => {
+      const found = await this.scanFolders();
       const before = [...this.entries.values()];
-      const after = metas.map(entryFromMeta);
+      const after = found.map((f) => entryFromMeta(f.meta));
       const slugs = diffEntries(before, after);
       this.entries = new Map(after.map((e) => [e.id, e]));
       if (!this.readOnly) {
         const onDisk = await fsp.stat(path.join(this.root, CATALOG_FILE)).catch(() => undefined);
         if (slugs.length > 0 || !onDisk) await this.writeCatalog();
       }
-      return slugs;
+      return { changed: slugs, patches: found.filter((f) => f.patch !== undefined) };
     });
-    if (!this.readOnly) await this.housekeeping();
+    if (!this.readOnly) {
+      for (const f of patches) if (f.patch) await this.applyReconcilePatch(f.meta.topicSlug, f.patch);
+      await this.housekeeping();
+    }
     if (changed.length > 0) {
       this.d.logger.info('library.reconciled', { count: changed.length });
       this.emitChanged('reconciled', changed);
     }
   }
 
-  private async scanFolders(): Promise<DocumentMeta[]> {
+  private async scanFolders(): Promise<ScannedFolder[]> {
     const dirents = await fsp.readdir(this.root, { withFileTypes: true });
-    const found: { meta: DocumentMeta; writable: boolean }[] = [];
+    const found: ScannedFolder[] = [];
     for (const d of dirents) {
       if (!d.isDirectory() || d.name.startsWith('.')) continue;
       if (!isValidSlug(d.name)) {
@@ -544,15 +580,14 @@ export class FsLibrary implements Library {
         this.d.logger.debug('library.folder-skipped', { slug: d.name, kind: 'no-index' });
         continue;
       }
-      const r = await readVersioned(path.join(dir, META_FILE), {
-        schema: DocumentMetaSchema,
-        lenient: DocumentMetaSchema,
-        chain: metaMigrations,
-        current: META_SCHEMA_VERSION,
-        allowWrite: !this.readOnly,
-        renameCorrupt: false,
-        now: () => this.d.clock.now(),
-      });
+      // Step 2: unreadable meta (EISDIR, EACCES, ELOOP) is skipped like invalid meta.
+      let r: Awaited<ReturnType<FsLibrary['readMeta']>>;
+      try {
+        r = await this.readMeta(path.join(dir, META_FILE), false);
+      } catch (err) {
+        this.d.logger.warn('library.meta-invalid', { slug: d.name, errno: errnoOf(err) });
+        continue;
+      }
       if (r.status === 'missing') {
         this.d.logger.debug('library.folder-skipped', { slug: d.name, kind: 'no-meta' });
         continue;
@@ -562,10 +597,15 @@ export class FsLibrary implements Library {
         continue;
       }
       if (r.status === 'newer') this.enterReadOnly('newer-schema');
+      const patch: ReconcilePatch = {};
       let meta = r.data;
+      if (r.status === 'ok' && r.migratedFrom !== undefined) patch.migrate = true;
       // Step 3: the folder name wins (the user may have renamed it in Finder).
-      if (meta.topicSlug !== d.name) meta = { ...meta, topicSlug: d.name };
-      found.push({ meta, writable: r.status === 'ok' && meta !== r.data });
+      if (meta.topicSlug !== d.name) {
+        meta = { ...meta, topicSlug: d.name };
+        if (r.status === 'ok') patch.topicSlug = true;
+      }
+      found.push({ meta, patch: Object.keys(patch).length > 0 ? patch : undefined });
     }
 
     // Step 4: duplicate IDs (a copied folder): the earliest createdAt keeps the ID.
@@ -579,20 +619,51 @@ export class FsLibrary implements Library {
     const seen = new Set<string>();
     for (const f of found) {
       if (seen.has(f.meta.id)) {
-        f.meta = { ...f.meta, id: uuidFrom(this.d.ids) };
-        f.writable = true;
+        const newId = uuidFrom(this.d.ids);
+        f.patch = { ...f.patch, id: { from: f.meta.id, to: newId } };
+        f.meta = { ...f.meta, id: newId };
       }
       seen.add(f.meta.id);
     }
-    if (!this.readOnly) {
-      for (const f of found) {
-        if (!f.writable) continue;
-        await writeJsonAtomic(path.join(this.root, f.meta.topicSlug, META_FILE), f.meta).catch((err: unknown) =>
-          this.d.logger.warn('library.meta-write-failed', { slug: f.meta.topicSlug, errno: errnoOf(err) }),
-        );
-      }
+    // Rewritten metas get a fresh updatedAt (09 §5.2 "every write updates updatedAt").
+    const now = this.d.clock.now().toISOString();
+    for (const f of found) if (f.patch && (f.patch.id || f.patch.topicSlug)) f.meta = { ...f.meta, updatedAt: now };
+    return found;
+  }
+
+  /** Phase 2 of reconcile: one folder's meta rewrite under its doc lock, then a catalog upsert. */
+  private async applyReconcilePatch(slug: string, patch: ReconcilePatch): Promise<void> {
+    try {
+      await this.withDocLock(slug, async () => {
+        const file = path.join(this.root, slug, META_FILE);
+        // Re-read inside the lock; this also writes any pending migration (09 §5.3).
+        const r = await this.readMeta(file, true);
+        if (r.status !== 'ok') return;
+        let meta = r.data;
+        let dirty = false;
+        if (meta.topicSlug !== slug) {
+          meta = { ...meta, topicSlug: slug };
+          dirty = true;
+        }
+        // Only reassign when the folder still carries the duplicated ID.
+        if (patch.id && meta.id === patch.id.from) {
+          meta = { ...meta, id: patch.id.to };
+          dirty = true;
+        }
+        if (!dirty && r.migratedFrom === undefined) return;
+        if (dirty) {
+          meta = { ...meta, updatedAt: this.d.clock.now().toISOString() };
+          await writeJsonAtomic(file, meta);
+        }
+        await this.withCatalogLock(async () => {
+          for (const [id, e] of this.entries) if (e.topicSlug === slug && id !== meta.id) this.entries.delete(id);
+          this.entries.set(meta.id, entryFromMeta(meta));
+          await this.writeCatalog();
+        });
+      });
+    } catch (err) {
+      this.d.logger.warn('library.meta-write-failed', { slug, errno: errnoOf(err) });
     }
-    return found.map((f) => f.meta);
   }
 
   /** 09 §7 step 8: stale temp files and expired trash (HOOK-LIB-01 retention). */
@@ -607,7 +678,7 @@ export class FsLibrary implements Library {
     for (const dir of dirs) {
       const names = await fsp.readdir(dir).catch(() => [] as string[]);
       for (const n of names) {
-        if (!n.includes(TMP_MARKER)) continue;
+        if (!TMP_FILE_RE.test(n)) continue;
         const p = path.join(dir, n);
         const st = await fsp.lstat(p).catch(() => undefined);
         if (st?.isFile() && now - st.mtimeMs > TMP_MAX_AGE_MS) {

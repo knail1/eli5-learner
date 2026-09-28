@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process';
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { writeJsonAtomic, isErrno } from './fs-atomic';
+import { writeJsonAtomic, isErrno, tmpPathFor } from './fs-atomic';
 import { LibraryError, type ProcessProbe } from './types';
 
 /** FIFO promise-chain mutex. Not reentrant (09 §8.3). */
@@ -28,17 +28,25 @@ export class AsyncMutex {
   }
 }
 
+/** One acquisition; `active` goes false on release so late continuations stop counting it. */
+interface HeldLock {
+  key: string;
+  active: boolean;
+}
+
 /**
  * Keyed exclusive locks with reentry detection. Held keys are tracked per async context, so
  * re-acquiring a key the current call chain already holds throws LOCK_REENTRY instead of
  * deadlocking, and `holds()` lets writers assert the caller took the lock (LOCK_NOT_HELD).
+ * Each acquisition is a token deactivated on release: a timer or detached promise created inside
+ * the lock inherits the context but no longer "holds" the key once it is released (09 §8.3).
  */
 export class LockSet {
   private readonly mutexes = new Map<string, { m: AsyncMutex; users: number }>();
-  private readonly held = new AsyncLocalStorage<ReadonlySet<string>>();
+  private readonly held = new AsyncLocalStorage<readonly HeldLock[]>();
 
   holds(key: string): boolean {
-    return this.held.getStore()?.has(key) ?? false;
+    return this.held.getStore()?.some((h) => h.active && h.key === key) ?? false;
   }
 
   async with<T>(key: string, fn: () => Promise<T>): Promise<T> {
@@ -49,9 +57,16 @@ export class LockSet {
       this.mutexes.set(key, slot);
     }
     slot.users++;
-    const outer = this.held.getStore() ?? new Set<string>();
+    const outer = (this.held.getStore() ?? []).filter((h) => h.active);
     try {
-      return await slot.m.run(() => this.held.run(new Set([...outer, key]), fn));
+      return await slot.m.run(async () => {
+        const token: HeldLock = { key, active: true };
+        try {
+          return await this.held.run([...outer, token], fn);
+        } finally {
+          token.active = false;
+        }
+      });
     } finally {
       if (--slot.users === 0) this.mutexes.delete(key);
     }
@@ -88,36 +103,70 @@ export interface ProcessLockOptions {
   startedAt: Date;
   pid?: number;
   probe?: ProcessProbe;
-  /** Executable name compared by the fallback check (e.g. path.basename(process.execPath)). */
+  /** Executable name compared by the fallback check. Default: path.basename(process.execPath). */
   executableName?: string;
 }
 
 /**
- * `open(lock,'wx')`; if it exists, the lock is held only when its PID is another live process whose
+ * Create the lock atomically (`open(lock,'wx')` semantics via link); if it exists, the lock is held only when its PID is another live process whose
  * start time matches the record (or, when unreadable, whose executable name matches). Otherwise it
  * is stale and overwritten.
  */
 export async function acquireProcessLock(opts: ProcessLockOptions): Promise<ProcessLockResult> {
   const pid = opts.pid ?? process.pid;
   const record: ProcessLockRecord = { pid, appVersion: opts.appVersion, startedAt: opts.startedAt.toISOString() };
-  const body = JSON.stringify(record, null, 2) + '\n';
   await fsp.mkdir(path.dirname(opts.file), { recursive: true });
+  if (await createLockFile(opts.file, record)) return { acquired: true };
+  const existing = await readLockRecord(opts.file);
+  if (existing && (await isHeld(existing, pid, opts))) return { acquired: false, holder: existing };
+  if (!existing && (await isFresh(opts.file))) {
+    // Another process may have just created it; its body is not readable yet. Look once more.
+    await delay(FRESH_RETRY_MS);
+    const again = await readLockRecord(opts.file);
+    if (again && (await isHeld(again, pid, opts))) return { acquired: false, holder: again };
+  }
+  // Stale: overwrite, then re-read so that of two processes racing on it only the last writer wins.
+  await writeJsonAtomic(opts.file, record);
+  const after = await readLockRecord(opts.file);
+  if (after && (after.pid !== pid || after.startedAt !== record.startedAt)) return { acquired: false, holder: after };
+  return { acquired: true };
+}
+
+/** A lock file younger than this with no readable body may still be being written. */
+const FRESH_MS = 2000;
+const FRESH_RETRY_MS = 50;
+
+/**
+ * Atomic create-with-content: the record goes to a temp file which is `link()`ed to the lock path,
+ * so no other process can observe an empty lock file (09 §8.4). False when the lock exists.
+ */
+async function createLockFile(file: string, record: ProcessLockRecord): Promise<boolean> {
+  const tmp = tmpPathFor(file);
   try {
-    const fh = await fsp.open(opts.file, 'wx', 0o600);
+    const fh = await fsp.open(tmp, 'wx', 0o600);
     try {
-      await fh.writeFile(body);
+      await fh.writeFile(JSON.stringify(record, null, 2) + '\n');
       await fh.sync();
     } finally {
       await fh.close();
     }
-    return { acquired: true };
+    await fsp.link(tmp, file);
+    return true;
   } catch (err) {
-    if (!isErrno(err, 'EEXIST')) throw err;
+    if (isErrno(err, 'EEXIST')) return false;
+    throw err;
+  } finally {
+    await fsp.unlink(tmp).catch(() => {});
   }
-  const existing = await readLockRecord(opts.file);
-  if (existing && (await isHeld(existing, pid, opts))) return { acquired: false, holder: existing };
-  await writeJsonAtomic(opts.file, record);
-  return { acquired: true };
+}
+
+async function isFresh(file: string): Promise<boolean> {
+  const st = await fsp.stat(file).catch(() => undefined);
+  return st !== undefined && Date.now() - st.mtimeMs < FRESH_MS;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 /** Removes the lock on quit, only when it is ours. */
@@ -148,8 +197,8 @@ async function isHeld(rec: ProcessLockRecord, selfPid: number, opts: ProcessLock
     return Math.abs(actual.getTime() - recorded) <= START_TIME_TOLERANCE_MS;
   }
   const comm = await probe.command(rec.pid);
-  if (comm === undefined || opts.executableName === undefined) return false;
-  return path.basename(comm) === opts.executableName;
+  if (comm === undefined) return false;
+  return path.basename(comm) === (opts.executableName ?? path.basename(process.execPath));
 }
 
 const execFileP = promisify(execFile);

@@ -74,22 +74,16 @@ export function uuidFrom(ids: LibraryIdSource): string {
 }
 
 /**
- * 09 §5.2 privacy rules: local paths become basenames, URLs lose their fragment, and with the
- * HOOK-LIB-01 'redacted' policy URLs keep only origin + path.
+ * 09 §5.2 privacy rules: local paths become basenames, URLs lose credentials and their fragment,
+ * and with the HOOK-LIB-01 'redacted' policy URLs keep only origin + path.
  */
 export function sanitizeSourceRecord(s: SourceRecord, sourceUrls: 'full' | 'redacted'): SourceRecord {
   if (s.kind === 'url') {
-    try {
-      const u = new URL(s.ref);
-      u.hash = '';
-      if (sourceUrls === 'redacted') u.search = '';
-      return { ...s, ref: u.toString() };
-    } catch {
-      return s;
-    }
+    const ref = sanitizeUrl(s.ref, sourceUrls);
+    return ref === undefined ? s : { ...s, ref };
   }
   if (s.kind === 'file' && (path.isAbsolute(s.ref) || s.ref.includes('/') || s.ref.includes('\\'))) {
-    return { ...s, ref: path.basename(s.ref.replace(/\\/g, '/')) };
+    return { ...s, ref: basename(s.ref) };
   }
   return s;
 }
@@ -103,8 +97,51 @@ export function sanitizeMeta<M extends DocumentMeta>(m: M, sourceUrls: 'full' | 
   };
 }
 
+/** Skipped refs are raw input (03 §7.2): a URL of any scheme or a local path. */
 function sanitizeRef(ref: string, sourceUrls: 'full' | 'redacted'): string {
-  if (/^https?:\/\//i.test(ref)) return sanitizeSourceRecord({ ref, kind: 'url' }, sourceUrls).ref;
-  if (path.isAbsolute(ref)) return path.basename(ref);
+  if (SCHEME_RE.test(ref)) {
+    const clean = sanitizeUrl(ref, sourceUrls);
+    if (clean !== undefined) return clean;
+  }
+  if (path.isAbsolute(ref) || ref.startsWith('~/')) return basename(ref);
   return ref;
+}
+
+/** A URL scheme of two or more characters (so `C:\x` is not one). */
+const SCHEME_RE = /^[a-z][a-z0-9+.-]+:/i;
+
+/**
+ * http(s): no userinfo, no fragment, no query when redacted. file: basename only (a local path).
+ * Any other scheme may carry credentials or content (mailto:, data:, smb://user@host/...), so only
+ * the scheme and the path basename survive. Returns undefined when `ref` is not a URL.
+ */
+function sanitizeUrl(ref: string, sourceUrls: 'full' | 'redacted'): string | undefined {
+  let u: URL;
+  try {
+    u = new URL(ref);
+  } catch {
+    return undefined;
+  }
+  if (u.protocol === 'http:' || u.protocol === 'https:') {
+    u.username = '';
+    u.password = '';
+    u.hash = '';
+    if (sourceUrls === 'redacted') u.search = '';
+    return u.toString();
+  }
+  if (u.protocol === 'file:') return basename(safeDecode(u.pathname));
+  const tail = u.pathname.includes('/') ? basename(safeDecode(u.pathname)) : '';
+  return `${u.protocol}${tail}`;
+}
+
+function basename(p: string): string {
+  return path.basename(p.replace(/\\/g, '/'));
+}
+
+function safeDecode(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
 }

@@ -117,4 +117,17 @@ describe('process lock (09 §8.4)', () => {
     if (t) expect(Math.abs(t.getTime() - expected)).toBeLessThan(3000);
     expect(defaultProcessProbe.isAlive(2 ** 22 + 12345)).toBe(false);
   });
+
+  it('two processes racing on a missing lock never both acquire it', async () => {
+    const { libraryDir } = await tmpLibrary();
+    const file = path.join(libraryDir, '.eli5', 'library.lock');
+    const a = { ...me, file, pid: 101, startedAt: REC_START };
+    const b = { ...me, file, pid: 102, startedAt: REC_START };
+    const results = await Promise.all([
+      acquireProcessLock({ ...a, probe: probe() }),
+      acquireProcessLock({ ...b, probe: probe() }),
+    ]);
+    expect(results.filter((r) => r.acquired)).toHaveLength(1);
+    expect([101, 102]).toContain(JSON.parse(await readFile(file, 'utf8')).pid);
+  });
 });

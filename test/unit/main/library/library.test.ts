@@ -280,6 +280,28 @@ describe('locks (09 §8.3)', () => {
     );
   });
 
+  it('a continuation scheduled inside a doc lock stops holding it once the lock is released', async () => {
+    const { lib } = await testLibrary({ devChecks: true });
+    await createDoc(lib, 'Widget Pricing');
+    let later: Promise<boolean> | undefined;
+    await lib.withDocLock('widget-pricing', async () => {
+      expect(lib.holdsDocLock('widget-pricing')).toBe(true);
+      later = new Promise((r) => setTimeout(() => r(lib.holdsDocLock('widget-pricing')), 10));
+    });
+    expect(await later).toBe(false);
+    // A deferred write from inside the lock must take the lock again (no LOCK_REENTRY, no bypass).
+    let deferred: Promise<unknown> | undefined;
+    await lib.withDocLock('widget-pricing', async () => {
+      deferred = new Promise((r) => setTimeout(r, 5)).then(() => lib.touch('widget-pricing'));
+    });
+    await expectCode(deferred as Promise<unknown>, 'LOCK_NOT_HELD');
+    let retaken: Promise<number> | undefined;
+    await lib.withDocLock('widget-pricing', async () => {
+      retaken = new Promise((r) => setTimeout(r, 5)).then(() => lib.withDocLock('widget-pricing', async () => 1));
+    });
+    expect(await retaken).toBe(1);
+  });
+
   it('withDocLocks takes locks in ascending order, so opposite orders never deadlock', async () => {
     const { lib } = await testLibrary();
     const results = await Promise.all([
@@ -362,15 +384,56 @@ describe('reconcile (09 §7, §12)', () => {
     expect(reopened.list()).toHaveLength(2);
   });
 
-  it('uses the folder name when a folder was renamed in Finder', async () => {
-    const { lib, open } = await testLibrary();
+  it('uses the folder name when a folder was renamed in Finder, and bumps updatedAt', async () => {
+    const { lib, clock, open } = await testLibrary();
     await createDoc(lib, 'Widget Pricing');
+    const before = (await lib.getMeta('widget-pricing')).updatedAt;
     await (
       await import('node:fs/promises')
     ).rename(path.join(lib.root, 'widget-pricing'), path.join(lib.root, 'widgets-renamed'));
+    clock.advance(60_000);
     const again = await open();
     expect(again.list().map((e) => e.topicSlug)).toEqual(['widgets-renamed']);
-    expect((await again.getMeta('widgets-renamed')).topicSlug).toBe('widgets-renamed');
+    const meta = await again.getMeta('widgets-renamed');
+    expect(meta.topicSlug).toBe('widgets-renamed');
+    expect(meta.updatedAt).toBe(clock.now().toISOString());
+    expect(meta.updatedAt).not.toBe(before);
+    expect(again.getEntry('widgets-renamed')?.updatedAt).toBe(meta.updatedAt);
+    expect((await catalogOf(lib.root)).entries[0]?.updatedAt).toBe(meta.updatedAt);
+  });
+
+  it('rewrites meta.json only under the doc lock, re-reading it so a concurrent update is kept', async () => {
+    const { lib } = await testLibrary();
+    await createDoc(lib, 'Widget Pricing');
+    const p = lib.docPath('widget-pricing', 'meta.json');
+    await writeFile(p, JSON.stringify({ ...(await readJson<DocumentMeta>(p)), topicSlug: 'old-name' }));
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const holder = lib.withDocLock('widget-pricing', async () => {
+      await gate;
+      await lib.updateDocument('widget-pricing', { meta: (m) => ({ ...m, title: 'Updated meanwhile' }) });
+    });
+    const rec = lib.reconcile();
+    await new Promise((r) => setTimeout(r, 20));
+    // Reconcile's phase 2 waits for the doc lock: meta.json is untouched so far.
+    expect((await readJson<DocumentMeta>(p)).topicSlug).toBe('old-name');
+    release();
+    await Promise.all([holder, rec]);
+    const meta = await readJson<DocumentMeta>(p);
+    expect(meta.title).toBe('Updated meanwhile');
+    expect(meta.topicSlug).toBe('widget-pricing');
+  });
+
+  it('skips a folder whose meta.json cannot be read instead of failing startup', async () => {
+    const { lib, open } = await testLibrary();
+    await createDoc(lib, 'Widget Pricing');
+    const odd = path.join(lib.root, 'odd-folder');
+    await mkdir(path.join(odd, 'meta.json'), { recursive: true });
+    await writeFile(path.join(odd, 'index.html'), '<p>x</p>');
+    const again = await open();
+    expect(again.list().map((e) => e.topicSlug)).toEqual(['widget-pricing']);
+    expect((await readdir(path.join(odd, 'meta.json'))).length).toBe(0);
+    await expectCode(again.getMeta('odd-folder'), 'META_INVALID');
   });
 
   it('gives copied folders with a duplicate id a new id; the earliest createdAt keeps it', async () => {
@@ -403,6 +466,20 @@ describe('reconcile (09 §7, §12)', () => {
     expect(await readdir(trash)).toEqual(['new-doc--20260130T000000']);
     await expect(stat(staleTmp)).rejects.toThrow();
     await expect(stat(freshTmp)).resolves.toBeDefined();
+  });
+
+  it('never deletes old files that only look like temp files (foreign docs/ content, 09 §3.2)', async () => {
+    const { lib, clock, open } = await testLibrary();
+    const old = new Date(clock.now().getTime() - 2 * 60 * 60 * 1000);
+    const foreign = ['notes.tmp-draft.html', 'x.tmp-1-DEADBEEF', 'y.tmp-1-deadbeef.bak'].map((n) =>
+      path.join(lib.root, n),
+    );
+    for (const f of foreign) {
+      await writeFile(f, 'x');
+      await utimes(f, old, old);
+    }
+    await open();
+    for (const f of foreign) await expect(stat(f)).resolves.toBeDefined();
   });
 });
 
@@ -448,6 +525,22 @@ describe('versioning and read-only mode (09 §5.3, §8.5)', () => {
     const ro = await open();
     expect(ro.readOnly).toBe(true);
     expect(ro.list().map((e) => e.topicSlug)).toEqual(['widget-pricing']);
+  });
+
+  it('takes the process lock by default and releases it on close', async () => {
+    const { lib } = await testLibrary();
+    const lockFile = path.join(lib.root, '.eli5', 'library.lock');
+    const rec = await readJson<{ pid: number; startedAt: string }>(lockFile);
+    expect(rec.pid).toBe(process.pid);
+    expect(Math.abs(Date.parse(rec.startedAt) - (Date.now() - process.uptime() * 1000))).toBeLessThan(5000);
+    await lib.close();
+    await expect(stat(lockFile)).rejects.toThrow();
+  });
+
+  it('processLock: false opens without a lock file', async () => {
+    const { open } = await testLibrary({ processLock: false });
+    const lib = await open();
+    await expect(stat(path.join(lib.root, '.eli5', 'library.lock'))).rejects.toThrow();
   });
 
   it('a held process lock enters read-only mode; a stale one does not', async () => {
