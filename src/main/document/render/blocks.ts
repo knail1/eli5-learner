@@ -1,0 +1,165 @@
+// Block renderers (07 §7.1) and glossary note markup (07 §9.2).
+import { renderChartFigure } from '../charts';
+import { attrs, esc } from '../html';
+import { toDataUri } from '../images';
+import { renderInline, renderInlineMany, type DfnAnchor } from '../inline-md';
+import type { AssetRef, DocBlock, GlossaryNote } from '../types';
+
+export interface BlockContext {
+  /** Unique per block in the document; used for ids inside charts and figures. */
+  idBase: string;
+  assets: ReadonlyMap<string, Uint8Array>;
+  assetRefs: ReadonlyMap<string, AssetRef>;
+  /** Glossary notes anchored in this block, in anchor order. */
+  notes: readonly GlossaryNote[];
+}
+
+const CALLOUT_LABELS = { note: 'Note', warning: 'Warning', keypoint: 'Key point' } as const;
+const NUMERIC_CELL = /^[-−+]?[$€£¥]?\s?\(?[0-9][0-9,.]*\)?\s?(%|[kKmMbB]n?|x)?$/;
+
+function anchorsOf(notes: readonly GlossaryNote[]): DfnAnchor[] {
+  return notes.map((n) => ({ text: n.anchorText, noteId: n.id }));
+}
+
+/** `<details class="gl-note">` (07 §9.2). */
+export function renderNote(n: GlossaryNote): string {
+  return (
+    `<details${attrs([
+      ['class', 'gl-note'],
+      ['id', n.id],
+      ['data-note-for', `${n.id}-ref`],
+    ])}>` +
+    `<summary><span class="gl-icon" aria-hidden="true"></span><b>${esc(n.term)}</b>` +
+    (n.expansion ? ` · ${esc(n.expansion)}` : '') +
+    `</summary><p>${esc(n.explanation)}</p></details>`
+  );
+}
+
+function renderTable(b: Extract<DocBlock, { type: 'table' }>): string {
+  const numeric = b.header.map(
+    (_, ci) =>
+      b.rows.some((r) => (r[ci] ?? '').trim() !== '') &&
+      b.rows.every((r) => (r[ci] ?? '').trim() === '' || NUMERIC_CELL.test((r[ci] ?? '').trim())),
+  );
+  const cls = (ci: number): string | undefined => (numeric[ci] ? 'num' : undefined);
+  const head = b.header
+    .map(
+      (h, ci) =>
+        `<th${attrs([
+          ['scope', 'col'],
+          ['class', cls(ci)],
+        ])}>${renderInline(h)}</th>`,
+    )
+    .join('');
+  const body = b.rows
+    .map((r) => `<tr>${r.map((c, ci) => `<td${attrs([['class', cls(ci)]])}>${renderInline(c)}</td>`).join('')}</tr>`)
+    .join('');
+  return (
+    '<div class="table-wrap"><table>' +
+    (b.caption ? `<caption>${esc(b.caption)}</caption>` : '') +
+    `<thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`
+  );
+}
+
+function pct(v: number): number {
+  const p = v <= 1 ? v * 100 : v;
+  return Math.round(Math.max(0, Math.min(100, p)) * 100) / 100;
+}
+
+function renderFigure(b: Extract<DocBlock, { type: 'figure' }>, ctx: BlockContext): string {
+  const ref = ctx.assetRefs.get(b.assetId);
+  const bytes = ctx.assets.get(b.assetId);
+  if (!ref || !bytes) {
+    // Asset bytes missing (hand-edited file): keep the caption so the block stays readable.
+    return `<figure class="annotated" data-asset-missing="${esc(b.assetId)}"><figcaption>${esc(b.caption)}</figcaption></figure>`;
+  }
+  const anns = b.annotations ?? [];
+  const markers = anns
+    .map(
+      (a, i) =>
+        `<a${attrs([
+          ['class', 'fig-marker'],
+          ['href', `#${ctx.idBase}-n${i + 1}`],
+          ['style', `left:${pct(a.x)}%;top:${pct(a.y)}%`],
+          ['aria-label', `Note ${i + 1}`],
+        ])}>${i + 1}</a>`,
+    )
+    .join('');
+  const notes = anns.length
+    ? `<ol class="fig-notes">${anns.map((a, i) => `<li id="${ctx.idBase}-n${i + 1}">${esc(a.text)}</li>`).join('')}</ol>`
+    : '';
+  return (
+    '<figure class="annotated"><div class="fig-media">' +
+    `<img${attrs([
+      ['src', toDataUri(ref.mime, bytes)],
+      ['alt', b.alt || b.caption],
+      ['width', ref.width],
+      ['height', ref.height],
+      ['data-asset-id', ref.id],
+    ])}>` +
+    markers +
+    '</div>' +
+    (b.caption ? `<figcaption>${esc(b.caption)}</figcaption>` : '') +
+    notes +
+    '</figure>'
+  );
+}
+
+/** One block plus the glossary notes anchored in it (rendered right after the block, 07 §9.2). */
+export function renderBlock(b: DocBlock, ctx: BlockContext): string {
+  const anchors = anchorsOf(ctx.notes);
+  let html: string;
+  switch (b.type) {
+    case 'paragraph':
+      html = `<p>${renderInline(b.md, anchors)}</p>`;
+      break;
+    case 'list': {
+      const tag = b.ordered ? 'ol' : 'ul';
+      const items = renderInlineMany(b.items, anchors).html;
+      html = `<${tag}>${items.map((i) => `<li>${i}</li>`).join('')}</${tag}>`;
+      break;
+    }
+    case 'pullquote':
+      html =
+        `<figure class="pullquote"><blockquote><p>${esc(b.text)}</p></blockquote>` +
+        (b.attribution ? `<figcaption>${esc(b.attribution)}</figcaption>` : '') +
+        '</figure>';
+      break;
+    case 'callout':
+      html =
+        `<aside class="callout callout--${b.tone}"><p class="callout-label">${CALLOUT_LABELS[b.tone]}</p>` +
+        `<p>${renderInline(b.md, anchors)}</p></aside>`;
+      break;
+    case 'analogy':
+      html = `<aside class="analogy"><p class="analogy-label">Think of it like</p><p>${renderInline(b.md, anchors)}</p></aside>`;
+      break;
+    case 'table':
+      html = renderTable(b);
+      break;
+    case 'chart':
+      html = renderChartFigure(b.chart, ctx.idBase);
+      break;
+    case 'diagram':
+      // svg was sanitized at build time (07 §7.3) and is stored sanitized in the model.
+      html = `<figure class="diagram">${b.title ? `<h3 class="diagram-title">${esc(b.title)}</h3>` : ''}${b.svg}</figure>`;
+      break;
+    case 'figure':
+      html = renderFigure(b, ctx);
+      break;
+    case 'stepper':
+      html =
+        `<div class="stepper">${b.title ? `<h3 class="stepper-title">${esc(b.title)}</h3>` : ''}<ol class="stepper-steps">` +
+        b.steps
+          .map(
+            (s, i) =>
+              `<li${attrs([
+                ['class', 'step'],
+                ['data-step', i + 1],
+              ])}><p class="step-label">${esc(s.label)}</p><p>${renderInline(s.md)}</p></li>`,
+          )
+          .join('') +
+        '</ol></div>';
+      break;
+  }
+  return html + ctx.notes.map(renderNote).join('');
+}
