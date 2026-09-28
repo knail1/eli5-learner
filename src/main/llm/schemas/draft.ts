@@ -129,6 +129,8 @@ const UNSUPPORTED = [
 ];
 
 function nullable(s: Json): Json {
+  // The API rejects an enum under a type array (even with null listed), so nullable enums are unions.
+  if (Array.isArray(s.enum)) return { anyOf: [s, { type: 'null' }] };
   const t = s.type;
   if (typeof t === 'string') return { ...s, type: [t, 'null'] };
   if (Array.isArray(t)) return t.includes('null') ? s : { ...s, type: [...(t as string[]), 'null'] };
@@ -164,6 +166,24 @@ function strictify(node: unknown): unknown {
  */
 export function toStrictJsonSchema(schema: z.ZodType): Json {
   return strictify(z.toJSONSchema(schema, { target: 'draft-2020-12', io: 'output' })) as Json;
+}
+
+/**
+ * Drafts sent as prompted JSON instead of native structured output (02 §10). The API compiles
+ * output_config schemas into a grammar with a size cap and at most 16 union-typed parameters; the
+ * ten-shape block union nested in sections and tabs exceeds both. Their replies are parsed and
+ * validated with the same zod schemas and single repair.
+ */
+const PROMPTED_JSON: ReadonlySet<DraftSchemaName> = new Set(['DocumentDraftTab', 'SectionDraft']);
+
+export function usesPromptedJson(name: DraftSchemaName): boolean {
+  return PROMPTED_JSON.has(name);
+}
+
+/** Compact JSON Schema text for the system-prompt output contract of a prompted draft. */
+export function draftPromptSchema(name: DraftSchemaName): string {
+  const { $schema: _drop, ...schema } = z.toJSONSchema(DRAFT_SCHEMAS[name], { target: 'draft-2020-12', io: 'output' });
+  return JSON.stringify(schema);
 }
 
 const jsonSchemaCache = new Map<DraftSchemaName, Json>();

@@ -8,6 +8,8 @@ import {
   DraftBlockSchema,
   SectionDraftSchema,
   draftJsonSchema,
+  draftPromptSchema,
+  usesPromptedJson,
   stripNullProperties,
   type ChartSpec,
   type DraftBlock,
@@ -205,7 +207,7 @@ function check<N extends DraftSchemaName>(
   if (r.stopReason === 'max_tokens') throw new OutputTruncated(r.text);
   if (r.json === undefined) {
     try {
-      return validateDraft(name, JSON.parse(r.text) as unknown, ctx);
+      return validateDraft(name, JSON.parse(extractJsonText(r.text)) as unknown, ctx);
     } catch {
       return { ok: false, errors: ['(root): output is not valid JSON'] };
     }
@@ -221,10 +223,9 @@ export async function generateStructured<N extends DraftSchemaName>(
   call: StructuredCall<N>,
 ): Promise<StructuredResult<DraftOf<N>>> {
   const ctx = call.validation ?? {};
-  const req: GenerationRequest = {
-    ...call.request,
-    jsonSchema: { name: schemaToolName(call.schema), schema: draftJsonSchema(call.schema) },
-  };
+  const req: GenerationRequest = usesPromptedJson(call.schema)
+    ? { ...call.request, system: call.request.system + promptedJsonContract(call.schema) }
+    : { ...call.request, jsonSchema: { name: schemaToolName(call.schema), schema: draftJsonSchema(call.schema) } };
   const first = await send(call.provider, req);
   let usage = first.usage;
   const outcome = check(first, call.schema, ctx);
@@ -262,6 +263,28 @@ export async function generateStructured<N extends DraftSchemaName>(
     repaired: true,
     dropped: again.dropped,
   };
+}
+
+/** Output contract appended to the system prompt of a prompted-JSON draft (02 §10). */
+export function promptedJsonContract(name: DraftSchemaName): string {
+  return (
+    '\n\n## Output format\n' +
+    `Return only one JSON object that validates against this JSON Schema (${name}). ` +
+    'No prose before or after it and no code fences. Omit optional fields you do not use.\n' +
+    draftPromptSchema(name)
+  );
+}
+
+/**
+ * The JSON text of a prompted reply: the reply itself when it is JSON, otherwise the outermost
+ * {...} span (strips code fences and stray prose), or the reply unchanged when there is none.
+ */
+export function extractJsonText(text: string): string {
+  const t = text.trim();
+  if (t.startsWith('{') && t.endsWith('}')) return t;
+  const start = t.indexOf('{');
+  const end = t.lastIndexOf('}');
+  return start >= 0 && end > start ? t.slice(start, end + 1) : text;
 }
 
 /** snake_case name for jsonSchema.name (tool names and OpenAI schema names). */

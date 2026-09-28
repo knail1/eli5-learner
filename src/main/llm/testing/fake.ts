@@ -33,6 +33,8 @@ export interface FakeCall {
   imageCount: number;
   imageBytes: number[];
   withImages: boolean;
+  /** Native structured-output schema, when the request carried one (02 §10). */
+  jsonSchema?: GenerationRequest['jsonSchema'];
 }
 
 export interface FakeProviderOptions {
@@ -122,6 +124,7 @@ export class FakeProvider implements LLMProvider {
       imageCount: images.length,
       imageBytes: images.map((i) => i.data.byteLength),
       withImages,
+      ...(req.jsonSchema ? { jsonSchema: req.jsonSchema } : {}),
     });
 
     // 1. Unknown task fails loudly.

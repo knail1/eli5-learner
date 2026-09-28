@@ -50,6 +50,12 @@ describe('checkApiKeyFormat (12 §5.2)', () => {
     expect(checkApiKeyFormat('claude', 'sk-ant-\u0001').ok).toBe(false);
     expect(checkApiKeyFormat('claude', 'x'.repeat(513)).ok).toBe(false);
   });
+  it('strips one pair of surrounding quotes pasted from a .env file or docs', () => {
+    expect(checkApiKeyFormat('claude', '"sk-ant-test"')).toEqual({ ok: true, key: 'sk-ant-test' });
+    expect(checkApiKeyFormat('claude', " 'sk-ant-test' ")).toEqual({ ok: true, key: 'sk-ant-test' });
+    expect(checkApiKeyFormat('claude', '"sk-ant-test').ok).toBe(true); // unbalanced: kept, then warned
+    expect(checkApiKeyFormat('claude', '""').ok).toBe(false);
+  });
   it('trims and warns on unexpected prefixes', () => {
     expect(checkApiKeyFormat('claude', '  sk-ant-test  ')).toEqual({ ok: true, key: 'sk-ant-test' });
     const r = checkApiKeyFormat('openai', 'key-test');

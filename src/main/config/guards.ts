@@ -70,7 +70,10 @@ export type KeyFormatResult = { ok: true; key: string; warning?: string } | { ok
 
 /** 12 §5.2 steps 2-3: reject malformed keys; unexpected prefixes only warn. */
 export function checkApiKeyFormat(provider: 'claude' | 'openai', raw: string): KeyFormatResult {
-  const key = raw.trim();
+  let key = raw.trim();
+  // Keys pasted from a .env file or docs often keep their quotes: drop one balanced pair.
+  const q = key[0];
+  if (key.length >= 2 && (q === '"' || q === "'") && key.endsWith(q)) key = key.slice(1, -1).trim();
   if (key.length === 0 || key.length > 512) return { ok: false };
   if (!/^[\x21-\x7e]+$/.test(key)) return { ok: false };
   const prefix = provider === 'claude' ? 'sk-ant-' : 'sk-';
