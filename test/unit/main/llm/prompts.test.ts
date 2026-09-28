@@ -113,7 +113,7 @@ describe('prompt loader and templating', () => {
     const c = PromptCatalogue.load([d, PROMPTS_DIR]);
     expect(c.get('summary').version).toBe(2);
     expect(c.render('summary', { title: 'T', outline: 'o', indepthExcerpt: 'e' }).system).toBe('OVERRIDE T');
-    expect(c.get('eli5').version).toBe(2);
+    expect(c.get('eli5').version).toBe(3);
     expect(() => PromptCatalogue.load([d])).toThrow(/not found/);
   });
 });

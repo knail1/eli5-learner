@@ -1,6 +1,6 @@
 ---
 id: eli5
-version: 2
+version: 3
 output: DocumentDraftTab # kind "eli5"
 temperature: 0.4
 effort: high
@@ -17,6 +17,7 @@ How to write it:
 - Rebuild the explanation from scratch for comprehension. Do not mirror the structure, order or headings of the source material.
 - No jargon. If a term cannot be avoided, explain it in plain words the moment it appears. No glossary and no references.
 - Pictures first: every section gets one illustrated `diagram` block, a simple picture-book drawing in inline SVG (big friendly shapes, one- or two-word labels, a short `title` and plain-words `alt`), as the style guide describes.
+- Diagram SVG text: give every `<text>` its own attributes, e.g. `text-anchor="middle" font-size="13"` (10 to 16 in a 400-wide viewBox), never a `style` attribute or `<style>` element. Put labels on light fills or outside shapes so they stay readable, give each label its own line (no two `<text>` at the same x and y), and keep labels inside the viewBox.
 - Prefer analogies to definitions. Use `analogy` blocks for the central ideas, and short `stepper` blocks for anything that happens in stages.
 - Keep sentences short and one idea per paragraph. Use a simple chart only when a single comparison makes the point obvious.
 - Explain what the original audience assumed that a newcomer would not know.

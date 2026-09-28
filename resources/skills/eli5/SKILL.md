@@ -26,6 +26,8 @@ box-and-arrow chart.
 - Use a `stepper` or a simple `chart` in addition when order or amounts matter, never instead of the
   picture. Give every `diagram` a short `title` and a plain-words `alt` text.
 - Keep each SVG small and self-contained: basic shapes and text only, no images, fonts or scripts.
+- Labels stay readable: dark text on light fills (or next to the shape), centered with
+  `text-anchor="middle"`, and never two labels on top of each other.
 
 - **Start from what the reader already knows.** Open with an everyday situation that has the same shape
   as the idea, then connect it to the real thing.

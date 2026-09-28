@@ -70,10 +70,16 @@ describe('task functions (02 §12) with FakeProvider and the default script', ()
     expect(p.promptText).not.toContain('<source ref="x">'); // delimiter in content is neutralised
     const indepth = await tasks.generateIndepth(p, { ...ctx, glossary: true });
     expect(DocumentDraftTabSchema.parse(indepth.draft).kind).toBe('indepth');
-    expect(indepth.prompt).toBe('in-depth@1');
+    expect(indepth.prompt).toBe('in-depth@2');
     const eli5 = await tasks.generateEli5(p, ctx);
     expect(eli5.draft.kind).toBe('eli5');
-    expect(eli5.prompt).toBe('eli5@2');
+    expect(eli5.prompt).toBe('eli5@3');
+    // SVG text rules (real-document regression): attributes, not style; readable, non-overlapping labels.
+    for (const task of ['eli5', 'in-depth'] as const) {
+      const sys = fake.calls.find((c) => c.taskId === task)?.system ?? '';
+      expect(sys, task).toMatch(/text-anchor="middle"/);
+      expect(sys, task).toMatch(/never a `style` attribute/i);
+    }
     // The ELI5 view is picture-first: one illustrated diagram per section (user request).
     const eli5System = fake.calls.find((c) => c.taskId === 'eli5')?.system ?? '';
     expect(eli5System).toMatch(/every section gets one illustrated `diagram`/i);

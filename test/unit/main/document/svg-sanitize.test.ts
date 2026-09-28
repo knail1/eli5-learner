@@ -6,6 +6,42 @@ const wrap = (inner: string, rootAttrs = 'viewBox="0 0 100 50"'): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" ${rootAttrs}>${inner}</svg>`;
 
 describe('sanitizeSvg (07 §7.3)', () => {
+  it('keeps safe presentation from style attributes as attributes (real-provider diagram regression)', () => {
+    // A real document's labels lost centering and size: the model wrote text-anchor and font-size
+    // in style="...", and dropping the whole style attribute left every label left-aligned at 16.
+    const out = sanitizeSvg(
+      wrap(
+        '<text x="60" y="105" style="text-anchor: middle; font-size: 12px; font-weight: 600; ' +
+          'dominant-baseline: middle; fill: #1b1b1b">Protected</text>' +
+          '<rect x="1" y="1" width="5" height="5" style="fill:#788c5d;stroke:#3d3d3a;stroke-width:2;opacity:0.9"/>',
+      ),
+      opts,
+    );
+    expect(out).toContain('text-anchor="middle"');
+    expect(out).toContain('font-size="12"');
+    expect(out).toContain('font-weight="600"');
+    expect(out).toContain('dominant-baseline="middle"');
+    expect(out).toContain('stroke-width="2"');
+    expect(out).toContain('opacity="0.9"');
+    expect(out).not.toContain('style=');
+    // Colors from style map onto the palette like fill/stroke attributes do.
+    expect(out).toMatch(/<rect[^>]*class="[^"]*viz-fill-/);
+    expect(out).toMatch(/<rect[^>]*class="[^"]*viz-stroke-/);
+  });
+
+  it('ignores unsafe or unknown style declarations and never lets style override an attribute', () => {
+    const out = sanitizeSvg(
+      wrap(
+        '<text x="1" y="9" text-anchor="end" style="text-anchor:middle; font-size: expression(alert(1)); ' +
+          'background:url(https://x.test/a.png); position:fixed; font-size: 9e999px">a</text>',
+      ),
+      opts,
+    );
+    expect(out).toContain('text-anchor="end"');
+    expect(out).not.toMatch(/expression|url\(|position|background|9e999/);
+    expect(out).not.toContain('font-size=');
+  });
+
   it('is idempotent, so parseDocument can re-run it on stored SVG', () => {
     const once = sanitizeSvg(
       wrap(

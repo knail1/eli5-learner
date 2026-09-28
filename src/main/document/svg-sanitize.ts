@@ -264,6 +264,47 @@ const numAttr = (v: string | undefined): number | undefined => {
  * Sanitizes model SVG per 07 §7.3. Returns the serialized SVG, or null when nothing valid is left,
  * the root is not `<svg>`, or no viewBox can be derived.
  */
+/**
+ * Safe presentation declarations from a `style` attribute, as attributes (07 §7.3). Models often
+ * write `style="text-anchor:middle;font-size:12px"`; dropping style wholesale left real diagrams'
+ * labels left-aligned at the default size. Only these properties, with strict values, are kept;
+ * real attributes win, and colors still go through the palette mapping in the attribute loop.
+ */
+const STYLE_PROPS: Readonly<Record<string, RegExp>> = {
+  'text-anchor': /^(start|middle|end)$/,
+  'dominant-baseline': /^(auto|middle|central|hanging|alphabetic|text-top|text-bottom|mathematical)$/,
+  'font-weight': /^(normal|bold|lighter|bolder|[1-9]00)$/,
+  'font-size': /^\d{1,3}(\.\d{1,2})?(px)?$/,
+  'stroke-width': /^\d{1,2}(\.\d{1,2})?(px)?$/,
+  opacity: /^(0|1|0?\.\d{1,3}|1\.0+)$/,
+  'fill-opacity': /^(0|1|0?\.\d{1,3}|1\.0+)$/,
+  'stroke-opacity': /^(0|1|0?\.\d{1,3}|1\.0+)$/,
+  fill: /^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]{3,20})$/,
+  stroke: /^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]{3,20})$/,
+};
+
+function withStyleAttributes(attrs: { name: string; value: string }[]): { name: string; value: string }[] {
+  const style = attrs.find((a) => a.name === 'style');
+  if (!style) return attrs;
+  const present = new Set(attrs.map((a) => a.name));
+  const extra: { name: string; value: string }[] = [];
+  for (const decl of style.value.split(';')) {
+    const i = decl.indexOf(':');
+    if (i < 0) continue;
+    const name = decl.slice(0, i).trim().toLowerCase();
+    const value = decl
+      .slice(i + 1)
+      .trim()
+      .toLowerCase()
+      .replace(/\s*!important$/, '');
+    const re = STYLE_PROPS[name];
+    if (!re || present.has(name) || !re.test(value)) continue;
+    present.add(name);
+    extra.push({ name, value: /^(font-size|stroke-width)$/.test(name) ? value.replace(/px$/, '') : value });
+  }
+  return [...attrs, ...extra];
+}
+
 export function sanitizeSvg(input: string, opts: SanitizeSvgOptions): string | null {
   let doc: { documentElement: El | null };
   try {
@@ -294,7 +335,7 @@ export function sanitizeSvg(input: string, opts: SanitizeSvgOptions): string | n
     const classes: string[] = [];
     let width: string | undefined;
     let height: string | undefined;
-    for (const a of Array.from(el.attributes ?? [])) {
+    for (const a of withStyleAttributes(Array.from(el.attributes ?? []))) {
       const attrName = a.name;
       const value = a.value;
       if (attrName === 'class') {
