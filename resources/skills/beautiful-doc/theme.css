@@ -1,0 +1,35 @@
+/*
+ * Skill theme input for the beautiful-doc slot (02 §11, 07 §11.3): the html-effectiveness palette
+ * (resources/skills/beautiful-doc/html-effectiveness, Apache-2.0). Only known token names are used;
+ * the renderer validates every value.
+ */
+:root {
+  --paper: #faf9f5;
+  --paper-2: #f0eee6;
+  --ink: #141413;
+  --ink-2: #3d3d3a;
+  --muted: #87867f;
+  --rule: #d1cfc5;
+  --link: #a8512f;
+  --accent: #d97757;
+  --accent-ink: #faf9f5;
+  --highlight: #e3dacc;
+  --viz-1: #d97757;
+  --viz-2: #788c5d;
+  --viz-3: #6a8caf;
+  --viz-4: #b04a3f;
+  --viz-5: #c9a15b;
+  --viz-6: #8c6b9e;
+  --viz-7: #3d3d3a;
+  --viz-8: #87867f;
+  --viz-muted: #d1cfc5;
+  --viz-grid: #e8e6dc;
+  --callout-note: #6a8caf;
+  --callout-warning: #b04a3f;
+  --callout-key: #788c5d;
+  --gl-bg: #f0eee6;
+  --gl-rule: #e3dacc;
+  --pull-rule: #d97757;
+  --font-serif: "Iowan Old Style", ui-serif, Georgia, "Times New Roman", serif;
+  --font-sans: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+}

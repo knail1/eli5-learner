@@ -42,3 +42,23 @@ translated into the block types this app renders. A user skill with the same nam
 - **Pull quotes** only for a genuinely striking line from the material, attributed.
 - **Callouts** for the one key point of a section (`keypoint`) and for caveats (`warning`).
 - End sections with a sentence that sets up the next one; end the piece with what to watch next.
+
+### Design language (html-effectiveness)
+
+Adapted from the vendored [html-effectiveness](html-effectiveness/) gallery (Apache-2.0, see
+`../THIRD_PARTY.md`) and its "rich single-file HTML over Markdown" approach. The palette and type live in
+`theme.css` next to this file, so write for that look: warm ivory paper, serif headlines, sans prose,
+one clay accent.
+
+- **Lead with the answer.** The first section opens with the finding in one or two sentences, then a
+  `table` or `chart` of the three or four numbers that carry it. Never make the reader scroll to learn
+  the conclusion.
+- **Every number is real and sourced.** Only use figures that appear in the source material; name where
+  each came from in the chart `source` or the sentence. If something is an estimate, say so. If the
+  material does not give a number, say that plainly instead of inventing one.
+- **Restraint with emphasis.** At most one `keypoint` callout and one highlighted chart category per
+  section. A `warning` callout is for a real problem, not decoration.
+- **Bars before anything fancier.** A horizontal bar comparison with clear labels beats a pie or a
+  multi-series chart. Use `diagram` only when the shape of the thing is the point.
+- **Findings, then what to do.** When the material implies actions or open questions, end with them,
+  ordered by importance, each with what it costs and what it gets back when the source says so.

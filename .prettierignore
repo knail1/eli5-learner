@@ -9,3 +9,4 @@ package-lock.json
 .claude/
 resources/skills/eli5/upstream/
 resources/skills/beautiful-doc/html-effectiveness/
+resources/skills/beautiful-doc/theme.css
