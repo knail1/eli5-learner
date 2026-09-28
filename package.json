@@ -1,0 +1,58 @@
+{
+  "name": "eli5-learner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Turns decks, docs, PDFs, screenshots and URLs into interactive HTML explainers with an in-depth view and an ELI5 view.",
+  "author": "Omer Ansari",
+  "license": "MIT",
+  "main": "out/main/index.js",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "postinstall": "node --experimental-require-module node_modules/electron/install.js --no",
+    "build:runtime": "vite build --config vite.doc-runtime.config.ts",
+    "dev": "npm run build:runtime && ELI5_TEST_BUILD=1 electron-vite dev",
+    "build": "npm run build:runtime && electron-vite build",
+    "build:enterprise": "ELI5_EDITION=enterprise npm run build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "ELI5_TEST_BUILD=1 npm run build && playwright test",
+    "check:spec": "node scripts/check-spec-hooks.mjs",
+    "package": "rimraf out build/doc-runtime && npm run build && electron-builder --mac dmg"
+  },
+  "devDependencies": {
+    "@electron/fuses": "^1.8.0",
+    "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.20.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "@vitest/coverage-v8": "^5.0.2",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-import": "^2.32.0",
+    "jsdom": "^27.0.1",
+    "prettier": "^3.9.9",
+    "rimraf": "^6.1.3",
+    "typescript": "6.0",
+    "typescript-eslint": "^8.70.1",
+    "vite": "^7.3.6",
+    "vitest": "^5.0.2"
+  },
+  "dependencies": {
+    "@napi-rs/keyring": "^2.1.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.5"
+  }
+}

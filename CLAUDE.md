@@ -8,7 +8,8 @@ ELI5 Learner is a macOS Electron app that turns decks, docs, PDFs, screenshots a
 self-contained interactive `index.html` with an in-depth (WSJ-style) tab and an ELI5 tab, refinable
 section by section.
 
-- **Status:** pre-code. The design is settled; the app has not been scaffolded yet.
+- **Status:** M0 (foundations) is built; M1 modules are skeletons with typed seams, stubs and
+  public defaults. See the build order in `spec/tech/README.md`.
 - **Source of truth:** `spec/ELI5 Learner Product Requirements Document.md` (what) and
   `spec/tech/` (how: one engineering spec per module; start at `spec/tech/README.md`, which also
   has the build order). `README.md` is the user-facing summary.
@@ -18,7 +19,7 @@ section by section.
 - `spec/` — public product spec; `spec/tech/` — public engineering spec and `hooks.md` registry.
 - `scripts/check-spec-hooks.mjs` — validates private-hook markers; run `node scripts/check-spec-hooks.mjs`
   after any spec edit.
-- `docs/` — generated learnings live here at runtime. Mostly git-ignored (see below).
+- `.library/` — dev library root for generated learnings (gitignored; packaged builds use userData).
 - `docs/index.html`, `docs/.nojekyll`, `docs/sample/` — the only committed `docs/` files; they form
   the public GitHub Pages site.
 - `.github/workflows/pages.yml` — deploys `docs/` to https://knail1.github.io/eli5-learner/ on pushes
@@ -30,7 +31,7 @@ section by section.
   URLs or credentials.
 - Never commit:
   - `spec/internal.md` (organization-specific spec details; git-ignored)
-  - `docs/*` other than the whitelisted Pages files (generated from possibly private sources)
+  - `.library/` (generated learnings) and `docs/*` other than the whitelisted Pages files
   - `.env*`, keys (`*.pem`, `*.p12`), `config.local.json`, `CLAUDE.local.md`
 - Stage specific files only (no `git add .` / `git add -A`). Review `git diff --cached --stat` and
   scan the diff for secrets before every commit.
@@ -58,4 +59,19 @@ section by section.
 
 ## Build and run
 
-Not scaffolded yet. When it is, record the build, run, lint and test commands here.
+Node 22.12+ (Electron 44's installer needs it; `postinstall` downloads the Electron binary).
+
+- `npm run dev` — run the app; `npm run build` — production build into `out/`
+- `npm run typecheck`, `npm run lint`, `npm test` (Vitest, offline), `npm run test:e2e` (Playwright
+  `_electron`, run `npm run build` first), `npm run check:spec`
+- Enterprise mechanism check: `ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=test/fixtures/overlay-fake npx electron-vite build`
+
+## Code conventions
+
+- Each `src/main/<module>/` is imported only through its `index.ts` (ESLint enforces this). A module
+  registers its public implementations, stubs and policy defaults in its own `register.ts`
+  (`registerPublic(reg)`), called from `src/main/editions/public.ts`.
+- Types that cross IPC live only in `src/preload/contract.ts`; modules re-export them.
+- Zod 4: use `.prefault({})` for object defaults that must run nested defaults.
+- Tests live in `test/` mirroring `src/`, never co-located. Secret-shaped test strings are
+  assembled at runtime so the repo never contains literal ones.

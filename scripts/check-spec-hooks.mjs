@@ -16,20 +16,20 @@
 //
 // Dependency-free. Node >= 20. Exit 1 on failure, 0 otherwise.
 
-import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
-import { join, relative, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { execFileSync } from "node:child_process";
+import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
+import { join, relative, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const SPEC_DIR = join(ROOT, "spec");
-const TECH_DIR = join(SPEC_DIR, "tech");
-const INTERNAL = join(SPEC_DIR, "internal.md");
-const HOOKS_INDEX = join(TECH_DIR, "hooks.md");
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const SPEC_DIR = join(ROOT, 'spec');
+const TECH_DIR = join(SPEC_DIR, 'tech');
+const INTERNAL = join(SPEC_DIR, 'internal.md');
+const HOOKS_INDEX = join(TECH_DIR, 'hooks.md');
 
 const ID = String.raw`HOOK-[A-Z]+-\d{2}`;
-const MARKER_RE = new RegExp(String.raw`<!--\s*hook:(${ID})\s*-->`, "g");
-const MENTION_RE = new RegExp(String.raw`\b(${ID})\b`, "g");
+const MARKER_RE = new RegExp(String.raw`<!--\s*hook:(${ID})\s*-->`, 'g');
+const MENTION_RE = new RegExp(String.raw`\b(${ID})\b`, 'g');
 const HEADING_ID_RE = new RegExp(String.raw`^#{1,6}\s+.*?\b(${ID})\b`);
 
 const errors = [];
@@ -39,7 +39,7 @@ const rel = (p) => relative(ROOT, p) || p;
 function listMd(dir) {
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
-    .filter((f) => f.endsWith(".md"))
+    .filter((f) => f.endsWith('.md'))
     .map((f) => join(dir, f))
     .filter((p) => p !== INTERNAL && statSync(p).isFile())
     .sort();
@@ -57,8 +57,8 @@ const defs = new Map(); // id -> [{file, line}]
 const mentions = new Map(); // id -> [{file, line}]
 
 for (const file of publicFiles) {
-  const text = readFileSync(file, "utf8").replace(/\r\n/g, "\n");
-  const lines = text.split("\n");
+  const text = readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
+  const lines = text.split('\n');
 
   for (const m of text.matchAll(MARKER_RE)) {
     const id = m[1];
@@ -68,7 +68,7 @@ for (const file of publicFiles) {
 
     // Next non-empty line after the marker line.
     let j = line; // 0-based index of the line after the marker
-    while (j < lines.length && lines[j].trim() === "") j++;
+    while (j < lines.length && lines[j].trim() === '') j++;
     const expected = `> **Private hook · ${id} ·`;
     if (j >= lines.length || !lines[j].trimStart().startsWith(expected)) {
       fail(`${rel(file)}:${line}: marker for ${id} must be followed by a line starting with "${expected}"`);
@@ -84,14 +84,17 @@ for (const file of publicFiles) {
 
 for (const [id, where] of defs) {
   if (where.length > 1) {
-    fail(`${id} is defined ${where.length} times: ${where.map((w) => `${rel(w.file)}:${w.line}`).join(", ")}`);
+    fail(`${id} is defined ${where.length} times: ${where.map((w) => `${rel(w.file)}:${w.line}`).join(', ')}`);
   }
 }
 
 for (const [id, where] of mentions) {
   if (!defs.has(id)) {
-    const at = where.slice(0, 3).map((w) => `${rel(w.file)}:${w.line}`).join(", ");
-    fail(`${id} is mentioned but never defined (${at}${where.length > 3 ? ", ..." : ""})`);
+    const at = where
+      .slice(0, 3)
+      .map((w) => `${rel(w.file)}:${w.line}`)
+      .join(', ');
+    fail(`${id} is mentioned but never defined (${at}${where.length > 3 ? ', ...' : ''})`);
   }
 }
 
@@ -99,7 +102,7 @@ for (const [id, where] of mentions) {
 if (!existsSync(HOOKS_INDEX)) {
   fail(`${rel(HOOKS_INDEX)} is missing; it must list every defined hook`);
 } else {
-  const idx = readFileSync(HOOKS_INDEX, "utf8");
+  const idx = readFileSync(HOOKS_INDEX, 'utf8');
   const listed = new Set([...idx.matchAll(MENTION_RE)].map((m) => m[1]));
   for (const id of defs.keys()) {
     if (!listed.has(id)) fail(`${rel(HOOKS_INDEX)} does not list defined hook ${id}`);
@@ -110,12 +113,12 @@ if (!existsSync(HOOKS_INDEX)) {
 }
 
 // ---------------------------------------------------------------- private checks
-let privateNote = "private checks skipped";
+let privateNote = 'private checks skipped';
 if (!existsSync(INTERNAL)) {
-  console.log("private spec not present: skipping binding and denylist checks");
+  console.log('private spec not present: skipping binding and denylist checks');
 } else {
-  const internal = readFileSync(INTERNAL, "utf8").replace(/\r\n/g, "\n");
-  const ilines = internal.split("\n");
+  const internal = readFileSync(INTERNAL, 'utf8').replace(/\r\n/g, '\n');
+  const ilines = internal.split('\n');
 
   // (a) bindings
   const bound = new Set();
@@ -145,12 +148,18 @@ if (!existsSync(INTERNAL)) {
   const terms = [];
   let inDeny = false;
   for (const l of ilines) {
-    if (/^##\s+Public denylist\s*$/i.test(l.trim())) { inDeny = true; continue; }
+    if (/^##\s+Public denylist\s*$/i.test(l.trim())) {
+      inDeny = true;
+      continue;
+    }
     if (inDeny && /^#{1,2}\s/.test(l)) break;
     if (!inDeny) continue;
     const b = l.match(/^\s*-\s+(.*)$/);
     if (!b) continue;
-    let t = b[1].trim().replace(/^`(.*)`$/, "$1").trim();
+    let t = b[1]
+      .trim()
+      .replace(/^`(.*)`$/, '$1')
+      .trim();
     if (t) terms.push(t);
   }
   if (!inDeny) {
@@ -160,21 +169,21 @@ if (!existsSync(INTERNAL)) {
   // Tracked files plus untracked-but-not-ignored ones (catches leaks before `git add`).
   let files = [];
   try {
-    const out = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
+    const out = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], {
       cwd: ROOT,
-      encoding: "utf8",
+      encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
     });
-    files = [...new Set(out.split("\0").filter(Boolean))];
+    files = [...new Set(out.split('\0').filter(Boolean))];
   } catch (e) {
     fail(`could not run "git ls-files": ${e.message}`);
   }
 
-  const mask = (t) => (t.length <= 2 ? "*".repeat(t.length) : t[0] + "*".repeat(t.length - 2) + t[t.length - 1]);
+  const mask = (t) => (t.length <= 2 ? '*'.repeat(t.length) : t[0] + '*'.repeat(t.length - 2) + t[t.length - 1]);
   const needles = terms.map((t) => t.toLowerCase());
   let hits = 0;
   for (const f of files) {
-    if (f === "spec/internal.md") continue;
+    if (f === 'spec/internal.md') continue;
     const abs = join(ROOT, f);
     let buf;
     try {
@@ -184,7 +193,7 @@ if (!existsSync(INTERNAL)) {
       continue; // deleted in working tree, or unreadable
     }
     if (buf.subarray(0, 8000).includes(0)) continue; // binary
-    const lower = buf.toString("utf8").toLowerCase();
+    const lower = buf.toString('utf8').toLowerCase();
     needles.forEach((n, i) => {
       let from = 0;
       let k;

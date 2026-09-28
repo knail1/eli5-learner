@@ -144,7 +144,7 @@ Dormant keys exist so that the public build can read an enterprise-shaped settin
 | Logs | `<userData>/logs/main.log` (+ `.1`, `.2`) | `0600` |
 | Job staging | `<userData>/jobs/` (06) | `0700` dir |
 | API keys | macOS Keychain, service `ELI5 Learner` | Keychain ACL |
-| Documents | library root: `<repo>/docs` in dev, `<userData>/docs` packaged, or `ELI5_LIBRARY_DIR` (09 §3.1) | per 09 |
+| Documents | library root: gitignored `<repo>/.library` in dev, `<userData>/docs` packaged, or `ELI5_LIBRARY_DIR` (09 §3.1) | per 09 |
 
 `userData` is `app.getPath('userData')`, which resolves to `~/Library/Application Support/ELI5 Learner/` in a packaged build. Dev builds call `app.setPath('userData', …/ELI5 Learner (dev))` before `ready` so dev runs never touch a real profile. E2E tests set `ELI5_USER_DATA_DIR` to a temp directory; only unpackaged builds honor it (`!app.isPackaged`).
 
@@ -248,7 +248,7 @@ The guard runs on load, on `set`, and on every `SettingsExtension` layer. An ove
 | --- | --- | --- | --- | --- |
 | `keytar` | Keychain item | Archived upstream (2022), no maintained Electron prebuilds | node-gyp + `electron-rebuild` | Rejected: unmaintained native code in the most security-sensitive path |
 | Electron `safeStorage` | Encrypted blob in a file under `userData`; only the wrapping key is in the Keychain (item "ELI5 Learner Safe Storage") | Maintained, built in | None | Viable, but the key is not a Keychain item under service `ELI5 Learner`, the blob travels with backups and profile copies, and any code in main can decrypt it without per-item ACL |
-| **`@napi-rs/keyring`** | Keychain generic password, service `ELI5 Learner` | Maintained, keytar-compatible API | N-API prebuilt universal binaries; no rebuild per Electron version | **Chosen** |
+| **`@napi-rs/keyring`** | Keychain generic password, service `ELI5 Learner` | Maintained, keytar-compatible API | N-API prebuilt per-arch binaries (01 §8.3); no rebuild per Electron version | **Chosen** |
 
 Justification: it meets the convention that keys are Keychain items under service `ELI5 Learner`. The secret is protected by the Keychain's per-item ACL, which is bound to the app's code signature. The user can inspect or delete the key in Keychain Access. N-API keeps the binary stable across Electron upgrades. `safeStorage` is the documented fallback if the native module ever fails to load; the fallback would store `<userData>/keys.enc` with the same `KeyStore` interface. It is not shipped in v1.
 

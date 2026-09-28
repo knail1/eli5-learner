@@ -224,9 +224,9 @@ Clarifying input (PRD "Processing pipeline") goes verbatim into the `indepth` an
 Inside `library.withDocLock(slug, ...)`:
 
 1. Build the final `DocumentModel` (doc 07): the in-depth tab, the ELI5 tab (or placeholder), the glossary notes, and a references section listing every resolved and skipped source with reasons (PRD "References").
-2. Render `index.html` and `meta.json` (a `DocumentMeta` containing sources used, sources skipped, clarifying input, tab list, `jobId`, `warnings`) into `docs/.staging/<jobId>/`, on the same volume as `docs/`.
-3. Call `library.commitDocument(reservation, 'docs/.staging/<jobId>/', meta)` (doc 09 §8.2). Doc 09 fsyncs, atomically renames the directory to `docs/<topic-slug>/`, and upserts the `CatalogEntry` (including the summary) into `catalog.json` with its atomic write. The pipeline does no rename or catalog write of its own.
-4. If saving fails or the job is cancelled before step 3 begins, call `reservation.release()` and remove `docs/.staging/<jobId>/`.
+2. Render `index.html` and `meta.json` (a `DocumentMeta` containing sources used, sources skipped, clarifying input, tab list, `jobId`, `warnings`) into `<library-root>/.staging/<jobId>/`, on the same volume as the library root.
+3. Call `library.commitDocument(reservation, '<library-root>/.staging/<jobId>/', meta)` (doc 09 §8.2). Doc 09 fsyncs, atomically renames the directory to `<library-root>/<topic-slug>/`, and upserts the `CatalogEntry` (including the summary) into `catalog.json` with its atomic write. The pipeline does no rename or catalog write of its own.
+4. If saving fails or the job is cancelled before step 3 begins, call `reservation.release()` and remove `<library-root>/.staging/<jobId>/`.
 5. Set `result`, move to `done`, persist, and emit `eli5:jobs:changed` and `eli5:library:changed`. The Library sidebar and menu bar list update from the library event (doc 11). No native notification is shown.
 6. Delete `jobs/<jobId>/` staging for the job (§9.5).
 7. Fire the merge check (§10).

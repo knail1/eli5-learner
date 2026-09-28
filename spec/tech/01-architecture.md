@@ -432,7 +432,7 @@ the private spec's checklist are built from it. A spec that adds a hook adds a r
 | HOOK-SRC-01 | 03 | `registerSourceResolver` (id `mcp`) | `mcp.stub.ts` |
 | HOOK-SRC-02 | 03 | `registerSourceResolver` (id `ticket`) | `ticket.stub.ts` |
 | HOOK-SRC-03 | 03 | `registerLaneRules`, `registerLaneRouter` | empty rules; `routeBare()` → null |
-| HOOK-SRC-04 | 03 | `registerStagingPolicy` | stage under `<userData>/staging/<jobId>/`, delete on terminal |
+| HOOK-SRC-04 | 03 | `registerStagingPolicy` | drafts under `<userData>/staging/drafts/`, job inputs under `<userData>/jobs/<jobId>/`; retention per 06 §9 |
 | HOOK-SRC-05 | 03 | `registerMcpClient` | no MCP client; `sources.mcp.url` inert |
 | HOOK-FETCH-01 | 05 | `registerNetworkConfigurator` | system proxy, default trust store |
 | HOOK-FETCH-02 | 05 | `registerLoginSignatures` | `[]` |
@@ -799,8 +799,8 @@ mac:
 ### 8.4 Library root location
 
 The PRD places documents in the app project directory under `docs/`. At runtime the library root
-is resolved by `library/` (09 §3): in `dev` it is `<repo>/docs/` (git-ignored except the public
-Pages files); in a packaged app it is `app.getPath('userData')/docs/`. The `eli5doc://` handler
+is resolved by `library/` (09 §3): in `dev` it is the gitignored `<repo>/.library/` (never `docs/`, which is the
+public Pages source); in a packaged app it is `app.getPath('userData')/docs/`. The `eli5doc://` handler
 serves only from this root.
 
 **Deviation from PRD wording (Document location row):** packaged builds store the library in

@@ -51,7 +51,7 @@ The PRD rules apply here. Fetch first and render only as a fallback. Use no brow
 export interface FetchContext {
   jobId: string;
   signal: AbortSignal;                 // job cancellation; aborts network + render window
-  stagingDir: string;                  // <userData>/staging/<jobId>/ (03 ResolverContext); binary bodies are written here
+  stagingDir: string;                  // <userData>/jobs/<jobId>/ (03 ResolveContext, 06 §9.2); binary bodies are written here
   onProgress?: (detail: FetchProgress) => void; // optional, pipeline may ignore (status stays one line)
 }
 

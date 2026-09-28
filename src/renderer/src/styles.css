@@ -1,0 +1,105 @@
+:root {
+  color-scheme: light dark;
+  --bg: #fbfaf7;
+  --fg: #1d1d1b;
+  --muted: #6b6a66;
+  --panel: #f1efe9;
+  --line: #dedbd3;
+  font:
+    14px/1.5 -apple-system,
+    BlinkMacSystemFont,
+    'Helvetica Neue',
+    sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1b1a;
+    --fg: #ecebe7;
+    --muted: #9c9a94;
+    --panel: #242422;
+    --line: #34332f;
+  }
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+.shell {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  grid-template-rows: 1fr auto;
+  height: 100vh;
+}
+.sidebar {
+  grid-row: 1 / 3;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 16px;
+}
+.sidebar h2 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+.main {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  min-height: 0;
+}
+.viewer-slot {
+  padding: 32px;
+  overflow: auto;
+}
+.input-zone {
+  border-top: 1px solid var(--line);
+  padding: 16px 32px;
+}
+.status {
+  grid-column: 2;
+  text-align: right;
+  padding: 6px 16px;
+  color: var(--muted);
+  font-size: 12px;
+  min-height: 28px;
+}
+.muted {
+  color: var(--muted);
+}
+.card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  max-width: 480px;
+}
+.card h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 8px 0;
+}
+input[type='password'] {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+}
+button {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--fg);
+  cursor: pointer;
+}

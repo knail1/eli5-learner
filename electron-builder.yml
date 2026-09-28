@@ -1,0 +1,26 @@
+# Public packaging (01 §8.3). Enterprise identity is bound privately (HOOK-CFG-02).
+appId: io.github.eli5-learner
+productName: ELI5 Learner
+asar: true
+asarUnpack:
+  - '**/*.node'
+directories:
+  output: release
+files:
+  - out/**
+  - package.json
+  - '!**/*.map'
+extraResources:
+  - from: resources
+    to: .
+mac:
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  category: public.app-category.education
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # Signing and notarization run only when credentials are present (01 §8.3).
+  notarize: false
+afterPack: scripts/after-pack.cjs

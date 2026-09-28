@@ -170,3 +170,13 @@ spec/internal.md
 
 # Private enterprise overlay (see spec/tech/01-architecture.md, HOOK-CFG-02)
 enterprise/
+
+# Build pre-step output (01 §8.1)
+build/doc-runtime/
+
+# Test and packaging output
+test-results/
+playwright-report/
+
+# Dev library root: generated learnings, possibly from private sources (09 §3.1)
+/.library/

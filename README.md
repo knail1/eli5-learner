@@ -2,7 +2,7 @@
 
 macOS app that turns decks, docs, PDFs, screenshots and URLs into interactive HTML explainers: an in-depth WSJ-style view plus an ELI5 view, refinable section by section.
 
-> **Status:** early development. The design is settled; the code is still to come.
+> **Status:** early development. The foundations are built; document generation is in progress.
 > Full requirements: [spec/ELI5 Learner Product Requirements Document.md](spec/ELI5%20Learner%20Product%20Requirements%20Document.md)
 
 ## What it does
@@ -85,7 +85,28 @@ The public build needs nothing but an API key: no accounts, no logins and no oth
 
 ## Getting started
 
-Build and run instructions will be added once the app is scaffolded (Electron, macOS).
+Requires macOS and Node.js 22.12 or newer.
+
+```sh
+npm install          # also downloads the Electron binary
+npm run dev          # run the app with hot reload (development profile, separate from real data)
+```
+
+The foundations are in place (milestone M0 in [spec/tech/README.md](spec/tech/README.md)): the app
+boots, stores settings, and keeps API keys in the macOS Keychain. Generating documents arrives in
+the next milestones.
+
+| Command | What it does |
+| --- | --- |
+| `npm run build` | Production build of the public edition into `out/` |
+| `npm run typecheck` / `npm run lint` | Strict TypeScript and ESLint, including module boundary rules |
+| `npm test` | Unit tests (offline; network access fails the test) |
+| `npm run test:e2e` | Launches the built app with Playwright and checks it end to end |
+| `npm run check:spec` | Validates the spec's private-hook markers |
+| `npm run package` | Unsigned `.dmg` via electron-builder |
+
+In development, generated documents go to the gitignored `.library/` folder, never to `docs/`
+(the public GitHub Pages source). Settings live in `~/Library/Application Support/ELI5 Learner (dev)/`.
 
 ## License
 

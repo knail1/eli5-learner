@@ -1,0 +1,155 @@
+import type { WebContents } from 'electron';
+import { z } from 'zod';
+import {
+  IPC,
+  VIEWER_CHANNELS,
+  type AuthStatus,
+  type EditionInfo,
+  type IpcChannel,
+  type ModelsResult,
+  type Settings,
+  type SettingsDescription,
+  type TestConnectionResult,
+} from '../../preload/contract';
+import { DEFAULT_MODELS, ProviderIdSchema, type DeepPartial } from '../config';
+import type { SettingsStore } from '../config';
+import { account, type KeyStore } from '../config';
+import { checkApiKeyFormat } from '../config';
+import type { Registry } from '../editions';
+import { log } from '../security';
+import { safeOpenExternal } from '../security';
+import { fail, makeHandle, NoPayload, WithWarnings, type HandlerRegistrar, type SenderIdentity } from './handle';
+
+export { assertSender, toIpcError, IpcFailure, fail, makeHandle } from './handle';
+export type { SenderIdentity, HandlerRegistrar } from './handle';
+
+export interface IpcDeps {
+  ipc: HandlerRegistrar;
+  ids: SenderIdentity;
+  settings: SettingsStore;
+  keyStore: KeyStore;
+  registry: Registry;
+  viewer: {
+    setBounds(b: { x: number; y: number; width: number; height: number }): void;
+    setVisible(v: boolean): void;
+  };
+  /** Push an event to the app renderer. */
+  sendToApp(channel: IpcChannel, payload: unknown): void;
+}
+
+const Bounds = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  width: z.number().finite().min(0),
+  height: z.number().finite().min(0),
+});
+const KeyProvider = z.enum(['claude', 'openai']);
+
+/** Registers every channel in 01 §5.2. Channels owned by later milestones answer "not implemented". */
+export function registerIpc(d: IpcDeps): void {
+  const handle = makeHandle(d.ipc, d.ids);
+  const implemented = new Set<string>();
+  const on = <S extends z.ZodType, R>(
+    channel: IpcChannel,
+    schema: S,
+    fn: (p: z.infer<S>, e: Electron.IpcMainInvokeEvent) => Promise<R> | R,
+  ): void => {
+    implemented.add(channel);
+    handle(channel, VIEWER_CHANNELS.includes(channel) ? 'viewer' : 'app', schema, fn);
+  };
+
+  // ---- settings (12 §5) ----
+  on(IPC.settings.get, NoPayload, (): Settings => d.settings.get());
+  on(IPC.settings.set, z.record(z.string(), z.unknown()), async (patch): Promise<Settings> => {
+    const next = await d.settings.set(patch as DeepPartial<Settings>);
+    d.registry.invalidateLLM();
+    return next;
+  });
+  on(IPC.settings.setApiKey, z.object({ provider: KeyProvider, key: z.string().max(4096) }), async (p) => {
+    const checked = checkApiKeyFormat(p.provider, p.key);
+    if (!checked.ok) fail('E_KEY_FORMAT', "That doesn't look like an API key");
+    await d.keyStore.set(account(p.provider), checked.key);
+    d.registry.invalidateLLM();
+    log.info('settings.api-key-saved', { provider: p.provider });
+    return checked.warning ? new WithWarnings(undefined, [checked.warning]) : undefined;
+  });
+  on(IPC.settings.hasApiKey, z.object({ provider: KeyProvider }), (p) => d.keyStore.has(account(p.provider)));
+  on(IPC.settings.clearApiKey, z.object({ provider: KeyProvider }), async (p) => {
+    await d.keyStore.delete(account(p.provider));
+    d.registry.invalidateLLM();
+  });
+  on(IPC.settings.describe, NoPayload, async (): Promise<SettingsDescription> =>
+    d.settings.describe(await d.keyStore.available()),
+  );
+
+  // ---- edition (01 §6.2) ----
+  on(IPC.edition.info, NoPayload, (): EditionInfo => d.registry.info());
+
+  // ---- auth (03 §12): public broker reports 'unavailable'; sign-in throws NotAvailableInEdition ----
+  on(IPC.auth.status, NoPayload, (): AuthStatus => d.registry.auth().status());
+  on(IPC.auth.signIn, NoPayload, (): Promise<AuthStatus> => d.registry.auth().signIn());
+  on(IPC.auth.signOut, NoPayload, (): Promise<AuthStatus> => d.registry.auth().signOut());
+
+  // ---- llm (02 §14) ----
+  on(IPC.llm.testConnection, z.object({ provider: ProviderIdSchema.optional() }).optional(), async () => {
+    const provider = d.settings.get().llm.provider;
+    if (provider !== 'bedrock' && !(await d.keyStore.has(account(provider)))) {
+      fail('E_NO_API_KEY', 'Add an API key in Settings');
+    }
+    const r = await d.registry.llm().testConnection();
+    const out: TestConnectionResult = r.ok ? { ok: true, model: r.model } : { ok: false, message: r.error.message };
+    return out;
+  });
+  on(IPC.llm.models, z.object({ provider: ProviderIdSchema }), (p): ModelsResult => ({
+    suggested: DEFAULT_MODELS[p.provider] ? [DEFAULT_MODELS[p.provider]] : [],
+    default: DEFAULT_MODELS[p.provider],
+  }));
+
+  // ---- viewer (11) ----
+  on(IPC.viewer.setBounds, Bounds, (b) => d.viewer.setBounds(b));
+  on(IPC.viewer.setVisible, z.object({ visible: z.boolean() }), (p) => d.viewer.setVisible(p.visible));
+  on(IPC.viewer.openExternal, z.object({ url: z.string().max(2048) }), async (p, e) => {
+    if (!(await safeOpenExternal(p.url, e.sender.id))) fail('E_RATE_LIMITED', 'Link not opened');
+  });
+
+  // ---- test-only channel, compiled out of packaged builds (01 §8.1) ----
+  if (__ELI5_TEST__) {
+    implemented.add(IPC.test.trayClick);
+  }
+
+  // ---- everything else: owned by M1+ modules, registered so the preload API is total ----
+  for (const channel of invokableChannels()) {
+    if (implemented.has(channel)) continue;
+    handle(channel, VIEWER_CHANNELS.includes(channel) ? 'viewer' : 'app', z.unknown(), () =>
+      fail('E_INTERNAL', 'Not implemented yet'),
+    );
+  }
+
+  d.settings.onChanged((settings, changed) => d.sendToApp(IPC.settings.changed, { changed, settings }));
+}
+
+/** Event channels (M→R, M→D) are not invokable. */
+const EVENT_CHANNELS = new Set<string>([
+  IPC.jobs.changed,
+  IPC.auth.changed,
+  IPC.library.changed,
+  IPC.suggestions.changed,
+  IPC.doc.updated,
+  IPC.doc.scrollTo,
+  IPC.doc.sectionBusy,
+  IPC.app.navigate,
+  IPC.settings.changed,
+  IPC.publish.progress,
+  IPC.test.trayClick,
+]);
+
+export function invokableChannels(): IpcChannel[] {
+  const all: IpcChannel[] = [];
+  for (const group of Object.values(IPC)) for (const ch of Object.values(group)) all.push(ch as IpcChannel);
+  return all.filter((c) => !EVENT_CHANNELS.has(c));
+}
+
+/** Convenience for SenderIdentity implementations. */
+export function sameContents(a: WebContents | undefined, b: WebContents | undefined): boolean {
+  return !!a && !!b && a.id === b.id;
+}

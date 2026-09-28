@@ -1,0 +1,8 @@
+out/
+build/
+node_modules/
+docs/
+spec/
+package-lock.json
+*.md
+.github/

@@ -1,0 +1,26 @@
+/** Content extraction (04). extractSource() and the extractors arrive in M1. */
+export type {
+  ContentBlock,
+  ExtractContext,
+  ExtractedContent,
+  ExtractedFormat,
+  ExtractLimits,
+  ExtractResult,
+  ExtractSkipCode,
+  ExtractStats,
+  Extractor,
+  HeadingBlock,
+  ImageAsset,
+  ImageBlock,
+  ImageBudget,
+  ImageNormalizer,
+  ListBlock,
+  ListItem,
+  NotesBlock,
+  PageBlock,
+  ParagraphBlock,
+  PdfPageRenderer,
+  SlideBlock,
+  TableBlock,
+} from './types';
+export { registerPublic } from './register';

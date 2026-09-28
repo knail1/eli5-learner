@@ -432,7 +432,7 @@ export async function matchMerge(summary: string,
 Contract with [06](06-generation-pipeline.md) §5.4:
 
 1. `prepareContent` does budgeting and, if needed, chunk-then-synthesize map/reduce (section 8). Chunk failures after retries mark the chunk's sources as skipped ("model error while reading") and continue, unless every chunk fails, which throws. Its result is reusable: 06 persists it and every later step takes it as input, so a resumed job never re-runs chunk notes.
-2. 06 calls the step functions sequentially in the fixed order in-depth → ELI5 → glossary (only if the toggle is on) → summary, sets the status sub-line for each, and writes each `StepResult` to `staging/<jobId>/gen/<step>.json` before starting the next.
+2. 06 calls the step functions sequentially in the fixed order in-depth → ELI5 → glossary (only if the toggle is on) → summary, sets the status sub-line for each, and writes each `StepResult` to `<userData>/jobs/<jobId>/gen/<step>.json` before starting the next.
 3. Each step function makes one logical call (plus the repair pass and the output-overflow retry of section 8.5) and throws `LLMError` on failure; it never decides whether the job fails. 06 applies the per-step failure rules (in-depth fails the job; ELI5, glossary and summary degrade per 06 §7.1).
 4. Step functions are pure with respect to storage: they read nothing from disk except prompts and skills, and write nothing.
 
