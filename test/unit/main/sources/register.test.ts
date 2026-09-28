@@ -28,12 +28,20 @@ describe('registerPublic', () => {
     expect(reg.info().authAvailable).toBe(false);
   });
 
-  it('registers ticket (40) before mcp (30)', () => {
+  it('registers resolvers in 01 §6.2 priority order: ticket 40, mcp 30, url 20, file 10, clipboard 10', () => {
     expect(
       make()
         .resolvers()
         .map((r) => r.id),
-    ).toEqual(['ticket', 'mcp']);
+    ).toEqual(['ticket', 'mcp', 'url', 'file', 'clipboard']);
+  });
+
+  it('marks only the mcp and ticket resolvers as stubs', () => {
+    const stubs = make()
+      .resolvers()
+      .filter((r) => (r as { stub?: boolean }).stub === true)
+      .map((r) => r.id);
+    expect(stubs).toEqual(['ticket', 'mcp']);
   });
 
   it('orders with later M1 resolvers by default priority', () => {
