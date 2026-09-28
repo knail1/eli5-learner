@@ -1,0 +1,22 @@
+{
+  "id": "finance-deck-glossary",
+  "domain": "finance",
+  "sources": ["sources/pptx/quarterly-review.pptx"],
+  "clarifying": "I am new to the finance team.",
+  "glossary": true,
+  "mustCover": [
+    "net revenue grew 12% year over year, driven by enterprise renewals",
+    "the renewal rate reached 94% and churn was flat",
+    "services revenue was flat while hardware margin improved",
+    "quarterly revenue rose from 38 to 46 million dollars through Q3",
+    "R&D was under half of operating expense"
+  ],
+  "jargon": ["YoY", "churn", "operating expense"],
+  "sectionActions": [
+    {
+      "action": "expand",
+      "sectionHint": "revenue"
+    }
+  ],
+  "covers": ["pptx", "section-expand"]
+}

@@ -1,0 +1,37 @@
+{
+  "id": "cal-06-patch-missing-facts",
+  "domain": "security",
+  "glossary": true,
+  "sources": "patch-policy.docx\nPatch policy (Example Widgets Inc., synthetic)\nCritical vulnerabilities (CVSS 9.0 and above) must be patched within 72 hours; high (7.0 to 8.9) within 14 days; others within 30 days.\nInternet-facing systems are patched first.\nIf a patch cannot be applied in time, the system owner must file an exception with a compensating control, such as blocking the vulnerable port. Exceptions last at most 90 days.\nCompliance last quarter: 88% of critical patches on time (target 95%).",
+  "mustCover": [
+    "critical flaws must be patched within 72 hours",
+    "high within 14 days and others within 30",
+    "internet-facing systems go first",
+    "late patches need an exception with a compensating control, lasting at most 90 days",
+    "only 88% of critical patches were on time against a 95% target"
+  ],
+  "jargon": ["CVSS", "compensating control"],
+  "tabs": {
+    "indepth": "In depth\nHow fast flaws must be fixed\nCritical vulnerabilities must be patched within 72 hours.\n[Glossary] CVSS: A 0-to-10 score for how dangerous a security flaw is.\n[Glossary] compensating control: Another protection used while a patch is late, such as blocking the affected network port.\nOther rules\nSome systems are patched earlier than others, and there are exceptions.\nSources\nUsed\npatch-policy.docx",
+    "eli5": "ELI5\nComputers need fixes\nSometimes programs have holes. People fix them. Some fixes are fast, some are slow, and there are rules and sometimes exceptions, and teams check how they are doing, and there are different scores and some systems are special."
+  },
+  "human": {
+    "indepth": {
+      "D1": 5,
+      "D2": 2,
+      "D3": 3,
+      "D4": 3,
+      "D5": 1,
+      "D6": 5,
+      "D7": 5
+    },
+    "eli5": {
+      "E1": 4,
+      "E2": 2,
+      "E3": 3,
+      "E4": 1,
+      "E5": 1
+    }
+  },
+  "notes": "What is there is right, but most must-cover facts are missing; vague 'some systems'; no visuals. ELI5 has no clear point and no analogy."
+}

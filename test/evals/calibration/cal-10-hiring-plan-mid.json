@@ -1,0 +1,36 @@
+{
+  "id": "cal-10-hiring-plan-mid",
+  "domain": "general",
+  "glossary": false,
+  "sources": "hiring-plan.txt\nHiring plan 2027 (Example Widgets Inc., synthetic)\nHeadcount grows from 310 to 352 (+42). Engineering +18, support +12, sales +8, finance +4.\nSupport hires come first (Q1) because ticket volume rose 35% and first-response time is 9 hours against a 4-hour goal.\nBudget: $5.1M including recruiting fees. Two recruiters join in January.",
+  "mustCover": [
+    "headcount grows from 310 to 352",
+    "engineering +18, support +12, sales +8, finance +4",
+    "support hires first because tickets rose 35% and responses take 9 hours against 4",
+    "budget is $5.1M including recruiting fees",
+    "two recruiters join in January"
+  ],
+  "jargon": [],
+  "tabs": {
+    "indepth": "In depth\nHiring plan 2027\nThe company plans to hire 42 people next year, reaching 352.\nWhere the hires go\nEngineering gets 18, support 12, sales 8 and finance 4.\n[Chart] Hires by team\nCategory | Hires\nEngineering | 18\nSupport | 12\nSales | 8\nFinance | 4\nTiming\nSupport hires come in early in the year.\nBudget\nThe plan costs $5.1M.\nSources\nUsed\nhiring-plan.txt",
+    "eli5": "ELI5\nMore people are joining\nNext year the company will add 42 people, mostly engineers and support staff.\nSupport first\nThe helpers who answer customer questions are swamped, so they get new teammates first.\nThink of it like\nAdding more checkout lanes when the line at the shop gets too long."
+  },
+  "human": {
+    "indepth": {
+      "D1": 5,
+      "D2": 3,
+      "D3": 3,
+      "D4": 3,
+      "D5": 4,
+      "D7": 5
+    },
+    "eli5": {
+      "E1": 5,
+      "E2": 4,
+      "E3": 5,
+      "E4": 4,
+      "E5": 4
+    }
+  },
+  "notes": "Accurate; misses why support comes first (35%, 9 vs 4 hours) and the recruiters; generic headings; glossary off (no D6)."
+}

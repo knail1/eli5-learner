@@ -1,0 +1,37 @@
+{
+  "id": "cal-05-office-move",
+  "domain": "general",
+  "glossary": true,
+  "sources": "office-move.txt\nOffice move plan (Example Widgets Inc., synthetic)\nThe Riverside office (180 staff) moves to the Hill Street building on 6 October. Movers pack on Friday 3 October from 14:00. Staff work from home on Monday 6 October while IT sets up desks. Parking: 60 spaces instead of 90; a shuttle runs from the train station every 15 minutes at peak times. Hot-desking replaces assigned desks for teams that are in the office fewer than 3 days a week.",
+  "mustCover": [
+    "180 staff move to Hill Street on 6 October",
+    "packing starts Friday 3 October at 14:00",
+    "everyone works from home on Monday 6 October",
+    "parking drops from 90 to 60 spaces with a shuttle every 15 minutes",
+    "hot-desking for teams in fewer than 3 days a week"
+  ],
+  "jargon": ["hot-desking"],
+  "tabs": {
+    "indepth": "In depth\nRiverside moves to Hill Street on 6 October\nAll 180 Riverside staff move to the Hill Street building. Movers start packing on Friday 3 October at 14:00, and everyone works from home on Monday 6 October while IT sets up desks.\nGetting there\nParking falls from 90 to 60 spaces, so a shuttle will run from the train station every 15 minutes at peak times.\n[Chart] Parking spaces\nCategory | Spaces\nRiverside | 90\nHill Street | 60\nDesks\nTeams in the office fewer than 3 days a week will use hot-desking.\n[Glossary] hot-desking: Nobody has a fixed desk; you take any free desk when you come in.\nSources\nUsed\noffice-move.txt",
+    "eli5": "ELI5\nThe big idea: the office is moving, and you should stay home on moving day\nOn 6 October the whole office moves to a new building. On that Monday, everyone works from home.\nParking and desks\nThere are fewer parking spots, but a little bus runs from the train station. Some teams will share desks, taking any free one, like picking a seat on a bus.\nThink of it like\nMoving house: pack on Friday, and do not visit while the boxes are being unpacked."
+  },
+  "human": {
+    "indepth": {
+      "D1": 5,
+      "D2": 5,
+      "D3": 4,
+      "D4": 4,
+      "D5": 3,
+      "D6": 4,
+      "D7": 5
+    },
+    "eli5": {
+      "E1": 5,
+      "E2": 4,
+      "E3": 4,
+      "E4": 4,
+      "E5": 4
+    }
+  },
+  "notes": "Solid and accurate; chart is correct but adds little (D5=3); ELI5 simplifies and stays true."
+}

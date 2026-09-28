@@ -1,0 +1,39 @@
+{
+  "title": "Access Review Standard",
+  "blocks": [
+    { "p": "Synthetic document for evaluation. Example Widgets Inc. is a fictional company." },
+    { "h1": "Purpose" },
+    {
+      "p": "This standard sets how Example Widgets Inc. grants, reviews and removes access to internal systems, following the principle of least privilege: each person gets only the access their current job needs."
+    },
+    { "h1": "Scope" },
+    {
+      "p": "It covers all 1,400 staff and contractors and every system connected to single sign-on (SSO), about 180 applications."
+    },
+    { "h1": "Requirements" },
+    { "h2": "Granting access" },
+    { "li": "Access is granted through roles (RBAC), never to individuals directly." },
+    { "li": "Each role has an owner who approves every request for it." },
+    { "li": "Administrator roles also require MFA with a hardware key." },
+    { "h2": "Quarterly reviews" },
+    {
+      "p": "Every quarter, managers re-certify each person's roles. A role not re-certified within 14 days is removed automatically."
+    },
+    { "h2": "Leavers and movers" },
+    {
+      "p": "Accounts of people who leave are disabled within 24 hours. When someone changes team, their old roles expire after 30 days unless re-approved."
+    },
+    { "h1": "Last review results" },
+    {
+      "table": [
+        ["Measure", "Q1", "Q2"],
+        ["Roles reviewed on time", "81%", "96%"],
+        ["Access removed at review", "640 grants", "410 grants"],
+        ["Orphaned accounts found", "22", "5"]
+      ]
+    },
+    {
+      "p": "Orphaned accounts are accounts whose owner has left. The drop from 22 to 5 followed the switch to automatic disabling through SSO."
+    }
+  ]
+}

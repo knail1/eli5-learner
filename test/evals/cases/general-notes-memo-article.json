@@ -1,0 +1,16 @@
+{
+  "id": "general-notes-memo-article",
+  "domain": "general",
+  "sources": ["sources/text/notes.md", "sources/docx/policy-memo.docx", "sites/article/"],
+  "clarifying": "Explain it for a new operations lead",
+  "glossary": true,
+  "mustCover": [
+    "the warehouse automation pilot raised pick rate 9% and cut errors to 0.4%",
+    "the pilot should be extended to the south site",
+    "the remote work policy covers full-time employees and needs manager sign-off within five days",
+    "the new widget plant runs on rooftop solar with a battery bank of recycled cells",
+    "the new presses cut electricity per widget by almost forty percent"
+  ],
+  "jargon": ["pick rate"],
+  "covers": ["markdown", "docx", "url", "multi-source"]
+}

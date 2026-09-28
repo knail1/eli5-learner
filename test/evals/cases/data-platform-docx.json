@@ -1,0 +1,16 @@
+{
+  "id": "data-platform-docx",
+  "domain": "data",
+  "sources": ["evals/data/platform-design.docx.json"],
+  "clarifying": "I need to approve the budget.",
+  "glossary": true,
+  "mustCover": [
+    "30% of the nightly jobs fail at least once a month, mostly from schema drift",
+    "raw data lands in a data lake first and is transformed in the warehouse",
+    "orders would be fresh within 1 hour instead of next day",
+    "it adds about 14,000 dollars a month and saves 9,000 a month",
+    "running both pipelines in parallel for two months doubles on-call load"
+  ],
+  "jargon": ["ETL", "data lake", "schema drift", "SLA", "change data capture"],
+  "covers": ["docx"]
+}

@@ -1,0 +1,31 @@
+{
+  "sheets": [
+    {
+      "name": "Summary",
+      "rows": [
+        ["Synthetic workbook for evaluation. Example Widgets Inc. is a fictional company.", "", ""],
+        ["Measure ($ thousands)", "H1 2026", "H2 2026 forecast"],
+        ["Revenue", 48000, 52000],
+        ["EBITDA", 7200, 8300],
+        ["EBITDA margin", "15.0%", "16.0%"],
+        ["Change in working capital", -3100, -900],
+        ["Capital expenditure", -2400, -2600],
+        ["Free cash flow", 1700, 4800],
+        ["DSO (days)", 58, 45],
+        ["Cash at period end", 9400, 14200]
+      ]
+    },
+    {
+      "name": "Notes",
+      "rows": [
+        ["Note"],
+        ["Working capital absorbed cash in H1 because two large distributors paid late, pushing DSO to 58 days."],
+        [
+          "Collections improved in Q3 after invoices moved to 30-day terms with automatic reminders; DSO target is 45 days."
+        ],
+        ["The revolving credit facility of $10,000k was undrawn all year."],
+        ["Capital expenditure funds the new inspection line at the south plant."]
+      ]
+    }
+  ]
+}

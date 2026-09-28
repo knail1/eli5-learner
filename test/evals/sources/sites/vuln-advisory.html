@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Security advisory: remote code execution in Example Widgets Gateway 3.2 | Example Security Notes</title>
+    <meta property="og:title" content="Security advisory: remote code execution in Example Widgets Gateway 3.2" />
+    <meta name="author" content="Example Security Notes" />
+  </head>
+  <body>
+    <header>
+      <nav><a href="/">Home</a> <a href="/advisories/">Advisories</a></nav>
+    </header>
+    <main>
+      <article>
+        <h1>Security advisory: remote code execution in Example Widgets Gateway 3.2</h1>
+        <p>Synthetic page for evaluation. Example Widgets Inc. and its products are fictional.</p>
+        <p>
+          A flaw in the file upload handler of Example Widgets Gateway versions 3.0 to 3.2 lets an unauthenticated
+          attacker run code on the gateway (remote code execution, RCE). It is tracked as CVE-2026-0142 and rated 9.8 on
+          the CVSS scale, which runs from 0 to 10.
+        </p>
+        <h2>Who is affected</h2>
+        <p>
+          About 2,100 gateways are exposed to the internet, according to the vendor. Gateways reachable only from an
+          internal network are at lower risk, because the attacker must first get inside that network.
+        </p>
+        <h2>What to do</h2>
+        <ol>
+          <li>Upgrade to version 3.2.1, released on 12 May.</li>
+          <li>If you cannot upgrade within 72 hours, turn off the upload feature in the admin panel.</li>
+          <li>Check gateway logs for upload requests to <code>/api/v1/import</code> from unknown addresses.</li>
+        </ol>
+        <h2>Exploitation</h2>
+        <p>
+          The vendor has seen exploitation in the wild against 14 customers since 9 May. Attackers used the flaw to
+          install a cryptocurrency miner. There is no sign they moved from the gateway to other systems.
+        </p>
+      </article>
+    </main>
+    <footer>Example Security Notes</footer>
+  </body>
+</html>

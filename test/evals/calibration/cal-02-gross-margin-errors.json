@@ -1,0 +1,36 @@
+{
+  "id": "cal-02-gross-margin-errors",
+  "domain": "finance",
+  "glossary": true,
+  "sources": "margin-update.docx\nGross margin update (Example Widgets Inc., synthetic)\nQ3 revenue was $46M. Cost of goods sold was $29.4M, so gross profit was $16.6M and gross margin was 36%, up from 33% in Q2.\nThe improvement came from lower freight costs (1.5 points) and a price increase on spare parts (1.5 points).\nGuidance: we expect gross margin between 35% and 37% in Q4.",
+  "mustCover": [
+    "Q3 gross margin was 36%, up from 33%",
+    "gross profit was $16.6M on $46M revenue",
+    "lower freight and a spare-parts price increase each added 1.5 points",
+    "Q4 guidance is 35% to 37%"
+  ],
+  "jargon": ["gross margin", "cost of goods sold"],
+  "tabs": {
+    "indepth": "In depth\nMargins jumped to 40% on record revenue\nQ3 revenue reached a record $52M and gross margin rose to 40%, up from 33%, the best quarter in company history.\n[Glossary] gross margin: The share of revenue left after paying the direct cost of making the product.\n[Glossary] cost of goods sold: The direct cost of making or buying the products sold.\nWhy margins rose\nThe main driver was a price increase across all products, with freight a smaller factor.\n[Chart] Gross margin by quarter\n%\nCategory | Margin\nQ2 | 33\nQ3 | 40\nOutlook\nManagement expects margins to keep climbing above 40% next quarter.\nSources\nUsed\nmargin-update.docx",
+    "eli5": "ELI5\nKeeping more of each dollar\nWhen the company sells a widget, part of the money pays for making it and the rest is kept. This quarter it kept 40 cents of every dollar, more than ever, because it raised prices on everything.\nNext time it expects to keep even more.\nThink of it like\nA lemonade stand that charges more for each cup while lemons cost the same."
+  },
+  "human": {
+    "indepth": {
+      "D1": 1,
+      "D2": 2,
+      "D3": 4,
+      "D4": 4,
+      "D5": 2,
+      "D6": 5,
+      "D7": 5
+    },
+    "eli5": {
+      "E1": 5,
+      "E2": 4,
+      "E3": 1,
+      "E4": 4,
+      "E5": 3
+    }
+  },
+  "notes": "Numbers wrong (revenue, margin 40% vs 36%), drivers misattributed, outlook invented; chart shows wrong data. Glossary fine. ELI5 simple but false."
+}

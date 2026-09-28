@@ -10,7 +10,7 @@ import type {
   RetryPolicy,
 } from '../llm';
 import type { BudgetLedger, Charge } from './ledger';
-import { CACHE_WRITE_MULTIPLIER, costOf, ratesFor } from './rates';
+import { CACHE_WRITE_MULTIPLIER, costOf, ratesFor, type ModelRates } from './rates';
 
 /**
  * Dev-only LLMProvider wrapper that enforces a hard USD cap for real-run tooling. Before each call it
@@ -47,6 +47,8 @@ export function maxAttempts(policy: RetryPolicy): number {
 export interface BudgetGuardOptions {
   /** The retry policy the inner provider uses, read per call. Default: the process LLM runtime's. */
   retry?: () => RetryPolicy;
+  /** Price for a model missing from MODEL_RATES (the eval runner's ELI5_EVAL_RATES, 13 §9.6). */
+  rates?: ModelRates;
 }
 
 export class BudgetGuardProvider implements LLMProvider {
@@ -54,6 +56,7 @@ export class BudgetGuardProvider implements LLMProvider {
   readonly model: string;
   readonly limits: ModelLimits;
   private readonly retry: () => RetryPolicy;
+  private readonly rates: ModelRates | undefined;
 
   constructor(
     private readonly inner: LLMProvider,
@@ -64,6 +67,7 @@ export class BudgetGuardProvider implements LLMProvider {
     this.model = inner.model;
     this.limits = inner.limits;
     this.retry = o.retry ?? (() => llmRuntime().retry ?? DEFAULT_RETRY);
+    this.rates = o.rates;
   }
 
   generate(req: GenerationRequest): Promise<GenerationResult> {
@@ -100,7 +104,7 @@ export class BudgetGuardProvider implements LLMProvider {
     send: (r: GenerationRequest) => Promise<GenerationResult>,
   ): Promise<GenerationResult> {
     if (req.signal?.aborted) throw new LLMError('cancelled', 'Request cancelled');
-    const rates = ratesFor(this.inner.model);
+    const rates = this.rates ?? ratesFor(this.inner.model);
     if (!rates) throw new LLMError('cancelled', `budget guard: unknown model ${this.inner.model} has no price`);
     const inRate = rates.inputPerMTok / 1e6;
     const outRate = rates.outputPerMTok / 1e6;
@@ -139,12 +143,7 @@ export class BudgetGuardProvider implements LLMProvider {
     return result;
   }
 
-  private charge(
-    req: GenerationRequest,
-    result: GenerationResult,
-    rates: NonNullable<ReturnType<typeof ratesFor>>,
-    perAttempt: number,
-  ): Charge {
+  private charge(req: GenerationRequest, result: GenerationResult, rates: ModelRates, perAttempt: number): Charge {
     const u = result.usage;
     const read = u.cachedInputTokens ?? 0;
     // TokenUsage folds cache writes into inputTokens; use an explicit count when a provider reports

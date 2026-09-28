@@ -1,0 +1,21 @@
+{
+  "id": "security-access-standard-docx",
+  "domain": "security",
+  "sources": ["evals/security/access-review-standard.docx.json"],
+  "glossary": true,
+  "mustCover": [
+    "least privilege means people get only the access their current job needs",
+    "access is granted through roles, each with an owner who approves requests",
+    "managers re-certify roles every quarter and unreviewed roles are removed after 14 days",
+    "leavers are disabled within 24 hours",
+    "orphaned accounts fell from 22 to 5 after automatic disabling through SSO"
+  ],
+  "jargon": ["least privilege", "SSO", "RBAC", "MFA"],
+  "sectionActions": [
+    {
+      "action": "deeper",
+      "sectionHint": "review"
+    }
+  ],
+  "covers": ["docx", "section-deeper"]
+}

@@ -1,0 +1,15 @@
+{
+  "id": "general-ops-pdf",
+  "domain": "general",
+  "sources": ["sources/pdf/two-column.pdf"],
+  "glossary": false,
+  "mustCover": [
+    "defect rates fell from 1.2% to 0.7% after a new inspection line",
+    "the north plant grew its floor by a third and hired forty technicians",
+    "output was 48,000 units with overtime down 15%",
+    "a customs delay held orders for two weeks in one region",
+    "capital spending stays within 4.2 million dollars"
+  ],
+  "jargon": [],
+  "covers": ["pdf"]
+}

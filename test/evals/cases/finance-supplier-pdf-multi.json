@@ -1,0 +1,16 @@
+{
+  "id": "finance-supplier-pdf-multi",
+  "domain": "finance",
+  "sources": ["sources/pdf/mixed.pdf", "evals/finance/supplier-terms.txt"],
+  "clarifying": "Should we take the early-payment discount?",
+  "glossary": true,
+  "mustCover": [
+    "a second housing supplier starts in July to reduce the risk of line stoppages",
+    "prices are fixed for twelve months, then changes are capped at 4% a year",
+    "invoices are due in 60 days, with 2% off for paying within 10 days",
+    "the discount saves about 60,000 dollars a year but uses cash 50 days earlier",
+    "either party can end the agreement with ninety days notice"
+  ],
+  "jargon": ["net 60", "purchase order", "2/10"],
+  "covers": ["pdf-scanned", "text", "multi-source"]
+}

@@ -1,0 +1,37 @@
+{
+  "id": "cal-09-pricing-test-strong",
+  "domain": "marketing",
+  "glossary": true,
+  "sources": "pricing-test.md\n# Annual plan pricing test (Example Widgets Inc., synthetic)\nWe tested showing the annual plan at $96/year (\"save 20%\") next to monthly at $10/month, against a control that showed monthly only.\nResult over 6 weeks, 22,000 visitors per arm: annual sign-ups went from 8% to 31% of new subscribers; total new subscribers fell 3% (not significant).\nAnnual subscribers churn far less: 12-month retention 88% vs 54% for monthly.\nDecision: show both plans to everyone from 1 November.",
+  "mustCover": [
+    "the annual plan was $96 a year, 20% off twelve monthly payments",
+    "annual sign-ups rose from 8% to 31% of new subscribers",
+    "total new subscribers fell 3%, not significant",
+    "annual subscribers keep 88% after a year versus 54% monthly",
+    "both plans shown to everyone from 1 November"
+  ],
+  "jargon": ["annual plan", "retention", "control"],
+  "tabs": {
+    "indepth": "In depth\nOffering a discounted annual plan nearly quadrupled annual sign-ups without hurting total sign-ups\nFor six weeks, half of 44,000 visitors saw an annual plan at $96 a year (20% less than twelve $10 months) next to the monthly plan; the control half saw monthly only.\n[Glossary] control: The group that sees the old version, so any difference can be blamed on the change.\nAnnual sign-ups jumped from 8% to 31%\n[Chart] Share of new subscribers choosing annual\n%\nCategory | Share\nControl | 8\nWith annual offer | 31\nTotal new subscribers fell 3%, a difference too small to rule out chance.\nWhy annual matters: people stay\n[Glossary] retention: The share of customers still subscribed after a period.\nAfter a year, 88% of annual subscribers remain, against 54% of monthly ones.\n[Glossary] annual plan: Paying for a whole year up front, usually at a discount.\nDecision\nBoth plans will be shown to everyone from 1 November.\nSources\nUsed\npricing-test.md",
+    "eli5": "ELI5\nThe big idea: offering a cheaper yearly deal made far more people sign up for a whole year, and those people stick around\nThe company let some visitors choose a yearly plan that costs less than paying every month.\nWhat happened\nAbout three times as many new customers picked the yearly plan. The total number of new customers barely changed.\nWhy that is good\nPeople on the yearly plan are much more likely to still be customers a year later.\nThink of it like\nA gym membership paid for the year: you get a better price, and you are more likely to keep going."
+  },
+  "human": {
+    "indepth": {
+      "D1": 5,
+      "D2": 5,
+      "D3": 5,
+      "D4": 5,
+      "D5": 4,
+      "D6": 5,
+      "D7": 5
+    },
+    "eli5": {
+      "E1": 5,
+      "E2": 5,
+      "E3": 4,
+      "E4": 5,
+      "E5": 4
+    }
+  },
+  "notes": "Near-exemplary. Chart is right but simple (D5=4). ELI5 'about three times' understates 8% to 31% slightly (E3=4); the gym analogy fits with a mild stretch (E5=4)."
+}

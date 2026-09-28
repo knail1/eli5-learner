@@ -1,0 +1,9 @@
+Funnel brief for the sales and marketing sync (synthetic, for evaluation; Example Widgets Inc. is fictional)
+
+Marketing hit its Q3 target of 1,800 MQLs (marketing qualified leads: leads that fit the customer profile and showed buying interest, such as requesting a demo).
+
+But the MQL to SQL conversion rate fell from 30% to 22%. An SQL (sales qualified lead) is a lead the sales team has accepted as worth a call.
+
+Sales says many new MQLs came from a webinar giveaway and were students, not buyers. Marketing says sales took an average of 3 days to follow up, and leads go cold after 24 hours.
+
+Proposal: count webinar sign-ups as MQLs only if the company has more than 50 employees, and commit sales to a first call within 24 hours. Review the conversion rate again in six weeks.

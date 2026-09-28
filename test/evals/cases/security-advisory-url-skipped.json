@@ -1,0 +1,16 @@
+{
+  "id": "security-advisory-url-skipped",
+  "domain": "security",
+  "sources": ["evals/sites/vuln-advisory.html", "sites/login-wall/"],
+  "clarifying": "Do we need to act this week?",
+  "glossary": true,
+  "mustCover": [
+    "versions 3.0 to 3.2 of the gateway let an unauthenticated attacker run code",
+    "the flaw is rated 9.8 out of 10",
+    "upgrade to 3.2.1, or turn off uploads if you cannot upgrade within 72 hours",
+    "attackers have exploited it against 14 customers to install a cryptocurrency miner",
+    "gateways reachable only from an internal network are at lower risk"
+  ],
+  "jargon": ["CVE", "CVSS", "RCE"],
+  "covers": ["url", "skipped-source", "multi-source"]
+}

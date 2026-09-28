@@ -1,0 +1,17 @@
+{
+  "id": "security-incident-postmortem",
+  "domain": "security",
+  "sources": ["evals/security/incident-postmortem.md"],
+  "clarifying": "I run a product team and need to explain this incident to partners.",
+  "glossary": true,
+  "mustCover": [
+    "41 partner accounts were accessed using passwords leaked from other sites",
+    "no payment data was stored in the portal and no data left the network",
+    "partner accounts had no MFA",
+    "rate limiting worked per IP address only, so the distributed attack stayed under it",
+    "the incident took 5 hours 20 minutes to resolve against a 4-hour target",
+    "MFA for every partner account is required by 30 September"
+  ],
+  "jargon": ["credential stuffing", "SIEM", "EDR", "MTTR", "IOC"],
+  "covers": ["markdown"]
+}

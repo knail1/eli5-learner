@@ -1,0 +1,36 @@
+{
+  "title": "Data Platform Design Review",
+  "blocks": [
+    { "p": "Synthetic document for evaluation. Example Widgets Inc. is a fictional company." },
+    { "h1": "Problem" },
+    {
+      "p": "Order, inventory and web analytics data live in eleven separate databases. Nightly ETL jobs copy them into a reporting warehouse, but 30% of jobs fail at least once a month, usually from schema drift: a source team renames or retypes a column and the downstream job breaks."
+    },
+    { "h1": "Proposal" },
+    {
+      "p": "Land raw data in a data lake first, in its original shape, then transform it inside the warehouse (ELT instead of ETL). Transformations become versioned SQL models with tests."
+    },
+    { "h2": "Components" },
+    { "li": "Ingestion: change data capture streams from the three largest databases; daily file drops for the rest." },
+    { "li": "Storage: an object-storage data lake, partitioned by day." },
+    { "li": "Transformation: SQL models with schema tests that fail loudly before a bad load reaches dashboards." },
+    { "li": "Serving: the existing reporting warehouse, unchanged for dashboard users." },
+    { "h1": "Service levels" },
+    {
+      "table": [
+        ["Dataset", "Freshness SLA today", "Proposed SLA"],
+        ["Orders", "Next day 09:00", "Within 1 hour"],
+        ["Inventory", "Next day 09:00", "Within 4 hours"],
+        ["Web analytics", "Two days", "Next day 06:00"]
+      ]
+    },
+    { "h1": "Cost and timeline" },
+    {
+      "p": "Storage and compute add about $14,000 a month; retiring three ETL servers saves $9,000 a month. Migration runs in three phases over nine months, orders first."
+    },
+    { "h1": "Risks" },
+    {
+      "p": "Running old and new pipelines in parallel for two months doubles on-call load. Change data capture needs read access to production database logs, which the database team must approve."
+    }
+  ]
+}

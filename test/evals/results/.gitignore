@@ -1,0 +1,4 @@
+# Eval results, ledgers and calibration reports (13 §9.6): CI artifacts, never committed.
+# Only test/evals/baselines/ is committed.
+*
+!.gitignore

@@ -1,0 +1,13 @@
+{
+  "id": "general-plain-text",
+  "domain": "general",
+  "sources": ["sources/text/plain.txt"],
+  "glossary": false,
+  "mustCover": [
+    "the north site loading dock reopened on Monday after repairs",
+    "deliveries are back to normal",
+    "open items: replace two pallet jacks, repaint lane markings starting with lanes 3 and 4, order spare parts"
+  ],
+  "jargon": [],
+  "covers": ["text"]
+}
