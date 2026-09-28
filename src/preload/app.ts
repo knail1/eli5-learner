@@ -80,6 +80,7 @@ const api: Eli5Api = {
     hasApiKey: (provider) => invoke(IPC.settings.hasApiKey, { provider }),
     clearApiKey: (provider) => invoke(IPC.settings.clearApiKey, { provider }),
     chooseFolder: (key) => invoke(IPC.settings.chooseFolder, { key }),
+    openHelp: (topic) => invoke(IPC.settings.openHelp, { topic }),
     onChanged: on(IPC.settings.changed),
   },
   edition: { info: () => invoke(IPC.edition.info) },

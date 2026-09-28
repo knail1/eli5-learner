@@ -3,7 +3,7 @@ import type { NotificationControls } from './app';
 import type { SectionActions } from './doc';
 import { fail } from './handle';
 import type { PublishService } from './publish';
-import type { FolderChooser } from './settings';
+import type { FolderChooser, HelpLinks } from './settings';
 import type { MergeSuggestions } from './suggestions';
 
 /**
@@ -22,6 +22,8 @@ export interface IpcServices {
   notifications: NotificationControls;
   /** 11 §7: `eli5:settings:choose-folder`. */
   folders: FolderChooser;
+  /** 11 §7: `eli5:settings:open-help` (HOOK-UI-02 public links). */
+  help: HelpLinks;
 }
 
 const notImplemented = (): never => fail('E_INTERNAL', 'Not implemented yet');
@@ -59,5 +61,6 @@ export function notImplementedServices(): IpcServices {
       openSystemSettings: async () => notImplemented(),
     },
     folders: { chooseFolder: async () => notImplemented() },
+    help: { open: async () => notImplemented() },
   };
 }

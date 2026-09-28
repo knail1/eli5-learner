@@ -134,6 +134,7 @@ export function registerIpc(d: IpcDeps): () => void {
     keyStore: d.keyStore,
     registry: d.registry,
     folders: svc.folders,
+    help: svc.help,
   });
 
   // ---- edition (01 §6.2) ----

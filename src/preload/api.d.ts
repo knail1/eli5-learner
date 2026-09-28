@@ -10,6 +10,7 @@ import type {
   DocUpdatedEvent,
   EditionInfo,
   FolderSettingKey,
+  HelpTopic,
   IpcResult,
   JobSnapshot,
   LibraryInfo,
@@ -83,6 +84,8 @@ export interface Eli5Api {
     clearApiKey(p: ApiKeyProvider): R<void>;
     /** Main shows the folder panel, validates and saves the key (11 §7, §10). */
     chooseFolder(key: FolderSettingKey): R<ChooseFolderResult>;
+    /** Main opens the topic's fixed README link or bundled help file (11 §7, HOOK-UI-02). */
+    openHelp(topic: HelpTopic): R<void>;
     onChanged(cb: (e: { changed: string[]; settings: Settings }) => void): Unsub;
   };
   edition: { info(): R<EditionInfo> };

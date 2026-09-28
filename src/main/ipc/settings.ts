@@ -3,6 +3,7 @@ import {
   IPC,
   type ChooseFolderResult,
   type FolderSettingKey,
+  type HelpTopic,
   type Settings,
   type SettingsDescription,
 } from '../../preload/contract';
@@ -20,8 +21,17 @@ export interface FolderChooser {
   chooseFolder(key: FolderSettingKey): Promise<ChooseFolderResult>;
 }
 
+/**
+ * Help links (11 §7 Publishing and About, HOOK-UI-02): each topic maps to a fixed URL or bundled
+ * file in main. Resolves false when the file is missing or the link was refused.
+ */
+export interface HelpLinks {
+  open(topic: HelpTopic): Promise<boolean>;
+}
+
 export interface SettingsIpcDeps {
   folders: FolderChooser;
+  help: HelpLinks;
   settings: SettingsStore;
   keyStore: KeyStore;
   /** Only `invalidateLLM` is used: a new key or provider takes effect on the next LLM call. */
@@ -53,6 +63,9 @@ export function registerSettingsIpc(on: Register, d: SettingsIpcDeps): void {
   });
   // The renderer names the key only; the path always comes from main's panel.
   on(IPC.settings.chooseFolder, z.object({ key: z.enum(['publish.local.dir']) }), (p) => d.folders.chooseFolder(p.key));
+  on(IPC.settings.openHelp, z.object({ topic: z.enum(['readme', 'publish-pages', 'licenses']) }), async (p) => {
+    if (!(await d.help.open(p.topic))) fail('E_NOT_FOUND', "That help page isn't available");
+  });
   on(IPC.settings.describe, NoPayload, async (): Promise<SettingsDescription> =>
     d.settings.describe(await d.keyStore.available()),
   );

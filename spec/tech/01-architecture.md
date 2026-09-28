@@ -337,6 +337,7 @@ this table is corrected. Channel **names** are fixed here.
 | `eli5:settings:clear-api-key` | R→M | `{provider}` | `void` | 12 §5 |
 | `eli5:settings:describe` | R→M | — | `SettingsDescription` | 12 §5 |
 | `eli5:settings:choose-folder` | R→M | `{key: 'publish.local.dir'}` | `ChooseFolderResult` = `{path}` \| `{cancelled: true}` (main shows the open panel, validates, saves the key) | 11 §10 |
+| `eli5:settings:open-help` | R→M | `{topic: 'readme'\|'publish-pages'\|'licenses'}` | `void` (main opens the fixed README URL or bundled help file); `E_NOT_FOUND` when it is missing | 11 §10 |
 | `eli5:settings:changed` | M→R | — | `{changed: string[]; settings: Settings}` | 12 §5 |
 | `eli5:edition:info` | R→M | — | `EditionInfo` (§6.2) | this file |
 

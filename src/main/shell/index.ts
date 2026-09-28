@@ -16,6 +16,7 @@ export {
   hideMainWindow,
   navigate,
   installAppMenu,
+  helpOpener,
   showLibraryItemMenu,
   requestCloseMainWindow,
 } from './window';
@@ -34,8 +35,10 @@ export {
 export type { TrayEntry, TrayModel, TrayActions } from './tray-model';
 export { shell, installLifecycle, quitApp, closeAction, crashTracker, ERROR_PAGE, RELOAD_FRAGMENT } from './lifecycle';
 export type { LifecycleApp } from './lifecycle';
-export { appMenuTemplate, libraryItemMenuTemplate, MENU_IDS } from './app-menu';
-export type { AppMenuActions, LibraryItemMenuActions } from './app-menu';
+export { appMenuTemplate, libraryItemMenuTemplate, MENU_IDS, MENU_SHORTCUT_KEYS } from './app-menu';
+export type { AppMenuActions, LibraryItemMenuActions, MenuShortcutId } from './app-menu';
+export { createHelpOpener, HELP_FILES, PUBLIC_README_URL } from './menu-help';
+export type { HelpOpener, HelpOpenerDeps } from './menu-help';
 export {
   parseWindowState,
   fitToDisplays,

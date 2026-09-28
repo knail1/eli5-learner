@@ -114,6 +114,7 @@ export function installFakeApi(edition: EditionInfo = PUBLIC_EDITION): FakeApi {
       hasApiKey: resolved(ok(false)),
       clearApiKey: resolved(ok(undefined)),
       chooseFolder: resolved(notImplemented),
+      openHelp: resolved(notImplemented),
       onChanged: on('settings'),
     },
     edition: { info: resolved(ok(edition)) },
