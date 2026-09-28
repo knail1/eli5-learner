@@ -1,7 +1,9 @@
 // Document model types (07 §3), theme (07 §11.3, HOOK-DOC-01), reference formatter (07 §10,
 // HOOK-DOC-02) and the section-job payload 08 §3 places under src/main/document/.
 import type { Edition } from '../editions';
-import type { DraftBlock } from '../llm';
+import type { DocumentDraftTab, DraftBlock, GlossaryDraft, SectionDraft } from '../llm';
+import type { ImageNormalizer } from './images';
+import type { IdSource } from './section-id';
 import type { ResolvedSource, SkippedSource } from '../sources';
 import type {
   CreateSectionEli5Request,
@@ -220,4 +222,84 @@ export interface SectionJobPayload {
   note?: string;
   heading: string; // source section heading at request time
   baseHash: string; // sectionHash(section) at request time (08 §6.3)
+}
+
+// ---------------------------------------------------------------------------
+// Build, render and parse (07 §5, §8)
+// ---------------------------------------------------------------------------
+
+/** 07 §5 BuildInput, plus injectable seams (13 §3.2) and generator info. */
+export interface BuildInput {
+  docId: string;
+  slug: string;
+  now: string;
+  indepth: DocumentDraftTab; // required
+  eli5: DocumentDraftTab | null; // null -> placeholder tab (06 §7.1)
+  glossary: GlossaryDraft | null; // null when the glossary toggle is off
+  images: { label: string; mime: string; bytes: Uint8Array }[]; // ImageInput labels (02)
+  resolved: ResolvedSource[];
+  skipped: SkippedSource[];
+  theme: DocTheme; // already resolved (theme.ts resolveDocTheme)
+  themeSource?: DocThemeRef['source']; // default 'default'
+  /** Default: crypto (07 §4.2); SeededIdSource in tests. */
+  idSource?: IdSource;
+  /** HOOK-DOC-02 formatter (registry referenceFormatter); default: the public formatter. */
+  referenceFormatter?: ReferenceFormatter;
+  /**
+   * 07 §5.6 image normalization. Required so the app always injects createNativeImageNormalizer
+   * (downscale, re-encode); passThroughNormalizer is for tests and refuses oversized images.
+   */
+  normalizeImage: ImageNormalizer;
+  generator?: Partial<DocumentModel['generator']>;
+}
+
+export interface BuildResult {
+  model: DocumentModel;
+  warnings: string[];
+  /** Asset bytes by AssetRef.id, for renderDocument (07 §5.6). */
+  assets: Map<string, Uint8Array>;
+}
+
+/** The inlined runtime (07 §2: DOC_RUNTIME_JS / DOC_RUNTIME_CSS). */
+export interface DocRuntime {
+  js: string;
+  css: string;
+}
+
+export interface RenderOptions {
+  /** Default: the bundled build/doc-runtime output (runtime-assets.ts). */
+  runtime?: DocRuntime;
+  /** Default: defaultDocTheme. parseDocument returns the theme a file was rendered with. */
+  theme?: DocTheme;
+}
+
+export interface ParsedDocument {
+  model: DocumentModel;
+  assets: Map<string, Uint8Array>;
+  /** Theme recovered from `#eli5-theme`, the footer and the logo, so a re-render is byte-identical. */
+  theme: DocTheme;
+  /** Runtime blocks found in the file. */
+  runtime: DocRuntime;
+}
+
+/** getSectionContext result (07 §8). */
+export interface SectionContext {
+  tab: Tab;
+  section: Section;
+  draft: SectionDraft;
+  prev?: SectionDraft;
+  next?: SectionDraft;
+  outline: string[];
+}
+
+export interface MutationOptions {
+  /** Default: crypto (07 §4.2). */
+  idSource?: IdSource;
+  /** Retired SectionIds from meta.json (07 §4.3): never reused. */
+  retiredIds?: readonly string[];
+  /**
+   * Asset bytes recovered by parseDocument. When given, regenerated figures may only reference
+   * images whose bytes are present (otherwise the block is dropped with 'figure-image-missing').
+   */
+  assets?: ReadonlyMap<string, Uint8Array>;
 }

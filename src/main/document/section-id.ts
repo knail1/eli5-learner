@@ -71,7 +71,8 @@ function draw(src: IdSource, chars: number): string {
   return h;
 }
 
-function mint(prefix: string, chars: number, src: IdSource, taken: TakenIds): string {
+/** `prefix` + `chars` hex, redrawn on collision with `taken` (07 §4.2 rule 2). */
+export function mintWithPrefix(prefix: string, chars: number, src: IdSource, taken: TakenIds): string {
   for (let i = 0; i < MAX_ID_DRAWS; i++) {
     const id = prefix + draw(src, chars);
     if (!taken.has(id)) return id;
@@ -85,10 +86,10 @@ function mint(prefix: string, chars: number, src: IdSource, taken: TakenIds): st
  */
 export function mintSectionId(tabKey: string, idSource: IdSource, taken: TakenIds): SectionId {
   if (!isTabKey(tabKey)) throw new Error(`Invalid tab key "${tabKey}"`);
-  return mint(`sec-${tabKey}-`, 8, idSource, taken) as SectionId;
+  return mintWithPrefix(`sec-${tabKey}-`, 8, idSource, taken) as SectionId;
 }
 
 /** Mint a section ELI5 tab key `sx` + 6 hex (07 §4.1), unique against `taken` tab keys. */
 export function mintSectionEli5TabKey(idSource: IdSource, taken: TakenIds): string {
-  return mint('sx', 6, idSource, taken);
+  return mintWithPrefix('sx', 6, idSource, taken);
 }
