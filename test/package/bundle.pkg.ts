@@ -106,6 +106,14 @@ test('Info.plist carries the ASAR integrity hash and no LSUIElement (01 §8.3)',
   expect(plist).not.toContain('<key>LSUIElement</key>');
 });
 
+test("the app icon is the project's own, not Electron's default", () => {
+  const plist = readFileSync(path.join(APP, 'Contents', 'Info.plist'), 'utf8');
+  const iconFile = /<key>CFBundleIconFile<\/key>\s*<string>([^<]+)<\/string>/.exec(plist)?.[1];
+  expect(iconFile).toBe('icon.icns');
+  const packed = readFileSync(path.join(RESOURCES, 'icon.icns'));
+  expect(packed.equals(readFileSync('build/icon.icns'))).toBe(true);
+});
+
 test('the asar holds out/**, package.json and production dependencies only', () => {
   const files = listAsar(ASAR).map((f) => f.path);
   expect(files).toContain('package.json');
