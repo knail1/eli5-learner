@@ -80,20 +80,70 @@ function concat(chunks: Uint8Array[], total: number): Uint8Array {
   return out;
 }
 
-const META_REFRESH = /<meta[^>]+http-equiv\s*=\s*["']?refresh["']?[^>]*>/i;
+/** The first `<meta http-equiv=refresh>` tag in `head`; a linear scan (a single backtracking regex is quadratic). */
+function findMetaRefresh(head: string): string | null {
+  const open = /<meta\b/gi;
+  for (let m = open.exec(head); m; m = open.exec(head)) {
+    const end = head.indexOf('>', m.index);
+    if (end < 0) return null;
+    const tag = head.slice(m.index, end + 1);
+    // Real meta tags are short; bounding the tag bounds the attribute regexes below.
+    if (tag.length <= 4096 && /\bhttp-equiv\s*=\s*["']?refresh\b/i.test(tag)) return tag;
+    open.lastIndex = end + 1;
+  }
+  return null;
+}
+
+const RAW_TEXT_OPEN = /<(script|style)\b/iy;
+
+/**
+ * Whether the visible text (tags, script and style removed, whitespace runs collapsed) reaches
+ * `limit` characters. One linear pass that stops at `limit`: no backtracking regexes over the body,
+ * so hostile markup cannot stall the main thread (05 §4.4 rule 6; the DOM is only parsed in the worker).
+ */
+export function hasTextAtLeast(html: string, limit: number): boolean {
+  let n = 0;
+  let i = 0;
+  let space = false;
+  let noMoreGt = false; // once a '>' search fails, none exists further on
+  while (i < html.length) {
+    const c = html.charCodeAt(i);
+    if (c === 60 /* < */ && !noMoreGt) {
+      RAW_TEXT_OPEN.lastIndex = i;
+      const raw = RAW_TEXT_OPEN.exec(html)?.[1]?.toLowerCase();
+      if (raw) {
+        const close = new RegExp(`</${raw}`, 'gi');
+        close.lastIndex = i;
+        const m = close.exec(html);
+        const end = m ? html.indexOf('>', m.index + m[0].length) : -1;
+        if (end < 0) return false; // unclosed script/style runs to the end
+        i = end + 1;
+        continue;
+      }
+      const gt = html.indexOf('>', i + 1);
+      if (gt < 0) noMoreGt = true;
+      else {
+        i = gt + 1;
+        continue;
+      }
+    }
+    const ws = c === 32 || (c >= 9 && c <= 13);
+    if (!ws || !space) n += 1;
+    space = ws;
+    if (n >= limit) return true;
+    i += 1;
+  }
+  return false;
+}
 
 /** §4.4 rule 6: a meta refresh with delay <= 5 s in a body with < 4 KB of text is one more hop. */
 export function metaRefreshTarget(html: string, base: string, limits: Limits = LIMITS): string | null {
-  const tag = META_REFRESH.exec(html.slice(0, 64 * 1024))?.[0];
+  const tag = findMetaRefresh(html.slice(0, 64 * 1024));
   if (!tag) return null;
   const content = /content\s*=\s*("([^"]*)"|'([^']*)')/i.exec(tag);
   const m = /^\s*(\d+(?:\.\d+)?)\s*[;,]\s*url\s*=\s*['"]?([^'"]+)/i.exec(content?.[2] ?? content?.[3] ?? '');
   if (!m?.[1] || !m[2] || Number(m[1]) > limits.META_REFRESH_MAX_DELAY_S) return null;
-  const text = html
-    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, '')
-    .replace(/<[^>]+>/g, '')
-    .replace(/\s+/g, ' ');
-  if (text.length >= limits.META_REFRESH_MAX_TEXT) return null;
+  if (hasTextAtLeast(html, limits.META_REFRESH_MAX_TEXT)) return null;
   try {
     return new URL(m[2].trim(), base).href;
   } catch {
@@ -165,6 +215,7 @@ async function oneRequest(
     }, ms);
   };
   const hop: { skip: HttpResult | null } = { skip: null };
+  let drained = false; // the body was read to its end; otherwise the request is cancelled (§4.5 steps 1–2)
   let partialFile: string | null = null;
 
   try {
@@ -189,7 +240,10 @@ async function oneRequest(
     try {
       const next = (): Promise<IteratorResult<Uint8Array>> => {
         arm(limits.HTTP_STALL_TIMEOUT_MS);
-        return step(it, ctl.signal);
+        return step(it, ctl.signal).then((s) => {
+          if (s.done) drained = true;
+          return s;
+        });
       };
       const declared = headerMime(res.headers['content-type']);
       const ok = res.status >= 200 && res.status < 300;
@@ -317,6 +371,9 @@ async function oneRequest(
   } finally {
     clearTimeout(timer);
     opts.signal.removeEventListener('abort', onOuter);
+    // Stopped reading early (cap, unsupported type, truncation, error-body cap): cancel the download.
+    // Timers are already cleared, so this is not counted as a timeout.
+    if (!drained) ctl.abort();
     if (partialFile) await rm(partialFile, { force: true }).catch(() => {});
   }
 }

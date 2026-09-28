@@ -7,18 +7,40 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * the hidden-window lockdown (§8.1–8.2). The real behavior is covered by the Playwright suite.
  */
 
+/**
+ * Models Electron's manual-redirect contract (electron.d.ts, ClientRequest `redirect`):
+ * followRedirect() is accepted only synchronously during the 'redirect' emit; otherwise the
+ * redirect is cancelled with an error once the emit returns.
+ */
 class FakeRequest extends EventEmitter {
   headers: Record<string, string> = {};
   followed = 0;
   aborted = false;
   ended = false;
+  private inRedirect = false;
   constructor(readonly opts: Record<string, unknown>) {
     super();
   }
   setHeader(k: string, v: string) {
     this.headers[k] = v;
   }
+  override emit(event: string | symbol, ...args: unknown[]): boolean {
+    if (event !== 'redirect') return super.emit(event, ...args);
+    this.inRedirect = true;
+    const before = this.followed;
+    try {
+      return super.emit(event, ...args);
+    } finally {
+      this.inRedirect = false;
+      if (this.followed === before) {
+        const wasAborted = this.aborted;
+        this.aborted = true;
+        if (!wasAborted) super.emit('error', new Error('Redirect was cancelled'));
+      }
+    }
+  }
   followRedirect() {
+    if (!this.inRedirect) throw new Error('followRedirect() called, but was not waiting for a redirect');
     this.followed += 1;
   }
   abort() {
@@ -147,26 +169,33 @@ beforeEach(() => {
 });
 
 describe('electronTransport (05 §4.2)', () => {
-  it('uses net.request with redirect: manual on the given session and follows approved hops', async () => {
+  it('uses net.request with redirect: manual; each approved hop is a new request (async checks)', async () => {
     const ses = new FakeSession() as unknown as Session;
     const hops: string[] = [];
     const p = electronTransport(ses).request({
       url: 'https://a.example.test/',
       headers: { 'User-Agent': 'UA', DNT: '1' },
       signal: new AbortController().signal,
-      onRedirect: async (h) => (hops.push(h.redirectUrl), true),
+      onRedirect: async (h) => {
+        await new Promise((r) => setTimeout(r, 5)); // like the DNS lookup in checkHop
+        hops.push(h.redirectUrl);
+        return true;
+      },
     });
     const req = requests[0]!;
     expect(req.opts).toMatchObject({ method: 'GET', redirect: 'manual', session: ses, useSessionCookies: true });
     expect(req.headers).toEqual({ 'User-Agent': 'UA', DNT: '1' });
     expect(req.ended).toBe(true);
     req.emit('redirect', 302, 'GET', 'https://b.example.test/next', {});
-    await new Promise((r) => setTimeout(r, 0));
-    expect(req.followed).toBe(1);
+    expect(req.aborted).toBe(true); // stopped synchronously, never followed late
+    await vi.waitFor(() => expect(requests).toHaveLength(2));
+    const req2 = requests[1]!;
+    expect(req2.opts).toMatchObject({ url: 'https://b.example.test/next', redirect: 'manual', session: ses });
+    expect(req2.headers).toEqual({ 'User-Agent': 'UA', DNT: '1' });
     const res = new EventEmitter() as EventEmitter & { statusCode: number; headers: Record<string, string[]> };
     res.statusCode = 200;
     res.headers = { 'Content-Type': ['text/html'] };
-    req.emit('response', res);
+    req2.emit('response', res);
     const out = await p;
     expect(out).toMatchObject({
       url: 'https://b.example.test/next',
@@ -183,6 +212,25 @@ describe('electronTransport (05 §4.2)', () => {
     await reading;
     expect(chunks.join('')).toBe('<p>hi</p>');
     expect(hops).toEqual(['https://b.example.test/next']);
+    expect(req2.aborted).toBe(false);
+  });
+
+  it('stopping the body early cancels the request and detaches listeners (§4.5)', async () => {
+    const p = electronTransport(new FakeSession() as unknown as Session).request({
+      url: 'https://a.example.test/big.mp4',
+      headers: {},
+      signal: new AbortController().signal,
+      onRedirect: async () => true,
+    });
+    const res = new EventEmitter() as EventEmitter & { statusCode: number; headers: Record<string, string[]> };
+    res.statusCode = 200;
+    res.headers = {};
+    requests[0]!.emit('response', res);
+    const out = await p;
+    const it = out.body[Symbol.asyncIterator]();
+    await it.return?.(); // never started: must still cancel
+    expect(requests[0]!.aborted).toBe(true);
+    expect(res.listenerCount('data')).toBe(0);
   });
 
   it('aborts the request when a hop is refused', async () => {

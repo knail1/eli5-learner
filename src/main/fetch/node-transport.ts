@@ -34,7 +34,7 @@ function send(url: URL, req: TransportRequest): Promise<http.IncomingMessage> {
   });
 }
 
-async function* bodyOf(res: http.IncomingMessage, signal: AbortSignal): AsyncGenerator<Uint8Array> {
+async function* chunksOf(res: http.IncomingMessage, signal: AbortSignal): AsyncGenerator<Uint8Array> {
   try {
     for await (const chunk of res) yield chunk as Buffer;
   } catch (e) {
@@ -42,6 +42,19 @@ async function* bodyOf(res: http.IncomingMessage, signal: AbortSignal): AsyncGen
   } finally {
     res.destroy();
   }
+}
+
+/** `return()` destroys the response even when iteration never started (a generator's finally would not run). */
+function bodyOf(res: http.IncomingMessage, signal: AbortSignal): AsyncIterable<Uint8Array> {
+  const inner = chunksOf(res, signal);
+  const iterator: AsyncIterator<Uint8Array> = {
+    next: () => inner.next(),
+    return: async () => {
+      res.destroy();
+      return inner.return(undefined);
+    },
+  };
+  return { [Symbol.asyncIterator]: () => iterator };
 }
 
 export function nodeTransport(): HttpTransport {

@@ -268,4 +268,62 @@ describe('renderInHiddenWindow', () => {
     expect(second).toEqual({ ok: false, code: 'render-failed' });
     expect(backend.opened).toEqual([0]);
   });
+
+  it('with one slot retired and the other busy, a new render queues for the usable slot', async () => {
+    const pool = new RenderPool(2);
+    const first = await pool.acquire(new AbortController().signal);
+    first!.release(true); // slot 0 retired
+    expect(pool.usable).toBe(1);
+    const backend = new FakeBackend();
+    const a = renderInHiddenWindow('https://a.example.test/', opts(), { backend, pool, limits: L });
+    const b = renderInHiddenWindow('https://b.example.test/', opts(), { backend, pool, limits: L });
+    const [ra, rb] = await Promise.all([a, b]);
+    expect(ra.ok && rb.ok).toBe(true);
+    expect(backend.opened).toEqual([1, 1]);
+    expect(backend.maxLive).toBe(1);
+  });
+
+  it('queued waiters get null when the last usable slot is retired', async () => {
+    const pool = new RenderPool(1);
+    const held = await pool.acquire(new AbortController().signal);
+    const waiting = pool.acquire(new AbortController().signal);
+    held!.release(true);
+    expect(await waiting).toBeNull();
+  });
+
+  it('re-caps the hard timeout by the budget left after the pool wait, and snapshots before it ends', async () => {
+    const pool = new RenderPool(1);
+    const held = await pool.acquire(new AbortController().signal);
+    const backend = new FakeBackend({
+      probe: async (n) => ({ textLength: 10 + n, nodeCount: 10 + n, readyState: 'complete' }), // never settles
+    });
+    const limits = { ...L, RENDER_MIN_BUDGET_MS: 100 };
+    const budgetEnd = Date.now() + 500;
+    const ac = new AbortController();
+    const budget = setTimeout(() => ac.abort(), 500);
+    // The caller computed 400 ms before queueing; the slot frees 200 ms later.
+    const withBudget = renderInHiddenWindow(
+      'https://spa.example.test/b',
+      { ...opts({ signal: ac.signal, timeoutMs: 400 }), budgetEnd },
+      { backend, pool, limits },
+    );
+    setTimeout(() => held!.release(false), 200);
+    const r = await withBudget;
+    clearTimeout(budget);
+    expect(r).toMatchObject({ ok: true, timedOut: true }); // snapshot anyway, not an abort
+  });
+
+  it('returns timeout when the pool wait leaves less than the minimum render budget', async () => {
+    const pool = new RenderPool(1);
+    const held = await pool.acquire(new AbortController().signal);
+    const backend = new FakeBackend();
+    const p = renderInHiddenWindow(
+      'https://spa.example.test/',
+      { ...opts(), budgetEnd: Date.now() + 150 },
+      { backend, pool, limits: { ...L, RENDER_MIN_BUDGET_MS: 100 } },
+    );
+    setTimeout(() => held!.release(false), 80);
+    expect(await p).toEqual({ ok: false, code: 'timeout' });
+    expect(backend.opened).toEqual([]);
+  });
 });

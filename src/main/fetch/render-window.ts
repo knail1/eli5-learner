@@ -1,6 +1,5 @@
 import { LIMITS, type Limits } from './constants';
 import { abortError } from './errors';
-import { Semaphore } from './politeness';
 import type { FetchSkipCode } from './types';
 
 /**
@@ -55,6 +54,8 @@ export type RenderResult =
 export interface RenderOptions {
   signal: AbortSignal;
   timeoutMs: number; // RENDER_TIMEOUT_MS capped by the remaining URL budget (§8.3 step 6)
+  /** Absolute end of the URL budget (Date.now clock). The hard timeout is re-capped after the pool wait (§8.5). */
+  budgetEnd?: number;
   allowPrivate: boolean;
 }
 
@@ -63,15 +64,17 @@ export interface SlotPermit {
   release(dirty: boolean): void;
 }
 
-/** MAX_RENDER_WINDOWS permits, each carrying a pooled partition slot (§8.1, §8.5). */
+/**
+ * MAX_RENDER_WINDOWS pooled partition slots (§8.1, §8.5). Renders queue for a usable slot, not a bare
+ * counter, so a retired (dirty) slot shrinks capacity instead of handing out a permit with no slot.
+ */
 export class RenderPool {
-  private readonly sem: Semaphore;
   private readonly free: number[];
   private readonly dirty = new Set<number>();
+  private readonly waiters: Array<(slot: number | null) => void> = [];
   private readonly states = new Map<number, RenderState>();
 
   constructor(readonly size: number = LIMITS.MAX_RENDER_WINDOWS) {
-    this.sem = new Semaphore(size);
     this.free = Array.from({ length: size }, (_, i) => i);
   }
 
@@ -92,26 +95,46 @@ export class RenderPool {
     this.states.delete(slot);
   }
 
-  /** Resolves null when every slot is dirty (renders then return render-failed). */
+  /** Waits for a usable slot. Resolves null when every slot is dirty (renders then return render-failed). */
   async acquire(signal: AbortSignal): Promise<SlotPermit | null> {
+    if (signal.aborted) throw abortError();
     if (this.usable === 0) return null;
-    const releaseSem = await this.sem.acquire(signal);
-    const slot = this.free.shift();
-    if (slot === undefined) {
-      releaseSem();
-      return null;
-    }
+    const slot =
+      this.free.shift() ??
+      (await new Promise<number | null>((resolve, reject) => {
+        const w = (s: number | null): void => {
+          signal.removeEventListener('abort', onAbort);
+          resolve(s);
+        };
+        const onAbort = (): void => {
+          const i = this.waiters.indexOf(w);
+          if (i >= 0) this.waiters.splice(i, 1);
+          reject(abortError());
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+        this.waiters.push(w);
+      }));
+    if (slot === null) return null;
     let done = false;
     return {
       slot,
       release: (dirty) => {
         if (done) return;
         done = true;
-        if (dirty) this.dirty.add(slot);
-        else this.free.push(slot);
-        releaseSem();
+        this.release(slot, dirty);
       },
     };
+  }
+
+  private release(slot: number, dirty: boolean): void {
+    if (dirty) {
+      this.dirty.add(slot);
+      if (this.usable === 0) for (const w of this.waiters.splice(0)) w(null);
+      return;
+    }
+    const w = this.waiters.shift();
+    if (w) w(slot);
+    else this.free.push(slot);
   }
 }
 
@@ -177,7 +200,17 @@ export async function renderInHiddenWindow(url: string, opts: RenderOptions, dep
   const permit = await deps.pool.acquire(signal); // queued wait counts against the URL budget
   if (!permit) return { ok: false, code: 'render-failed' };
   const start = now();
-  const timeoutMs = Math.max(0, opts.timeoutMs);
+  let timeoutMs = Math.max(0, opts.timeoutMs);
+  if (opts.budgetEnd !== undefined) {
+    // §8.5: the queue wait counted against the budget. Re-check what is left, and end the hard timeout
+    // early enough that the snapshot's grace also fits before the budget abort (§8.3 steps 6–7).
+    const remaining = opts.budgetEnd - start;
+    if (remaining < L.RENDER_MIN_BUDGET_MS) {
+      permit.release(false);
+      return { ok: false, code: 'timeout' };
+    }
+    timeoutMs = Math.min(timeoutMs, remaining - L.RENDER_WATCHDOG_EXTRA_MS);
+  }
   const deadline = start + timeoutMs;
   const left = (): number => deadline - now();
   const state = newRenderState(url, opts.allowPrivate);

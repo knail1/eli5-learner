@@ -134,6 +134,7 @@ export function createFetcher(deps: FetcherDeps): Fetcher {
       const rr = await deps.render(target, {
         signal,
         timeoutMs: Math.min(L.RENDER_TIMEOUT_MS, remaining),
+        budgetEnd, // re-capped after host spacing and the render-pool wait (§8.3 step 6, §8.5)
         allowPrivate,
       });
       if (!rr.ok) {
