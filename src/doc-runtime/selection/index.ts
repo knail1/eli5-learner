@@ -256,11 +256,29 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
       focusAction(0);
     }
   });
+  /**
+   * The range Esc restored (08 §5.4). Restoring fires selectionchange; the menu stays closed while
+   * the live selection is still exactly this range.
+   */
+  let dismissed: Range | null = null;
+  const isDismissed = (sel: Selection): boolean => {
+    const d = dismissed;
+    if (!d || sel.rangeCount === 0) return false;
+    const r = sel.getRangeAt(0);
+    const same =
+      r.startContainer === d.startContainer &&
+      r.startOffset === d.startOffset &&
+      r.endContainer === d.endContainer &&
+      r.endOffset === d.endOffset;
+    if (!same) dismissed = null;
+    return same;
+  };
   menu.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     const range = snapRange;
     ctl.close();
     if (range) {
+      dismissed = range.cloneRange();
       const sel = doc.getSelection();
       sel?.removeAllRanges();
       sel?.addRange(range);
@@ -274,6 +292,7 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
       const sel = doc.getSelection();
       const s = snapshotSelection(sel);
       if (s && sel) {
+        if (isDismissed(sel)) return;
         const hit = enclosing(sel.getRangeAt(0));
         ctl.open(s, hit ? hit.range.cloneRange() : undefined);
       } else if (!host.matches(':focus-within')) ctl.close();
@@ -287,6 +306,7 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
   });
   doc.addEventListener('selectionchange', check);
   doc.addEventListener('mousedown', (e) => {
+    if (e.target !== host) dismissed = null;
     if (e.target !== host && !menu.hidden) ctl.close();
   });
   // Cmd+. (Ctrl+. elsewhere) moves focus into the open menu (08 §5.2 step 7).

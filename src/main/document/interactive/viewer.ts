@@ -26,7 +26,11 @@ export class ViewerRefresh {
     private readonly viewer: ViewerPort,
     private readonly out: { scrollTo(e: ScrollToEvent): void; afterLoad(): void },
   ) {
-    this.unsubs = [viewer.onLoadStart(() => this.started()), viewer.onLoadFinish(() => this.finished())];
+    this.unsubs = [
+      viewer.onLoadStart(() => this.started()),
+      viewer.onLoadFinish(() => this.finished()),
+      viewer.onLoadFail(() => this.failed()),
+    ];
   }
 
   /** 08 §7.4 steps 2-4. */
@@ -52,6 +56,11 @@ export class ViewerRefresh {
     if (!p) return;
     p.phase = 'loading';
     p.seq = this.loadSeq;
+  }
+
+  /** A failed load never finishes: drop the pending reload so the next update reloads again. */
+  private failed(): void {
+    this.pending = undefined;
   }
 
   private finished(): void {
@@ -85,6 +94,10 @@ export interface ViewerWebContents {
   reload(): void;
   on(event: 'did-start-loading', listener: () => void): unknown;
   on(event: 'did-finish-load', listener: () => void): unknown;
+  on(
+    event: 'did-fail-load',
+    listener: (e: unknown, code: number, desc: string, url: string, isMainFrame: boolean) => void,
+  ): unknown;
 }
 
 /** Slug of an `eli5doc://doc/<slug>/index.html` URL, or null. */
@@ -106,6 +119,7 @@ export function viewerSlugOf(url: string): string | null {
 export function createElectronViewerPort(get: () => ViewerWebContents | undefined): ViewerPort & { attach(): void } {
   const starts = new Set<() => void>();
   const finishes = new Set<() => void>();
+  const fails = new Set<() => void>();
   const attached = new WeakSet<object>();
   const live = (): ViewerWebContents | undefined => {
     const wc = get();
@@ -120,6 +134,9 @@ export function createElectronViewerPort(get: () => ViewerWebContents | undefine
     });
     wc.on('did-finish-load', () => {
       for (const cb of [...finishes]) cb();
+    });
+    wc.on('did-fail-load', (_e, _code, _desc, _url, isMainFrame) => {
+      if (isMainFrame) for (const cb of [...fails]) cb();
     });
   };
   return {
@@ -142,6 +159,11 @@ export function createElectronViewerPort(get: () => ViewerWebContents | undefine
       attach();
       finishes.add(cb);
       return () => finishes.delete(cb);
+    },
+    onLoadFail(cb) {
+      attach();
+      fails.add(cb);
+      return () => fails.delete(cb);
     },
   };
 }

@@ -84,8 +84,13 @@ describe('doc preload (08 §4.3)', () => {
     ]) {
       expect(await api().regenerateSection(bad)).toMatchObject({ ok: false, error: { code: 'E_BAD_REQUEST' } });
     }
-    expect(await api().closeTab('indepth')).toMatchObject({ ok: false, error: { code: 'E_BAD_REQUEST' } });
+    expect(await api().closeTab('notes')).toMatchObject({ ok: false, error: { code: 'E_BAD_REQUEST' } });
     expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it('sends close-tab for any valid tab key, so main answers E_FORBIDDEN for fixed tabs (08 §7.2)', async () => {
+    await api().closeTab('indepth');
+    expect(invoke).toHaveBeenCalledWith(IPC.doc.closeTab, { slug: 'example-widgets', tabKey: 'indepth' });
   });
 
   it('buffers a scroll-to that arrives before the runtime subscribes, for 5 s', () => {

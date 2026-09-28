@@ -46,7 +46,8 @@ export interface InteractiveJobs {
 
 /**
  * The document viewer as main sees it (08 §2 item 4). `onLoadStart` fires for every loadURL and
- * reload (did-start-loading), `onLoadFinish` on did-finish-load of the main frame.
+ * reload (did-start-loading), `onLoadFinish` on did-finish-load of the main frame, `onLoadFail` on
+ * did-fail-load of the main frame (no did-finish-load follows it).
  */
 export interface ViewerPort {
   /** Slug of the eli5doc:// document the viewer shows, or null. */
@@ -54,6 +55,7 @@ export interface ViewerPort {
   reload(): void;
   onLoadStart(cb: () => void): Unsub;
   onLoadFinish(cb: () => void): Unsub;
+  onLoadFail(cb: () => void): Unsub;
 }
 
 export interface InteractiveDeps {

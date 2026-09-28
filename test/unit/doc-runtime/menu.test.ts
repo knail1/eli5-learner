@@ -121,6 +121,23 @@ describe('menu interaction (08 §5.2, §5.4)', () => {
     note?.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     expect(menuEl(h.selection?.root)?.hidden).toBe(true);
     expect(doc.getSelection()?.toString()).toBe('judges every channel');
+    // The restore fires selectionchange; the menu must stay closed past the debounce.
+    doc.dispatchEvent(new win.Event('selectionchange'));
+    vi.advanceTimersByTime(200);
+    expect(menuEl(h.selection?.root)?.hidden).toBe(true);
+    doc.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true }));
+    vi.advanceTimersByTime(200);
+    expect(menuEl(h.selection?.root)?.hidden).toBe(true);
+  });
+
+  it('opens again after Esc once the user makes a different selection', () => {
+    const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
+    const h = rt.boot(win, doc);
+    open(win, doc);
+    menuEl(h.selection?.root)?.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(menuEl(h.selection?.root)?.hidden).toBe(true);
+    open(win, doc, '#tab-indepth > section p', 'every channel');
+    expect(menuEl(h.selection?.root)?.hidden).toBe(false);
   });
 
   it('Cmd+. moves focus into the open menu', () => {

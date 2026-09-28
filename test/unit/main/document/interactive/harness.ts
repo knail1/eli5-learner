@@ -83,6 +83,7 @@ export class FakeViewer implements ViewerPort {
   reloads = 0;
   private starts = new Set<() => void>();
   private finishes = new Set<() => void>();
+  private fails = new Set<() => void>();
   constructor(slug: string | null) {
     this.slug = slug;
   }
@@ -99,6 +100,14 @@ export class FakeViewer implements ViewerPort {
   onLoadFinish(cb: () => void): () => void {
     this.finishes.add(cb);
     return () => this.finishes.delete(cb);
+  }
+  onLoadFail(cb: () => void): () => void {
+    this.fails.add(cb);
+    return () => this.fails.delete(cb);
+  }
+  /** did-fail-load of the main frame: no did-finish-load follows. */
+  fail(): void {
+    for (const cb of this.fails) cb();
   }
   start(slug: string | null = this.slug): void {
     this.slug = slug;

@@ -16,7 +16,6 @@ function currentSlug(): string {
 // 08 §3 / 07 §4: the same bounds main's zod schemas enforce (src/main/ipc/doc.ts).
 const SECTION_ID_RE = /^sec-([a-z][a-z0-9]{1,15})-[0-9a-f]{8}$/;
 const TAB_KEY_RE = /^(indepth|eli5|sx[0-9a-f]{6})$/;
-const SECTION_ELI5_TAB_KEY_RE = /^sx[0-9a-f]{6}$/;
 const ACTIONS = ['expand', 'reexplain', 'analogy', 'deeper'];
 /** 08 §4.3 item 4. */
 const SCROLL_BUFFER_MS = 5000;
@@ -94,7 +93,8 @@ const api: Eli5DocApi = {
   },
   closeTab: (tabKey) => {
     if (!activated()) return forbidden();
-    if (typeof tabKey !== 'string' || !SECTION_ELI5_TAB_KEY_RE.test(tabKey)) return badRequest();
+    // Fixed tabs go to main, which refuses them with E_FORBIDDEN (08 §7.2).
+    if (typeof tabKey !== 'string' || !TAB_KEY_RE.test(tabKey)) return badRequest();
     return invoke(IPC.doc.closeTab, { slug: currentSlug(), tabKey });
   },
   openExternal: (url) => invoke(IPC.viewer.openExternal, { url }),

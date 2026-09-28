@@ -237,6 +237,22 @@ describe('busy tracking (08 §8)', () => {
     });
   });
 
+  it("a finished job's done event never frees a newer request's reservation (08 §8.1)", async () => {
+    const s = await setup();
+    const first = await s.ir.actions.regenerateSection(req(s));
+    await s.ir.runner(s.ctx(first.jobId).ctx); // committed: the key is free again
+    let key: (v: boolean) => void = () => {};
+    s.hasApiKey.mockImplementationOnce(() => new Promise<boolean>((r) => (key = r)));
+    const second = s.ir.actions.regenerateSection(req(s, { action: 'analogy' }));
+    s.jobs.emit(first.jobId, 'done');
+    expect(await rejection(s.ir.actions.regenerateSection(req(s, { action: 'deeper' })))).toMatchObject({
+      code: 'E_CONFLICT',
+      message: 'This section is already being updated',
+    });
+    key(true);
+    await second;
+  });
+
   it('re-sends busy state after every viewer load (08 §8.3)', async () => {
     const s = await setup();
     await s.ir.actions.regenerateSection(req(s));

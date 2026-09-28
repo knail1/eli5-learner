@@ -96,6 +96,8 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
   /** Last status seen per section job, to tell a user retry (failed -> queued) from a new job. */
   const lastStatus = new Map<string, string>();
   const retried = new Set<string>();
+  /** Retries queued while another action held their section; their run fails fast (08 §8.1). */
+  const blocked = new Set<string>();
   let jobs: InteractiveJobs | undefined;
   let unsubJobs: Unsub | undefined;
 
@@ -120,19 +122,23 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
     refresh.updated(e);
   };
 
-  const release = (p: SectionJobPayload, jobId?: string): boolean => {
+  /** Frees the key only when this job holds it; a request's jobless reservation never matches. */
+  const release = (p: SectionJobPayload, jobId: string): boolean => {
     const key = busyKey(p.slug, p.sectionId);
-    const cur = inflight.get(key);
-    if (!cur || (jobId !== undefined && cur.jobId !== undefined && cur.jobId !== jobId)) return false;
+    if (inflight.get(key)?.jobId !== jobId) return false;
     inflight.delete(key);
     return true;
   };
 
-  const track = (p: SectionJobPayload, jobId: string): boolean => {
+  /**
+   * A queued job takes its key. `adopt`: a new job's own request reservation (no jobId yet) becomes
+   * this job's. A retry never adopts: a reservation or key of another action stays theirs (08 §8.1).
+   */
+  const track = (p: SectionJobPayload, jobId: string, adopt: boolean): boolean => {
     const key = busyKey(p.slug, p.sectionId);
     const cur = inflight.get(key);
     if (cur) {
-      cur.jobId ??= jobId;
+      if (adopt) cur.jobId ??= jobId;
       return false;
     }
     inflight.set(key, { slug: p.slug, sectionId: p.sectionId, action: p.action, jobId });
@@ -147,15 +153,18 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
     const prev = lastStatus.get(s.id);
     if (s.status === 'done') lastStatus.delete(s.id);
     else lastStatus.set(s.id, s.status);
-    if (prev === 'failed' && s.status === 'queued') retried.add(s.id);
+    const retry = prev === 'failed' && s.status === 'queued';
+    if (retry) retried.add(s.id);
     if (s.status === 'done' || s.status === 'failed') {
+      blocked.delete(s.id);
       const released = release(p, s.id);
       const code = s.status === 'failed' ? job.failure?.code : undefined;
       const message = code ? failureNotice(code) : undefined;
       if (released || message) broadcast(p.slug, message ? [{ sectionId: p.sectionId, message }] : []);
     } else if (s.status === 'queued') {
       // A new job, a user retry or a crash resume (08 §8.1).
-      if (track(p, s.id)) broadcast(p.slug);
+      if (track(p, s.id, !retry)) broadcast(p.slug);
+      else if (retry && inflight.get(busyKey(p.slug, p.sectionId))?.jobId !== s.id) blocked.add(s.id);
     }
   };
 
@@ -247,8 +256,13 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
 
   const runner = createSectionRunner({
     deps: d,
-    committed: (p, e) => {
-      release(p);
+    claim: (p, jobId) => {
+      if (blocked.delete(jobId)) return false;
+      track(p, jobId, false);
+      return inflight.get(busyKey(p.slug, p.sectionId))?.jobId === jobId;
+    },
+    committed: (p, jobId, e) => {
+      release(p, jobId);
       broadcast(p.slug);
       notifyUpdated(e);
     },
@@ -275,7 +289,7 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
       for (const s of q.list()) {
         if (s.kind !== 'section' || s.status === 'done' || s.status === 'failed') continue;
         const p = q.get(s.id)?.section;
-        if (p) track(p, s.id);
+        if (p) track(p, s.id, true);
       }
       const slug = d.viewer.currentSlug();
       if (slug) broadcast(slug);

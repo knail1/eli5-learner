@@ -20,12 +20,13 @@ export function isTerminal(status: JobStatus): boolean {
   return TERMINAL_STATUSES.has(status);
 }
 
-/** Failure codes that Retry cannot help with (06 §6: no Retry for CANCELLED; section codes, 08 §9). */
+/**
+ * Failure codes that Retry cannot help with (06 §6: no Retry for CANCELLED). 08 §9 disables Retry
+ * only for SECTION_GONE, DOC_GONE and TOO_MANY_TABS; SECTION_CHANGED retries with a fresh baseHash.
+ */
 const NOT_RETRYABLE: ReadonlySet<JobFailureCode> = new Set<JobFailureCode>([
   'CANCELLED',
-  'SECTION_TOO_LARGE',
   'SECTION_GONE',
-  'SECTION_CHANGED',
   'DOC_GONE',
   'TOO_MANY_TABS',
 ]);

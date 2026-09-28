@@ -54,6 +54,25 @@ describe('reload and scroll-to (08 §7.4)', () => {
     expect(s.events.scroll).toEqual([{ sectionId: sec(s.model, 0, 1), tabKey: 'indepth', flash: true, loadSeq: 2 }]);
   });
 
+  it('a failed reload does not wedge later updates; the next one reloads and scrolls', async () => {
+    const s = await setup();
+    s.ir.notifyUpdated({ slug: s.slug, sectionId: sec(s.model, 0, 0), tabKey: 'indepth' });
+    s.viewer.start();
+    s.viewer.fail();
+    s.ir.notifyUpdated({ slug: s.slug, tabKey: 'eli5' });
+    expect(s.viewer.reloads).toBe(2);
+    s.viewer.load();
+    expect(s.events.scroll).toEqual([{ tabKey: 'eli5', flash: true, loadSeq: 2 }]);
+  });
+
+  it('a reload that fails before it starts does not wedge later updates either', async () => {
+    const s = await setup();
+    s.ir.notifyUpdated({ slug: s.slug, tabKey: 'eli5' });
+    s.viewer.fail();
+    s.ir.notifyUpdated({ slug: s.slug, tabKey: 'indepth' });
+    expect(s.viewer.reloads).toBe(2);
+  });
+
   it('drops the scroll when the user opened another document before the reload finished', async () => {
     const s = await setup();
     s.ir.notifyUpdated({ slug: s.slug, tabKey: 'eli5' });
@@ -66,7 +85,7 @@ describe('reload and scroll-to (08 §7.4)', () => {
 
 /** Minimal WebContents double: an event emitter with a URL. */
 function fakeWebContents(url: string) {
-  const handlers = new Map<string, Set<(...a: unknown[]) => void>>();
+  const handlers = new Map<string, Set<(...a: never[]) => void>>();
   return {
     url,
     destroyed: false,
@@ -77,14 +96,14 @@ function fakeWebContents(url: string) {
     isDestroyed() {
       return this.destroyed;
     },
-    on(ev: string, fn: (...a: unknown[]) => void) {
+    on(ev: string, fn: (...a: never[]) => void) {
       let set = handlers.get(ev);
       if (!set) handlers.set(ev, (set = new Set()));
       set.add(fn);
       return this;
     },
     fire(ev: string, ...args: unknown[]) {
-      for (const fn of handlers.get(ev) ?? []) fn(...args);
+      for (const fn of handlers.get(ev) ?? []) (fn as (...a: unknown[]) => void)(...args);
     },
   };
 }
@@ -97,8 +116,10 @@ describe('createElectronViewerPort (08 §2 item 4)', () => {
     expect(port.currentSlug()).toBeNull();
     const starts = vi.fn();
     const finishes = vi.fn();
+    const fails = vi.fn();
     port.onLoadStart(starts);
     port.onLoadFinish(finishes);
+    port.onLoadFail(fails);
     holder.wc = wc;
     port.attach();
     port.attach(); // idempotent
@@ -107,6 +128,11 @@ describe('createElectronViewerPort (08 §2 item 4)', () => {
     wc.fire('did-finish-load');
     expect(starts).toHaveBeenCalledTimes(1);
     expect(finishes).toHaveBeenCalledTimes(1);
+    // did-fail-load(event, errorCode, errorDescription, validatedURL, isMainFrame): main frame only.
+    wc.fire('did-fail-load', {}, -2, 'failed', 'eli5doc://doc/example-widgets/index.html', false);
+    expect(fails).not.toHaveBeenCalled();
+    wc.fire('did-fail-load', {}, -2, 'failed', 'eli5doc://doc/example-widgets/index.html', true);
+    expect(fails).toHaveBeenCalledTimes(1);
     port.reload();
     expect(wc.reload).toHaveBeenCalledTimes(1);
     wc.url = 'https://example.test/';

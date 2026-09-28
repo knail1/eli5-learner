@@ -21,8 +21,13 @@ export const NEIGHBOUR_CHARS = 1500;
 
 export interface RunnerEnv {
   deps: ResolvedDeps;
-  /** Lock released and the write done: drop the busy key, broadcast, emit updated (08 §6.4 step 8). */
-  committed(p: SectionJobPayload, e: DocUpdatedEvent): void;
+  /**
+   * 08 §8.1: true when this job holds (or can take) its section's busy key. False for a status-line
+   * retry queued while another action holds the section.
+   */
+  claim(p: SectionJobPayload, jobId: string): boolean;
+  /** Lock released and the write done: drop this job's busy key, broadcast, emit updated (08 §6.4 step 8). */
+  committed(p: SectionJobPayload, jobId: string, e: DocUpdatedEvent): void;
   /** True once for a job the user retried: its baseHash is re-taken (08 §9 "fresh baseHash"). */
   consumeRetry(jobId: string): boolean;
 }
@@ -227,6 +232,33 @@ async function plan(
   };
 }
 
+type RunResult = Awaited<ReturnType<SectionRunner>>;
+interface Committed {
+  out: RunResult;
+  event: DocUpdatedEvent;
+}
+
+/**
+ * 06 §9.4: a job resumed after a crash between its write and the persisted `done` finds its own
+ * meta.json actions entry. It then commits nothing again (no LLM call, no second tab or entry).
+ */
+async function alreadyCommitted(d: ResolvedDeps, p: SectionJobPayload, jobId: string): Promise<Committed | undefined> {
+  let m: DocumentMeta;
+  try {
+    m = await d.library.getMeta(p.slug);
+  } catch {
+    return undefined; // DOC_GONE and friends surface from the normal path.
+  }
+  const a = m.actions?.find((x) => x.jobId === jobId);
+  if (!a) return undefined;
+  const result = { docId: m.id, topicSlug: m.topicSlug, title: m.title };
+  if (a.resultTabKey !== undefined) {
+    const tabLabel = m.tabs.find((t) => t.key === a.resultTabKey)?.label ?? '';
+    return { out: { result, tabLabel }, event: { slug: p.slug, tabKey: a.resultTabKey } };
+  }
+  return { out: { result }, event: { slug: p.slug, sectionId: p.sectionId, tabKey: p.tabKey } };
+}
+
 /** 08 §6.4 step 7: one updateDocument call; failures leave both files unchanged (09). */
 async function write(d: ResolvedDeps, slug: string, planned: Planned) {
   try {
@@ -243,21 +275,35 @@ export function createSectionRunner(env: RunnerEnv): SectionRunner {
   return async (ctx: SectionRunContext) => {
     const p = ctx.job.section;
     if (!p) throw new PipelineFailure('INTERNAL', 'no-section-payload');
-    const fresh = env.consumeRetry(ctx.job.id);
+    const jobId = ctx.job.id;
+    const d = env.deps;
+    const fresh = env.consumeRetry(jobId);
+    // 08 §8.1: one action per section; a retry queued behind another action on it fails fast.
+    if (!env.claim(p, jobId)) throw new PipelineFailure('SECTION_CHANGED', 'section_busy');
+    const done = (c: Committed): RunResult => {
+      env.committed(p, jobId, c.event);
+      return c.out;
+    };
+    const prior = await alreadyCommitted(d, p, jobId);
+    if (prior) return done(prior);
     const { draft, currentHash } = await generate(env, p, ctx.signal);
     const baseHash = fresh ? currentHash : p.baseHash;
     await ctx.enterSaving();
-    const d = env.deps;
-    const { entry, planned } = await d.library.withDocLock(p.slug, async () => {
+    const c = await d.library.withDocLock(p.slug, async (): Promise<Committed> => {
+      const again = await alreadyCommitted(d, p, jobId);
+      if (again) return again;
       const now = d.clock.now().toISOString();
-      const planned = await plan(env, p, ctx.job.id, draft, baseHash, now);
+      const planned = await plan(env, p, jobId, draft, baseHash, now);
       ctx.markCommitStarted();
-      return { entry: await write(d, p.slug, planned), planned };
+      const entry = await write(d, p.slug, planned);
+      return {
+        out: {
+          result: { docId: entry.id, topicSlug: entry.topicSlug, title: entry.title },
+          ...(planned.tabLabel !== undefined ? { tabLabel: planned.tabLabel } : {}),
+        },
+        event: planned.event,
+      };
     });
-    env.committed(p, planned.event);
-    return {
-      result: { docId: entry.id, topicSlug: entry.topicSlug, title: entry.title },
-      ...(planned.tabLabel !== undefined ? { tabLabel: planned.tabLabel } : {}),
-    };
+    return done(c);
   };
 }

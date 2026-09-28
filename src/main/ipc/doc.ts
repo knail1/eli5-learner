@@ -10,7 +10,7 @@ import {
   type SectionBusyEvent,
   type SectionId,
 } from '../../preload/contract';
-import { SECTION_ELI5_TAB_KEY_RE, SECTION_ID_RE, SectionActionError, TAB_KEY_RE, tabKeyOfSectionId } from '../document';
+import { SECTION_ID_RE, SectionActionError, TAB_KEY_RE, tabKeyOfSectionId } from '../document';
 import { fail, type Register } from './handle';
 import { SlugPayload } from './schemas';
 
@@ -68,8 +68,8 @@ export const SectionActionPayload = z
   .object({ ...Eli5Fields, action: z.enum(['expand', 'reexplain', 'analogy', 'deeper']) })
   .refine(sectionInTab, 'Section is not in that tab');
 export const CreateSectionEli5Payload = z.object(Eli5Fields).refine(sectionInTab, 'Section is not in that tab');
-/** Only Section ELI5 tabs can be closed (08 §7.2). */
-export const CloseTabPayload = z.object({ slug: Slug, tabKey: z.string().regex(SECTION_ELI5_TAB_KEY_RE) });
+/** Any tab key; the service answers E_FORBIDDEN for the in-depth and ELI5 tabs (08 §7.2). */
+export const CloseTabPayload = z.object({ slug: Slug, tabKey: TabKey });
 
 /** The slug of the document the calling viewer has loaded (eli5doc://doc/<slug>/index.html). */
 function viewerSlug(e: IpcMainInvokeEvent): string | null {

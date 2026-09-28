@@ -151,8 +151,23 @@ describe('in-place actions (08 §6.2, §6.4)', () => {
     await s.ir.runner(s.ctx(jobId).ctx);
     expect(parseDocument(await s.read()).model.tabs[0]?.sections[0]?.lastAction).toBe('expand');
     // A crash resume (no failed -> queued in this process) keeps the request-time hash.
+    s.jobs.emit(jobId, 'done');
+    const next = await queued(s);
     await s.writeModel(replaceSection(parseDocument(await s.read()).model, id, NEW_SECTION, undefined, 'x').model);
-    expect((await failure(s.ir.runner(s.ctx(jobId).ctx))).code).toBe('SECTION_CHANGED');
+    expect((await failure(s.ir.runner(s.ctx(next).ctx))).code).toBe('SECTION_CHANGED');
+  });
+
+  it('is idempotent after the write: a resumed job that already committed does not run again (06 §9.4)', async () => {
+    const s = await setup();
+    const jobId = await queued(s);
+    const first = await s.ir.runner(s.ctx(jobId).ctx);
+    const html = await s.read();
+    // Crash after updateDocument, before the queue persisted done: the job runs once more.
+    const again = await s.ir.runner(s.ctx(jobId).ctx);
+    expect(again).toEqual(first);
+    expect(await s.read()).toBe(html);
+    expect(s.runSectionAction).toHaveBeenCalledTimes(1);
+    expect((await meta(s)).actions?.filter((a) => a.jobId === jobId)).toHaveLength(1);
   });
 
   it('passes the precondition when a different section changed meanwhile', async () => {
@@ -287,6 +302,19 @@ describe('section ELI5 tabs (08 §7.1)', () => {
     expect(out).toMatchObject({ tabLabel: tab?.label });
     expect(s.events.updated).toEqual([{ slug: s.slug, tabKey: tab?.key }]);
     expect(s.runSectionAction.mock.calls[0]?.[0]).toMatchObject({ action: 'eli5-tab', tabKind: 'indepth' });
+  });
+
+  it('a resumed eli5-tab job that already committed adds no second tab and no second LLM call', async () => {
+    const s = await setup();
+    const jobId = await queued(s, { action: 'eli5-tab' });
+    const first = await s.ir.runner(s.ctx(jobId).ctx);
+    const again = await s.ir.runner(s.ctx(jobId).ctx);
+    expect(again).toEqual(first);
+    expect(parseDocument(await s.read()).model.tabs.length).toBe(s.model.tabs.length + 1);
+    expect(s.runSectionAction).toHaveBeenCalledTimes(1);
+    const m = await meta(s);
+    expect(m.actions?.filter((a) => a.jobId === jobId)).toHaveLength(1);
+    expect(m.tabs.length).toBe(s.model.tabs.length + 1);
   });
 
   it('does not check baseHash: an edited source section still yields a tab', async () => {
