@@ -1,7 +1,21 @@
 import path from 'node:path';
 import fs from 'node:fs';
-import { app, dialog, ipcMain, protocol, session, shell as electronShell } from 'electron';
-import { IPC, type IpcChannel } from '../preload/contract';
+import { pathToFileURL } from 'node:url';
+import {
+  BrowserWindow,
+  MessageChannelMain,
+  app,
+  clipboard,
+  dialog,
+  ipcMain,
+  nativeImage,
+  powerSaveBlocker,
+  protocol,
+  session,
+  shell as electronShell,
+  utilityProcess,
+} from 'electron';
+import type { IpcChannel } from '../preload/contract';
 import { SettingsStore } from './config/store';
 import { createKeyStore } from './config/keystore';
 import { initPaths, resourcePath, resolveUserDataDir } from './config/paths';
@@ -11,12 +25,14 @@ import { loadOverlay } from './editions/load-overlay';
 import { edition } from './editions/types';
 import { PDF_RENDER_SCHEME_PRIVILEGES } from './extract';
 import { configureFetch } from './fetch';
-import { registerIpc } from './ipc';
+import { openInViewer, providerKeyPresent, registerIpc, snapshotClipboard } from './ipc';
+import { JobQueue, createPipelineDeps } from './pipeline';
 import { sweepStaleDrafts } from './sources/drafts';
 import { DOC_SCHEME, createDocProtocolHandler, gitCheckIgnored, installDocProtocol, openLibrary } from './library';
 import { configureLlmRuntime, createLlmFetch, retryPolicyFromPipeline } from './llm';
 import { hardenApp } from './security/harden';
 import { RotatingFileSink, createLogger, installLogger, log } from './security/log';
+import { registerSurface } from './security';
 import {
   createMainWindow,
   createTray,
@@ -146,12 +162,52 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  // Every push to the app renderer also feeds the Tray (11 §4.2).
+  // Every push to the app renderer also feeds the Tray (11 §4.2): recents and "Quit (N jobs will resume)".
   const sendToApp = (channel: IpcChannel, payload: unknown): void => {
     observeAppEvent(channel, payload);
     mainWebContents()?.send(channel, payload);
   };
-  library.on('changed', () => sendToApp(IPC.library.changed, { entries: library.list() }));
+
+  // Generation pipeline (06 §2). Fake-LLM test runs need no Keychain key (13 §8.1).
+  const fakeLlm = __ELI5_TEST__ && process.env.ELI5_LLM_FAKE === '1';
+  const pipeline = createPipelineDeps({
+    registry,
+    settings: () => settings.get(),
+    keyStore,
+    library,
+    userData,
+    resourcePath,
+    workerEntry: path.join(import.meta.dirname, 'extract-worker.js'),
+    pdfjsDir: app.isPackaged
+      ? path.join(process.resourcesPath, 'pdfjs')
+      : path.join(app.getAppPath(), 'node_modules/pdfjs-dist/build'),
+    ...(app.isPackaged
+      ? { pdfjsWorkerSrc: pathToFileURL(path.join(process.resourcesPath, 'pdfjs/pdf.worker.mjs')).href }
+      : {}),
+    electron: { utilityProcess, BrowserWindow, MessageChannelMain, session, nativeImage, powerSaveBlocker },
+    prepareRenderWebContents: (wc) => registerSurface(wc, 'other', (u) => u.protocol === 'eli5res:'),
+    requireApiKey: !fakeLlm,
+  });
+  const jobs = new JobQueue(pipeline.deps);
+  jobs.on('done', (e) => {
+    // 11 §14 completion notifications hang off this event for create jobs (M3).
+    log.info('pipeline.job-done', { jobId: e.jobId, kind: e.kind });
+  });
+  // Crash recovery (06 §9.4) finishes before IPC exists, so the renderer's first eli5:jobs:list
+  // already sees resumed jobs. A failure here must not stop the app from opening the Library.
+  await jobs.init().catch((err: unknown) => log.error('pipeline.init-failed', {}, err));
+  // Running and queued jobs are persisted and resume on the next launch (06 §4.3, 11 §3.2).
+  app.on('before-quit', () => {
+    void jobs.close();
+    pipeline.dispose();
+  });
+
+  // The viewer loads catalogued documents only through main (09 §11, 12 §7.7).
+  const openDocument = (slug: string): void => openInViewer(viewerWebContents(), slug);
+  // Tray and context-menu callers pass slugs unchecked; only catalogued documents are revealed.
+  const revealDocument = (slug: string): void => {
+    if (library.hasSlug(slug)) electronShell.showItemInFolder(library.docPath(slug));
+  };
 
   // 6. IPC, windows, Tray
   registerIpc({
@@ -162,17 +218,21 @@ async function bootstrap(): Promise<void> {
     registry,
     viewer: { setBounds: setViewerBounds, setVisible: setViewerVisible },
     sendToApp,
+    jobs,
+    library,
+    documents: { open: openDocument, reveal: revealDocument },
+    sources: { userData, clipboard: () => snapshotClipboard(clipboard) },
+    apiKeyReady: fakeLlm ? async () => true : () => providerKeyPresent(settings.get().llm.provider, keyStore),
   });
   initShell({
     preloadDir: path.join(import.meta.dirname, '../preload'),
     rendererDir: path.join(import.meta.dirname, '../renderer'),
     devServerUrl: app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL,
-    // openDocument (viewer.open) is wired with the viewer loader in M2.
-    hooks: { revealDocument: (slug) => electronShell.showItemInFolder(library.docPath(slug)) },
+    hooks: { openDocument, revealDocument },
   });
   createMainWindow();
   createTray();
-  seedTray({ catalog: library.list() });
+  seedTray({ catalog: library.list(), jobs: jobs.list() });
   log.info('app.ready', { kind: edition });
 }
 

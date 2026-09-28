@@ -84,3 +84,19 @@ const api: Eli5Api = {
 };
 
 contextBridge.exposeInMainWorld('eli5', api);
+
+/**
+ * 06 §11, 03 §6.3: main never trusts a raw path from the page. This capture-phase listener runs in
+ * the isolated world before the renderer's own drop handler, ignores synthetic events, and tells
+ * main which paths a real drop produced; `eli5:jobs:start` accepts only those (or pasted ones).
+ */
+window.addEventListener(
+  'drop',
+  (e: DragEvent) => {
+    if (!e.isTrusted) return;
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    const paths = files.map((f) => webUtils.getPathForFile(f)).filter((p) => p !== '');
+    if (paths.length > 0) void invoke(IPC.sources.registerDrop, { paths });
+  },
+  true,
+);

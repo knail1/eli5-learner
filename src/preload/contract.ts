@@ -69,6 +69,8 @@ export const IPC = {
     stageText: 'eli5:sources:stage-text',
     discard: 'eli5:sources:discard',
     discardDraft: 'eli5:sources:discard-draft',
+    /** Preload-only: paths of a trusted native drop, so jobs:start can refuse forged paths (06 §11). */
+    registerDrop: 'eli5:sources:register-drop',
   },
   auth: {
     status: 'eli5:auth:status',

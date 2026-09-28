@@ -268,6 +268,7 @@ this table is corrected. Channel **names** are fixed here.
 | `eli5:sources:stage-text` | R→M | `{draftId; text; markup: 'plain'\|'html'}` | `SourceInput` | 03 §13 |
 | `eli5:sources:discard` | R→M | `{draftId; inputId}` | `void` | 03 §13 |
 | `eli5:sources:discard-draft` | R→M | `{draftId}` | `void` | 03 §13 |
+| `eli5:sources:register-drop` | R→M | `{paths: string[]}` (absolute; sent only by the app preload's capture-phase listener for a trusted `drop`) | `void`. Main records the paths as allowed read targets; `eli5:jobs:start` refuses any other file path with `E_FORBIDDEN`, and a successful start uses the registration up. Paths from `eli5:sources:read-clipboard` are registered by main itself | 06 §11 |
 | `eli5:auth:status` | R→M | — | `AuthStatus`; public: `{state:'unavailable'}` (HOOK-AUTH-01) | 03 §12 |
 | `eli5:auth:sign-in` | R→M | — | `AuthStatus`; public: `E_NOT_AVAILABLE_IN_EDITION` | 03 §12 |
 | `eli5:auth:sign-out` | R→M | — | `AuthStatus`; public: `E_NOT_AVAILABLE_IN_EDITION` | 03 §12 |
