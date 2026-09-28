@@ -79,6 +79,11 @@ describe('task functions (02 §12) with FakeProvider and the default script', ()
     // Found by the first real eval: acronyms the audience assumed (CAC, CTR) were left out.
     const glossarySystem = fake.calls.find((c) => c.taskId === 'glossary')?.system ?? '';
     expect(glossarySystem).toMatch(/every acronym or initialism/i);
+    // The in-depth writer must keep the source's acronyms in its text, or the glossary (built only
+    // from that text) cannot explain them: "customer acquisition cost (CAC)", not just the expansion.
+    const indepthSystem = fake.calls.find((c) => c.taskId === 'in-depth')?.system ?? '';
+    expect(indepthSystem).toMatch(/keep every acronym/i);
+    expect(indepthSystem).toContain('(CAC)');
     const summary = await tasks.summarize(indepth.draft, ctx);
     expect(summary.draft.topicSlugHint).toBe('widget-supply-planning');
 
@@ -120,7 +125,7 @@ describe('task functions (02 §12) with FakeProvider and the default script', ()
     const byTask = new Map(fake.calls.map((c) => [c.taskId, c]));
     expect(byTask.get('in-depth')?.messages[0]?.text).toContain('I run a small widget shop');
     expect(byTask.get('in-depth')?.system).toContain('## Style guide: beautiful-doc');
-    expect(byTask.get('in-depth')?.system).toContain('spell out every acronym');
+    expect(byTask.get('in-depth')?.system).toMatch(/Keep every acronym the source uses/);
     expect(byTask.get('eli5')?.system).toContain('## Style guide: eli5');
     expect(byTask.get('section-deeper')?.messages[0]?.text).toContain('<source ref="original source excerpt">');
   });
