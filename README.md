@@ -62,7 +62,14 @@ The ELI5 tab rebuilds the same material in plain words, with analogies and pictu
   <img src="images/updating_section.png" alt="A section outlined and marked Updating, with the status line 'Updating section' and a Cancel button" width="640">
 - **Section ELI5 tabs.** Focused ELI5 tabs, spun off from any passage and labeled by topic. You can close them.
 - **Library and menu bar.** Every document is listed in a sidebar. The menu bar shows the last three, and the app keeps running in the menu bar when the window is closed.
-- **Merge suggestions.** After a job finishes, the app suggests merging related documents. The suggestion never interrupts you.
+- **Merge suggestions.** When a new document covers the same or a closely related topic as one already
+  in your Library, the app notices when the job finishes. It offers to merge the new material into the
+  existing document to enrich it, instead of leaving two near-copies. The suggestion sits quietly in
+  the sidebar with the reason it thinks the documents match, and never interrupts you. **Merge in**
+  folds the new document into the existing one (and one Undo reverses it); **Keep separate**
+  dismisses the suggestion.
+
+  <img src="images/merge_option.png" alt="Sidebar Suggestions card: 'This looks related to Arizona Court System Breach Exposes Personal Data of Thousands. Merge it in or keep it separate?', with the reason 'Identical topic covering the same incident' and Merge in / Keep separate buttons" width="300">
 - **Completion notifications.** A native macOS notification tells you when a document is ready. Clicking it opens the document in the app, or, if you choose, its published link in your browser.
 
 ## How it works
