@@ -58,6 +58,7 @@ export const PROMPT_VARS: Readonly<Record<PromptId, readonly string[]>> = {
   'section-eli5-tab': ['skills', 'outline', 'section', 'selection', 'note'],
   summary: ['title', 'outline', 'indepthExcerpt'],
   'merge-match': ['summary', 'candidates'],
+  'merge-weave': ['skills', 'targetTitle', 'incomingTitle', 'target', 'incoming', 'imageLabels'],
 };
 
 export class PromptError extends Error {

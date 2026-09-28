@@ -203,8 +203,12 @@ All documents live inside the Electron app's own project directory, one folder p
 1. Only after a new document is fully generated and saved, the app compares its summary against the catalog.
 2. If a strong match exists, it posts a non blocking suggestion: "This looks related to *X*. Merge it in or keep it separate?"
 3. The suggestion waits in the suggestions area until the user acts. It never interrupts or gates generation.
-4. On accept, v1 appends the new material to the existing document as a clearly marked new section, and the standalone document is removed from the Library. Intelligent weaving into existing sections is future work.
-5. On dismiss, both documents remain.
+4. On accept, the app weaves the new material into the existing document with one model call: it revises the sections the new material changes (they keep their identity) and inserts new sections where they read best, in both the In depth and the ELI5 tab. Existing facts stay unless the new material contradicts them, and then the text says so and names both sources. The standalone document is removed from the Library.
+5. Every enhancement is highlighted in one distinct color, with a subtle underline and tint so color is not the only cue. Inserted words are marked inside revised passages; new sections and new blocks get a tinted rule and a "New" tag. The app computes the marks by comparing the old and new text, so they are exact. A legend at the top of the document names each merge ("Enhanced on <date> with material from <title>") with a Hide highlights toggle, and the merged-in sources appear in the references with the same swatch and "Added in merge on <date>".
+6. One Undo restores the document as it was before the merge.
+7. If the model call fails or the spending budget is exhausted, neither document changes, the suggestion stays, and its card says the merge failed and offers Try again. There is no fallback to appending.
+8. Regenerating a section later (Expand and the other section actions) rewrites it without the old merge's marks.
+9. On dismiss, both documents remain.
 
 ## Enterprise publishing (documented, not implemented in v1)
 
@@ -245,7 +249,6 @@ The public build saves locally only and pushes nothing. The enterprise edition a
 **Future enhancements**
 
 - Git style version history per section: view, diff, and roll back regenerations. (v1 keeps exactly one prior version per document with undo/redo.)
-- Intelligent merge that weaves new material into existing sections.
 - Google Drive publishing and NotebookLM linking.
 - Choosing a destination project in the monorepo per document.
 

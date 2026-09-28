@@ -52,12 +52,14 @@ describe('SuggestionsPanel copy and states (09 §10.4)', () => {
     expect(host.querySelector('[role="dialog"], dialog')).toBeNull();
   });
 
-  it('shows lastError beneath a pending suggestion', async () => {
+  it('shows lastError beneath a pending suggestion and offers Try again', async () => {
     fake.api.suggestions.list = async () =>
-      ok([suggestion({ lastError: 'Could not merge. The documents were left unchanged.' })]);
+      ok([suggestion({ lastError: 'Merge failed. Both documents were left unchanged.' })]);
     const host = await render(Panel, { onOpenDoc: vi.fn() });
-    expect(host.textContent).toContain('Could not merge. The documents were left unchanged.');
-    expect(button(host, 'Merge in')?.disabled).toBe(false);
+    expect(host.textContent).toContain('Merge failed. Both documents were left unchanged.');
+    expect(button(host, 'Merge in')).toBeUndefined();
+    expect(button(host, 'Try again')?.disabled).toBe(false);
+    expect(host.querySelector('[role="dialog"], dialog')).toBeNull();
   });
 
   it('shows "Merging…" with both buttons disabled while accepting', async () => {
@@ -108,12 +110,12 @@ describe('SuggestionsPanel copy and states (09 §10.4)', () => {
     const host = await render(Panel, { onOpenDoc: vi.fn() });
     await click(button(host, 'Merge in'));
     expect(host.textContent).toContain('The documents could not be merged');
-    expect(button(host, 'Merge in')?.disabled).toBe(false);
+    expect(button(host, 'Try again')?.disabled).toBe(false);
     fake.emit('suggestions', {
-      suggestions: [suggestion({ lastError: 'Could not merge. The documents were left unchanged.' })],
+      suggestions: [suggestion({ lastError: 'Merge failed. Both documents were left unchanged.' })],
     });
     await flush();
-    expect(host.textContent).toContain('Could not merge. The documents were left unchanged.');
+    expect(host.textContent).toContain('Merge failed. Both documents were left unchanged.');
     expect(host.textContent).not.toContain('The documents could not be merged');
   });
 

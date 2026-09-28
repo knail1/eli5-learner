@@ -95,8 +95,9 @@ export function SuggestionsPanel(p: {
               </p>
               {s.reason && <p className="muted suggestion-reason">{s.reason}</p>}
               <div className="row">
+                {/* 09 §10.6 step 11: a failed merge changed nothing; the same button retries it. */}
                 <button type="button" disabled={busy} onClick={() => void accept(s)}>
-                  Merge in
+                  {!busy && error ? 'Try again' : 'Merge in'}
                 </button>
                 <button type="button" disabled={busy} onClick={() => void dismiss(s)}>
                   Keep separate

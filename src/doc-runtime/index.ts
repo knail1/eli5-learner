@@ -6,6 +6,7 @@ import './index.css';
 import { initCloseButtons, initFocusHandoff, initLinks, initScroll } from './app';
 import { getBridge } from './bridge';
 import { initCharts, initFigures, initPrint, initSteppers } from './components';
+import { initEnhancements } from './enhancements';
 import { initGlossary, type GlossaryApi } from './glossary';
 import { initSelection, type SelectionController } from './selection';
 import { initTabs, type TabsApi } from './tabs';
@@ -38,6 +39,7 @@ export function boot(win: Window = window, doc: Document = document): RuntimeHan
   safe('figure', () => initFigures(doc));
   safe('print', () => initPrint(win, doc));
   safe('theme-toggle', () => initThemeToggle(doc, win));
+  safe('enhancements', () => initEnhancements(doc, win));
   const bridge = getBridge(win);
   const handle: RuntimeHandle = { inApp: bridge !== undefined };
   if (tabs) handle.tabs = tabs;

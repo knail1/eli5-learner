@@ -45,6 +45,7 @@ export { createTasks, deserializePrepared, serializePrepared, sectionText, MODEL
 export type {
   LlmTasks,
   MergeCandidate,
+  MergeWeaveInput,
   PreparedContent,
   PreparedContentJson,
   SectionAction,

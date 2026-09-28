@@ -4,20 +4,15 @@ import { canonicalJson, scriptSafeJson } from '../canonical-json';
 import { attrs, capText, esc } from '../html';
 import { DEFAULT_FOOTER, defaultDocTheme, themeCss } from '../theme';
 import type { AssetRef, DocRuntime, DocTheme, DocumentModel, RenderOptions, Section, Tab } from '../types';
-import { renderBlock } from './blocks';
+import { renderBlock, type MergeMarkup } from './blocks';
 import { documentCsp } from './csp';
+import { formatDate } from './date';
 import { renderReferencesBody } from './references';
+
+export { formatDate };
 
 /** Display cap for section ELI5 tab labels; the full label goes into `title` (07 §4.1). */
 export const TAB_LABEL_MAX = 48;
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-/** "27 Sep 2026" from an ISO timestamp, in UTC. */
-export function formatDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()] ?? ''} ${d.getUTCFullYear()}`;
-}
 
 /** Makes inline script text safe inside <script> (never closes the element). */
 export function scriptSafe(js: string): string {
@@ -33,10 +28,41 @@ interface Ctx {
   model: DocumentModel;
   assets: ReadonlyMap<string, Uint8Array>;
   assetRefs: ReadonlyMap<string, AssetRef>;
+  merges: MergeMarkup;
+}
+
+/** "Enhanced on 28 Sep 2026 with material from <title>" (07 §6.4), without markup. */
+export function mergeLegendText(m: { fromTitle: string; mergedAt: string }): string {
+  return `Enhanced on ${formatDate(m.mergedAt)} with material from ${m.fromTitle}`;
+}
+
+/** `<ins>` tags and hover text per merge id; an unknown id still renders a mark. */
+function mergeMarkup(model: DocumentModel): MergeMarkup {
+  const byId = new Map((model.merges ?? []).map((m) => [m.id, m]));
+  const title = (id: string): string => {
+    const m = byId.get(id);
+    return m ? mergeLegendText(m) : 'Enhanced in a merge';
+  };
+  const open = new Map<string, string>();
+  return {
+    title,
+    open: (id) => {
+      let tag = open.get(id);
+      if (tag === undefined) {
+        tag = `<ins${attrs([
+          ['class', 'enh'],
+          ['data-merge', id],
+          ['title', title(id)],
+        ])}>`;
+        open.set(id, tag);
+      }
+      return tag;
+    },
+  };
 }
 
 function ctxOf(model: DocumentModel, assets: ReadonlyMap<string, Uint8Array>): Ctx {
-  return { model, assets, assetRefs: new Map(model.assets.map((a) => [a.id, a])) };
+  return { model, assets, assetRefs: new Map(model.assets.map((a) => [a.id, a])), merges: mergeMarkup(model) };
 }
 
 function sectionHtml(c: Ctx, tab: Tab, s: Section): string {
@@ -48,6 +74,8 @@ function sectionHtml(c: Ctx, tab: Tab, s: Section): string {
     ['data-kind', isRefs ? 'references' : undefined],
     ['data-origin', s.origin],
     ['data-merged-from', s.merge?.fromDocId],
+    ['data-enh', s.enh?.added ? 'new' : undefined],
+    ['data-merge', s.enh?.added],
     ['data-merge-marker', s.mergeMarker?.suggestionId],
     ['data-eli5-actionable', isRefs ? 'false' : 'true'],
     ['aria-labelledby', `${s.id}-h`],
@@ -65,6 +93,8 @@ function sectionHtml(c: Ctx, tab: Tab, s: Section): string {
           assets: c.assets,
           assetRefs: c.assetRefs,
           notes: notes.filter((n) => n.blockIndex === i),
+          enh: s.enh?.blocks.find((e) => e.block === i),
+          merges: c.merges,
         }),
       )
       .join('\n');
@@ -136,6 +166,30 @@ export function footerText(theme: DocTheme): string {
   return !f || f === DEFAULT_FOOTER ? DEFAULT_FOOTER : `${DEFAULT_FOOTER} · ${f}`;
 }
 
+/**
+ * 07 §6.4 legend: one line per woven merge with the enhancement swatch, and a "Hide highlights"
+ * toggle the runtime reveals (highlights stay visible without JS).
+ */
+function legendHtml(model: DocumentModel): string[] {
+  const merges = model.merges ?? [];
+  if (merges.length === 0) return [];
+  return [
+    `<div${attrs([
+      ['class', 'enh-legend'],
+      ['data-doc-id', model.docId],
+    ])}>`,
+    ...merges.map(
+      (m) =>
+        `<p${attrs([
+          ['class', 'enh-legend-line'],
+          ['data-merge', m.id],
+        ])}><span class="enh-swatch" aria-hidden="true"></span>Enhanced on ${esc(formatDate(m.mergedAt))} with material from <cite>${esc(m.fromTitle)}</cite></p>`,
+    ),
+    '<button type="button" class="enh-toggle" aria-pressed="false" hidden>Hide highlights</button>',
+    '</div>',
+  ];
+}
+
 function headerHtml(model: DocumentModel, theme: DocTheme): string {
   const logo = theme.logoSvg ? `<span class="doc-logo">${theme.logoSvg}</span>` : '';
   return [
@@ -146,6 +200,7 @@ function headerHtml(model: DocumentModel, theme: DocTheme): string {
     `<h1>${esc(model.title)}</h1>`,
     ...(model.dek ? [`<p class="dek">${esc(model.dek)}</p>`] : []),
     `<p class="doc-meta">${esc(metaLine(model))}</p>`,
+    ...legendHtml(model),
     '</header>',
   ].join('\n');
 }

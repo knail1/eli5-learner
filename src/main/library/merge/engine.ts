@@ -11,7 +11,7 @@ import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import type { DocUpdatedEvent } from '../../../preload/contract';
-import { appendMergedDocument, tabKeyOfSectionId } from '../../document';
+import { tabKeyOfSectionId, weaveMergedDocument, type MergePlanner } from '../../document';
 import { log as defaultLog, type Logger } from '../../security';
 import { uuidFrom } from '../catalog';
 import { DIR_MODE, errnoOf, writeFileAtomic, writeJsonAtomic } from '../fs-atomic';
@@ -81,15 +81,19 @@ export type MergeJudge = (
   signal: AbortSignal,
 ) => Promise<{ matches: { catalogId: string; score: number; reason: string }[] }>;
 
-/** 07 §8.1 `appendMergedDocument`, injectable for tests (09 §13). */
-export type AppendMerged = (input: {
+/**
+ * 07 §8.1 `weaveMergedDocument` bound to the `merge-weave` planner, injectable for tests (09 §13).
+ * Rejects when the LLM call fails or the budget is exhausted; the documents are then left as they are.
+ */
+export type WeaveMerged = (input: {
   targetHtml: string;
   targetMeta: DocumentMeta;
   sourceHtml: string;
   sourceMeta: DocumentMeta;
   suggestionId: string;
   mergedAt: string;
-}) => { html: string; tabs: TabRecord[]; markerSectionIds: SectionId[]; idMap: Record<SectionId, SectionId> };
+  signal: AbortSignal;
+}) => Promise<{ html: string; tabs: TabRecord[]; markerSectionIds: SectionId[]; prompt?: string }>;
 
 export interface MergeSuggestionsOptions {
   library: FsLibrary;
@@ -97,7 +101,9 @@ export interface MergeSuggestionsOptions {
   judge: MergeJudge;
   /** HOOK-LIB-02: `registry.mergeEligibility()`. Default: the public `() => true`. */
   eligibility?: MergeEligibility;
-  appendMerged?: AppendMerged;
+  /** `tasks.weaveMerge` from createPipelineDeps (02 §12); used by the default `weaveMerged`. */
+  planner?: MergePlanner;
+  weaveMerged?: WeaveMerged;
   scorer?: SimilarityScorer;
   /** HOOK-LIB-01: `registry.libraryPolicy().resolvedSuggestionRetentionDays`. */
   retentionDays?: number;
@@ -158,7 +164,9 @@ class MergeEngine implements MergeDelegate {
   private readonly lib: FsLibrary;
   private readonly judge: MergeJudge;
   private readonly eligibility: MergeEligibility;
-  private readonly appendMerged: AppendMerged;
+  private readonly weaveMerged: WeaveMerged;
+  /** Aborted on dispose so an accept waiting on the model releases its document locks. */
+  private readonly disposed = new AbortController();
   private readonly scorer: SimilarityScorer;
   private readonly retentionDays: number;
   private readonly judgeTimeoutMs: number;
@@ -178,7 +186,11 @@ class MergeEngine implements MergeDelegate {
     this.lib = o.library;
     this.judge = o.judge;
     this.eligibility = o.eligibility ?? defaultMergeEligibility;
-    this.appendMerged = o.appendMerged ?? ((input) => appendMergedDocument(input));
+    const planner = o.planner;
+    this.weaveMerged =
+      o.weaveMerged ??
+      ((input) =>
+        planner ? weaveMergedDocument(input, planner) : Promise.reject(new Error('No merge planner is configured')));
     this.scorer = o.scorer ?? new LexicalScorer();
     this.retentionDays = o.retentionDays ?? RESOLVED_SUGGESTION_RETENTION_DAYS;
     this.judgeTimeoutMs = o.judgeTimeoutMs ?? JUDGE_TIMEOUT_MS;
@@ -220,6 +232,7 @@ class MergeEngine implements MergeDelegate {
   }
 
   dispose(): void {
+    this.disposed.abort();
     this.unsubLibrary();
   }
 
@@ -689,18 +702,29 @@ class MergeEngine implements MergeDelegate {
     } catch (err) {
       throw new AcceptOutcome('failed', MERGE_FAILED_MESSAGE, err);
     }
-    // Step 5.
-    let backup: string;
+    // Step 5: the woven merge (one LLM call). Any failure leaves both documents untouched; there
+    // is no fallback to appending.
+    const mergedAt = this.clock.now().toISOString();
+    let merged: Awaited<ReturnType<WeaveMerged>>;
     try {
-      backup = await this.backupTarget(s.target.slug);
+      merged = await this.weaveMerged({
+        targetHtml,
+        targetMeta,
+        sourceHtml,
+        sourceMeta,
+        suggestionId: s.id,
+        mergedAt,
+        signal: this.disposed.signal,
+      });
     } catch (err) {
+      const kind = (err as { kind?: unknown }).kind;
+      this.log.warn('merge.weave-failed', { errorKind: typeof kind === 'string' ? kind : 'error' });
       throw new AcceptOutcome('failed', MERGE_FAILED_MESSAGE, err);
     }
     // Step 6.
-    const mergedAt = this.clock.now().toISOString();
-    let merged: ReturnType<AppendMerged>;
+    let backup: string;
     try {
-      merged = this.appendMerged({ targetHtml, targetMeta, sourceHtml, sourceMeta, suggestionId: s.id, mergedAt });
+      backup = await this.backupTarget(s.target.slug);
     } catch (err) {
       throw new AcceptOutcome('failed', MERGE_FAILED_MESSAGE, err);
     }
@@ -723,6 +747,13 @@ class MergeEngine implements MergeDelegate {
         meta: (m) => ({
           ...m,
           tabs: merged.tabs,
+          generation: {
+            ...m.generation,
+            prompts:
+              merged.prompt && !m.generation.prompts.includes(merged.prompt)
+                ? [...m.generation.prompts, merged.prompt]
+                : m.generation.prompts,
+          },
           sourcesUsed: unionSources(m.sourcesUsed, sourceMeta.sourcesUsed, `merge:${sourceMeta.id}`),
           sourcesSkipped: unionBy(m.sourcesSkipped, sourceMeta.sourcesSkipped, (x) => `${x.ref}\0${x.code}`),
           merges: [...m.merges, record],
@@ -744,7 +775,7 @@ class MergeEngine implements MergeDelegate {
     return { targetSlug: s.target.slug, ...(markerId ? { markerId } : {}) };
   }
 
-  /** Step 5: `.trash/<slug>--<ts>-premerge/` with the target's index.html and meta.json. */
+  /** Step 6: `.trash/<slug>--<ts>-premerge/` with the target's index.html and meta.json. */
   private async backupTarget(slug: string): Promise<string> {
     const base = path.join(this.lib.root, TRASH_DIR, `${slug}--${compactTimestamp(this.clock.now())}-premerge`);
     let dir = base;

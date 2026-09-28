@@ -2,8 +2,14 @@
 import { renderChartFigure } from '../charts';
 import { attrs, esc, escAttr } from '../html';
 import { toDataUri } from '../images';
-import { renderInline, renderInlineMany, type DfnAnchor } from '../inline-md';
-import type { AssetRef, DocBlock, GlossaryNote } from '../types';
+import { renderInline, renderInlineMany, type DfnAnchor, type InlineMarks } from '../inline-md';
+import type { AssetRef, BlockEnhancement, DocBlock, GlossaryNote } from '../types';
+
+/** How a merge's marks are written (07 §6.4): the `<ins>` opening tag and the hover text. */
+export interface MergeMarkup {
+  open(merge: string): string;
+  title(merge: string): string;
+}
 
 export interface BlockContext {
   /** Unique per block in the document; used for ids inside charts and figures. */
@@ -12,6 +18,28 @@ export interface BlockContext {
   assetRefs: ReadonlyMap<string, AssetRef>;
   /** Glossary notes anchored in this block, in anchor order. */
   notes: readonly GlossaryNote[];
+  /** Woven-merge marks of this block (07 §6.4). */
+  enh?: BlockEnhancement | undefined;
+  merges?: MergeMarkup | undefined;
+}
+
+/** Marks for inline string `i` of the block, when it has any. */
+function marksAt(ctx: BlockContext, i: number): InlineMarks | undefined {
+  const enh = ctx.enh;
+  const ranges = enh?.kind === 'text' ? enh.parts[i] : undefined;
+  return ranges?.length && ctx.merges ? { ranges, open: ctx.merges.open } : undefined;
+}
+
+/** A whole-block mark: attributes on the block's root element (a CSS rule draws the rule and tag). */
+function markBlock(html: string, ctx: BlockContext): string {
+  const enh = ctx.enh;
+  if (!enh || enh.kind === 'text') return html;
+  const extra = attrs([
+    ['data-enh', enh.kind],
+    ['data-merge', enh.merge],
+    ['title', ctx.merges?.title(enh.merge)],
+  ]);
+  return html.replace(/^<([a-z][a-z0-9]*)/, (m) => m + extra);
 }
 
 const CALLOUT_LABELS = { note: 'Note', warning: 'Warning', keypoint: 'Key point' } as const;
@@ -112,11 +140,15 @@ export function renderBlock(b: DocBlock, ctx: BlockContext): string {
   let html: string;
   switch (b.type) {
     case 'paragraph':
-      html = `<p>${renderInline(b.md, anchors)}</p>`;
+      html = `<p>${renderInline(b.md, anchors, marksAt(ctx, 0))}</p>`;
       break;
     case 'list': {
       const tag = b.ordered ? 'ol' : 'ul';
-      const items = renderInlineMany(b.items, anchors).html;
+      const items = renderInlineMany(
+        b.items,
+        anchors,
+        b.items.map((_, i) => marksAt(ctx, i)),
+      ).html;
       html = `<${tag}>${items.map((i) => `<li>${i}</li>`).join('')}</${tag}>`;
       break;
     }
@@ -129,10 +161,10 @@ export function renderBlock(b: DocBlock, ctx: BlockContext): string {
     case 'callout':
       html =
         `<aside class="callout callout--${b.tone}"><p class="callout-label">${CALLOUT_LABELS[b.tone]}</p>` +
-        `<p>${renderInline(b.md, anchors)}</p></aside>`;
+        `<p>${renderInline(b.md, anchors, marksAt(ctx, 0))}</p></aside>`;
       break;
     case 'analogy':
-      html = `<aside class="analogy"><p class="analogy-label">Think of it like</p><p>${renderInline(b.md, anchors)}</p></aside>`;
+      html = `<aside class="analogy"><p class="analogy-label">Think of it like</p><p>${renderInline(b.md, anchors, marksAt(ctx, 0))}</p></aside>`;
       break;
     case 'table':
       html = renderTable(b);
@@ -156,11 +188,11 @@ export function renderBlock(b: DocBlock, ctx: BlockContext): string {
               `<li${attrs([
                 ['class', 'step'],
                 ['data-step', i + 1],
-              ])}><p class="step-label">${esc(s.label)}</p><p>${renderInline(s.md)}</p></li>`,
+              ])}><p class="step-label">${esc(s.label)}</p><p>${renderInline(s.md, [], marksAt(ctx, i))}</p></li>`,
           )
           .join('') +
         '</ol></div>';
       break;
   }
-  return html + ctx.notes.map(renderNote).join('');
+  return markBlock(html, ctx) + ctx.notes.map(renderNote).join('');
 }

@@ -310,6 +310,12 @@ async function bootstrap(): Promise<void> {
   const merge = createMergeSuggestions({
     library,
     judge: (summary, candidates, signal) => pipeline.tasks.matchMerge(summary, candidates, signal),
+    // 09 §10.3: Merge in weaves the new document in with one `merge-weave` call.
+    planner: async (input) => {
+      const r = await pipeline.tasks.weaveMerge(input);
+      log.info('merge.weave-usage', { inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens });
+      return { draft: r.draft, prompt: r.prompt };
+    },
     eligibility: registry.mergeEligibility(),
     retentionDays: registry.libraryPolicy().resolvedSuggestionRetentionDays,
   });

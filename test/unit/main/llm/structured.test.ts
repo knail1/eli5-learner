@@ -196,6 +196,7 @@ describe('default FakeProvider script (13 §6.1)', () => {
       'section-eli5-tab': 'DocumentDraftTab',
       summary: 'SummaryDraft',
       'merge-match': 'MergeMatchDraft',
+      'merge-weave': 'MergePlanDraft',
     };
     for (const [id, schema] of Object.entries(schemaFor)) {
       const r = validateDraft(schema, script.responses[id]);

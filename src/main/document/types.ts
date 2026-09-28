@@ -52,6 +52,39 @@ export interface DocumentModel {
   references: ReferenceEntry[]; // rendered as the last in-depth section
   assets: AssetRef[];
   theme: DocThemeRef;
+  /** Merges that enhanced this document, oldest first (07 §8.1): one legend line each. */
+  merges?: MergeLegendEntry[];
+}
+
+/** One woven-in merge (07 §8.1, §6.4). `id` ('m1', 'm2', …) is the `data-merge` value of its marks. */
+export interface MergeLegendEntry {
+  id: string;
+  fromTitle: string;
+  mergedAt: string;
+}
+
+/**
+ * Text a merge inserted into one inline string of a block (07 §6.4): [start, end) offsets into
+ * the string's plain text (`inlineText`), so markup changes never count as enhancements.
+ */
+export interface EnhRange {
+  merge: string;
+  start: number;
+  end: number;
+}
+
+/**
+ * Enhancement marks of one block. 'new': the whole block was added; 'updated': a non-text block
+ * (chart, table, figure, …) was changed; 'text': inserted runs per inline string of the block
+ * (paragraph/callout/analogy: 1, list: one per item, stepper: one per step).
+ */
+export type BlockEnhancement =
+  { block: number; kind: 'new' | 'updated'; merge: string } | { block: number; kind: 'text'; parts: EnhRange[][] };
+
+/** A section's enhancement marks; `added` when a merge inserted the whole section. */
+export interface SectionEnhancement {
+  added?: string;
+  blocks: BlockEnhancement[];
 }
 
 export interface Tab {
@@ -73,6 +106,9 @@ export interface Section {
   updatedAt: string;
   lastAction?: SectionAction;
   merge?: { fromDocId: string; fromTitle: string; mergedAt: string };
+  /** Woven-merge highlights (07 §6.4); dropped when the section is regenerated (08). */
+  enh?: SectionEnhancement;
+  /** Legacy appended merges only (formats written before woven merges). */
   mergeMarker?: {
     suggestionId: string;
     fromDocId: string;
@@ -132,7 +168,7 @@ export interface ReferenceEntry {
   href?: string; // http(s) only
   detail?: string;
   reason?: string; // skipped only, from SkippedSource.reason
-  addedBy?: { mergeFromTitle: string; mergedAt: string };
+  addedBy?: { mergeFromTitle: string; mergedAt: string; mergeId?: string };
 }
 
 /** Input to a ReferenceFormatter: the job's sources in input order (07 §5.1 step 7). */

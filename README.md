@@ -82,8 +82,11 @@ The ELI5 tab rebuilds the same material in plain words, with analogies and pictu
   <img src="images/foxnews-same-cyberattack-on-arizona-personal-records.png" alt="FOX 10 Phoenix article 'Arizona court system targeted in cyberattack compromising personal records', a second report on the same breach" width="820">
 
   When that job finishes, a suggestion waits quietly in the sidebar. It names the existing document and
-  the new one and says why they match, and it never interrupts you. **Merge in** folds the new material
-  into the existing document (one Undo reverses it); **Keep separate** dismisses the suggestion.
+  the new one and says why they match, and it never interrupts you. **Merge in** weaves the new material
+  into the existing document: both the In depth and the ELI5 tab are revised in place, and new sections
+  are added where they fit. Every enhancement is highlighted in its own color, a legend at the top says
+  when and from what the document was enhanced (with a Hide highlights toggle), and the new sources are
+  marked in the references. One Undo reverses the merge; **Keep separate** dismisses the suggestion.
 
   <img src="images/merge_option_better.png" alt="Library with the new FOX 10 document on top and a Suggestions card: 'This looks related to Arizona Court System Breach Exposes Personal Data of Thousands. Merge it in or keep it separate?', New: 'Arizona's court system hit by cyberattack targeting personal records', with the reason and Merge in / Keep separate buttons" width="300">
 - **Completion notifications.** A native macOS notification tells you when a document is ready. Clicking it opens the document in the app, or, if you choose, its published link in your browser.
@@ -131,7 +134,6 @@ The public build needs nothing but an API key: no accounts, no logins and no oth
 ## Roadmap
 
 - Per-section version history with diff and rollback
-- Merges that weave new material into existing sections
 - Google Drive publishing and NotebookLM linking
 
 ## Getting started

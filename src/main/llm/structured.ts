@@ -14,6 +14,7 @@ import {
   type ChartSpec,
   type DraftBlock,
   type DraftSchemaName,
+  type MergePlanDraft,
 } from './schemas/draft';
 import type { GenerationRequest, GenerationResult, LLMProvider, TokenUsage } from './types';
 
@@ -137,6 +138,11 @@ export function validateDraft<N extends DraftSchemaName>(
   }
   const parsed = DRAFT_SCHEMAS[name].safeParse(json);
   if (!parsed.success) return { ok: false, errors: zodErrors(parsed.error) };
+  if (name === 'MergePlanDraft') {
+    // Written blocks get the same semantic checks as section drafts; any failure asks for a repair.
+    const errors = mergePlanErrors(parsed.data as MergePlanDraft, ctx);
+    if (errors.length) return { ok: false, errors };
+  }
   if (name === 'ChunkNotes') {
     // Malformed chart candidates are hints only: drop them rather than repair.
     const notes = ChunkNotesSchema.parse(parsed.data);
@@ -149,6 +155,19 @@ export function validateDraft<N extends DraftSchemaName>(
     return { ok: true, data: notes as DraftOf<N>, dropped };
   }
   return { ok: true, data: parsed.data as DraftOf<N>, dropped: [] };
+}
+
+function mergePlanErrors(plan: MergePlanDraft, ctx: ValidationContext): string[] {
+  const errors: string[] = [];
+  for (const tab of ['indepth', 'eli5'] as const)
+    for (const kind of ['revise', 'insert'] as const)
+      plan[tab][kind].forEach((sec, si) =>
+        sec.blocks.forEach((b, bi) => {
+          if (b.type === 'keep' || b.type === 'incoming') return;
+          errors.push(...blockErrors(b, `${tab}.${kind}[${si}].blocks[${bi}]`, ctx));
+        }),
+      );
+  return errors;
 }
 
 // ---- call + single repair (02 §10.1) ----

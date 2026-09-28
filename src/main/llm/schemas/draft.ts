@@ -96,6 +96,43 @@ export const MergeMatchDraftSchema = z.object({
 });
 export type MergeMatchDraft = z.infer<typeof MergeMatchDraftSchema>;
 
+/**
+ * Merge edit plan (02 §10, 09 §10.3): how to weave another document into this one. Sections are
+ * named by the aliases the prompt gives them (I1…, E1… for this document; X1…, Y1… for the
+ * incoming one). A `keep` block reuses block N of the section being revised unchanged; an
+ * `incoming` block copies a block of the incoming document (visuals are never re-typed).
+ */
+const MergeKeepBlockSchema = z.object({ type: z.literal('keep'), block: z.number().int().min(0) });
+const MergeIncomingBlockSchema = z.object({
+  type: z.literal('incoming'),
+  section: z.string(),
+  block: z.number().int().min(0),
+});
+export const MergePlanBlockSchema = z.discriminatedUnion('type', [
+  ...DraftBlockSchema.options,
+  MergeKeepBlockSchema,
+  MergeIncomingBlockSchema,
+]);
+export type MergePlanBlock = z.infer<typeof MergePlanBlockSchema>;
+const MergePlanSectionShape = { heading: z.string(), blocks: z.array(MergePlanBlockSchema).min(1).max(60) };
+export const MergeTabPlanSchema = z.object({
+  /** Existing sections rewritten in place (same section, same ID). */
+  revise: z.array(z.object({ section: z.string(), ...MergePlanSectionShape })).max(40),
+  /** New sections; `after` is the alias of the section they follow, or "START". */
+  insert: z.array(z.object({ after: z.string(), ...MergePlanSectionShape })).max(20),
+});
+export type MergeTabPlan = z.infer<typeof MergeTabPlanSchema>;
+export const MergePlanDraftSchema = z.object({
+  indepth: MergeTabPlanSchema,
+  eli5: MergeTabPlanSchema,
+  glossary: z
+    .array(
+      z.object({ term: z.string(), expansion: z.string().optional(), explanation: z.string(), anchorText: z.string() }),
+    )
+    .max(20),
+});
+export type MergePlanDraft = z.infer<typeof MergePlanDraftSchema>;
+
 /** Schema names usable in prompt front matter `output:` (02 §9, §16 prompt lint). */
 export const DRAFT_SCHEMAS = {
   DocumentDraftTab: DocumentDraftTabSchema,
@@ -104,6 +141,7 @@ export const DRAFT_SCHEMAS = {
   GlossaryDraft: GlossaryDraftSchema,
   SummaryDraft: SummaryDraftSchema,
   MergeMatchDraft: MergeMatchDraftSchema,
+  MergePlanDraft: MergePlanDraftSchema,
 } as const;
 export type DraftSchemaName = keyof typeof DRAFT_SCHEMAS;
 
@@ -174,7 +212,7 @@ export function toStrictJsonSchema(schema: z.ZodType): Json {
  * ten-shape block union nested in sections and tabs exceeds both. Their replies are parsed and
  * validated with the same zod schemas and single repair.
  */
-const PROMPTED_JSON: ReadonlySet<DraftSchemaName> = new Set(['DocumentDraftTab', 'SectionDraft']);
+const PROMPTED_JSON: ReadonlySet<DraftSchemaName> = new Set(['DocumentDraftTab', 'SectionDraft', 'MergePlanDraft']);
 
 export function usesPromptedJson(name: DraftSchemaName): boolean {
   return PROMPTED_JSON.has(name);

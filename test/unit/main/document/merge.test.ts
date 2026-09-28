@@ -1,360 +1,318 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   DocumentBuildError,
   DocumentFormatError,
-  MAX_SECTION_ELI5_TABS,
   SECTION_ID_RE,
-  addSectionEli5Tab,
-  appendMergedDocument,
-  buildDocumentModel,
   parseDocument,
   renderDocument,
-  type AppendMergedInput,
+  weaveMergedDocument,
   type DocumentModel,
-  type SectionId,
+  type MergePlanner,
+  type Section,
 } from '../../../../src/main/document';
-import { GLOSSARY_DRAFT, INDEPTH_DRAFT, fixtureInput } from '../../../fixtures/documents/drafts';
-import { SECTION_ELI5_DRAFT } from '../../../fixtures/documents/models';
+import type { MergePlanDraft } from '../../../../src/main/llm';
+import {
+  MERGED_AT,
+  MERGE_SOURCE_ID,
+  MERGE_SOURCE_TITLE,
+  MERGE_TAB_TS,
+  MERGE_TARGET_ID,
+  WEAVE_PLAN,
+  mergeSource,
+  mergeTarget,
+  wovenFixture,
+} from '../../../fixtures/documents/merge';
 import { STUB_RUNTIME } from '../../../fixtures/documents/runtime';
-import { SeededIdSource } from '../../../helpers/ids';
 import { validateDocument } from '../../../helpers/doc-validity';
+import { SeededIdSource } from '../../../helpers/ids';
 
-/** appendMergedDocument (09 §10.3, 07 §8.1). Synthetic "Example Widgets Inc." documents only. */
-
-const TARGET_ID = '11111111-1111-4111-8111-111111111111';
-const SOURCE_ID = '22222222-2222-4222-8222-222222222222';
-const SUGGESTION_ID = '33333333-3333-4333-8333-333333333333';
-const MERGED_AT = '2026-09-28T10:00:00.000Z';
-const TAB_TS = '2026-09-27T12:00:00.000Z';
-
-interface Built {
-  html: string;
-  model: DocumentModel;
-}
-
-/** Same seed as the target by default, so every source SectionId collides with a target one. */
-function build(opts: {
-  docId: string;
-  slug: string;
-  title: string;
-  seed?: number;
-  placeholder?: boolean;
-  glossary?: typeof GLOSSARY_DRAFT | null;
-  sxTabs?: number;
-}): Built {
-  const base = fixtureInput(opts.placeholder ? 'placeholder' : 'full', opts.seed ?? 7);
-  const built = buildDocumentModel({
-    ...base,
-    docId: opts.docId,
-    slug: opts.slug,
-    indepth: { ...INDEPTH_DRAFT, title: opts.title },
-    ...(opts.glossary !== undefined ? { glossary: opts.glossary } : {}),
-  });
-  const assets = built.assets;
-  let model = built.model;
-  const ids = new SeededIdSource((opts.seed ?? 7) + 100);
-  for (let i = 0; i < (opts.sxTabs ?? 0); i++) {
-    const from = model.tabs[0]?.sections[0]?.id;
-    if (!from) throw new Error('fixture');
-    model = addSectionEli5Tab(model, from, 'ROAS', SECTION_ELI5_DRAFT, TAB_TS, { idSource: ids }).model;
-  }
-  return { html: renderDocument(model, assets, { runtime: STUB_RUNTIME }), model };
-}
-
-function metaOf(b: Built, over: Partial<AppendMergedInput['targetMeta']> = {}): AppendMergedInput['targetMeta'] {
-  return {
-    id: b.model.docId,
-    title: b.model.title,
-    retiredIds: [],
-    tabs: b.model.tabs.map((t) => ({
-      key: t.key,
-      kind: t.kind,
-      label: t.label,
-      sectionCount: t.sections.length,
-      createdAt: TAB_TS,
-      ...(t.origin ? { sourceSectionId: t.origin.sectionId } : {}),
-    })),
-    ...over,
-  };
-}
-
-const target = build({ docId: TARGET_ID, slug: 'widget-ads', title: 'Widget ad spend' });
-const sourceGlossary = {
-  entries: [
-    ...GLOSSARY_DRAFT.entries,
-    {
-      term: 'Paid search',
-      explanation: 'Ads shown next to search results.',
-      anchorSectionIndex: 0,
-      anchorText: 'Paid search',
-    },
-  ],
-};
-const source = build({
-  docId: SOURCE_ID,
-  slug: 'widget-returns',
-  title: 'Widget returns *and* refunds',
-  glossary: sourceGlossary,
-  sxTabs: 1,
-});
-
-function merge(t: Built = target, s: Built = source, extra: Partial<AppendMergedInput> = {}) {
-  return appendMergedDocument(
-    {
-      targetHtml: t.html,
-      targetMeta: metaOf(t),
-      sourceHtml: s.html,
-      sourceMeta: metaOf(s),
-      suggestionId: SUGGESTION_ID,
-      mergedAt: MERGED_AT,
-      ...extra,
-    },
-    { idSource: new SeededIdSource(42), runtime: STUB_RUNTIME },
-  );
-}
+/** Woven merges (09 §10.3, 07 §8.1, §6.4). Synthetic "Example Widgets Inc." documents only. */
 
 const allIds = (m: DocumentModel): string[] => m.tabs.flatMap((t) => t.sections.map((s) => s.id));
+const content = (m: DocumentModel, tab: number): Section[] =>
+  (m.tabs[tab]?.sections ?? []).filter((s) => s.kind === 'content');
+const planner = (plan: MergePlanDraft = WEAVE_PLAN): MergePlanner & ReturnType<typeof vi.fn> =>
+  vi.fn(async () => ({ draft: plan, prompt: 'merge-weave@1' })) as MergePlanner & ReturnType<typeof vi.fn>;
 
-describe('appendMergedDocument (07 §8.1)', () => {
-  const r = merge();
-  const merged = parseDocument(r.html).model;
-  const indepth = merged.tabs[0];
-  const eli5 = merged.tabs[1];
+describe('prepareMergeWeave (07 §8.1 step 1)', () => {
+  const { prep } = wovenFixture();
 
-  it('keeps every target SectionId, title, dek and createdAt; sets updatedAt to mergedAt', () => {
-    const before = new Set(allIds(target.model));
-    for (const id of before) expect(allIds(merged)).toContain(id);
-    expect(merged.docId).toBe(TARGET_ID);
-    expect(merged.title).toBe(target.model.title);
-    expect(merged.dek).toBe(target.model.dek);
-    expect(merged.createdAt).toBe(target.model.createdAt);
-    expect(merged.updatedAt).toBe(MERGED_AT);
+  it('aliases both documents and numbers every block', () => {
+    expect(prep.input.targetTitle).toBe(mergeTarget().model.title);
+    expect(prep.input.incomingTitle).toBe(MERGE_SOURCE_TITLE);
+    expect(prep.input.target).toContain('### I1 · Why ad spend is judged by ROAS');
+    expect(prep.input.target).toContain('### E2 · Picking the best ads');
+    expect(prep.input.target).toContain('b4 chart (bar): "Paid search returns the most per dollar"');
+    expect(prep.input.target).toMatch(/Glossary terms already defined\n.*ROAS/);
+    expect(prep.input.incoming).toContain('### X1 · Returns by channel');
+    expect(prep.input.incoming).toContain('### Y1 · Sending it back');
+    expect(prep.input.incoming).toContain('| Affiliate | 11% |');
+    expect(prep.input.imageLabels).toEqual(['Image 1']);
+    // No section id ever reaches the prompt.
+    expect(prep.input.target).not.toMatch(/sec-(indepth|eli5)-/);
   });
 
-  it('gives every incoming section a fresh unique id under the target tab key', () => {
-    const ids = allIds(merged);
-    expect(new Set(ids).size).toBe(ids.length);
-    for (const id of ids) expect(id).toMatch(SECTION_ID_RE);
-    const incoming = merged.tabs.flatMap((t) =>
-      t.sections.filter((s) => s.origin === 'merged' || s.origin === 'merge-marker').map((s) => [t.key, s.id]),
-    );
-    expect(incoming.length).toBeGreaterThan(0);
-    for (const [key, id] of incoming) expect(id?.startsWith(`sec-${key}-`)).toBe(true);
-    // Old source ids map to new ones, never kept.
-    for (const [oldId, newId] of Object.entries(r.idMap)) {
-      expect(newId).not.toBe(oldId);
-      expect(ids).toContain(newId);
-    }
-  });
-
-  it('inserts the in-depth marker and moved sections before the references section', () => {
-    const secs = indepth?.sections ?? [];
-    const last = secs[secs.length - 1];
-    expect(last?.kind).toBe('references');
-    const targetRefs = target.model.tabs[0]?.sections.find((s) => s.kind === 'references');
-    expect(last?.id).toBe(targetRefs?.id);
-    const markerIdx = secs.findIndex((s) => s.origin === 'merge-marker');
-    const targetContent = target.model.tabs[0]?.sections.filter((s) => s.kind === 'content').length ?? 0;
-    expect(markerIdx).toBe(targetContent);
-    const marker = secs[markerIdx];
-    expect(marker?.heading).toBe('Added from: Widget returns *and* refunds');
-    expect(marker?.mergeMarker).toMatchObject({
-      suggestionId: SUGGESTION_ID,
-      fromDocId: SOURCE_ID,
-      fromTitle: 'Widget returns *and* refunds',
-      mergedAt: MERGED_AT,
-    });
-    expect(marker?.mergeMarker?.sourceRefs).toContain('widget-sales-q3.pptx');
-    const moved = secs.slice(markerIdx + 1, -1);
-    const sourceContent = source.model.tabs[0]?.sections.filter((s) => s.kind === 'content') ?? [];
-    expect(moved.map((s) => s.heading)).toEqual(sourceContent.map((s) => s.heading));
-    for (const s of moved) {
-      expect(s.origin).toBe('merged');
-      expect(s.merge).toEqual({ fromDocId: SOURCE_ID, fromTitle: 'Widget returns *and* refunds', mergedAt: MERGED_AT });
-    }
-    expect(moved.map((s) => s.blocks.length)).toEqual(sourceContent.map((s) => s.blocks.length));
-  });
-
-  it('marker text says when and from what; the title is literal, not markdown', () => {
-    const marker = indepth?.sections.find((s) => s.origin === 'merge-marker');
-    const p = marker?.blocks[0];
-    expect(p?.type).toBe('paragraph');
-    const md = p && p.type === 'paragraph' ? p.md : '';
-    expect(md).toContain('Merged on 28 Sep 2026.');
-    expect(md).toContain('Originally generated from: widget-sales-q3.pptx');
-    expect(r.html).toContain('data-merge-marker="' + SUGGESTION_ID + '"');
-    expect(r.html).toContain('data-merged-from="' + SOURCE_ID + '"');
-    expect(r.html).not.toContain('<em>and</em> refunds</h2>');
-  });
-
-  it('escapes markdown in source reference labels so the marker text stays literal', () => {
-    const model = {
-      ...source.model,
-      references: source.model.references.map((x, i) => (i === 0 ? { ...x, label: 'q3_*final*.pptx' } : x)),
-    };
-    const html = renderDocument(model, parseDocument(source.html).assets, { runtime: STUB_RUNTIME });
-    const r2 = merge(target, { html, model });
-    const m = parseDocument(r2.html).model.tabs[0]?.sections.find((x) => x.origin === 'merge-marker');
-    const p = m?.blocks[0];
-    expect(p && p.type === 'paragraph' ? p.md : '').toContain('q3\\_\\*final\\*.pptx');
-    expect(m?.mergeMarker?.sourceRefs[0]).toBe('q3_*final*.pptx');
-    expect(r2.html).toContain('q3_*final*.pptx');
-    expect(r2.html).not.toContain('<em>final</em>');
-  });
-
-  it('appends an ELI5 marker and the ELI5 sections to the ELI5 tab', () => {
-    const secs = eli5?.sections ?? [];
-    const markerIdx = secs.findIndex((s) => s.origin === 'merge-marker');
-    expect(markerIdx).toBe(target.model.tabs[1]?.sections.length);
-    expect(secs.slice(markerIdx + 1).map((s) => s.heading)).toEqual(
-      source.model.tabs[1]?.sections.map((s) => s.heading),
-    );
-    expect(r.markerSectionIds).toHaveLength(2);
-    expect(r.markerSectionIds[0]).toBe(indepth?.sections.find((s) => s.origin === 'merge-marker')?.id);
-    expect(r.markerSectionIds[0]?.startsWith('sec-indepth-')).toBe(true);
-    expect(r.markerSectionIds[1]?.startsWith('sec-eli5-')).toBe(true);
-    expect(secs[markerIdx]?.id).toBe(r.markerSectionIds[1]);
-  });
-
-  it('carries section ELI5 tabs with fresh keys and ids, rewritten origin and a (2) label on collision', () => {
-    const sx = merged.tabs.filter((t) => t.kind === 'section-eli5');
-    expect(sx).toHaveLength(1);
-    const carried = sx[0];
-    const sourceSx = source.model.tabs[2];
-    expect(carried?.key).toMatch(/^sx[0-9a-f]{6}$/);
-    for (const s of carried?.sections ?? []) expect(s.id.startsWith(`sec-${carried?.key}-`)).toBe(true);
-    const oldOrigin = sourceSx?.origin?.sectionId;
-    expect(oldOrigin).toBeDefined();
-    expect(carried?.origin?.sectionId).toBe(r.idMap[oldOrigin as SectionId]);
-    // Merging a target that already has the same label gets a suffix.
-    const t2 = build({ docId: TARGET_ID, slug: 'widget-ads', title: 'Widget ad spend', sxTabs: 1 });
-    const r2 = merge(t2);
-    const labels = parseDocument(r2.html).model.tabs.map((t) => t.label);
-    expect(labels.filter((l) => l.startsWith('ELI5: '))).toEqual([sourceSx?.label, `${sourceSx?.label} (2)`]);
-  });
-
-  it('returns TabRecords in display order with target createdAt kept and carried tabs stamped', () => {
-    expect(r.tabs.map((t) => t.key)).toEqual(merged.tabs.map((t) => t.key));
-    expect(r.tabs[0]).toMatchObject({ key: 'indepth', kind: 'indepth', createdAt: TAB_TS });
-    expect(r.tabs[0]?.sectionCount).toBe(indepth?.sections.length);
-    const carried = r.tabs[2];
-    expect(carried).toMatchObject({ kind: 'section-eli5', createdAt: MERGED_AT });
-    expect(carried?.sourceSectionId).toBe(merged.tabs[2]?.origin?.sectionId);
-  });
-
-  it('carries glossary notes of moved sections through idMap and drops terms the target defines', () => {
-    const terms = merged.glossary.map((n) => n.term.toLowerCase());
-    expect(terms.filter((t) => t === 'roas')).toHaveLength(1);
-    const paid = merged.glossary.find((n) => n.term === 'Paid search');
-    expect(paid).toBeDefined();
-    expect(Object.values(r.idMap)).toContain(paid?.sectionId);
-    const ids = merged.glossary.map((n) => n.id);
-    expect(new Set(ids).size).toBe(ids.length);
-    // Target notes are unchanged.
-    for (const n of target.model.glossary) expect(merged.glossary).toContainEqual(n);
-  });
-
-  it('appends the source references with addedBy and keeps the target references', () => {
-    const added = merged.references.filter((x) => x.addedBy);
-    expect(added.length).toBe(source.model.references.length);
-    for (const x of added)
-      expect(x.addedBy).toEqual({ mergeFromTitle: 'Widget returns *and* refunds', mergedAt: MERGED_AT });
-    expect(merged.references.slice(0, target.model.references.length)).toEqual(target.model.references);
-    expect(r.html).toContain('Added by merge');
-  });
-
-  it('combines assets, deduplicated by sha256', () => {
-    expect(merged.assets).toHaveLength(target.model.assets.length);
-    const parsed = parseDocument(r.html);
-    for (const a of merged.assets) expect(parsed.assets.has(a.id)).toBe(true);
-  });
-
-  it('produces a valid document that round-trips', () => {
-    expect(validateDocument(r.html).errors).toEqual([]);
-    const again = renderDocument(merged, parseDocument(r.html).assets, {
-      runtime: STUB_RUNTIME,
-      theme: parseDocument(r.html).theme,
-    });
-    expect(again).toBe(r.html);
-  });
-
-  it('never reuses a retired id of the target', () => {
-    // Retire every id the seeded source would draw first; the allocator must skip them.
-    const probe = merge();
-    const retired = [...probe.markerSectionIds, ...Object.values(probe.idMap)];
-    const r2 = appendMergedDocument(
-      {
-        targetHtml: target.html,
-        targetMeta: metaOf(target, { retiredIds: retired }),
-        sourceHtml: source.html,
-        sourceMeta: metaOf(source),
-        suggestionId: SUGGESTION_ID,
-        mergedAt: MERGED_AT,
-      },
-      { idSource: new SeededIdSource(42), runtime: STUB_RUNTIME },
-    );
-    const ids = allIds(parseDocument(r2.html).model);
-    for (const id of retired) expect(ids).not.toContain(id);
+  it('throws invalid_merge for the same document and DocumentFormatError without a model', async () => {
+    const t = mergeTarget();
+    await expect(
+      weaveMergedDocument(
+        { targetHtml: t.html, targetMeta: t.meta, sourceHtml: t.html, sourceMeta: t.meta, mergedAt: MERGED_AT },
+        planner(),
+      ),
+    ).rejects.toBeInstanceOf(DocumentBuildError);
+    const s = mergeSource();
+    await expect(
+      weaveMergedDocument(
+        {
+          targetHtml: '<!doctype html><html></html>',
+          targetMeta: t.meta,
+          sourceHtml: s.html,
+          sourceMeta: s.meta,
+          mergedAt: MERGED_AT,
+        },
+        planner(),
+      ),
+    ).rejects.toBeInstanceOf(DocumentFormatError);
   });
 });
 
-describe('appendMergedDocument edge cases (07 §8.1)', () => {
-  it('adds no ELI5 marker when the source ELI5 tab is a placeholder', () => {
-    const s = build({ docId: SOURCE_ID, slug: 'widget-returns', title: 'Widget returns', placeholder: true });
-    const r = merge(target, s);
-    expect(r.markerSectionIds).toHaveLength(1);
-    const eli5 = parseDocument(r.html).model.tabs[1];
-    expect(eli5?.sections.map((x) => x.id)).toEqual(target.model.tabs[1]?.sections.map((x) => x.id));
+describe('applyMergePlan (07 §8.1)', () => {
+  const r = wovenFixture();
+  const target = r.target.model;
+  const m = r.model;
+
+  it('revises sections in place, keeping every target SectionId, title, dek and createdAt', () => {
+    for (const id of allIds(target)) expect(allIds(m)).toContain(id);
+    expect(m.docId).toBe(MERGE_TARGET_ID);
+    expect(m.title).toBe(target.title);
+    expect(m.dek).toBe(target.dek);
+    expect(m.createdAt).toBe(target.createdAt);
+    expect(m.updatedAt).toBe(MERGED_AT);
+    const i1 = content(m, 0)[0];
+    expect(i1?.id).toBe(content(target, 0)[0]?.id);
+    expect(i1?.blocks[0]?.type === 'paragraph' && i1.blocks[0].md).toContain('net of refunds since Q3');
+    // Kept blocks are the originals, byte for byte.
+    expect(i1?.blocks.slice(2, 5)).toEqual(content(target, 0)[0]?.blocks.slice(2));
   });
 
-  it('keeps a target ELI5 placeholder section and appends after it', () => {
-    const t = build({ docId: TARGET_ID, slug: 'widget-ads', title: 'Widget ad spend', placeholder: true });
-    const r = merge(t, source);
-    const eli5 = parseDocument(r.html).model.tabs[1];
-    expect(eli5?.sections[0]?.origin).toBe('placeholder');
-    expect(eli5?.sections[1]?.origin).toBe('merge-marker');
-  });
-
-  it('throws invalid_merge when source and target are the same document', () => {
-    const same = build({ docId: TARGET_ID, slug: 'widget-ads', title: 'Widget ad spend' });
-    expect(() => merge(target, same)).toThrow(DocumentBuildError);
-    try {
-      merge(target, same);
-    } catch (e) {
-      expect((e as DocumentBuildError).code).toBe('invalid_merge');
-    }
-  });
-
-  it('propagates DocumentFormatError for a file without a model', () => {
-    expect(() =>
-      appendMergedDocument(
-        {
-          targetHtml: '<!doctype html><html><body>no model</body></html>',
-          targetMeta: metaOf(target),
-          sourceHtml: source.html,
-          sourceMeta: metaOf(source),
-          suggestionId: SUGGESTION_ID,
-          mergedAt: MERGED_AT,
-        },
-        { runtime: STUB_RUNTIME },
-      ),
-    ).toThrow(DocumentFormatError);
-  });
-
-  it('drops the oldest carried tabs over the tab limit, with a warning', () => {
-    const t = build({
-      docId: TARGET_ID,
-      slug: 'widget-ads',
-      title: 'Widget ad spend',
-      sxTabs: MAX_SECTION_ELI5_TABS - 1,
+  it('inserts new sections after their anchor with fresh ids in both tabs; references stay last', () => {
+    const indepth = m.tabs[0]?.sections ?? [];
+    const at = indepth.findIndex((s) => s.heading === 'Returns eat into the return');
+    expect(indepth[at - 1]?.id).toBe(content(target, 0)[1]?.id);
+    const added = indepth[at];
+    expect(added?.id).toMatch(SECTION_ID_RE);
+    expect(added?.id.startsWith('sec-indepth-')).toBe(true);
+    expect(allIds(target)).not.toContain(added?.id);
+    expect(added).toMatchObject({
+      origin: 'merged',
+      merge: { fromDocId: MERGE_SOURCE_ID, fromTitle: MERGE_SOURCE_TITLE, mergedAt: MERGED_AT },
+      enh: { added: 'm1', blocks: [] },
     });
-    const s = build({ docId: SOURCE_ID, slug: 'widget-returns', title: 'Widget returns', sxTabs: 2, seed: 9 });
-    const r = merge(t, s);
-    const sx = parseDocument(r.html).model.tabs.filter((x) => x.kind === 'section-eli5');
-    expect(sx).toHaveLength(MAX_SECTION_ELI5_TABS);
-    expect(r.warnings).toContain('merge-tabs-dropped');
-    // The newest carried tab survives.
-    const lastSource = s.model.tabs[s.model.tabs.length - 1];
-    expect(sx[sx.length - 1]?.origin?.sectionId).toBe(r.idMap[lastSource?.origin?.sectionId as SectionId]);
+    // The incoming table is copied, not retyped.
+    expect(added?.blocks[1]).toEqual(r.source.model.tabs[0]?.sections[0]?.blocks[1]);
+    expect(indepth[indepth.length - 1]?.kind).toBe('references');
+    const eli5 = m.tabs[1]?.sections ?? [];
+    expect(eli5.map((s) => s.heading)).toEqual([
+      'Money in, money out',
+      'Picking the best ads',
+      'When things come back',
+    ]);
+    expect(eli5[2]?.id.startsWith('sec-eli5-')).toBe(true);
+    const ids = allIds(m);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('marks inserted words, not unchanged ones, in both tabs (07 §6.4)', () => {
+    const i1 = content(m, 0)[0];
+    const p = i1?.enh?.blocks.find((b) => b.block === 0);
+    expect(p?.kind).toBe('text');
+    const text =
+      'Example Widgets Inc. judges every channel by ROAS, the revenue earned for each dollar spent, net of refunds since Q3.';
+    const ranges = p?.kind === 'text' ? p.parts[0] : [];
+    expect(ranges?.map((x) => text.slice(x.start, x.end))).toEqual(['net of refunds since Q3']);
+    const list = i1?.enh?.blocks.find((b) => b.block === 1);
+    expect(list?.kind === 'text' && list.parts.map((x) => x.length)).toEqual([0, 0, 0, 1]);
+    // Kept blocks carry no marks; a written block with no counterpart is marked new as a whole.
+    expect(i1?.enh?.blocks.map((b) => b.block)).toEqual([0, 1, 5]);
+    expect(i1?.enh?.blocks[2]).toEqual({ block: 5, kind: 'new', merge: 'm1' });
+    const e1 = content(m, 1)[0];
+    expect(e1?.enh?.blocks).toEqual([
+      {
+        block: 0,
+        kind: 'text',
+        parts: [[expect.objectContaining({ merge: 'm1' })]],
+      },
+    ]);
+    // Untouched sections carry no marks at all.
+    expect(content(m, 0)[1]?.enh).toBeUndefined();
+    expect(r.enhancedSectionIds[0]).toBe(i1?.id);
+    expect(
+      r.enhancedSectionIds.every(
+        (id, i, a) => i === 0 || !id.startsWith('sec-indepth-') || a[i - 1]?.startsWith('sec-indepth-'),
+      ),
+    ).toBe(true);
+  });
+
+  it('records the merge in the legend and lists the new sources as added by it', () => {
+    expect(r.mergeId).toBe('m1');
+    expect(m.merges).toEqual([{ id: 'm1', fromTitle: MERGE_SOURCE_TITLE, mergedAt: MERGED_AT }]);
+    const added = m.references.filter((x) => x.addedBy);
+    expect(added.map((x) => x.label)).toEqual(['Example Widgets Inc. returns report']);
+    expect(added[0]?.addedBy).toEqual({ mergeFromTitle: MERGE_SOURCE_TITLE, mergedAt: MERGED_AT, mergeId: 'm1' });
+    // The shared pricing page is already listed: not duplicated.
+    expect(m.references.filter((x) => x.label === 'Example Widgets Inc. pricing')).toHaveLength(1);
+    expect(m.references.slice(0, target.references.length)).toEqual(target.references);
+  });
+
+  it('keeps target glossary notes, re-anchors revised sections and adds new terms only once', () => {
+    const terms = m.glossary.map((n) => n.term);
+    expect(terms.filter((t) => t.toLowerCase() === 'roas')).toHaveLength(1);
+    const refund = m.glossary.find((n) => n.term === 'Refund rate');
+    expect(refund?.sectionId).toBe(m.tabs[0]?.sections.find((s) => s.heading === 'Returns eat into the return')?.id);
+    expect(refund?.anchorText).toBe('refund rate');
+    const ids = m.glossary.map((n) => n.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const n of target.glossary) expect(m.glossary.map((x) => x.id)).toContain(n.id);
+  });
+
+  it('renders a valid document with marks, a legend and merged references that round-trips', () => {
+    const html = renderDocument(m, r.assets, { runtime: STUB_RUNTIME });
+    expect(validateDocument(html).errors).toEqual([]);
+    expect(html).toContain(
+      '<ins class="enh" data-merge="m1" title="Enhanced on 28 Sep 2026 with material from Widget returns and refunds">net of refunds since Q3</ins>',
+    );
+    expect(html).toMatch(
+      /<section id="sec-indepth-[0-9a-f]{8}" data-section-id="[^"]+" data-origin="merged" data-merged-from="[^"]+" data-enh="new" data-merge="m1"/,
+    );
+    expect(html).toContain('class="enh-legend"');
+    expect(html).toContain(
+      '<aside data-enh="new" data-merge="m1" title="Enhanced on 28 Sep 2026 with material from Widget returns and refunds" class="callout callout--note">',
+    );
+    expect(html).toContain(
+      '<span class="enh-swatch" aria-hidden="true"></span>Enhanced on 28 Sep 2026 with material from <cite>Widget returns and refunds</cite>',
+    );
+    expect(html).toContain(
+      '<button type="button" class="enh-toggle" aria-pressed="false" hidden>Hide highlights</button>',
+    );
+    expect(html).toContain('Added in merge on 28 Sep 2026 from Widget returns and refunds');
+    const parsed = parseDocument(html);
+    expect(renderDocument(parsed.model, parsed.assets, { runtime: STUB_RUNTIME, theme: parsed.theme })).toBe(html);
+  });
+
+  it('a second merge gets m2 and carries the first merge marks through its own diff', () => {
+    const second: MergePlanDraft = {
+      indepth: {
+        revise: [
+          {
+            section: 'I1',
+            heading: 'Why ad spend is judged by ROAS',
+            blocks: [
+              {
+                type: 'paragraph',
+                md: 'Example Widgets Inc. judges every channel by **ROAS**, the revenue earned for each dollar spent, net of refunds since Q3 and of shipping. A channel with a ROAS of 4 returns *four dollars* for every dollar. See [the pricing page](https://www.example.com/widgets/pricing).',
+              },
+              { type: 'keep', block: 1 },
+            ],
+          },
+        ],
+        insert: [],
+      },
+      eli5: { revise: [], insert: [] },
+      glossary: [],
+    };
+    const html1 = renderDocument(m, r.assets, { runtime: STUB_RUNTIME });
+    const s = mergeSource();
+    return weaveMergedDocument(
+      {
+        targetHtml: html1,
+        targetMeta: r.target.meta,
+        sourceHtml: s.html.replace(MERGE_SOURCE_ID, '33333333-3333-4333-8333-333333333333'),
+        sourceMeta: { ...s.meta, id: '33333333-3333-4333-8333-333333333333', title: 'Widget shipping costs' },
+        mergedAt: '2026-09-29T10:00:00.000Z',
+      },
+      planner(second),
+      { runtime: STUB_RUNTIME, idSource: new SeededIdSource(5) },
+    ).then((w) => {
+      expect(w.mergeId).toBe('m2');
+      const model = parseDocument(w.html).model;
+      expect(model.merges?.map((x) => x.id)).toEqual(['m1', 'm2']);
+      const p = content(model, 0)[0]?.enh?.blocks.find((b) => b.block === 0);
+      const text =
+        'Example Widgets Inc. judges every channel by ROAS, the revenue earned for each dollar spent, net of refunds since Q3 and of shipping.';
+      const marks = p?.kind === 'text' ? (p.parts[0] ?? []) : [];
+      expect(marks.map((x) => [x.merge, text.slice(x.start, x.end)])).toEqual([
+        ['m1', 'net of refunds since Q3'],
+        ['m2', 'and of shipping'],
+      ]);
+      // The list's earlier marks survive a keep.
+      expect(content(model, 0)[0]?.enh?.blocks.find((b) => b.block === 1)?.kind).toBe('text');
+      expect(w.html).toContain('with material from <cite>Widget shipping costs</cite>');
+    });
+  });
+
+  it('skips unknown aliases and invalid blocks with warnings, never failing the merge', () => {
+    const plan: MergePlanDraft = {
+      indepth: {
+        revise: [{ section: 'I99', heading: 'Nope', blocks: [{ type: 'paragraph', md: 'x' }] }],
+        insert: [
+          {
+            after: 'I42',
+            heading: 'Late addition',
+            blocks: [
+              { type: 'incoming', section: 'X9', block: 0 },
+              { type: 'paragraph', md: 'Widgets ship from two plants.' },
+            ],
+          },
+        ],
+      },
+      eli5: { revise: [], insert: [{ after: 'START', heading: 'First', blocks: [{ type: 'keep', block: 0 }] }] },
+      glossary: [],
+    };
+    const w = wovenFixture(STUB_RUNTIME, plan);
+    expect(w.warnings).toEqual(
+      expect.arrayContaining(['merge-unknown-section', 'merge-block-dropped', 'merge-section-empty']),
+    );
+    const indepth = w.model.tabs[0]?.sections ?? [];
+    // An unknown anchor goes after the last content section, still before the references.
+    expect(indepth[indepth.length - 2]?.heading).toBe('Late addition');
+    expect(w.model.tabs[1]?.sections).toEqual(r.target.model.tabs[1]?.sections);
+  });
+});
+
+describe('weaveMergedDocument (09 §10.6 step 5)', () => {
+  it('calls the planner once with the prepared input and returns html, tab records and markers', async () => {
+    const t = mergeTarget();
+    const s = mergeSource();
+    const p = planner();
+    const w = await weaveMergedDocument(
+      { targetHtml: t.html, targetMeta: t.meta, sourceHtml: s.html, sourceMeta: s.meta, mergedAt: MERGED_AT },
+      p,
+      { runtime: STUB_RUNTIME, idSource: new SeededIdSource(42) },
+    );
+    expect(p).toHaveBeenCalledTimes(1);
+    expect(p.mock.calls[0]?.[0]).toMatchObject({ targetTitle: t.model.title, incomingTitle: MERGE_SOURCE_TITLE });
+    expect(w.prompt).toBe('merge-weave@1');
+    expect(w.html).toBe(renderDocument(wovenFixture().model, wovenFixture().assets, { runtime: STUB_RUNTIME }));
+    const model = parseDocument(w.html).model;
+    expect(w.tabs.map((x) => x.key)).toEqual(model.tabs.map((x) => x.key));
+    expect(w.tabs[0]).toMatchObject({
+      kind: 'indepth',
+      createdAt: MERGE_TAB_TS,
+      sectionCount: model.tabs[0]?.sections.length,
+    });
+    expect(w.markerSectionIds[0]).toBe(content(model, 0)[0]?.id);
+  });
+
+  it('propagates a planner failure and never falls back to appending', async () => {
+    const t = mergeTarget();
+    const s = mergeSource();
+    const failing: MergePlanner = () =>
+      Promise.reject(Object.assign(new Error('budget exhausted'), { kind: 'cancelled' }));
+    await expect(
+      weaveMergedDocument(
+        { targetHtml: t.html, targetMeta: t.meta, sourceHtml: s.html, sourceMeta: s.meta, mergedAt: MERGED_AT },
+        failing,
+      ),
+    ).rejects.toThrow('budget exhausted');
   });
 });
