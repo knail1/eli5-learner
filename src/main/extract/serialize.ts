@@ -1,17 +1,18 @@
 /**
  * toPromptText (04 §11): a deterministic, structure-preserving text form. Identical input gives
  * byte-identical output; the golden tests in 13 §5 rely on it. Images appear as markers only.
+ * The `<source>` delimiter and its escaping belong to 02 (02 §9 "Untrusted content"): this module
+ * renders the body and supplies the delimiter attributes via promptAttributes().
  */
-import type { ContentBlock, ExtractedContent, ListItem, NotesBlock, TableBlock } from './types';
+import type { ContentBlock, ExtractedContent, ImageBlock, ListItem, NotesBlock, TableBlock } from './types';
 
-export function xmlAttr(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+export interface PromptTextOptions {
+  /** Marker line for an image block; default `[image #<id>: "<alt>"]`. 02 passes its vision labels. */
+  imageMarker?: (b: ImageBlock) => string;
 }
+
+const defaultMarker = (b: ImageBlock): string =>
+  b.alt ? `[image #${b.imageId}: "${b.alt.replace(/"/g, "'")}"]` : `[image #${b.imageId}]`;
 
 function cell(s: string): string {
   return s
@@ -56,7 +57,9 @@ function notes(n: NotesBlock, out: string[]): void {
   for (const l of lines.slice(1)) out.push(`> ${l}`);
 }
 
-function blocks(bs: readonly ContentBlock[], headingOffset: number, out: string[]): void {
+type Marker = (b: ImageBlock) => string;
+
+function blocks(bs: readonly ContentBlock[], headingOffset: number, out: string[], marker: Marker): void {
   for (const b of bs) {
     switch (b.kind) {
       case 'heading':
@@ -78,35 +81,45 @@ function blocks(bs: readonly ContentBlock[], headingOffset: number, out: string[
         table(b, out);
         break;
       case 'image':
-        out.push(b.alt ? `[image #${b.imageId}: "${b.alt.replace(/"/g, "'")}"]` : `[image #${b.imageId}]`);
+        out.push(marker(b));
         break;
       case 'notes':
         notes(b, out);
         break;
       case 'slide':
-        if (out.length > 1) out.push('');
+        if (out.length > 0) out.push('');
         out.push(`## Slide ${b.index}${b.title ? `: ${b.title}` : ''}${b.hidden ? ' (hidden)' : ''}`);
-        blocks(b.blocks, 2, out);
+        blocks(b.blocks, 2, out, marker);
         if (b.notes) notes(b.notes, out);
         break;
       case 'page':
-        if (out.length > 1) out.push('');
+        if (out.length > 0) out.push('');
         out.push(`--- Page ${b.number} ---`);
-        blocks(b.blocks, headingOffset, out);
+        blocks(b.blocks, headingOffset, out, marker);
         break;
     }
   }
 }
 
-export function toPromptText(content: ExtractedContent): string {
-  const attrs: string[] = [`ref="${xmlAttr(content.sourceRef)}"`, `format="${content.format}"`];
-  if (content.stats.slides !== undefined) attrs.push(`slides="${content.stats.slides}"`);
-  if (content.stats.pages !== undefined) attrs.push(`pages="${content.stats.pages}"`);
-  if (content.stats.scannedPages) attrs.push(`scanned-pages="${content.stats.scannedPages}"`);
-  if (content.stats.sheets !== undefined) attrs.push(`sheets="${content.stats.sheets}"`);
-  attrs.push(`truncated="${content.truncated}"`);
-  const out: string[] = [`<source ${attrs.join(' ')}>`];
-  blocks(content.blocks, 0, out);
-  out.push('</source>');
+/** Body text for a run of blocks (no delimiter); 02 uses it per block when chunking (02 §8.4). */
+export function blocksToPromptText(bs: readonly ContentBlock[], opts: PromptTextOptions = {}): string {
+  const out: string[] = [];
+  blocks(bs, 0, out, opts.imageMarker ?? defaultMarker);
   return out.join('\n');
+}
+
+/** The body of one source's prompt text (04 §11); 02 wraps it in `<source ...>` (02 §9). */
+export function toPromptText(content: ExtractedContent, opts: PromptTextOptions = {}): string {
+  return blocksToPromptText(content.blocks, opts);
+}
+
+/** Delimiter attributes after `ref` (04 §11), in fixed order; values are raw (02 escapes them). */
+export function promptAttributes(content: ExtractedContent): [string, string][] {
+  const attrs: [string, string][] = [['format', content.format]];
+  if (content.stats.slides !== undefined) attrs.push(['slides', String(content.stats.slides)]);
+  if (content.stats.pages !== undefined) attrs.push(['pages', String(content.stats.pages)]);
+  if (content.stats.scannedPages) attrs.push(['scanned-pages', String(content.stats.scannedPages)]);
+  if (content.stats.sheets !== undefined) attrs.push(['sheets', String(content.stats.sheets)]);
+  attrs.push(['truncated', String(content.truncated)]);
+  return attrs;
 }

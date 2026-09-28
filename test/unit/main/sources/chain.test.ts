@@ -104,6 +104,14 @@ describe('resolveAll: ordering and concurrency (03 §4 step 2)', () => {
     ]);
   });
 
+  it('reports each settled input through onInputSettled (06 §5.2 step 3 progress)', async () => {
+    const r = scripted(async (i) => [article(i.url)]);
+    const inputs = [url('https://example.com/a'), url('not a url'), url('https://example.com/b')];
+    const settled: number[] = [];
+    await resolveAll(inputs, fakeCtx({ onInputSettled: (i) => settled.push(i) }), [r]);
+    expect([...settled].sort()).toEqual([0, 1, 2]);
+  });
+
   it('empty input list -> empty outcome', async () => {
     expect(await resolveAll([], fakeCtx(), publicChain())).toEqual({ resolved: [], skipped: [] });
   });

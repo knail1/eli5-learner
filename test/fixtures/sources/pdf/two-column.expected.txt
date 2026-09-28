@@ -1,4 +1,3 @@
-<source ref="two-column.pdf" format="pdf" pages="3" truncated="false">
 --- Page 1 ---
 # Operations Review 2026
 Example Widgets Inc. runs two plants that assemble sensors for industrial customers. This review covers the year to date.
@@ -19,4 +18,3 @@ Water use was flat.
 ## Outlook
 The second half plan adds a third shift at the south plant and a new supplier for housings.
 Capital spending stays within the approved budget of 4.2 million dollars for the year.
-</source>

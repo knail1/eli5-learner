@@ -66,7 +66,7 @@ describe('task functions (02 §12) with FakeProvider and the default script', ()
       ...ctx,
     });
     expect(p.mode).toBe('raw');
-    expect(p.promptText).toContain('<source ref="notes.md">');
+    expect(p.promptText).toContain('<source ref="notes.md" format="markdown" truncated="false">');
     expect(p.promptText).not.toContain('<source ref="x">'); // delimiter in content is neutralised
     const indepth = await tasks.generateIndepth(p, { ...ctx, glossary: true });
     expect(DocumentDraftTabSchema.parse(indepth.draft).kind).toBe('indepth');

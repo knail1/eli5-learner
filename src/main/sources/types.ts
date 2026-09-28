@@ -143,6 +143,8 @@ export interface ResolveContext {
   lanes: LaneRouter;
   /** Local debug log only. */
   log: (msg: string, data?: Record<string, unknown>) => void;
+  /** Called once per input (by index) when it has resolved or been skipped; 06 §5.2 step 3 progress. */
+  onInputSettled?: (index: number) => void;
 }
 
 /** The resolver seam (03 §3; HOOK-SRC-01/02). */

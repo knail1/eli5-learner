@@ -214,6 +214,7 @@ export async function resolveAll(
       results[i] = ctx.signal.aborted
         ? one(skip(inputRef(input), 'cancelled'))
         : await resolveOne(input, ctx, resolvers);
+      ctx.onInputSettled?.(i);
     }
   };
   const width = Math.max(1, Math.min(Math.floor(ctx.limits.concurrency) || 1, inputs.length));

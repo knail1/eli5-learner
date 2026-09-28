@@ -1,4 +1,3 @@
-<source ref="notes.md" format="markdown" truncated="false">
 # Warehouse automation
 Notes from the **pilot review** at the north site. See the [dashboard](https://example.com/dash) for daily numbers.
 ## Findings
@@ -20,4 +19,3 @@ pilot:
 [image: Floor layout sketch]
 - [x] Safety sign-off
 - [ ] Budget approval
-</source>

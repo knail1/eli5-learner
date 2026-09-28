@@ -16,15 +16,20 @@ Related: [01-architecture.md](01-architecture.md) · [02-llm-provider.md](02-llm
 
 | File | Responsibility |
 | --- | --- |
-| `src/main/pipeline/job.ts` | `Job`, `JobStatus`, `JobStep`, transition table, `assertTransition()` |
-| `src/main/pipeline/queue.ts` | `JobQueue`: FIFO lanes, concurrency slots, cancellation, per-document write locks |
-| `src/main/pipeline/store.ts` | `JobStore`: persisting job records and staging directories, recovery scan |
+| `src/main/pipeline/types.ts` | `Job`, `JobStep`, `JobCheckpoint`, `PipelinePolicy`, and the dependency interfaces (`PipelineDeps`, `ExtractRunner`, `PipelineLibrary`, `SectionRunner`) |
+| `src/main/pipeline/job.ts` | `createJob()`, the persisted-record schema, `snapshotOf()` (the `JobSnapshot` sent to the renderer) |
+| `src/main/pipeline/status.ts` | Maps `(status, step, progress)` to the status line string (§6); the transition table and `assertTransition()` |
+| `src/main/pipeline/queue.ts` | `JobQueue`: FIFO lanes, concurrency slots, the stage runner, cancel/retry/dismiss, crash recovery (§9.4), retention (§9.5) |
+| `src/main/pipeline/store.ts` | `JobStore`: persisting job records and staged artifacts under `<userData>/jobs/` |
+| `src/main/pipeline/inputs.ts` | Input snapshots at enqueue (§9.2) |
 | `src/main/pipeline/stages/read.ts` | Reading stage (calls `SourceResolver`s, doc 03) |
-| `src/main/pipeline/stages/extract.ts` | Extracting stage (calls `Extractor`s, doc 04) |
-| `src/main/pipeline/stages/generate.ts` | Orders the in-depth, ELI5, glossary and summary steps by calling doc 02's task functions (`src/main/llm/tasks.ts`); builds `DocumentModel` via doc 07 |
-| `src/main/pipeline/stages/save.ts` | Saving stage (calls the library, doc 09) |
-| `src/main/pipeline/status.ts` | Maps `(status, step, progress)` to the status line string (§6) |
-| `src/main/pipeline/ipc.ts` | Registers the `eli5:jobs:*` IPC handlers and pushes events |
+| `src/main/pipeline/stages/extract.ts` | Extracting stage (calls the job's `ExtractRunner`, doc 04) |
+| `src/main/pipeline/stages/generate.ts` | Orders the in-depth, ELI5, glossary and summary steps by calling doc 02's task functions (`src/main/llm/tasks.ts`) |
+| `src/main/pipeline/stages/save.ts` | Saving stage: builds and renders the `DocumentModel` (doc 07) and commits it through the library (doc 09) |
+| `src/main/pipeline/runner.ts` | In-process `ExtractRunner` for Node tests; production uses `ExtractWorkerHost` (04 §10.4) |
+| `src/main/pipeline/theme.ts` | Parses the skill CSS (02 §11) into `DocTheme` tokens (07 §11.3) |
+| `src/main/pipeline/deps.ts` | `createPipelineDeps()`: assembles every production dependency from the registry, settings, Keychain, library and injected Electron services |
+| `src/main/ipc/` | Registers the `eli5:jobs:*` IPC handlers and pushes events (§11), calling `JobQueue` |
 
 The pipeline depends on interfaces only (`SourceResolver`, `Extractor`, `LLMProvider`, library API). It never imports an edition-specific implementation. Implementations come from `src/main/editions/registry.ts` (doc 01, HOOK-CFG-02).
 
@@ -175,7 +180,7 @@ This is the last point where the app can reject anything synchronously. After it
 1. Create the job's `ImageBudget` (doc 04 §7.4) and pass it in every extractor context. Before extracting any other source, extract the standalone image sources (dropped or pasted images) and reserve budget for each with priority `'standalone'`. A standalone image that cannot fit is skipped with `image-budget-exceeded`.
 2. For each remaining `ResolvedSource`, pick an `Extractor` by detected type (doc 04) and produce `ExtractedContent`. Run with parallelism 2 per job, because extraction can be CPU-heavy (PDF rendering).
 3. When an extractor fails or returns zero usable blocks, move that source to `skipped` with reason `could not extract content` or the extractor's specific reason.
-4. Serialize each `ExtractedContent` to `jobs/<jobId>/extracted/<index>.json`, with image blocks written as sibling binary files. This is the resume checkpoint for generation. On resume, the image budget is rebuilt from the staged artifacts before extraction continues.
+4. Serialize each `ExtractedContent` to `jobs/<jobId>/extracted/<sourceId>.json` (for example `src-03.json`), with image bytes written as sibling binary files `<sourceId>-<n>.bin`. `checkpoint.extractedIndexes` holds the numeric part of each staged source id; a source that fails extraction leaves `resolved` for `skipped`, so the ids of the rest stay stable. This is the resume checkpoint for generation. On resume, the image budget is rebuilt from the staged artifacts before extraction continues.
 5. **Usable-content gate:** if no resolved source produced a usable block (a text block with at least 1 non-whitespace character after trimming, or an image block), fail with `NO_USABLE_CONTENT` (§7.2). Clarifying input alone is not content.
 
 ### 5.4 Generating (`generating`)
@@ -186,9 +191,11 @@ This file is the single place that fixes the step order. The steps run in this o
 
 | # | Step | Call (doc 02 §12) | Input | Output | Required? | On failure |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `indepth` + `eli5` | `generateDocument()` | All `ExtractedContent`, clarifying input, glossary flag | In-depth draft with a proposed title; ELI5 draft (built from the sources, not the in-depth text, per PRD "Output document") | In-depth: **yes**. ELI5: always attempted | In-depth: job fails (mapping below). ELI5 `null`: placeholder tab (§7.1) |
-| 2 | `glossary` | inside `generateDocument()`, after in-depth | In-depth draft | Term notes, anchored to section IDs by doc 07 | Only if `options.glossary` | `null`: omit glossary, add warning |
+| 1 | `indepth` + `eli5` | `prepareContent()`, then `generateIndepth()` ∥ `generateEli5()` | All `ExtractedContent`, clarifying input, glossary flag | In-depth draft with a proposed title; ELI5 draft (built from the sources, not the in-depth text, per PRD "Output document") | In-depth: **yes**. ELI5: always attempted | In-depth: job fails (mapping below). ELI5 `null`: placeholder tab (§7.1) |
+| 2 | `glossary` | `generateGlossary()`, after in-depth | In-depth draft | Term notes, anchored to section IDs by doc 07 | Only if `options.glossary` | `null`: omit glossary, add warning |
 | 3 | `summary` | `summarize()` | In-depth draft | `SummaryDraft` (summary text, `topicSlugHint`) | Yes, with a fallback | Deterministic fallback (§7.1) |
+
+The pipeline calls 02 §12's step functions directly: `prepareContent` (persisted as `gen/prepared.json`), then `generateIndepth` and `generateEli5` concurrently (`gen/document.json`), `generateGlossary` (`gen/glossary.json`) and `summarize` (`gen/summary.json`). It derives the running steps for the status line from which of those promises are pending, so no `onStep` extension of doc 02 is needed. The provider id and model recorded in `meta.json` are read when step 1 starts.
 
 Within step 1, doc 02 runs the in-depth and ELI5 calls concurrently and may parallelize chunk calls, all within `llm.maxConcurrency`. The summary runs after generation and **before** saving, because slug allocation (§5.5) and the catalog entry both need it. Doc 02 §9's "pipeline after save" label for the `summary` task is superseded by this order.
 
@@ -206,8 +213,8 @@ Rules:
    | `cancelled` | `CANCELLED` |
 
 3. **Truncation.** When doc 02's budgeting has to truncate input (02 §8.4 step 4), the pipeline records its warning as an `input-truncated` `JobWarning` naming the affected sources. The pipeline does no budgeting of its own.
-4. **Progress.** Doc 02's `generateDocument` reports per-step start and finish through an `onStep(step, 'start' | 'done' | 'failed')` callback (a proposed extension of its `onStage` option). `status.ts` derives the status line from the set of running steps (§6).
-5. **Checkpoints.** After step 1 returns, persist its drafts to `jobs/<jobId>/gen/document.json` and add `indepth`, `eli5` and (if run) `glossary` to `checkpoint.completedSteps`. After step 3, persist `gen/summary.json` and add `summary`. On resume, finished steps are not re-run.
+4. **Progress.** The pipeline tracks which step calls are pending (the in-depth and ELI5 calls, then glossary, then summary). `status.ts` derives the status line from that set of running steps (§6).
+5. **Checkpoints.** After step 1 returns, persist its drafts to `jobs/<jobId>/gen/document.json` and add `indepth` and `eli5` to `checkpoint.completedSteps`; the glossary output goes to `gen/glossary.json` and adds `glossary`. After step 3, persist `gen/summary.json` and add `summary`. On resume, finished steps are not re-run.
 6. Once the in-depth draft exists, an `LLM_AUTH` or `LLM_UNAVAILABLE` class error in a later step never fails the job. The later-step failure rules apply instead, so the user still gets a document.
 7. Retry, timeout and concurrency values come from doc 02. The enterprise `PipelinePolicy` (HOOK-PIPE-01) can override doc 02's retry policy and timeouts by passing an override into doc 02's retry module; it never adds a second retry loop.
 
@@ -221,7 +228,7 @@ Clarifying input (PRD "Processing pipeline") goes verbatim into the `indepth` an
 
 ### 5.7 Saving (`saving`)
 
-Inside `library.withDocLock(slug, ...)`:
+`library.commitDocument()` takes `withDocLock(slug)` itself (09 §8.2 step 1), and the lock is not reentrant, so the saving stage does not wrap its own calls in the lock. Steps:
 
 1. Build the final `DocumentModel` (doc 07): the in-depth tab, the ELI5 tab (or placeholder), the glossary notes, and a references section listing every resolved and skipped source with reasons (PRD "References").
 2. Render `index.html` and `meta.json` (a `DocumentMeta` containing sources used, sources skipped, clarifying input, tab list, `jobId`, `warnings`) into `<library-root>/.staging/<jobId>/`, on the same volume as the library root.
@@ -308,7 +315,7 @@ On total failure, the staging directory is kept (for Retry) until the job is dis
 
 ### 7.3 Retry
 
-The Retry action (`eli5:jobs:retry`) moves a `failed` job back to `queued`, increments `attempt`, keeps `inputs` and the staging directory, and resumes from the last valid checkpoint (§9.3). URL sources are refetched: Retry clears their `reading` checkpoint entries, because the page may have changed or come back online. File and clipboard snapshots are reused.
+The Retry action (`eli5:jobs:retry`) moves a `failed` job back to `queued`, increments `attempt`, keeps `inputs` and the staging directory, and resumes from the last valid checkpoint (§9.3). URL sources are refetched: Retry clears their `reading` checkpoint entries, because the page may have changed or come back online. File and clipboard snapshots are reused. Refetching a URL invalidates everything derived from it, so a job with URL inputs restarts from `reading` unless every generation step is already staged (checkpoint stage `saving`, for example after `SAVE_FAILED`); then Retry goes straight to saving, as §5.7 requires. A job whose staging was purged (§9.5, dismiss) also restarts from `reading`.
 
 ## 8. Cancellation and section jobs
 

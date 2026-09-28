@@ -107,10 +107,12 @@ describe('serialization and chunk planning (02 §8.4)', () => {
 
   it('renders every block kind inside a source delimiter', () => {
     const text = contentToPromptText([doc('deck "v2".pptx', blocks)], (id) => (id === 'i1' ? 'deck p.2' : undefined));
-    expect(text).toContain('<source ref="deck &quot;v2&quot;.pptx">');
+    // One path (02 §9, 04 §11): 04 renders the body and attributes, 02 owns the escaped delimiter.
+    expect(text).toContain('<source ref="deck &quot;v2&quot;.pptx" format="pdf" truncated="false">');
     expect(text).toContain('## Slide 1: Intro');
     expect(text).toContain('  - b');
-    expect(text).toContain('Speaker notes: say hi');
+    expect(text).toContain('> Speaker notes: say hi');
+    expect(text).toContain('Table: T');
     expect(text).toContain('| 1 | 2\\|3 |');
     expect(text).toContain('--- Page 2 ---');
     expect(text).toContain('[Image: deck p.2]');

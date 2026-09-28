@@ -1,7 +1,5 @@
-<source ref="sales.csv" format="csv" truncated="false">
 | Region | Q1 | Q2 | Q3 |
 | --- | --- | --- | --- |
 | North | 1,200 | 1350 | 1410 |
 | South | 980 | 1020 | 1100 |
 | West | 450 | 470 | 500 |
-</source>

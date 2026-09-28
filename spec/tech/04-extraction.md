@@ -562,7 +562,9 @@ Parsing untrusted files runs in an Electron `utilityProcess` ("extract worker", 
 
 ## 11. Prompt serialization
 
-`toPromptText(content: ExtractedContent): string` produces a deterministic, structure-preserving text form used by `06-generation-pipeline.md`. Images are referenced by marker and attached separately through `LLMProvider` (see `02-llm-provider.md`).
+`toPromptText(content: ExtractedContent, opts?: { imageMarker?: (b: ImageBlock) => string }): string` produces a deterministic, structure-preserving text form used by `06-generation-pipeline.md` through 02. Images are referenced by marker and attached separately through `LLMProvider` (see `02-llm-provider.md`); 02 passes `imageMarker` so the marker names the vision label the model sees. `blocksToPromptText(blocks, opts?)` renders a run of blocks the same way (02 uses it per block when chunking, 02 §8.4).
+
+This module renders only the body. The untrusted-content delimiter `<source ...>` and its escaping belong to 02 (02 §9 "Untrusted content"), which wraps the body with `ref` plus the attributes from `promptAttributes(content)`: `format`, then `slides`, `pages`, `scanned-pages`, `sheets` when present, then `truncated`. Put together by 02, a source reads:
 
 ```
 <source ref="Q3 board deck.pptx" format="pptx" slides="24" truncated="false">
@@ -577,7 +579,9 @@ Parsing untrusted files runs in an Electron `utilityProcess` ("extract worker", 
 </source>
 ```
 
-Rules: slides render as `## Slide N: <title>` (or `## Slide N` without a title). Pages render as `--- Page N ---`. Headings use `#` by level, offset by 2 inside slides. Lists are indented 2 spaces per level. Tables are pipe tables with `|` escaped. Notes are prefixed with `> Speaker notes:`. Code blocks are fenced. Attribute values are XML-escaped. Output for identical input is byte-identical, which golden tests rely on (`13-testing-quality.md`).
+The golden files hold the body only (no delimiter lines).
+
+Rules: slides render as `## Slide N: <title>` (or `## Slide N` without a title). Pages render as `--- Page N ---`. Headings use `#` by level, offset by 2 inside slides. Lists are indented 2 spaces per level. Tables are pipe tables with `|` escaped. Notes are prefixed with `> Speaker notes:`. Code blocks are fenced. Attribute values are escaped by 02. Output for identical input is byte-identical, which golden tests rely on (`13-testing-quality.md`).
 
 ---
 
@@ -597,7 +601,7 @@ src/main/extract/
   pdf-render-window.ts  extract render window: PdfPageRenderer + ImageNormalizer (§6.3, §7.1)
 resources/pdf-render/  render.html, render.js, normalize.js, preload.cjs (served via eli5res://)
 resources/pdfjs/           pdf.mjs, pdf.worker.mjs (copied from pdfjs-dist by extraResources)
-  serialize.ts          toPromptText() (§11)
+  serialize.ts          toPromptText(), blocksToPromptText(), promptAttributes() (§11)
   worker.ts             utilityProcess entry (§10.4)
   skip.ts               code → reason text (§8.2)
 ```

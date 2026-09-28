@@ -186,6 +186,10 @@ function inputChars(req: Pick<GenerationRequest, 'system' | 'messages'>): number
 
 function delay(ms: number, signal: AbortSignal | undefined): Promise<void> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new LLMError('cancelled', 'Request cancelled'));
+      return;
+    }
     const t = setTimeout(resolve, ms);
     signal?.addEventListener(
       'abort',

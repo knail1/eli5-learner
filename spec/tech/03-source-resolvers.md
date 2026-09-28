@@ -126,6 +126,7 @@ export interface ResolveContext {
   fetchUrl: (url: string, fctx: FetchContext) => Promise<FetchOutcome>; // 05-url-fetching.md §2
   lanes: LaneRouter;             // §8
   log: (msg: string, data?: Record<string, unknown>) => void; // local debug log only
+  onInputSettled?: (index: number) => void; // once per input when resolved or skipped; 06 §5.2 step 3 progress
 }
 
 export interface SourceResolver {

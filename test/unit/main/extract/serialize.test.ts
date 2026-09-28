@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toPromptText, type ExtractedContent } from '../../../../src/main/extract';
+import { promptAttributes, toPromptText, type ExtractedContent } from '../../../../src/main/extract';
 import { newContent } from '../../../../src/main/extract/text-util';
 
 function content(over: Partial<ExtractedContent>): ExtractedContent {
@@ -31,7 +31,6 @@ describe('toPromptText (04 §11)', () => {
     });
     expect(toPromptText(c)).toBe(
       [
-        '<source ref="Q3 &quot;board&quot; deck.pptx" format="pptx" slides="24" truncated="false">',
         '## Slide 3: Revenue bridge',
         '- Net revenue up 12% YoY',
         '  - Driven by enterprise renewals',
@@ -41,9 +40,14 @@ describe('toPromptText (04 §11)', () => {
         '[image #a1b2c3d4-img-2: "waterfall chart"]',
         '### Inside heading',
         '> Speaker notes: Emphasize that churn is flat...',
-        '</source>',
       ].join('\n'),
     );
+    // The <source> delimiter is 02's (02 §9 "Untrusted content"); 04 supplies its attributes.
+    expect(promptAttributes(c)).toEqual([
+      ['format', 'pptx'],
+      ['slides', '24'],
+      ['truncated', 'false'],
+    ]);
   });
 
   it('renders pages, untitled slides, ordered lists, code, quotes, escaped cells and truncation', () => {
@@ -68,7 +72,6 @@ describe('toPromptText (04 §11)', () => {
     });
     expect(toPromptText(c)).toBe(
       [
-        '<source ref="Q3 &quot;board&quot; deck.pptx" format="pdf" pages="2" truncated="true">',
         '--- Page 1 ---',
         'p1',
         '',
@@ -83,11 +86,38 @@ describe('toPromptText (04 §11)', () => {
         '| a\\|b | c d |',
         '[table truncated: 3 more rows]',
         '[image #x-img-1]',
-        '</source>',
       ].join('\n'),
     );
+    expect(promptAttributes(c)).toEqual([
+      ['format', 'pdf'],
+      ['pages', '2'],
+      ['truncated', 'true'],
+    ]);
     const untitled = content({ blocks: [{ kind: 'slide', index: 2, blocks: [], hidden: true }] });
     expect(toPromptText(untitled)).toContain('## Slide 2 (hidden)');
+  });
+
+  it('lets the caller choose the image marker (02 labels)', () => {
+    const c = content({
+      blocks: [
+        { kind: 'paragraph', text: 'before' },
+        { kind: 'image', imageId: 'x-img-1', alt: 'chart', origin: 'embedded' },
+      ],
+    });
+    expect(toPromptText(c, { imageMarker: (b) => `[Image: ${b.imageId}]` })).toBe('before\n[Image: x-img-1]');
+  });
+
+  it('reports scanned pages and sheets', () => {
+    const c = content({
+      format: 'pdf-scanned',
+      stats: { chars: 0, approxTokens: 0, imagesKept: 0, imagesDropped: 0, elapsedMs: 0, pages: 3, scannedPages: 3 },
+    });
+    expect(promptAttributes(c)).toEqual([
+      ['format', 'pdf-scanned'],
+      ['pages', '3'],
+      ['scanned-pages', '3'],
+      ['truncated', 'false'],
+    ]);
   });
 
   it('is deterministic', () => {

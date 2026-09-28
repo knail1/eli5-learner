@@ -1,4 +1,3 @@
-<source ref="quarterly-review.pptx" format="pptx" slides="11" truncated="false">
 ## Slide 1: Quarterly Review: Q3 2026
 Example Widgets Inc.
 > Speaker notes: Welcome everyone.
@@ -63,4 +62,3 @@ Questions welcome at any point
 2. Close the Q4 books by January 15
 Owner: finance team
 > Speaker notes: Ask for volunteers.
-</source>

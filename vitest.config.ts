@@ -45,6 +45,16 @@ export default defineConfig({
       {
         ...shared,
         test: {
+          name: 'integration',
+          environment: 'node',
+          include: ['test/integration/**/*.test.ts'],
+          setupFiles: ['test/helpers/net-guard.ts'],
+          testTimeout: 30_000,
+        },
+      },
+      {
+        ...shared,
+        test: {
           name: 'renderer',
           environment: 'jsdom',
           include: ['test/unit/renderer/**/*.test.{ts,tsx}', 'test/unit/doc-runtime/**/*.test.ts'],

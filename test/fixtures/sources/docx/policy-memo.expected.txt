@@ -1,4 +1,3 @@
-<source ref="policy-memo.docx" format="docx" truncated="false">
 # Remote Work Policy
 # Purpose
 This memo sets out how Example Widgets Inc. supports remote work for its 120 staff.
@@ -28,4 +27,3 @@ Contact IT for exceptions
 > Remote work is a privilege, not a right.
 ## Notes
 1. Contractors follow their own agreement.
-</source>

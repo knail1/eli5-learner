@@ -1,4 +1,5 @@
-import type { ContentBlock, ExtractedContent } from '../extract';
+import { blocksToPromptText, promptAttributes, toPromptText } from '../extract';
+import type { ContentBlock, ExtractedContent, PromptTextOptions } from '../extract';
 import type { ImageInput, ModelLimits } from './types';
 
 /**
@@ -53,88 +54,48 @@ export function escapeSourceText(text: string): string {
   return text.replace(/<(\/?)source/gi, '<$1​source');
 }
 
-export function wrapSource(ref: string, body: string, part?: string): string {
-  const attr = ref.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-  return `<source ref="${attr}"${part ? ` part="${part}"` : ''}>\n${escapeSourceText(body)}\n</source>`;
+const attrValue = (v: string): string => v.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
+/**
+ * The one untrusted-content delimiter (02 §9): `<source ref="..." [part] [attrs]>`. 02 owns it and
+ * its escaping; 04 supplies the body (toPromptText) and attributes (promptAttributes, 04 §11).
+ */
+export function wrapSource(
+  ref: string,
+  body: string,
+  part?: string,
+  attrs: readonly (readonly [string, string])[] = [],
+): string {
+  const extra = attrs.map(([k, v]) => ` ${k}="${attrValue(v)}"`).join('');
+  return `<source ref="${attrValue(ref)}"${part ? ` part="${part}"` : ''}${extra}>\n${escapeSourceText(body)}\n</source>`;
 }
 
 type LabelOf = (imageId: string) => string | undefined;
 
-function listLines(
-  items: { text: string; children?: { text: string }[] }[],
-  ordered: boolean,
-  depth: number,
-): string[] {
-  return items.flatMap((it, i) => {
-    const bullet = ordered ? `${i + 1}.` : '-';
-    const self = `${'  '.repeat(depth)}${bullet} ${it.text}`;
-    const kids = (it as { children?: typeof items }).children;
-    return [self, ...(kids ? listLines(kids, ordered, depth + 1) : [])];
-  });
+/** 02's image marker: the vision label the model sees, or a note that the image was not sent (02 §8.3). */
+function imageMarker(labelOf: LabelOf): PromptTextOptions['imageMarker'] {
+  return (b) => {
+    const label = labelOf(b.imageId);
+    return label ? `[Image: ${label}]${b.alt ? ` ${b.alt}` : ''}` : `[Image not sent${b.alt ? `: ${b.alt}` : ''}]`;
+  };
 }
 
-const cell = (s: string): string => s.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
-
-/**
- * Markdown-like rendering of blocks. 04 owns the canonical `toPromptText`; this local renderer is
- * used until that lands in extract's index (see integration notes).
- */
+/** Body text of blocks through 04's serializer (04 §11) with 02's image labels. */
 export function renderBlocks(blocks: readonly ContentBlock[], labelOf: LabelOf): string {
-  const out: string[] = [];
-  for (const b of blocks) {
-    switch (b.kind) {
-      case 'heading':
-        out.push(`${'#'.repeat(b.level)} ${b.text}`);
-        break;
-      case 'paragraph':
-        out.push(b.style === 'quote' ? `> ${b.text}` : b.style === 'code' ? '```\n' + b.text + '\n```' : b.text);
-        break;
-      case 'list':
-        out.push(listLines(b.items, b.ordered, 0).join('\n'));
-        break;
-      case 'table': {
-        const rows = b.header ? [b.header, ...b.rows] : b.rows;
-        const width = Math.max(0, ...rows.map((r) => r.length));
-        const lines = rows.map((r) => `| ${Array.from({ length: width }, (_, i) => cell(r[i] ?? '')).join(' | ')} |`);
-        if (b.header && lines.length) lines.splice(1, 0, `|${' --- |'.repeat(width)}`);
-        out.push([b.caption ? `Table: ${b.caption}` : '', ...lines].filter(Boolean).join('\n'));
-        break;
-      }
-      case 'slide':
-        out.push(
-          [
-            `## Slide ${b.index}${b.title ? `: ${b.title}` : ''}${b.hidden ? ' (hidden)' : ''}`,
-            renderBlocks(b.blocks, labelOf),
-            b.notes ? `Speaker notes: ${b.notes.text}` : '',
-          ]
-            .filter(Boolean)
-            .join('\n\n'),
-        );
-        break;
-      case 'notes':
-        out.push(`Speaker notes: ${b.text}`);
-        break;
-      case 'image': {
-        const label = labelOf(b.imageId);
-        out.push(
-          label ? `[Image: ${label}]${b.alt ? ` ${b.alt}` : ''}` : `[Image not sent${b.alt ? `: ${b.alt}` : ''}]`,
-        );
-        break;
-      }
-      case 'page':
-        out.push([`--- Page ${b.number} ---`, renderBlocks(b.blocks, labelOf)].join('\n\n'));
-        break;
-    }
-  }
-  return out.filter((s) => s !== '').join('\n\n');
+  return blocksToPromptText(blocks, { imageMarker: imageMarker(labelOf) });
 }
 
+/** Raw-mode prompt text: one delimited source per ExtractedContent, in user order. */
 export function contentToPromptText(contents: readonly ExtractedContent[], labelOf: LabelOf): string {
   return contents
     .map((c) =>
       wrapSource(
         c.sourceRef,
-        [c.title ? `Title: ${c.title}` : '', renderBlocks(c.blocks, labelOf)].filter(Boolean).join('\n\n'),
+        [c.title ? `Title: ${c.title}` : '', toPromptText(c, { imageMarker: imageMarker(labelOf) })]
+          .filter(Boolean)
+          .join('\n\n'),
+        undefined,
+        promptAttributes(c),
       ),
     )
     .join('\n\n');

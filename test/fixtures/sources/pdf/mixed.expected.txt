@@ -1,4 +1,3 @@
-<source ref="mixed.pdf" format="pdf" pages="3" scanned-pages="1" truncated="false">
 --- Page 1 ---
 # Supplier agreement summary
 Example Widgets Inc. will buy housings from a second supplier starting in July.
@@ -11,4 +10,3 @@ Either party may end the agreement with ninety days written notice.
 --- Page 3 ---
 Signed:
 [image #e4e57a37-img-1: "Scanned page 3"]
-</source>
