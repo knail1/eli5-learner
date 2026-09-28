@@ -7,7 +7,7 @@ import { KeychainUnavailable } from '../config';
 import { LibraryError, type LibraryErrorCode } from '../library';
 import { LLMError } from '../llm';
 import { PipelineRequestError } from '../pipeline';
-import { PublishError } from '../publish';
+import { PublishError, PublishRequestError } from '../publish';
 import { log } from '../security';
 import { InvalidDraftId } from '../sources';
 
@@ -70,6 +70,7 @@ export function toIpcError(err: unknown): IpcError {
   if (err instanceof KeychainUnavailable) return { code: 'E_KEYCHAIN_UNAVAILABLE', message: err.message };
   if (err instanceof PipelineRequestError) return { code: err.code, message: err.message };
   if (err instanceof LibraryError) return libraryError(err.code);
+  if (err instanceof PublishRequestError) return { code: err.code, message: err.message };
   // 01 §5.1, 10 §11: one boundary code; the PublishErrorCode travels in detailCode, `detail` never.
   if (err instanceof PublishError) {
     return {

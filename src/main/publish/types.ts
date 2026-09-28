@@ -46,6 +46,10 @@ export interface PublishContext {
   /** Cancelled when the app quits or the user cancels. */
   signal: AbortSignal;
   progress(stage: PublishStage): void;
+  /** Real library root; the local publisher refuses destinations inside it (10 §5.1 step 1). */
+  libraryRoot?: string;
+  /** shell.showItemInFolder, injected by the service (10 §5.1 step 5, `revealAfter`). */
+  reveal?: (absPath: string) => void;
 }
 
 /** Publisher seam (10 §3.1; HOOK-PUB-01, HOOK-PUB-03). */

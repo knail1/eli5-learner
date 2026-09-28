@@ -48,7 +48,7 @@ describe('publisher stubs (10 §5.2, §5.3)', () => {
   }
 });
 
-describe('LocalPublisher (M0 placeholder, 10 §5.1)', () => {
+describe('LocalPublisher describe (10 §5.1)', () => {
   it('describe is available with a ~-abbreviated destination preview', async () => {
     const t = await new LocalPublisher().describe('revenue-recognition', DEFAULTS);
     expect(t).toMatchObject({
@@ -71,7 +71,7 @@ describe('LocalPublisher (M0 placeholder, 10 §5.1)', () => {
     expect(t.destinationPreview).toBe('/Volumes/Share/out/x/');
   });
 
-  it('publish is not implemented yet', async () => {
+  it('publish refuses an empty file set before touching the disk', async () => {
     const err = await new LocalPublisher().publish(ctx()).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(PublishError);
     expect((err as PublishError).code).toBe('E_PUBLISH_FAILED');
