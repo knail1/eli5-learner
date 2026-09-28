@@ -69,14 +69,23 @@ The ELI5 tab rebuilds the same material in plain words, with analogies and pictu
   <img src="images/protective_order_expanded.png" alt="The expanded section 'The specific danger for people with protective orders': a definition paragraph, a Key point callout, and a four-step walkthrough 'How a protective order normally protects someone' with Previous and Next buttons" width="640">
 - **Section ELI5 tabs.** Focused ELI5 tabs, spun off from any passage and labeled by topic. You can close them.
 - **Library and menu bar.** Every document is listed in a sidebar. The menu bar shows the last three, and the app keeps running in the menu bar when the window is closed.
-- **Merge suggestions.** When a new document covers the same or a closely related topic as one already
-  in your Library, the app notices when the job finishes. It offers to merge the new material into the
-  existing document to enrich it, instead of leaving two near-copies. The suggestion sits quietly in
-  the sidebar with the reason it thinks the documents match, and never interrupts you. **Merge in**
-  folds the new document into the existing one (and one Undo reverses it); **Keep separate**
-  dismisses the suggestion.
+- **Merge suggestions.** When a new document covers the same or a related topic as one already in your
+  Library, the app notices when the job finishes. It offers to merge the new material into the existing
+  document to enrich it, instead of leaving two near-copies. The match doesn't have to be the same link:
+  a different outlet's take on the story, or something a colleague sent that is sort of related, adds
+  detail the first source didn't have. You can also do this on purpose to build one richer document from
+  several sources.
 
-  <img src="images/merge_option.png" alt="Sidebar Suggestions card: 'This looks related to Arizona Court System Breach Exposes Personal Data of Thousands. Merge it in or keep it separate?', with the reason 'Identical topic covering the same incident' and Merge in / Keep separate buttons" width="300">
+  For example, after the cybernews article above, the same breach reported by FOX 10 Phoenix, with more
+  on the personal records involved:
+
+  <img src="images/foxnews-same-cyberattack-on-arizona-personal-records.png" alt="FOX 10 Phoenix article 'Arizona court system targeted in cyberattack compromising personal records', a second report on the same breach" width="820">
+
+  When that job finishes, a suggestion waits quietly in the sidebar. It names the existing document and
+  the new one and says why they match, and it never interrupts you. **Merge in** folds the new material
+  into the existing document (one Undo reverses it); **Keep separate** dismisses the suggestion.
+
+  <img src="images/merge_option_better.png" alt="Library with the new FOX 10 document on top and a Suggestions card: 'This looks related to Arizona Court System Breach Exposes Personal Data of Thousands. Merge it in or keep it separate?', New: 'Arizona's court system hit by cyberattack targeting personal records', with the reason and Merge in / Keep separate buttons" width="300">
 - **Completion notifications.** A native macOS notification tells you when a document is ready. Clicking it opens the document in the app, or, if you choose, its published link in your browser.
 
 ## How it works
