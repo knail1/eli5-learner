@@ -11,6 +11,7 @@ import {
   jobLine,
   jobText,
   libraryEntries,
+  probeDocument,
   statusLines,
   viewerUrl,
   writeScript,
@@ -73,6 +74,8 @@ async function expectDocument(l: Launched, dirs: Dirs): Promise<string> {
   expect(report.errors).toEqual([]);
   expect(report.ok).toBe(true);
   expect(meta.title).toBe(TITLE);
+  // 13 §7.2, E1: no request and no console error at run time, across tabs, notes and widths.
+  await probeDocument(l.app, path.join(dirs.library, slug, 'index.html'));
   return slug;
 }
 

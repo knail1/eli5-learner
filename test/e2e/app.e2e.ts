@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import electronPath from 'electron';
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test';
@@ -12,11 +12,11 @@ import {
   generate,
   libraryEntries,
   openFromLibrary,
+  probeDocument,
   spyShell,
   viewerUrl,
   writeScript,
   type Dirs,
-  type Launched,
 } from './harness';
 
 /**
@@ -271,28 +271,28 @@ async function viewerPage(app: ElectronApplication, slug: string): Promise<Page>
   return page;
 }
 
-test('E10: a document stamped by a prior app version still takes a section action (never frozen)', async () => {
-  const dirs = await h.tempDirs('eli5-e2e-app-old-');
-  const first: Launched = await h.launch(dirs);
-  const doc = await generate(first);
-  await h.close(first.app);
+/**
+ * E10's "prior version" document: written once by the 0.1.0 build (FakeProvider, notes.md) and
+ * committed as is. Never regenerate it; its embedded runtime, markup and meta are the point. The
+ * `.frozen` suffix keeps formatters from touching it.
+ */
+const PRIOR = path.resolve('test/e2e/fixtures/prior-version/widget-supply-planning');
 
-  // Rewrite the version stamps as an older release would have left them (07 §3 generator).
-  const docFile = path.join(dirs.library, doc.topicSlug, 'index.html');
-  const metaFile = path.join(dirs.library, doc.topicSlug, 'meta.json');
-  const stamp = (s: string) =>
-    s
-      .replace(/("version"\s*:\s*)"[^"]*"/g, '$1"0.0.1"')
-      .replace(/("runtimeVersion"\s*:\s*)"[^"]*"/g, '$1"0.0.1"')
-      .replace(/("appVersion"\s*:\s*)"[^"]*"/g, '$1"0.0.1"');
-  const oldHtml = stamp(await readFile(docFile, 'utf8'));
-  expect(oldHtml).toContain('"runtimeVersion":"0.0.1"');
+test('E10: a document written by an earlier build still takes a section action (never frozen)', async () => {
+  const dirs = await h.tempDirs('eli5-e2e-app-old-');
+  // The folder is the truth (09 §7): reconcile at startup lists a copied-in document.
+  const slug = 'widget-supply-planning';
+  const docFile = path.join(dirs.library, slug, 'index.html');
+  await mkdir(path.join(dirs.library, slug), { recursive: true });
+  const oldHtml = await readFile(path.join(PRIOR, 'index.html.frozen'), 'utf8');
   await writeFile(docFile, oldHtml);
-  await writeFile(metaFile, stamp(await readFile(metaFile, 'utf8')));
+  await copyFile(path.join(PRIOR, 'meta.json.frozen'), path.join(dirs.library, slug, 'meta.json'));
 
   const l = await h.launch(dirs);
-  await openFromLibrary(l.win, doc.title);
-  const viewer = await viewerPage(l.app, doc.topicSlug);
+  await expect.poll(async () => (await libraryEntries(l.win)).map((e) => e.topicSlug)).toEqual([slug]);
+  await probeDocument(l.app, docFile);
+  await openFromLibrary(l.win, TITLE);
+  const viewer = await viewerPage(l.app, slug);
   const id = await viewer.evaluate(
     () =>
       Array.from(
@@ -309,6 +309,11 @@ test('E10: a document stamped by a prior app version still takes a section actio
   const after = await readFile(docFile, 'utf8');
   expect(after).not.toBe(oldHtml);
   expect(validateDocument(after).errors).toEqual([]);
+  await probeDocument(l.app, docFile);
+  const meta = JSON.parse(await readFile(path.join(dirs.library, slug, 'meta.json'), 'utf8')) as {
+    actions?: { action: string }[];
+  };
+  expect(meta.actions?.map((a) => a.action)).toEqual(['expand']);
 });
 
 /** A real left click on the page's `a[role=button]`, sent from main as native input. */

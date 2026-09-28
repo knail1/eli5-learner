@@ -2,12 +2,14 @@ import { expect, test, type Page } from '@playwright/test';
 import {
   Harness,
   TITLE,
+  docPath,
   dropFiles,
   startDraft,
   fakeCalls,
   jobLine,
   jobText,
   libraryEntries,
+  probeDocument,
   statusLines,
   writeScript,
 } from './harness';
@@ -71,7 +73,10 @@ test('Retry after a failure runs the same job again and finishes it', async () =
   const after = await l.win.evaluate(() => window.eli5.jobs.list());
   expect(after.ok && after.value.map((j) => [j.id, j.status])).toEqual([[id, 'done']]);
   expect((await fakeCalls(l.app)).filter((c) => c.taskId === 'in-depth')).toHaveLength(2);
-  expect((await libraryEntries(l.win)).map((e) => e.title)).toEqual([TITLE]);
+  const listed = await libraryEntries(l.win);
+  expect(listed.map((e) => e.title)).toEqual([TITLE]);
+  const [entry] = listed;
+  await probeDocument(l.app, await docPath(l.win, entry?.topicSlug ?? ''));
 
   // A done line opens its document on click and can be dismissed (11 §5.5).
   await jobText(l.win).click();
@@ -109,6 +114,7 @@ test('E7: jobs started while one runs wait as Queued, then all finish; the Libra
   expect(entries.map((e) => e.topicSlug)).toEqual([...slugs].reverse());
   const nav = l.win.getByRole('navigation', { name: 'Library' });
   await expect(nav.getByRole('button', { name: new RegExp(TITLE) })).toHaveCount(3);
+  for (const e of entries) await probeDocument(l.app, await docPath(l.win, e.topicSlug));
 
   // Every line the pipeline produced is one of the 06 §6 strings.
   const known = [
@@ -123,4 +129,9 @@ test('E7: jobs started while one runs wait as Queued, then all finish; the Libra
   ];
   const seen = [...new Set(await statusLines(l.win))];
   expect(seen.filter((s) => !known.some((re) => re.test(s)))).toEqual([]);
+  // ...and the recorder really saw the run: an empty capture must not pass the check above.
+  expect(seen).toEqual(
+    expect.arrayContaining(['Queued', 'Queued (2 ahead)', 'Reading sources', 'Saving', `Done: ${TITLE}`]),
+  );
+  expect(seen.some((s) => s.startsWith('Generating document'))).toBe(true);
 });

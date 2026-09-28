@@ -21,7 +21,15 @@ import {
 test.describe.configure({ mode: 'serial' });
 
 const h = new Harness();
-test.afterAll(() => h.cleanup());
+// Modal guard per test (13 §8.1); the shared app stays up for the next test.
+test.afterEach(() => h.assertNoModals());
+test.afterAll(async () => {
+  try {
+    await h.closeAll();
+  } finally {
+    await h.cleanup();
+  }
+});
 
 interface Finding {
   id: string;
@@ -69,7 +77,7 @@ test.beforeAll(async () => {
   // of the second launch fails, so a failed line with its Settings link is on screen too.
   const first = await h.launch(dirs);
   const a = await generate(first);
-  await h.close(first.app);
+  await h.close(first.app); // asserts the first launch recorded no modal either
   const script = await writeScript(dirs, 'a11y', {
     responses: { 'merge-match': { matches: [{ catalogId: a.id, score: 0.9, reason: 'Same widget supply plan' }] } },
     errors: { 'in-depth': ['auth'] },
@@ -120,5 +128,4 @@ test('Settings, every section', async () => {
     .click();
   await expect(l.win.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
   await scanBothThemes(l, 'settings');
-  await h.closeAll();
 });

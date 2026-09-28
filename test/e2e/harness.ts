@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { _electron as electron, expect, type ElectronApplication, type Page } from '@playwright/test';
 
 /**
@@ -102,22 +103,32 @@ export class Harness {
     return { app, win };
   }
 
-  /** Stops one app that the spec has finished with (e.g. before a relaunch on the same dirs). */
+  /** Modal-guard calls recorded in one app's main process (13 §8.1); [] once it has exited. */
+  private modalCalls(app: ElectronApplication): Promise<string[]> {
+    return app
+      .evaluate(() => (globalThis as { __modalCalls?: string[] }).__modalCalls ?? [])
+      .catch(() => [] as string[]);
+  }
+
+  /** afterEach for specs that share one app across tests: zero modal calls so far, app kept running. */
+  async assertNoModals(): Promise<void> {
+    for (const a of this.running) expect(await this.modalCalls(a)).toEqual([]);
+  }
+
+  /** Stops one app that the spec has finished with (e.g. before a relaunch), after the modal check. */
   async close(app: ElectronApplication): Promise<void> {
     const i = this.running.indexOf(app);
     if (i >= 0) this.running.splice(i, 1);
+    const modals = await this.modalCalls(app);
     await app.close().catch(() => {});
+    expect(modals).toEqual([]);
   }
 
   /** afterEach: every still-running app recorded zero modal calls (13 §8.1), then closes. */
   async closeAll(): Promise<void> {
-    for (const a of this.running) {
-      const modals = await a
-        .evaluate(() => (globalThis as { __modalCalls?: string[] }).__modalCalls ?? [])
-        .catch(() => [] as string[]);
-      expect(modals).toEqual([]);
-    }
+    const modals = await Promise.all(this.running.map((a) => this.modalCalls(a)));
     for (const a of this.running.splice(0)) await a.close().catch(() => {});
+    expect(modals.flat()).toEqual([]);
   }
 
   async cleanup(): Promise<void> {
@@ -191,6 +202,13 @@ export async function startDraft(win: Page): Promise<void> {
   }).toPass();
 }
 
+/** The saved `index.html` of a Library document, under the resolved library root (09 §3). */
+export async function docPath(win: Page, slug: string): Promise<string> {
+  const info = await win.evaluate(() => window.eli5.library.info());
+  if (!info.ok) throw new Error('library info unavailable');
+  return path.join(info.value.root, slug, 'index.html');
+}
+
 /** Drop one text source, Start, and wait for its `Done:` line; returns the new Library entry. */
 export async function generate(
   l: Launched,
@@ -205,6 +223,8 @@ export async function generate(
   const entry = (await libraryEntries(l.win)).find((e) => !before.has(e.id));
   if (!entry) throw new Error('no new Library entry');
   await expect(jobText(l.win)).toHaveText(new RegExp(`^Done: `));
+  // 13 §7.2: every e2e-generated document passes the runtime probe.
+  await probeDocument(l.app, await docPath(l.win, entry.topicSlug));
   return entry;
 }
 
@@ -242,6 +262,95 @@ export async function spyShell(app: ElectronApplication): Promise<() => Promise<
     s.showItemInFolder = (p: string) => void calls.push(['showItemInFolder', p]);
   });
   return () => app.evaluate(() => (globalThis as { __shellCalls?: [string, string][] }).__shellCalls ?? []);
+}
+
+/** What the runtime probe saw (13 §7.2). `wide` is the glossary layout before and after the resize. */
+export interface ProbeReport {
+  requests: string[];
+  consoleErrors: string[];
+  tabs: string[];
+  notes: number;
+  wide: boolean[];
+}
+
+let probeSeq = 0;
+
+/**
+ * 13 §7.2 runtime rule: opens `file` in a hidden BrowserWindow on its own partition, whose
+ * webRequest records and cancels every non-`file:`/`data:` request, then switches every tab,
+ * toggles every glossary note, resizes below the 1100 px glossary breakpoint and does it again.
+ */
+export async function runProbe(app: ElectronApplication, file: string): Promise<ProbeReport> {
+  const partition = `eli5-probe-${String(process.pid)}-${String(++probeSeq)}`;
+  return app.evaluate(
+    async ({ BrowserWindow, session }, { url, partition }) => {
+      const requests: string[] = [];
+      const consoleErrors: string[] = [];
+      const ses = session.fromPartition(partition);
+      ses.webRequest.onBeforeRequest((d, cb) => {
+        if (/^(file|data):/i.test(d.url)) return cb({});
+        requests.push(d.url);
+        cb({ cancel: true });
+      });
+      const w = new BrowserWindow({
+        show: false,
+        width: 1280,
+        height: 900,
+        useContentSize: true,
+        webPreferences: { partition, sandbox: true, contextIsolation: true, backgroundThrottling: false },
+      });
+      const wc = w.webContents;
+      wc.on('console-message', (e: unknown, lvl?: unknown, msg?: unknown) => {
+        // Electron 44 passes one details object; older builds passed (event, level, message).
+        const ev = e as { level?: unknown; message?: unknown };
+        const level = ev.level ?? lvl;
+        if (level === 'error' || level === 3) consoleErrors.push(String(ev.message ?? msg));
+      });
+      wc.on('render-process-gone', (_e, d) => consoleErrors.push(`renderer gone: ${d.reason}`));
+      const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      // Every tab in turn; in each, every glossary note's summary twice (open/close, then back).
+      const walk = `(async () => {
+        const tick = () => new Promise((r) => setTimeout(r, 30));
+        const keys = [];
+        for (const b of document.querySelectorAll('nav.tabbar [role="tab"]')) {
+          b.click(); await tick();
+          keys.push((b.getAttribute('aria-controls') || '').replace(/^tab-/, ''));
+          for (const s of document.querySelectorAll('.tabpanel:not([hidden]) details.gl-note > summary')) {
+            s.click(); await tick(); s.click(); await tick();
+          }
+        }
+        return { keys, notes: document.querySelectorAll('details.gl-note').length,
+          wide: document.documentElement.classList.contains('gl-wide') };
+      })()`;
+      try {
+        await w.loadURL(url);
+        const first = (await wc.executeJavaScript(walk)) as { keys: string[]; notes: number; wide: boolean };
+        w.setContentSize(800, 900);
+        for (let i = 0; i < 40 && (await wc.executeJavaScript('innerWidth')) !== 800; i++) await pause(50);
+        await pause(150);
+        const second = (await wc.executeJavaScript(walk)) as { wide: boolean };
+        await pause(150);
+        return { requests, consoleErrors, tabs: first.keys, notes: first.notes, wide: [first.wide, second.wide] };
+      } finally {
+        ses.webRequest.onBeforeRequest(null);
+        w.destroy();
+      }
+    },
+    { url: pathToFileURL(file).href, partition },
+  );
+}
+
+/**
+ * The pass condition of 13 §7.2 for a generated document: zero requests, zero console errors, both
+ * built-in tabs walked, and the glossary switched from margin notes to inline below the breakpoint.
+ */
+export async function probeDocument(app: ElectronApplication, file: string): Promise<ProbeReport> {
+  const r = await runProbe(app, file);
+  expect(r.requests, `network requests from ${file}`).toEqual([]);
+  expect(r.consoleErrors, `console errors from ${file}`).toEqual([]);
+  expect(r.tabs.slice(0, 2)).toEqual(['indepth', 'eli5']);
+  expect(r.wide).toEqual([true, false]);
+  return r;
 }
 
 /** Opens a Library entry by title from the sidebar. */

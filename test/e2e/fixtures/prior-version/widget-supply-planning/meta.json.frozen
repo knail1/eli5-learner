@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "id": "86ff785b-e09b-42f6-81a5-adf69b698627",
+  "topicSlug": "widget-supply-planning",
+  "title": "How Example Widgets Inc. Plans Its Widget Supply",
+  "summary": "A synthetic explainer on how a widget maker forecasts demand by channel and sizes its safety stock.",
+  "summarySource": "llm",
+  "createdAt": "2026-09-28T10:18:53.693Z",
+  "updatedAt": "2026-09-28T10:18:53.693Z",
+  "jobId": "01M3KRCK1E7A407N26QHX0SKM9",
+  "edition": "public",
+  "clarifyingInput": "",
+  "glossaryEnabled": true,
+  "sourcesUsed": [
+    {
+      "ref": "notes.md",
+      "kind": "file",
+      "mimeType": "text/markdown",
+      "sha256": "04753333a51451d24af11884bae2e20ea81651e08a7abfa8846e0a83a07acb83"
+    }
+  ],
+  "sourcesSkipped": [],
+  "tabs": [
+    {
+      "key": "indepth",
+      "kind": "indepth",
+      "label": "In depth",
+      "sectionCount": 5,
+      "createdAt": "2026-09-28T10:18:53.693Z"
+    },
+    {
+      "key": "eli5",
+      "kind": "eli5",
+      "label": "ELI5",
+      "sectionCount": 2,
+      "createdAt": "2026-09-28T10:18:53.693Z"
+    }
+  ],
+  "retiredIds": [],
+  "generation": {
+    "provider": "claude",
+    "model": "fake-model",
+    "prompts": [
+      "in-depth@1",
+      "eli5@1",
+      "glossary@1",
+      "summary@1"
+    ]
+  },
+  "warnings": [],
+  "merges": [],
+  "publications": []
+}
