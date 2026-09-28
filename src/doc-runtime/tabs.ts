@@ -61,7 +61,13 @@ export function initTabs(doc: Document, win: Window): TabsApi {
 
   /** 07 §12 item 2: `#tab=<key>` selects a tab; `#sec-…` selects its tab and scrolls to it. */
   const resolveHash = (): void => {
-    const h = decodeURIComponent(win.location.hash.replace(/^#/, ''));
+    const raw = win.location.hash.replace(/^#/, '');
+    let h = raw;
+    try {
+      h = decodeURIComponent(raw);
+    } catch {
+      // Malformed percent-escape (e.g. `#%`): use the raw hash, which falls back to the default tab.
+    }
     if (h.startsWith('tab=') && activateTab(h.slice(4), { history: false })) return;
     if (h.startsWith('sec-')) {
       const k = tabOfSection(h);

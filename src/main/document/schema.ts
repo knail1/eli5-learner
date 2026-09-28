@@ -9,6 +9,9 @@ const SectionIdSchema = z
   .regex(SECTION_ID_RE)
   .transform((s) => s as SectionId);
 
+/** Asset ids are content-addressed (07 §5.6, images.ts assetIdFor). */
+const AssetIdSchema = z.string().regex(/^img-[0-9a-f]{12}$/);
+
 const TableShape = { caption: z.string().optional(), header: z.array(z.string()), rows: z.array(z.array(z.string())) };
 
 // DraftBlock (02 §10) with `figure` resolved to an asset (07 §3).
@@ -22,7 +25,7 @@ export const DocBlockSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('diagram'), title: z.string(), svg: z.string(), alt: z.string() }),
   z.object({
     type: z.literal('figure'),
-    assetId: z.string(),
+    assetId: AssetIdSchema,
     caption: z.string(),
     alt: z.string(),
     annotations: z.array(z.object({ x: z.number(), y: z.number(), text: z.string() })).optional(),
@@ -105,7 +108,7 @@ export const DocumentModelSchema = z.object({
   ),
   assets: z.array(
     z.object({
-      id: z.string(),
+      id: AssetIdSchema,
       mime: z.enum(['image/png', 'image/jpeg', 'image/webp']),
       width: z.number(),
       height: z.number(),

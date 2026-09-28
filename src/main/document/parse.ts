@@ -2,11 +2,12 @@
 // the theme and the runtime blocks. Also byte-exact locate/splice primitives for sections (08 §6.4).
 import { DocumentFormatError } from './errors';
 import { attr, findAll, findById, innerSpan, outerSpan, parseTree, rawInner, textOf, type Span } from './html-tree';
-import { fromDataUri } from './images';
+import { fromDataUri, sha256Hex } from './images';
 import { modelJson, renderSectionHtml } from './render/page';
 import { DocumentModelSchema } from './schema';
+import { sanitizeSvg } from './svg-sanitize';
 import { DEFAULT_FOOTER, parseThemeCss } from './theme';
-import type { DocTheme, DocumentModel, ParsedDocument } from './types';
+import type { DocBlock, DocTheme, DocumentModel, ParsedDocument, Section } from './types';
 
 /** The newest `formatVersion` this build understands (07 §3). */
 export const FORMAT_VERSION = 1;
@@ -23,7 +24,28 @@ export function parseModelJson(json: string): DocumentModel {
   if (typeof v === 'number' && v > FORMAT_VERSION) throw new DocumentFormatError('bad_version', `formatVersion ${v}`);
   const r = DocumentModelSchema.safeParse(raw);
   if (!r.success) throw new DocumentFormatError('invalid_model', r.error.issues[0]?.path.join('.') ?? 'schema');
+  resanitizeDiagrams(r.data);
   return r.data;
+}
+
+const DIAGRAM_PREFIX_RE = /\bid="(d[0-9a-f]{8}-)/;
+
+/**
+ * The model JSON is file content, not trusted build output: diagram SVG is re-run through the
+ * 07 §7.3 sanitizer (a fixed point for builder output, so round-trips stay byte-exact) and
+ * diagrams that do not survive are dropped.
+ */
+function resanitizeDiagrams(model: DocumentModel): void {
+  const clean = (sec: Section): void => {
+    sec.blocks = sec.blocks.flatMap((b): DocBlock[] => {
+      if (b.type !== 'diagram') return [b];
+      const idPrefix =
+        DIAGRAM_PREFIX_RE.exec(b.svg)?.[1] ?? `d${sha256Hex(new TextEncoder().encode(b.svg)).slice(0, 8)}-`;
+      const svg = sanitizeSvg(b.svg, { idPrefix, ariaLabel: b.alt, rootClass: 'diagram-svg' });
+      return svg === null ? [] : [{ ...b, svg }];
+    });
+  };
+  for (const tab of model.tabs) for (const sec of tab.sections) clean(sec);
 }
 
 export function parseDocument(html: string): ParsedDocument {
@@ -51,7 +73,11 @@ export function parseDocument(html: string): ParsedDocument {
       ? footerText.slice(DEFAULT_FOOTER.length + 3)
       : DEFAULT_FOOTER,
   };
-  if (logo) theme.logoSvg = rawInner(html, logo);
+  // The logo bytes are file content too: re-sanitize (idempotent for theme.ts output) or drop.
+  const logoSvg = logo
+    ? sanitizeSvg(rawInner(html, logo), { idPrefix: 'logo-', ariaLabel: 'Logo', rootClass: 'doc-logo-svg' })
+    : null;
+  if (logoSvg) theme.logoSvg = logoSvg;
 
   const js = findById(doc, 'eli5-runtime');
   const css = findById(doc, 'eli5-css');

@@ -234,6 +234,9 @@ export function colorToken(value: string): ColorToken | 'none' | undefined {
 
 const URL_REF_RE = /^url\(\s*#([A-Za-z_][\w.-]*)\s*\)$/;
 
+/** Theme classes this sanitizer itself emits; kept on re-sanitize so the pass is idempotent. */
+const OWN_CLASS_RE = /^viz-(?:fill|stroke|stop)-(?:[1-8]|ink|muted|paper|rule)$/;
+
 export interface SanitizeSvgOptions {
   /** Prefix for every id inside the SVG, `d` + 8 hex + `-` (07 §7.3). */
   idPrefix: string;
@@ -280,6 +283,10 @@ export function sanitizeSvg(input: string, opts: SanitizeSvgOptions): string | n
   };
   collect(root);
 
+  // Ids already carrying the prefix keep it, so sanitizeSvg(sanitizeSvg(x)) === sanitizeSvg(x);
+  // parseDocument re-runs it on model-stored SVG (07 §8).
+  const pref = (id: string): string => (id.startsWith(opts.idPrefix) ? id : `${opts.idPrefix}${id}`);
+
   let shapes = 0;
   const emit = (el: El, isRoot: boolean): string => {
     const name = el.localName ?? '';
@@ -290,16 +297,20 @@ export function sanitizeSvg(input: string, opts: SanitizeSvgOptions): string | n
     for (const a of Array.from(el.attributes ?? [])) {
       const attrName = a.name;
       const value = a.value;
-      if (/^on/i.test(attrName) || attrName === 'style' || attrName === 'class') continue;
+      if (attrName === 'class') {
+        for (const c of value.split(/\s+/)) if (OWN_CLASS_RE.test(c) && !classes.includes(c)) classes.push(c);
+        continue;
+      }
+      if (/^on/i.test(attrName) || attrName === 'style') continue;
       if (attrName === 'href' || attrName === 'xlink:href') {
         const target = /^#([A-Za-z_][\w.-]*)$/.exec(value)?.[1];
-        if (name === 'use' && target && ids.has(target)) out.push(['href', `#${opts.idPrefix}${target}`]);
+        if (name === 'use' && target && ids.has(target)) out.push(['href', `#${pref(target)}`]);
         continue;
       }
       if (!ATTRIBUTES.has(attrName)) continue;
       if (/url\(/i.test(value)) {
         const ref = URL_REF_RE.exec(value.trim())?.[1];
-        if (ref && ids.has(ref)) out.push([attrName, `url(#${opts.idPrefix}${ref})`]);
+        if (ref && ids.has(ref)) out.push([attrName, `url(#${pref(ref)})`]);
         continue;
       }
       if (/javascript:|expression\(|[<>]/i.test(value)) continue;
@@ -309,12 +320,13 @@ export function sanitizeSvg(input: string, opts: SanitizeSvgOptions): string | n
           if (attrName !== 'stop-color') out.push([attrName, 'none']);
         } else if (tok !== undefined) {
           const kind = attrName === 'stop-color' ? 'stop' : attrName;
-          classes.push(`viz-${kind}-${tok}`);
+          const c = `viz-${kind}-${tok}`;
+          if (!classes.includes(c)) classes.push(c);
         }
         continue;
       }
       if (attrName === 'id') {
-        out.push(['id', `${opts.idPrefix}${value}`]);
+        out.push(['id', pref(value)]);
         continue;
       }
       if (isRoot && (attrName === 'role' || attrName === 'aria-label')) continue;

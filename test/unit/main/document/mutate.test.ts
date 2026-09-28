@@ -132,6 +132,40 @@ describe('replaceSection (07 §8, 08 §6.4)', () => {
   });
 });
 
+describe('figure assets across regenerations (07 §8)', () => {
+  const figSection = doc.model.tabs[0]?.sections.find((s) => s.blocks.some((b) => b.type === 'figure'));
+  const label = doc.model.assets[0]?.label ?? '';
+  const withFigure: SectionDraft = {
+    heading: 'Again',
+    blocks: [
+      { type: 'paragraph', md: 'Back again.' },
+      { type: 'figure', imageLabel: label, caption: 'The dashboard' },
+    ],
+  };
+
+  it('prunes asset records once no figure references them, so the label no longer resolves', () => {
+    if (!figSection) throw new Error('fixture');
+    const noFig: SectionDraft = { heading: 'No figure', blocks: [{ type: 'paragraph', md: 'Text only.' }] };
+    const a = replaceSection(doc.model, figSection.id, noFig, 'reexplain', LATER, { idSource: new SeededIdSource(4) });
+    expect(a.model.assets).toEqual([]);
+    const b = replaceSection(a.model, figSection.id, withFigure, 'reexplain', LATER, {
+      idSource: new SeededIdSource(5),
+    });
+    expect(b.model.tabs[0]?.sections.find((s) => s.id === figSection.id)?.blocks.map((x) => x.type)).toEqual([
+      'paragraph',
+    ]);
+    expect(b.warnings).toContain('figure-image-missing');
+  });
+
+  it('resolves a label only when its bytes are present when assets are passed', () => {
+    if (!figSection) throw new Error('fixture');
+    const ok = replaceSection(doc.model, figSection.id, withFigure, 'reexplain', LATER, { assets: doc.assets });
+    expect(ok.warnings).not.toContain('figure-image-missing');
+    const gone = replaceSection(doc.model, figSection.id, withFigure, 'reexplain', LATER, { assets: new Map() });
+    expect(gone.warnings).toContain('figure-image-missing');
+  });
+});
+
 describe('getSectionContext (07 §8)', () => {
   it('returns the draft form with figure labels, neighbours and outline', () => {
     const id = secAt(doc.model, 0, 2);

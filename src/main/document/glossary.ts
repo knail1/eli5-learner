@@ -83,6 +83,13 @@ export interface PlaceGlossaryInput {
   draft: GlossaryDraft | null;
   /** In-depth content sections in order. */
   sections: readonly Section[];
+  /**
+   * Draft index of each kept section (buildSections drops empty ones and caps the count), so
+   * anchorSectionIndex, which indexes the draft, maps correctly. Default: identity.
+   */
+  draftIndices?: readonly number[];
+  /** Number of draft sections, for the step 2 range check. Default: sections.length. */
+  draftSectionCount?: number;
   idSource: IdSource;
   /** Every id already used in the document (section ids and more). */
   taken: TakenIds;
@@ -108,21 +115,35 @@ export function placeGlossary(input: PlaceGlossaryInput, warn: (w: string) => vo
     const key = term.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    if (entry.anchorSectionIndex >= input.sections.length) {
+    const draftCount = input.draftSectionCount ?? input.sections.length;
+    const draftIdx = (k: number): number => input.draftIndices?.[k] ?? k;
+    if (entry.anchorSectionIndex < 0 || entry.anchorSectionIndex >= draftCount) {
       warn('glossary-anchor-missing'); // step 2: out of range
       continue;
     }
-    // Steps 3-5: the earliest section holding the anchor wins ("where it first appears").
-    let hit: (Hit & { end: number; si: number }) | undefined;
-    for (let s = 0; s < input.sections.length && !hit; s++) {
-      const occ = occupiedBySection.get(s) ?? [];
-      const h = findInBlocks(input.sections[s]?.blocks ?? [], entry.anchorText, occ);
-      if (h) hit = { ...h, si: s };
+    // Step 2: the kept section for that draft index (or the next kept one if it was dropped).
+    let start = input.sections.length;
+    for (let k = 0; k < input.sections.length; k++) {
+      if (draftIdx(k) >= entry.anchorSectionIndex) {
+        start = k;
+        break;
+      }
     }
+    const search = (from: number, to: number): (Hit & { end: number; si: number }) | undefined => {
+      for (let s = from; s < to; s++) {
+        const h = findInBlocks(input.sections[s]?.blocks ?? [], entry.anchorText, occupiedBySection.get(s) ?? []);
+        if (h) return { ...h, si: s };
+      }
+      return undefined;
+    };
+    // Steps 3-4: that section, then the following ones; not found there means dropped.
+    let hit = search(start, input.sections.length);
     if (!hit) {
       warn('glossary-anchor-missing');
       continue;
     }
+    // Step 5: move to an earlier occurrence ("where it first appears").
+    hit = search(0, hit.si) ?? hit;
     const section = input.sections[hit.si];
     if (!section) continue;
     const occ = occupiedBySection.get(hit.si) ?? [];

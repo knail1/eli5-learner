@@ -1,6 +1,6 @@
 // Block renderers (07 §7.1) and glossary note markup (07 §9.2).
 import { renderChartFigure } from '../charts';
-import { attrs, esc } from '../html';
+import { attrs, esc, escAttr } from '../html';
 import { toDataUri } from '../images';
 import { renderInline, renderInlineMany, type DfnAnchor } from '../inline-md';
 import type { AssetRef, DocBlock, GlossaryNote } from '../types';
@@ -55,7 +55,8 @@ function renderTable(b: Extract<DocBlock, { type: 'table' }>): string {
     .map((r) => `<tr>${r.map((c, ci) => `<td${attrs([['class', cls(ci)]])}>${renderInline(c)}</td>`).join('')}</tr>`)
     .join('');
   return (
-    '<div class="table-wrap"><table>' +
+    // 07 §13: only tables of <= 30 rows get print break-inside: avoid.
+    `<div class="${b.rows.length <= 30 ? 'table-wrap table-wrap--short' : 'table-wrap'}"><table>` +
     (b.caption ? `<caption>${esc(b.caption)}</caption>` : '') +
     `<thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`
   );
@@ -71,7 +72,7 @@ function renderFigure(b: Extract<DocBlock, { type: 'figure' }>, ctx: BlockContex
   const bytes = ctx.assets.get(b.assetId);
   if (!ref || !bytes) {
     // Asset bytes missing (hand-edited file): keep the caption so the block stays readable.
-    return `<figure class="annotated" data-asset-missing="${esc(b.assetId)}"><figcaption>${esc(b.caption)}</figcaption></figure>`;
+    return `<figure class="annotated" data-asset-missing="${escAttr(b.assetId)}"><figcaption>${esc(b.caption)}</figcaption></figure>`;
   }
   const anns = b.annotations ?? [];
   const markers = anns

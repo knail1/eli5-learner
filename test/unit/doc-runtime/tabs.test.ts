@@ -87,3 +87,15 @@ describe('tabs (07 §12)', () => {
     expect(doc.documentElement.getAttribute('data-theme')).toBe('light');
   });
 });
+
+describe('malformed hash (07 §12 item 2)', () => {
+  it('falls back to the default tab instead of throwing on a bad percent-escape', () => {
+    const { win, doc } = loadGolden('with-tab', { url: 'https://example.test/doc/index.html#tab=%E0%A4' });
+    const h = boot(win, doc);
+    expect(h.tabs?.active()).toBe('indepth');
+    expect(panelsShown(doc)).toEqual(['indepth']);
+    win.location.hash = '#%';
+    expect(() => win.dispatchEvent(new win.HashChangeEvent('hashchange'))).not.toThrow();
+    expect(h.tabs?.active()).toBe('indepth');
+  });
+});

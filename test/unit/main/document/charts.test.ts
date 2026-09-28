@@ -75,6 +75,27 @@ describe('chart rendering (07 §7.2)', () => {
     expect(svg).toContain('Look here');
   });
 
+  it.each(['line', 'area'] as const)('%s highlight: accent point, muted lines and points (rule 6)', (kind) => {
+    const svg = renderChartSvg(
+      base({
+        kind,
+        series: [
+          { name: 'S1', values: [3, 1, 2] },
+          { name: 'S2', values: [1, 2, 3] },
+        ],
+        highlight: { category: 'B', note: 'Look here' },
+      }),
+      'x',
+    );
+    const pts = marks(svg);
+    expect(pts.filter((m) => m.includes('viz-fill-accent'))).toHaveLength(2);
+    expect(pts.filter((m) => m.includes('viz-fill-accent')).every((m) => m.includes('data-label="B'))).toBe(true);
+    expect(pts.filter((m) => m.includes('viz-fill-muted'))).toHaveLength(4);
+    expect(svg).not.toMatch(/viz-(fill|stroke)-[1-8]/);
+    expect(svg).toContain('viz-stroke-muted viz-line');
+    expect(svg).toContain('Look here');
+  });
+
   it('pie: largest first, percentages outside', () => {
     const svg = renderChartSvg(
       base({ kind: 'pie', categories: ['Small', 'Big'], series: [{ name: 's', values: [25, 75] }] }),

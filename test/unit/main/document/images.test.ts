@@ -37,7 +37,36 @@ function webpVp8x(w: number, h: number): Uint8Array {
   return b;
 }
 
+/** PNG header only (sniffImage does not check CRCs): IHDR with the given depth/color type, optional tRNS. */
+function pngHeader(bitDepth: number, colorType: number, trns: boolean): Uint8Array {
+  const chunk = (type: string, len: number): number[] => [
+    0,
+    0,
+    0,
+    len,
+    ...new TextEncoder().encode(type),
+    ...new Array<number>(len + 4).fill(0),
+  ];
+  const b = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...chunk('IHDR', 13)];
+  b[16 + 3] = 8; // width 8
+  b[20 + 3] = 4; // height 4
+  b[24] = bitDepth;
+  b[25] = colorType;
+  if (trns) b.push(...chunk('tRNS', 6));
+  b.push(...chunk('IDAT', 2), ...chunk('IEND', 0));
+  return new Uint8Array(b);
+}
+
 describe('sniffImage (07 §5.6)', () => {
+  it('keeps PNG for alpha or <= 256 colors: gray, palette, tRNS (07 §5.6)', () => {
+    expect(sniffImage(pngHeader(8, 0, false))?.pngKeep).toBe(true); // 8-bit gray
+    expect(sniffImage(pngHeader(16, 0, false))?.pngKeep).toBe(false); // 16-bit gray, no alpha
+    expect(sniffImage(pngHeader(8, 3, false))?.pngKeep).toBe(true); // palette
+    expect(sniffImage(pngHeader(8, 2, true))?.pngKeep).toBe(true); // truecolor + tRNS
+    expect(sniffImage(pngHeader(8, 2, false))?.pngKeep).toBe(false); // plain truecolor -> JPEG
+    expect(sniffImage(pngHeader(8, 2, false))).toMatchObject({ width: 8, height: 4 });
+  });
+
   it('reads PNG, JPEG and WebP sizes', () => {
     expect(sniffImage(makePng(30, 20))).toEqual({ mime: 'image/png', width: 30, height: 20, pngKeep: false });
     expect(sniffImage(makePng(3, 2, true))?.pngKeep).toBe(true);

@@ -3,7 +3,7 @@ import type { DocumentDraftTab } from '../llm';
 import { DocumentBuildError } from './errors';
 import { capText, collapseWs } from './html';
 import { placeGlossary } from './glossary';
-import { assetIdFor, passThroughNormalizer, sha256Hex } from './images';
+import { assetIdFor, sha256Hex } from './images';
 import { defaultReferenceFormatter } from './references';
 import { DOC_RUNTIME_VERSION } from './runtime-assets';
 import { cryptoIdSource, ELI5_TAB_KEY, INDEPTH_TAB_KEY, mintSectionId, type IdSource } from './section-id';
@@ -29,12 +29,14 @@ export interface SectionBuildContext {
   taken: Set<string>;
   resolveFigure(label: string): string | undefined;
   warn(w: string): void;
+  /** When given, receives the draft index of each kept section (07 §9.1 step 2 indexes drafts). */
+  draftIndices?: number[];
 }
 
 /** Converts section drafts for one tab, minting an id per kept section (07 §5.1 step 2). */
 export function buildSections(drafts: DocumentDraftTab['sections'], ctx: SectionBuildContext): Section[] {
   const out: Section[] = [];
-  for (const d of drafts) {
+  for (const [di, d] of drafts.entries()) {
     if (out.length >= MAX_SECTIONS_PER_TAB) {
       ctx.warn('sections-capped');
       break;
@@ -50,6 +52,7 @@ export function buildSections(drafts: DocumentDraftTab['sections'], ctx: Section
     }
     const id = mintSectionId(ctx.tabKey, ctx.idSource, ctx.taken);
     ctx.taken.add(id);
+    ctx.draftIndices?.push(di);
     out.push({
       id,
       kind: 'content',
@@ -68,7 +71,7 @@ export function buildDocumentModel(input: BuildInput): BuildResult {
     warnings.push(w);
   };
   const idSource = input.idSource ?? cryptoIdSource;
-  const normalize = input.normalizeImage ?? passThroughNormalizer;
+  const normalize = input.normalizeImage;
   const now = input.now;
   const taken = new Set<string>();
 
@@ -99,7 +102,12 @@ export function buildDocumentModel(input: BuildInput): BuildResult {
   const title = capText(collapseWs(input.indepth.title), MAX_TITLE) || 'Untitled';
   const dek = input.indepth.dek ? capText(collapseWs(input.indepth.dek), MAX_DEK) : '';
   const sctx = { now, idSource, taken, resolveFigure, warn };
-  const indepthSections = buildSections(input.indepth.sections, { ...sctx, tabKey: INDEPTH_TAB_KEY });
+  const draftIndices: number[] = [];
+  const indepthSections = buildSections(input.indepth.sections, {
+    ...sctx,
+    tabKey: INDEPTH_TAB_KEY,
+    draftIndices,
+  });
   if (indepthSections.length === 0) throw new DocumentBuildError('empty_indepth');
   const eli5Sections = input.eli5 ? buildSections(input.eli5.sections, { ...sctx, tabKey: ELI5_TAB_KEY }) : [];
 
@@ -138,7 +146,17 @@ export function buildDocumentModel(input: BuildInput): BuildResult {
   }
 
   // Step 6: glossary notes (in-depth only), ids unique against every id minted so far.
-  const glossary = placeGlossary({ draft: input.glossary, sections: indepthSections, idSource, taken }, warn);
+  const glossary = placeGlossary(
+    {
+      draft: input.glossary,
+      sections: indepthSections,
+      draftIndices,
+      draftSectionCount: input.indepth.sections.length,
+      idSource,
+      taken,
+    },
+    warn,
+  );
 
   // Step 7: references section, last in the in-depth tab (07 §10).
   const formatter = input.referenceFormatter ?? defaultReferenceFormatter;

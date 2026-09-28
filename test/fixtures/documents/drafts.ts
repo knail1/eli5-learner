@@ -4,7 +4,7 @@
  */
 import { deflateSync } from 'node:zlib';
 import type { BuildInput, DocTheme } from '../../../src/main/document';
-import { defaultDocTheme } from '../../../src/main/document';
+import { defaultDocTheme, passThroughNormalizer } from '../../../src/main/document';
 import type { DocumentDraftTab, GlossaryDraft } from '../../../src/main/llm';
 import type { ResolvedSource, SkippedSource } from '../../../src/main/sources';
 import { SeededIdSource } from '../../helpers/ids';
@@ -386,6 +386,7 @@ export function fixtureInput(name: FixtureName, seed = 7): BuildInput {
     eli5: ELI5_DRAFT,
     glossary: GLOSSARY_DRAFT,
     images: [{ label: 'Image 1', mime: 'image/png', bytes: makePng(64, 40) }],
+    normalizeImage: passThroughNormalizer,
     resolved: RESOLVED,
     skipped: SKIPPED,
     theme: defaultDocTheme,

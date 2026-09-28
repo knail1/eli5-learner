@@ -245,8 +245,11 @@ export interface BuildInput {
   idSource?: IdSource;
   /** HOOK-DOC-02 formatter (registry referenceFormatter); default: the public formatter. */
   referenceFormatter?: ReferenceFormatter;
-  /** 07 §5.6 image normalization; default passes through images that already meet the limits. */
-  normalizeImage?: ImageNormalizer;
+  /**
+   * 07 §5.6 image normalization. Required so the app always injects createNativeImageNormalizer
+   * (downscale, re-encode); passThroughNormalizer is for tests and refuses oversized images.
+   */
+  normalizeImage: ImageNormalizer;
   generator?: Partial<DocumentModel['generator']>;
 }
 
@@ -294,4 +297,9 @@ export interface MutationOptions {
   idSource?: IdSource;
   /** Retired SectionIds from meta.json (07 §4.3): never reused. */
   retiredIds?: readonly string[];
+  /**
+   * Asset bytes recovered by parseDocument. When given, regenerated figures may only reference
+   * images whose bytes are present (otherwise the block is dropped with 'figure-image-missing').
+   */
+  assets?: ReadonlyMap<string, Uint8Array>;
 }

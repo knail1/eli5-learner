@@ -57,8 +57,20 @@ export function getSectionContext(model: DocumentModel, id: SectionId): SectionC
 }
 
 /** Figures in regenerated drafts may only reference images already embedded in the document. */
-function assetResolver(model: DocumentModel): (label: string) => string | undefined {
-  return (label) => model.assets.find((a) => a.label === label)?.id;
+function assetResolver(model: DocumentModel, opts: MutationOptions): (label: string) => string | undefined {
+  return (label) => {
+    const id = model.assets.find((a) => a.label === label)?.id;
+    return id !== undefined && (!opts.assets || opts.assets.has(id)) ? id : undefined;
+  };
+}
+
+/** Drops asset records no figure references any more, so stale labels cannot be resolved later. */
+function pruneAssets(model: DocumentModel): DocumentModel {
+  const used = new Set<string>();
+  for (const t of model.tabs)
+    for (const s of t.sections) for (const b of s.blocks) if (b.type === 'figure') used.add(b.assetId);
+  const assets = model.assets.filter((a) => used.has(a.id));
+  return assets.length === model.assets.length ? model : { ...model, assets };
 }
 
 /**
@@ -82,7 +94,7 @@ export function replaceSection(
   };
   const blocks = convertBlocks(draft.blocks, {
     idSource: opts.idSource ?? cryptoIdSource,
-    resolveFigure: assetResolver(model),
+    resolveFigure: assetResolver(model, opts),
     warn,
   });
   if (blocks.length === 0) throw new DocumentBuildError('empty_section');
@@ -108,7 +120,7 @@ export function replaceSection(
   });
   const order = tabs.find((t) => t.kind === 'indepth')?.sections.map((s) => s.id as string) ?? [];
   const glossary = hit.tab.kind === 'indepth' ? reanchorSection(model.glossary, section, order, warn) : model.glossary;
-  return { model: { ...model, tabs, glossary, updatedAt: now }, warnings };
+  return { model: pruneAssets({ ...model, tabs, glossary, updatedAt: now }), warnings };
 }
 
 const NUMBERING_RE = /^\s*(?:\d+(?:\.\d+)*|[ivxlcdm]+|[a-z])[.)](?:\s+|$)/i;
@@ -160,7 +172,7 @@ export function addSectionEli5Tab(
     now,
     idSource,
     taken,
-    resolveFigure: assetResolver(model),
+    resolveFigure: assetResolver(model, opts),
     warn: (w) => {
       warnings.push(w);
     },
@@ -188,7 +200,7 @@ export function removeTab(model: DocumentModel, tabKey: string, now: string): Do
   if (!tab) throw new DocumentMutationError('unknown_tab', tabKey);
   if (tab.kind !== 'section-eli5' || !isSectionEli5TabKey(tab.key))
     throw new DocumentMutationError('tab_not_removable', tabKey);
-  return { ...model, tabs: model.tabs.filter((t) => t !== tab), updatedAt: now };
+  return pruneAssets({ ...model, tabs: model.tabs.filter((t) => t !== tab), updatedAt: now });
 }
 
 /** SectionIds of a tab, for meta.json retiredIds when it is closed (07 §4.3). */

@@ -102,6 +102,64 @@ describe('buildDocumentModel (07 §5.1)', () => {
     expect(warnings.filter((w) => w === 'glossary-anchor-missing')).toHaveLength(2); // utm (code only), out of range
   });
 
+  it('searches from the anchor section forward before moving earlier (07 §9.1 steps 3-5)', () => {
+    const para = (md: string): DocumentDraftTab['sections'][number] => ({
+      heading: md.slice(0, 10),
+      blocks: [{ type: 'paragraph', md }],
+    });
+    const indepth: DocumentDraftTab = {
+      kind: 'indepth',
+      title: 'Example Widgets Inc. ads',
+      sections: [para('Widgets sell well.'), para('Search ads cost money.'), para('Search ads pay back.')],
+    };
+    const entry = (term: string, anchorSectionIndex: number, anchorText: string) => ({
+      term,
+      explanation: `${term} explained.`,
+      anchorSectionIndex,
+      anchorText,
+    });
+    const { model: m, warnings: w } = build({
+      indepth,
+      glossary: {
+        entries: [
+          entry('Widgets', 1, 'Widgets'), // only before the anchor section: dropped
+          entry('Search ads', 2, 'Search ads'), // found at 2, moved to its first occurrence at 1
+        ],
+      },
+    });
+    expect(m.glossary.map((n) => n.term)).toEqual(['Search ads']);
+    expect(m.glossary[0]?.sectionId).toBe(m.tabs[0]?.sections[1]?.id);
+    expect(w).toContain('glossary-anchor-missing');
+  });
+
+  it('maps anchorSectionIndex to draft sections when earlier ones were dropped', () => {
+    const indepth: DocumentDraftTab = {
+      kind: 'indepth',
+      title: 'Example Widgets Inc. ads',
+      sections: [
+        { heading: 'Dropped', blocks: [{ type: 'paragraph', md: 'Would you like more detail?' }] },
+        { heading: 'Kept A', blocks: [{ type: 'paragraph', md: 'Plain words.' }] },
+        { heading: 'Kept B', blocks: [{ type: 'paragraph', md: 'Payback period matters.' }] },
+      ],
+    };
+    const { model: m, warnings: w } = build({
+      indepth,
+      glossary: {
+        entries: [
+          {
+            term: 'Payback period',
+            explanation: 'Time to earn it back.',
+            anchorSectionIndex: 2,
+            anchorText: 'Payback period',
+          },
+        ],
+      },
+    });
+    expect(w).toContain('section-dropped-empty');
+    expect(m.glossary).toHaveLength(1);
+    expect(m.glossary[0]?.sectionId).toBe(m.tabs[0]?.sections[1]?.id);
+  });
+
   it('has no glossary when the toggle is off', () => {
     expect(build({ glossary: null }).model.glossary).toEqual([]);
   });

@@ -6,6 +6,21 @@ const wrap = (inner: string, rootAttrs = 'viewBox="0 0 100 50"'): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" ${rootAttrs}>${inner}</svg>`;
 
 describe('sanitizeSvg (07 §7.3)', () => {
+  it('is idempotent, so parseDocument can re-run it on stored SVG', () => {
+    const once = sanitizeSvg(
+      wrap(
+        '<defs><marker id="arrow"><path d="M0 0L1 1" fill="#000"/></marker><linearGradient id="g">' +
+          '<stop offset="0" stop-color="#1f6fb2"/></linearGradient></defs>' +
+          '<rect x="1" y="1" width="5" height="5" fill="url(#g)" class="evil viz-fill-2"/>' +
+          '<line x1="0" y1="0" x2="9" y2="9" stroke="#1b1b1b" marker-end="url(#arrow)"/><text x="1" y="9">a &amp; b</text>',
+      ),
+      opts,
+    );
+    expect(once).not.toBeNull();
+    expect(once).not.toContain('evil');
+    expect(sanitizeSvg(once ?? '', opts)).toBe(once);
+  });
+
   it('removes script, style, foreignObject, image, a, animate and set', () => {
     const out = sanitizeSvg(
       wrap(

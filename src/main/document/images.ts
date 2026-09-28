@@ -12,7 +12,7 @@ export interface ImageInfo {
   mime: AssetMime;
   width: number;
   height: number;
-  /** PNG only: has an alpha channel or a palette (07 §5.6 keeps these as PNG). */
+  /** PNG only: has alpha (channel or tRNS) or <= 256 colors (palette, <= 8-bit gray); 07 §5.6 keeps these as PNG. */
   pngKeep?: boolean;
 }
 
@@ -33,16 +33,33 @@ const u16le = (b: Uint8Array, o: number): number => (b[o] ?? 0) | ((b[o + 1] ?? 
 const u24le = (b: Uint8Array, o: number): number => (b[o] ?? 0) | ((b[o + 1] ?? 0) << 8) | ((b[o + 2] ?? 0) << 16);
 const ascii = (b: Uint8Array, o: number, n: number): string => String.fromCharCode(...b.subarray(o, o + n));
 
+/** True when a tRNS chunk (transparency) appears before the first IDAT. */
+function pngHasTrns(b: Uint8Array): boolean {
+  let o = 8;
+  while (o + 8 <= b.length) {
+    const len = u32(b, o);
+    const type = ascii(b, o + 4, 4);
+    if (type === 'tRNS') return true;
+    if (type === 'IDAT' || type === 'IEND') return false;
+    o += 12 + len;
+  }
+  return false;
+}
+
+/** 07 §5.6 "PNG with alpha or <= 256 colors". Counting truecolor pixels would need a decoder, so
+ * truecolor without transparency goes to JPEG. */
+function pngKeep(b: Uint8Array): boolean {
+  const bitDepth = b[24] ?? 0;
+  const colorType = b[25] ?? 0;
+  if (colorType === 3 || colorType === 4 || colorType === 6) return true;
+  if (colorType === 0 && bitDepth <= 8) return true;
+  return (colorType === 0 || colorType === 2) && pngHasTrns(b);
+}
+
 /** Reads type and pixel size from PNG, JPEG or WebP bytes. */
 export function sniffImage(b: Uint8Array): ImageInfo | undefined {
   if (b.length >= 26 && b[0] === 0x89 && ascii(b, 1, 3) === 'PNG' && ascii(b, 12, 4) === 'IHDR') {
-    const colorType = b[25] ?? 0;
-    return {
-      mime: 'image/png',
-      width: u32(b, 16),
-      height: u32(b, 20),
-      pngKeep: colorType === 3 || colorType === 4 || colorType === 6,
-    };
+    return { mime: 'image/png', width: u32(b, 16), height: u32(b, 20), pngKeep: pngKeep(b) };
   }
   if (b.length >= 4 && b[0] === 0xff && b[1] === 0xd8) {
     let o = 2;
@@ -99,7 +116,7 @@ export interface NativeImageModule {
 
 /**
  * 07 §5.6 with Electron's nativeImage (injected by the caller in main): resize to <= 1600 px on the
- * long edge; PNG when the source is PNG with alpha or a palette, otherwise JPEG q=82 (then lower
+ * long edge; PNG when the source is PNG with alpha or <= 256 colors, otherwise JPEG q=82 (then lower
  * quality until <= 1.5 MB).
  */
 export function createNativeImageNormalizer(nativeImage: NativeImageModule): ImageNormalizer {

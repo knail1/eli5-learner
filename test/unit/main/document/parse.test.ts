@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   DocumentFormatError,
+  addSectionEli5Tab,
   locateModelJson,
   locateSection,
   parseDocument,
   renderDocument,
   spliceSection,
 } from '../../../../src/main/document';
-import { fixtureDocument } from '../../../fixtures/documents/models';
+import { fixtureDocument, SECTION_ELI5_DRAFT } from '../../../fixtures/documents/models';
+import { SeededIdSource } from '../../../helpers/ids';
 import { STUB_RUNTIME } from '../../../fixtures/documents/runtime';
 
 const doc = fixtureDocument('with-tab');
@@ -56,6 +58,68 @@ describe('parseDocument (07 §8)', () => {
     if (s) (s as { id: string }).id = 'sec-indepth-XYZ';
     const out = renderDocument(bad, doc.assets, { runtime: STUB_RUNTIME });
     expect(formatCode(() => parseDocument(out))).toBe('invalid_model');
+  });
+});
+
+describe('parseDocument does not trust stored markup (07 §7.3, §8)', () => {
+  const hostileSvg =
+    '<svg viewBox="0 0 10 10" onload="x()"><style>*{display:none}</style>' +
+    '<meta http-equiv="refresh" content="0"/><rect width="5" height="5" style="fill:red"/>' +
+    '<foreignObject><form action="http://example.test/"></form><img src="http://example.test/x.png"/></foreignObject></svg>';
+
+  it('re-sanitizes diagram SVG from the model JSON and drops what does not survive', () => {
+    const m = structuredClone(doc.model);
+    const blocks = m.tabs[0]?.sections.flatMap((s) => s.blocks) ?? [];
+    const diagrams = blocks.filter((b) => b.type === 'diagram');
+    expect(diagrams.length).toBeGreaterThan(0);
+    for (const d of diagrams) if (d.type === 'diagram') d.svg = hostileSvg;
+    const sec = m.tabs[0]?.sections.find((s) => s.blocks.some((b) => b.type === 'diagram'));
+    sec?.blocks.push({ type: 'diagram', title: 'Gone', svg: '<meta http-equiv="refresh" content="0">', alt: 'x' });
+    const file = renderDocument(m, doc.assets, { runtime: STUB_RUNTIME, theme: doc.theme });
+    const p = parseDocument(file);
+    const after = p.model.tabs[0]?.sections.flatMap((s) => s.blocks).filter((b) => b.type === 'diagram') ?? [];
+    expect(after).toHaveLength(diagrams.length); // the non-SVG one is dropped
+    const from = sec?.id;
+    if (!from) throw new Error('fixture');
+    const { model: next } = addSectionEli5Tab(
+      p.model,
+      from,
+      'selection',
+      SECTION_ELI5_DRAFT,
+      '2026-09-28T10:00:00.000Z',
+      {
+        idSource: new SeededIdSource(3),
+      },
+    );
+    const out = renderDocument(next, p.assets, { runtime: p.runtime, theme: p.theme });
+    for (const bad of ['<style>*', 'http-equiv="refresh"', '<form', 'example.test/x.png', 'onload=', 'fill:red']) {
+      expect(out).not.toContain(bad);
+    }
+    expect(out).toContain('<rect width="5" height="5"');
+  });
+
+  it('re-sanitizes the header logo', () => {
+    const themed = fixtureDocument('themed');
+    const once = renderDocument(themed.model, themed.assets, { runtime: STUB_RUNTIME, theme: themed.theme });
+    const file = once.replace(
+      /(<span class="doc-logo">)[^]*?(<\/span>)/,
+      `$1<svg viewBox="0 0 20 20" onload="x()"><style>a{}</style><circle cx="10" cy="10" r="8"/></svg>$2`,
+    );
+    const p = parseDocument(file);
+    expect(p.theme.logoSvg).toBeDefined();
+    expect(p.theme.logoSvg).not.toMatch(/onload|<style/);
+    const bad = parseDocument(once.replace(/(<span class="doc-logo">)[^]*?(<\/span>)/, '$1<b>not svg</b>$2'));
+    expect(bad.theme.logoSvg).toBeUndefined();
+  });
+
+  it('rejects asset ids that are not content-addressed, and escapes them when rendering', () => {
+    const m = structuredClone(doc.model);
+    const fig = m.tabs[0]?.sections.flatMap((s) => s.blocks).find((b) => b.type === 'figure');
+    if (fig?.type !== 'figure') throw new Error('fixture');
+    fig.assetId = 'x" style="position:fixed';
+    const file = renderDocument(m, new Map(), { runtime: STUB_RUNTIME });
+    expect(file).toContain('data-asset-missing="x&quot; style=&quot;position:fixed"');
+    expect(formatCode(() => parseDocument(file))).toBe('invalid_model');
   });
 });
 

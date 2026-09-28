@@ -105,6 +105,15 @@ export function renderLine(chart: ChartSpec): { body: string; height: number } {
     );
   });
 
+  // 07 §7.2 rule 6: with a highlight, the highlighted category's points take the accent and every
+  // other mark is muted; direct labels fall back to ink so series stay identifiable.
+  const hl = chart.highlight ? chart.categories.indexOf(chart.highlight.category) : -1;
+  const hasHl = chart.highlight !== undefined;
+  const lineClass = (kind: 'fill' | 'stroke', si: number): string =>
+    hasHl ? `viz-${kind}-muted` : seriesClass(kind, si);
+  const pointClass = (si: number, i: number): string =>
+    hasHl ? (i === hl ? 'viz-fill-accent' : 'viz-fill-muted') : seriesClass('fill', si);
+
   type Pt = [number, number | null];
   chart.series.forEach((s, si) => {
     const pts: Pt[] = s.values.map((v, i) => [i, v]);
@@ -117,7 +126,7 @@ export function renderLine(chart: ChartSpec): { body: string; height: number } {
         .y1((p) => r2(y(p[1] ?? 0)));
       body += el('path', [
         ['d', a(pts) ?? ''],
-        ['class', `${seriesClass('fill', si)} viz-area`],
+        ['class', `${lineClass('fill', si)} viz-area`],
       ]);
     }
     const l = line<Pt>()
@@ -127,7 +136,7 @@ export function renderLine(chart: ChartSpec): { body: string; height: number } {
     body += el('path', [
       ['d', l(pts) ?? ''],
       ['fill', 'none'],
-      ['class', `${seriesClass('stroke', si)} viz-line`],
+      ['class', `${lineClass('stroke', si)} viz-line`],
     ]);
     s.values.forEach((v, i) => {
       if (v === null || !Number.isFinite(v)) return;
@@ -135,7 +144,7 @@ export function renderLine(chart: ChartSpec): { body: string; height: number } {
         ['cx', r2(xp(i))],
         ['cy', r2(y(v))],
         ['r', n > 24 ? 2 : 3.5],
-        ['class', seriesClass('fill', si)],
+        ['class', pointClass(si, i)],
         ...markAttrs(markLabel(chart, chart.categories[i] ?? '', si), formatValue(v, chart.unit)),
       ]);
     });
@@ -151,7 +160,7 @@ export function renderLine(chart: ChartSpec): { body: string; height: number } {
           [
             ['x', r2(xp(last) + 6)],
             ['y', r2(y(lv) + 4)],
-            ['class', `${seriesClass('fill', si)} viz-direct`],
+            ['class', `${hasHl ? 'viz-fill-ink' : seriesClass('fill', si)} viz-direct`],
           ],
           escSvg(truncate(s.name, 18)),
         );

@@ -870,9 +870,9 @@ dfn.gl-term.gl-hot {
   margin: 18mm;
 }
 @media print {
-  :root,
-  :root[data-theme='dark'],
-  :root:not([data-theme='light']) {
+  /* Forced light palette regardless of OS or doc theme: (0,4,0) outranks the theme block's (0,3,0). */
+  :root:root:root:root {
+    color-scheme: light;
     --paper: #ffffff;
     --paper-2: #f3f3f3;
     --ink: #000000;
@@ -880,6 +880,9 @@ dfn.gl-term.gl-hot {
     --muted: #444444;
     --rule: #cccccc;
     --link: #000000;
+    --accent: #0f5fa8;
+    --accent-ink: #ffffff;
+    --highlight: #fff1a8;
     --viz-1: #1f6fb2;
     --viz-2: #d4652f;
     --viz-3: #2e8b57;
@@ -890,6 +893,12 @@ dfn.gl-term.gl-hot {
     --viz-8: #a23b3b;
     --viz-muted: #bdb8ad;
     --viz-grid: #e4e0d7;
+    --callout-note: #edf3fa;
+    --callout-warning: #fcf0e4;
+    --callout-key: #ecf6ef;
+    --gl-bg: #f7f2e3;
+    --gl-rule: #c49a1c;
+    --pull-rule: #000000;
   }
   body {
     font-size: 11pt;
@@ -929,7 +938,7 @@ dfn.gl-term.gl-hot {
   .analogy,
   .pullquote,
   .stepper,
-  table {
+  .table-wrap--short {
     break-inside: avoid;
   }
   figure.chart,
