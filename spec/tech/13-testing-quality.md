@@ -46,10 +46,10 @@ test/
   integration/             multi-module tests in Node (pipeline with fakes)
   e2e/                     Playwright specs (§8)
   evals/                   eval set, rubrics, judge prompts, baselines (§9)
-vitest.config.ts           projects: unit, integration, renderer (renderer and doc-runtime, jsdom), evals:unit, contracts:public, perf, contracts:enterprise
-playwright.config.ts       projects: e2e, perf (startup), crossbrowser-chromium, crossbrowser-webkit
-playwright.crossbrowser.config.ts   the cross-browser projects alone (no app build)
-playwright.package.config.ts        packaged-app checks (§11.1), opt-in
+config/vitest.config.ts    projects: unit, integration, renderer (renderer and doc-runtime, jsdom), evals:unit, contracts:public, perf, contracts:enterprise
+config/playwright.e2e.config.ts   projects: e2e, perf (startup), crossbrowser-chromium, crossbrowser-webkit
+config/playwright.crossbrowser.config.ts   the cross-browser projects alone (no app build)
+config/playwright.package.config.ts        packaged-app checks (§11.1), opt-in
 ```
 
 Co-located `*.test.ts` files under `src/` are not used; a lint rule forbids them so the packaged `out/**` never contains tests ([01 §8.3](01-architecture.md)).
@@ -82,7 +82,7 @@ Floors are enforced per directory; a drop below the floor fails CI. Stubs (`*.st
 
 ### 3.2 Determinism and isolation
 
-- `TZ=UTC`, `LANG=en_US.UTF-8` are set in `vitest.config.ts` and `playwright.config.ts`.
+- `TZ=UTC`, `LANG=en_US.UTF-8` are set in `config/vitest.config.ts` and `config/playwright.e2e.config.ts`.
 - `Clock` and `IdSource` are constructor-injected in `pipeline/`, `document/`, and `library/`. `SeededIdSource(seed)` yields a reproducible 8-hex sequence so golden files contain stable SectionIds (`sec-indepth-3f9a1c2e` format, [07](07-output-document.md)).
 - `net-guard.ts` is a Vitest `setupFiles` entry that replaces `net.Socket.prototype.connect`, `globalThis.fetch`, and `undici`'s global dispatcher with functions that throw `NetworkAccessInTest` unless the target is `127.0.0.1` on a port owned by `fixture-server.ts`. Suites that intentionally reach the network (evals, cassette recording) opt out explicitly.
 - Every test that writes files uses `tmpLibrary()`, which creates a fresh directory under the OS temp dir, sets `ELI5_LIBRARY_DIR=<tmp>/docs` and `ELI5_USER_DATA_DIR=<tmp>/userData` for the code under test ([09 §3.1](09-library-storage.md), [12](12-configuration-security.md)), and deletes the directory in `afterEach`. No test writes under `<repo>/.library/` or `<repo>/docs/`.
@@ -401,7 +401,7 @@ Minimum assertions:
 
 ### 10.3 Overlay detection
 
-`vitest.config.ts` includes the `contracts:enterprise` project only when `ELI5_OVERLAY_DIR` (default `./enterprise/`) resolves to a directory containing `index.ts` and a `contracts/` folder. Otherwise it prints one line, `contracts:enterprise skipped: no overlay present`, and the run is still green. Public CI asserts that the overlay directory does not exist before running cell P, so a stray checkout cannot leak into public results.
+`config/vitest.config.ts` includes the `contracts:enterprise` project only when `ELI5_OVERLAY_DIR` (default `./enterprise/`) resolves to a directory containing `index.ts` and a `contracts/` folder. Otherwise it prints one line, `contracts:enterprise skipped: no overlay present`, and the run is still green. Public CI asserts that the overlay directory does not exist before running cell P, so a stray checkout cannot leak into public results.
 
 <!-- hook:HOOK-TEST-01 -->
 > **Private hook · HOOK-TEST-01 · Private overlay contract test suite.** Public behavior: the `contracts:enterprise` Vitest project is skipped with a single notice when no overlay is present; public CI runs only the public contract suites and the fixture-overlay cell F. Private binding supplies: the overlay's `contracts/` entry that calls each `describe*Contract` with the real enterprise implementations (enterprise LLM backend, MCP-brokered resolver, ticket-link resolver, sign-on capability, cloud drive and git publishers); the test environment those need (sandbox tenants, test accounts, which systems are live vs replayed, cassette storage location); how credentials for contract runs are provisioned in private CI without reaching the app; additional enterprise-specific assertions (sharing policy applied, secret-scanning push tool invoked in the expected mode, Pages link format); the private CI workflow, runner type, and schedule; and pass criteria for an enterprise release. Binding lives in the private spec under "HOOK-TEST-01".
@@ -413,12 +413,12 @@ Minimum assertions:
 
 `scripts/check-hygiene.ts`, run in CI job `hygiene` and as a pre-push script:
 
-1. **Tracked-file rules:** fail if any tracked path matches `enterprise/**`, `docs/**` (except the committed Pages sample paths listed in `.hygiene-allow`), `.env*`, `spec/internal.md`, `*.pem`, `*.p12`, `*.key`, `config.local.json`, `CLAUDE.local.md`, or `.library/**`.
+1. **Tracked-file rules:** fail if any tracked path matches `enterprise/**`, `docs/**` (except the committed Pages sample paths listed in `config/hygiene-allow`), `.env*`, `spec/internal.md`, `*.pem`, `*.p12`, `*.key`, `config.local.json`, `CLAUDE.local.md`, or `.library/**`.
 2. **Secret scan:** run the baseline `SecretScanner` from [10 §5.4](10-publishing.md) over tracked files and over `out/**`; also run `gitleaks` in CI.
 3. **Public-tree term check:** run the HOOK-CFG-03 check (the deny-list step of `scripts/check-hygiene.ts`, terms or `@file` path from env `ELI5_HYGIENE_DENYLIST`, [12](12-configuration-security.md)) over tracked files and over `out/**`. When the variable is unset it passes with a notice. The list itself is never committed ([01 §6.5](01-architecture.md)); its contents are bound under HOOK-CFG-03, not in this file.
 4. **Bundle check:** the public `out/**` contains no string `@eli5/overlay` resolved to anything other than `overlay.none.ts` (read from `out/main/build-info.json` and a scan of `out/**`), and no `FakeProvider` in `package` mode.
 
-Reviewed false positives are listed in `.hygiene-allow` as `secret <glob> <rule-id> [<preview>]`. Run it as `npm run check:hygiene -- --out out --package` after `npm run build`. The dependency policy runs as `npm run check:licenses` (license allow list, and with `--audit <npm audit JSON>` the advisory gate against `audit-allow.json`).
+Reviewed false positives are listed in `config/hygiene-allow` as `secret <glob> <rule-id> [<preview>]`. Run it as `npm run check:hygiene -- --out out --package` after `npm run build`. The dependency policy runs as `npm run check:licenses` (license allow list, and with `--audit <npm audit JSON>` the advisory gate against `audit-allow.json`).
 
 ### 11.1 Packaged-app checks
 
@@ -456,7 +456,7 @@ Rules:
 | Startup time | e2e timing | Window visible ≤ 3 s after launch on the CI runner (warning only) |
 | Document size | `validateDocument.stats` | > 25 MB warning, no hard failure ([07 §5.4](07-output-document.md)) |
 | Memory | integration | Extracting all hostile fixtures keeps RSS growth < 200 MB |
-| Dependency audit | `npm audit --omit=dev` | High or critical advisory fails `static` unless listed in `audit-allow.json` with an expiry date |
+| Dependency audit | `npm audit --omit=dev` | High or critical advisory fails `static` unless listed in `config/audit-allow.json` with an expiry date |
 | License check | `license-checker` | Runtime dependencies must be on the allow list compatible with the repo license |
 
 ## 14. Error handling and edge cases

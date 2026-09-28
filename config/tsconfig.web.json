@@ -7,11 +7,11 @@
     "types": ["vite/client"]
   },
   "include": [
-    "src/env.d.ts",
-    "src/renderer/**/*",
-    "src/doc-runtime/**/*",
-    "src/preload/contract.ts",
-    "src/main/config/schema.ts",
-    "src/preload/api.d.ts"
+    "../src/env.d.ts",
+    "../src/renderer/**/*",
+    "../src/doc-runtime/**/*",
+    "../src/preload/contract.ts",
+    "../src/main/config/schema.ts",
+    "../src/preload/api.d.ts"
   ]
 }

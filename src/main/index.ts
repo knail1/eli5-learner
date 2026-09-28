@@ -105,7 +105,7 @@ hardenApp();
 
 /** safeOpenExternal rate-limit bucket for opens that main starts itself (11 §14.6, 12 §7.5). */
 const MAIN_SENDER_ID = -1;
-/** electron-builder.yml appId; macOS Notification settings deep link (11 §14.7). */
+/** config/electron-builder.yml appId; macOS Notification settings deep link (11 §14.7). */
 const APP_BUNDLE_ID = 'io.github.eli5-learner';
 
 /** Bootstrap order (01 §6.3). */

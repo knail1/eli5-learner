@@ -9,13 +9,13 @@ import { DEFAULTS } from '../../../src/main/config/schema';
  * Renderer test harness: react-dom/client + jsdom (React Testing Library is not installed), and a
  * fake `window.eli5` whose invokes resolve to IpcResult envelopes.
  *
- * Components are .tsx, which tsconfig.node.json (it typechecks test/**) cannot compile, so they
+ * Components are .tsx, which config/tsconfig.node.json (it typechecks test/**) cannot compile, so they
  * are loaded with a runtime specifier that TypeScript does not follow.
  */
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-/** Props are checked by tsconfig.web.json where the components compile. */
+/** Props are checked by config/tsconfig.web.json where the components compile. */
 type AnyProps = Record<string, unknown>;
 export type Component = ComponentType<AnyProps>;
 

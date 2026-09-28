@@ -13,7 +13,7 @@ let cached: Promise<DocRuntime> | undefined;
 export function buildRuntime(): Promise<DocRuntime> {
   cached ??= (async () => {
     const out = (await build({
-      configFile: resolve(ROOT, 'vite.doc-runtime.config.ts'),
+      configFile: resolve(ROOT, 'config/vite.doc-runtime.config.ts'),
       logLevel: 'silent',
       build: { write: false },
     })) as Rollup.RollupOutput | Rollup.RollupOutput[];

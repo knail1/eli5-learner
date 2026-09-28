@@ -45,14 +45,14 @@ function tempRepo(files: Record<string, string>, untracked: Record<string, strin
 
 const DEFAULT_ALLOW = 'docs/.gitkeep\ndocs/.nojekyll\ndocs/index.html\ndocs/sample/\n';
 
-/** What electron.vite.config.ts writes to out/main/build-info.json for a public build. */
+/** What config/electron.vite.config.ts writes to out/main/build-info.json for a public build. */
 const PUBLIC_BUILD_INFO = JSON.stringify({
   edition: 'public',
   overlay: 'src/main/editions/overlay.none.ts',
   foreign: [],
 });
 
-describe('parseAllowFile (.hygiene-allow)', () => {
+describe('parseAllowFile (config/hygiene-allow)', () => {
   it('splits docs paths from secret exceptions and ignores comments and blanks', () => {
     const a = parseAllowFile('# c\n\ndocs/index.html\ndocs/sample/\nsecret test/** url-credentials\n');
     expect(a.paths).toEqual(['docs/index.html', 'docs/sample/']);
@@ -60,8 +60,8 @@ describe('parseAllowFile (.hygiene-allow)', () => {
   });
 
   it('rejects a malformed secret entry', () => {
-    expect(() => parseAllowFile('secret only-a-glob\n')).toThrow(/\.hygiene-allow line 1/);
-    expect(() => parseAllowFile('secret a b c d\n')).toThrow(/\.hygiene-allow line 1/);
+    expect(() => parseAllowFile('secret only-a-glob\n')).toThrow(/config\/hygiene-allow line 1/);
+    expect(() => parseAllowFile('secret a b c d\n')).toThrow(/config\/hygiene-allow line 1/);
   });
 
   it('reads an optional masked preview that pins an exception to one value', () => {
@@ -313,7 +313,7 @@ describe('runHygiene over temp git repos', () => {
   it('passes a clean repo and notes the skipped deny-list scan', async () => {
     const dir = tempRepo({
       'src/a.ts': 'export const a = 1;\n',
-      '.hygiene-allow': DEFAULT_ALLOW,
+      'config/hygiene-allow': DEFAULT_ALLOW,
       'docs/index.html': 'x',
     });
     const out = quiet();
@@ -388,18 +388,18 @@ describe('runHygiene over temp git repos', () => {
 });
 
 describe('this repository', () => {
-  it('has no tracked-path or tracked-file secret findings under .hygiene-allow', async () => {
+  it('has no tracked-path or tracked-file secret findings under config/hygiene-allow', async () => {
     const r = await runHygiene({ root: repoRoot, env: {}, log: () => {} });
     expect(r.findings).toEqual([]);
   });
 
   it('whitelists exactly the public Pages paths from .gitignore', () => {
-    const allow = parseAllowFile(readFileSync(join(repoRoot, '.hygiene-allow'), 'utf8'));
+    const allow = parseAllowFile(readFileSync(join(repoRoot, 'config', 'hygiene-allow'), 'utf8'));
     expect(allow.paths).toEqual(['docs/.gitkeep', 'docs/.nojekyll', 'docs/index.html', 'docs/sample/']);
   });
 
   it('keeps secret exceptions narrow: no directory-wide test/** and no unpinned bundle-chunk globs', () => {
-    const allow = parseAllowFile(readFileSync(join(repoRoot, '.hygiene-allow'), 'utf8'));
+    const allow = parseAllowFile(readFileSync(join(repoRoot, 'config', 'hygiene-allow'), 'utf8'));
     for (const a of allow.secrets) {
       expect(a.glob, a.glob).not.toMatch(/\*\*/);
       if (a.glob.includes('*')) expect(a.preview, a.glob).toBeDefined();

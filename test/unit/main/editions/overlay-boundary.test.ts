@@ -8,7 +8,7 @@ import path from 'node:path';
 import { ESLint } from 'eslint';
 import type { Alias } from 'vite';
 import { describe, expect, it } from 'vitest';
-import config from '../../../../electron.vite.config';
+import config from '../../../../config/electron.vite.config';
 
 const ROOT = path.resolve(import.meta.dirname, '../../../..');
 
@@ -43,15 +43,15 @@ describe('main build alias @eli5/public', () => {
 
 describe('type paths @eli5/public/*', () => {
   it('point at module index files only', () => {
-    const ts = JSON.parse(readFileSync(path.join(ROOT, 'tsconfig.node.json'), 'utf8')) as {
+    const ts = JSON.parse(readFileSync(path.join(ROOT, 'config', 'tsconfig.node.json'), 'utf8')) as {
       compilerOptions: { paths: Record<string, string[]> };
     };
-    expect(ts.compilerOptions.paths['@eli5/public/*']).toEqual(['./src/main/*/index.ts']);
+    expect(ts.compilerOptions.paths['@eli5/public/*']).toEqual(['../src/main/*/index.ts']);
   });
 });
 
 describe('lint: overlay imports', () => {
-  const eslint = new ESLint({ cwd: ROOT });
+  const eslint = new ESLint({ cwd: ROOT, overrideConfigFile: path.join(ROOT, 'config', 'eslint.config.js') });
   const lint = async (code: string, file: string) => {
     const [r] = await eslint.lintText(code, { filePath: path.join(ROOT, file) });
     return r!.messages.filter((m) => m.ruleId === 'no-restricted-imports').map((m) => m.message);

@@ -93,7 +93,7 @@ describe('check-licenses.mjs: runtime licenses (13 §13)', () => {
   });
 });
 
-describe('check-licenses.mjs --audit (13 §13 dependency audit, audit-allow.json)', () => {
+describe('check-licenses.mjs --audit (13 §13 dependency audit, config/audit-allow.json)', () => {
   const report = (vulns: Record<string, { severity: string; via: unknown[] }>): string =>
     JSON.stringify({ auditReportVersion: 2, vulnerabilities: vulns });
 
@@ -107,7 +107,7 @@ describe('check-licenses.mjs --audit (13 §13 dependency audit, audit-allow.json
     vulns: Record<string, { severity: string; via: unknown[] }>,
     allow: unknown,
   ): ReturnType<typeof run> {
-    const dir = tempProject({}, { 'audit.json': report(vulns), 'audit-allow.json': JSON.stringify(allow) });
+    const dir = tempProject({}, { 'audit.json': report(vulns), 'config/audit-allow.json': JSON.stringify(allow) });
     return run(['--root', dir, '--audit', join(dir, 'audit.json'), '--today', '2026-09-28']);
   }
 
@@ -157,7 +157,7 @@ describe('check-licenses.mjs --audit (13 §13 dependency audit, audit-allow.json
       {},
       {
         'audit.json': JSON.stringify({ message: 'request to registry failed', error: { code: 'ENOTFOUND' } }),
-        'audit-allow.json': JSON.stringify({ allow: [] }),
+        'config/audit-allow.json': JSON.stringify({ allow: [] }),
       },
     );
     const r = run(['--root', dir, '--audit', join(dir, 'audit.json'), '--today', '2026-09-28']);
@@ -169,14 +169,16 @@ describe('check-licenses.mjs --audit (13 §13 dependency audit, audit-allow.json
   it('fails closed on a report without a vulnerabilities map', () => {
     const dir = tempProject(
       {},
-      { 'audit.json': JSON.stringify({ auditReportVersion: 2 }), 'audit-allow.json': '{"allow":[]}' },
+      { 'audit.json': JSON.stringify({ auditReportVersion: 2 }), 'config/audit-allow.json': '{"allow":[]}' },
     );
     const r = run(['--root', dir, '--audit', join(dir, 'audit.json'), '--today', '2026-09-28']);
     expect(r.code).toBe(2);
   });
 
-  it('ships an audit-allow.json with a valid shape', () => {
-    const allow = JSON.parse(readFileSync(join(repoRoot, 'audit-allow.json'), 'utf8')) as { allow: unknown[] };
+  it('ships a config/audit-allow.json with a valid shape', () => {
+    const allow = JSON.parse(readFileSync(join(repoRoot, 'config', 'audit-allow.json'), 'utf8')) as {
+      allow: unknown[];
+    };
     expect(Array.isArray(allow.allow)).toBe(true);
   });
 });

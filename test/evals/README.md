@@ -66,7 +66,7 @@ source text or generated text.
 | `baselines/` | Committed baselines, one per provider. See `baselines/README.md`. |
 | `results/` | Results files, cost ledgers and calibration reports. Gitignored. |
 | `lib/` | The runner: `config`, `cases`, `sources`, `harness`, `images`, `providers`, `gates`, `text`, `judge`, `scoring`, `runner`, `files` and `calibrate`. `images` hands real pixels to the vision model: the headless harness has no Electron window to render PDF pages, so it reads the page image embedded in the synthetic PDFs, and passes the built PNGs through unchanged. |
-| `*.test.ts` | Offline tests of the runner, in the `evals:unit` project of both the root Vitest config (`npm test`) and `vitest.config.ts` here. The generator is `FakeProvider` and the judge is scripted. Both sit behind the real budget guard and ledger. No network. |
+| `*.test.ts` | Offline tests of the runner, in the `evals:unit` project of both the root Vitest config (`config/vitest.config.ts`, `npm test`) and `vitest.config.ts` here. The generator is `FakeProvider` and the judge is scripted. Both sit behind the real budget guard and ledger. No network. |
 | `run.eval.ts`, `calibrate.eval.ts` | Entry points for real runs. Use them only through `scripts/eval/run.mjs`. |
 
 ## Commands
@@ -75,7 +75,7 @@ Build the document runtime first so generated documents embed the real runtime. 
 harness falls back to the stub runtime that the integration tests use.
 
 ```sh
-npx vite build --config vite.doc-runtime.config.ts
+npx vite build --config config/vite.doc-runtime.config.ts
 ```
 
 Offline runner tests (no key, no network, no cost). They also run as part of `npm test`:

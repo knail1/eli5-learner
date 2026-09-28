@@ -63,7 +63,11 @@ function run(cmd, args, env) {
 }
 
 function build(outDir, extra) {
-  return run('electron-vite', ['build', '--outDir', outDir, '--logLevel', 'warn'], envWith(extra));
+  return run(
+    'electron-vite',
+    ['build', '--config', 'config/electron.vite.config.ts', '--outDir', outDir, '--logLevel', 'warn'],
+    envWith(extra),
+  );
 }
 
 /** Concatenated JS of the main-process bundle. */
@@ -79,7 +83,7 @@ function mainBundle(outDir) {
 /** The document builder inlines the doc-runtime, so it must exist before an app build. */
 function ensureDocRuntime() {
   if (existsSync(join(ROOT, 'build/doc-runtime/runtime.iife.js'))) return;
-  const r = run('vite', ['build', '--config', 'vite.doc-runtime.config.ts', '--logLevel', 'warn'], envWith({}));
+  const r = run('vite', ['build', '--config', 'config/vite.doc-runtime.config.ts', '--logLevel', 'warn'], envWith({}));
   if (r.status !== 0) throw new Error(`doc-runtime build failed:\n${r.out}`);
 }
 
@@ -119,7 +123,11 @@ const CHECKS = {
         .filter((m) => js.includes(m))
         .map((m) => `public main bundle contains "${m}"`),
     ];
-    const t = run('vitest', ['run', '--project', 'unit', 'test/unit/main/editions/p-stub.test.ts'], envWith({}));
+    const t = run(
+      'vitest',
+      ['run', '--config', 'config/vitest.config.ts', '--project', 'unit', 'test/unit/main/editions/p-stub.test.ts'],
+      envWith({}),
+    );
     if (t.status !== 0) problems.push(`P-stub unit suite failed:\n${t.out}`);
     return problems;
   },

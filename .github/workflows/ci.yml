@@ -40,7 +40,7 @@ jobs:
       - run: npx prettier --check .
       - name: Spec hook registry
         run: node scripts/check-spec-hooks.mjs
-      - name: Dependency audit (high or critical fails unless in audit-allow.json)
+      - name: Dependency audit (high or critical fails unless in config/audit-allow.json)
         run: |
           npm audit --omit=dev --json > audit.json || true
           node scripts/check-licenses.mjs --audit audit.json
@@ -63,7 +63,7 @@ jobs:
           key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
       - name: Vitest (unit, integration, renderer and doc-runtime, eval runner, public contracts)
-        run: npx vitest run --project unit --project integration --project renderer --project evals:unit --project contracts:public --coverage
+        run: npx vitest run --config config/vitest.config.ts --project unit --project integration --project renderer --project evals:unit --project contracts:public --coverage
       - uses: actions/upload-artifact@v5
         if: always()
         with:
@@ -146,7 +146,7 @@ jobs:
       - run: npm ci
       - run: npm run build:runtime
       - name: Cell F (fixture overlay builds)
-        run: ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=test/fixtures/overlay-fake npx electron-vite build
+        run: ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=test/fixtures/overlay-fake npx electron-vite build --config config/electron.vite.config.ts
       - name: Cell F fails the public bundle check (13 §11 rule 4, from out/main/build-info.json)
         run: |
           if npx jiti scripts/check-hygiene.ts --out out > f-bundle.log 2>&1; then
@@ -157,10 +157,10 @@ jobs:
       - name: Cell F e2e E14 inverted (publish buttons visible and wired to the fixture publishers; 13 §10.1)
         run: |
           ELI5_TEST_BUILD=1 ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=test/fixtures/overlay-fake npm run build
-          npx playwright test test/e2e/edition-fixture.e2e.ts --project=e2e
+          npx playwright test -c config/playwright.e2e.config.ts test/e2e/edition-fixture.e2e.ts --project=e2e
       - name: Cell F-missing (enterprise build without an overlay fails with the 01 §6.5 message)
         run: |
-          if ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=./no-such-overlay npx electron-vite build > f-missing.log 2>&1; then
+          if ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=./no-such-overlay npx electron-vite build --config config/electron.vite.config.ts > f-missing.log 2>&1; then
             echo "expected the enterprise build without an overlay to fail"
             exit 1
           fi
@@ -220,7 +220,7 @@ jobs:
           key: electron-builder-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
       - name: Unsigned arm64 dmg
-        run: npm run build && npx electron-builder --mac dmg --arm64
+        run: npm run build && npx electron-builder --config config/electron-builder.yml --mac dmg --arm64
       - uses: actions/upload-artifact@v5
         with:
           name: dmg

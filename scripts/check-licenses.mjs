@@ -8,7 +8,7 @@
 //
 //   node scripts/check-licenses.mjs --audit audit.json [--today YYYY-MM-DD]
 //     Reads `npm audit --omit=dev --json` output; a high or critical advisory fails unless
-//     audit-allow.json lists it with a reason and an expiry date that has not passed. An error
+//     config/audit-allow.json lists it with a reason and an expiry date that has not passed. An error
 //     object or a report without `vulnerabilities` (registry unreachable) exits 2, never "ok".
 //
 // Dependency-free. Exit 1 on a policy failure, 2 on a usage or configuration error.
@@ -135,16 +135,16 @@ function checkLicenses(root) {
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function loadAuditAllow(root) {
-  const path = join(root, 'audit-allow.json');
+  const path = join(root, 'config', 'audit-allow.json');
   if (!existsSync(path)) return [];
-  const data = readJson(path, 'audit-allow.json');
-  if (!Array.isArray(data.allow)) throw new UsageError('audit-allow.json: "allow" must be an array');
+  const data = readJson(path, 'config/audit-allow.json');
+  if (!Array.isArray(data.allow)) throw new UsageError('config/audit-allow.json: "allow" must be an array');
   data.allow.forEach((e, n) => {
     if (typeof e?.package !== 'string' || typeof e?.advisory !== 'string' || typeof e?.reason !== 'string') {
-      throw new UsageError(`audit-allow.json entry ${n + 1}: needs package, advisory and reason`);
+      throw new UsageError(`config/audit-allow.json entry ${n + 1}: needs package, advisory and reason`);
     }
     if (typeof e.expires !== 'string' || !DATE_RE.test(e.expires)) {
-      throw new UsageError(`audit-allow.json entry ${n + 1}: expires must be YYYY-MM-DD`);
+      throw new UsageError(`config/audit-allow.json entry ${n + 1}: expires must be YYYY-MM-DD`);
     }
   });
   return data.allow;

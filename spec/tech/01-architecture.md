@@ -657,7 +657,7 @@ The overlay is bundled at **build time**, not loaded from disk at runtime. This 
 and ASAR integrity intact and means a public binary contains no loader that could be pointed at
 arbitrary code.
 
-Algorithm (in `electron.vite.config.ts`, main build):
+Algorithm (in `config/electron.vite.config.ts`, main build):
 
 1. `edition = process.env.ELI5_EDITION ?? 'public'`. Any other value → build error.
 2. `define: { __ELI5_EDITION__: JSON.stringify(edition) }`.
@@ -740,7 +740,7 @@ license, and no network activity at import time.
 
 ### 8.1 Build outputs
 
-`electron.vite.config.ts` defines three builds, plus one pre-step:
+`config/electron.vite.config.ts` defines three builds, plus one pre-step (every tool config lives in `config/`):
 
 | Build | Entry | Output | Notes |
 | --- | --- | --- | --- |
@@ -767,17 +767,17 @@ declare const __ELI5_TEST__: boolean;
 
 | Script | Command | Purpose |
 | --- | --- | --- |
-| `build:runtime` | `vite build --config vite.doc-runtime.config.ts` | doc-runtime pre-step |
+| `build:runtime` | `vite build --config config/vite.doc-runtime.config.ts` | doc-runtime pre-step |
 | `dev` | `npm run build:runtime && ELI5_TEST_BUILD=1 electron-vite dev` | Public edition, HMR for renderer. A small Vite plugin in the main config rebuilds the runtime on change to `src/doc-runtime/**`, so a clean checkout never hits a missing `?raw` import |
 | `build` | `npm run build:runtime && electron-vite build` | Public production build (`__ELI5_TEST__` false) |
 | `build:enterprise` | `ELI5_EDITION=enterprise npm run build` | Requires overlay (§6.5) |
-| `typecheck` | `tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json` | Strict TS |
+| `typecheck` | `tsc --noEmit -p config/tsconfig.node.json && tsc --noEmit -p config/tsconfig.web.json` | Strict TS |
 | `lint` | `eslint .` | Includes import boundary rules |
 | `test` | `vitest run` | Unit tests (13) |
 | `test:e2e` | `ELI5_TEST_BUILD=1 npm run build && playwright test` | Electron e2e via `_electron` against a test build (13) |
 | `test:update-goldens` | `ELI5_UPDATE_GOLDENS=1 vitest run` | Rewrites extraction and document goldens (04, 07, 13) |
 | `fixtures:build` | `ELI5_WRITE_FIXTURES=1 vitest run test/unit/fixtures/build.test.ts` | Regenerates the synthetic binary fixtures and `test/fixtures/manifest.json` (13 §5) |
-| `test:crossbrowser` | `playwright test -c playwright.crossbrowser.config.ts` | Golden documents in Chromium and WebKit: smoke, axe, zero-network probe (13 §7.2, §7.3); no app build |
+| `test:crossbrowser` | `playwright test -c config/playwright.crossbrowser.config.ts` | Golden documents in Chromium and WebKit: smoke, axe, zero-network probe (13 §7.2, §7.3); no app build |
 | `test:perf` | `vitest run --project perf` | Extraction RSS budget (13 §13) |
 | `test:perf:startup` | `npm run build && playwright test -c test/perf/playwright.perf.config.ts` | Startup time, warning only (13 §13) |
 | `test:evals` | `vitest run --project evals:unit` | Offline tests of the eval runner (13 §9) |
@@ -789,12 +789,12 @@ declare const __ELI5_TEST__: boolean;
 | `check:editions` | `node scripts/check-editions.mjs` | Edition cells F, F-missing, P-stub (13 §10) |
 | `package` | `rimraf out build/doc-runtime && npm run build && electron-builder --mac dmg --$(node -p process.arch)` | Clean build without `ELI5_TEST_BUILD`, then a dmg for the build machine's architecture only (per-arch keyring, below). The e2e output in `out/` is never packaged |
 | `package:arm64` | `rimraf out build/doc-runtime && npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg --arm64` | Unsigned arm64 dmg on an Apple silicon machine |
-| `test:package` | `ELI5_RUN_PACKAGE_TESTS=1 playwright test -c playwright.package.config.ts` | Packaged-app bundle checks and launch smoke (13 §11.1); run after `package:arm64` |
+| `test:package` | `ELI5_RUN_PACKAGE_TESTS=1 playwright test -c config/playwright.package.config.ts` | Packaged-app bundle checks and launch smoke (13 §11.1); run after `package:arm64` |
 
 ### 8.3 Packaging (electron-builder)
 
 ```yaml
-# electron-builder.yml (public)
+# config/electron-builder.yml (public)
 appId: io.github.eli5-learner
 productName: ELI5 Learner
 asar: true
@@ -806,8 +806,8 @@ extraResources:
 mac:
   target: [{ target: dmg, arch: [arm64, x64] }]
   hardenedRuntime: true
-  entitlements: build/entitlements.mac.plist
-  entitlementsInherit: build/entitlements.mac.plist
+  entitlements: config/packaging/entitlements.mac.plist
+  entitlementsInherit: config/packaging/entitlements.mac.plist
   notarize: true                     # effective only when credentials are present (below)
   x64ArchFiles: '**/*.node'          # only for a universal build
 ```
@@ -826,7 +826,7 @@ mac:
   dmgs**, each on (or with `npm install --cpu=<arch>` for) its own architecture. A `universal`
   build is allowed only when both arch packages are installed explicitly (listed in
   `optionalDependencies`) and `mac.x64ArchFiles` covers the `.node` file.
-- **Entitlements.** `build/entitlements.mac.plist` grants only
+- **Entitlements.** `config/packaging/entitlements.mac.plist` grants only
   `com.apple.security.cs.allow-jit` (required by V8 under the hardened runtime). No other
   entitlement.
 - **Signing and notarization.** Run only when credentials are present: `CSC_LINK` /

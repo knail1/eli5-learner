@@ -3,7 +3,7 @@ import { JSDOM } from 'jsdom';
 import { vi } from 'vitest';
 import { readGolden } from '../../fixtures/documents/runtime';
 
-// src/doc-runtime/ is outside tsconfig.node.json's file list (it belongs to tsconfig.web.json), so
+// src/doc-runtime/ is outside config/tsconfig.node.json's file list (it belongs to config/tsconfig.web.json), so
 // tests load it through a computed specifier that Vite resolves and tsc does not follow, and
 // describe the surface they use structurally.
 const SRC = '../../../src/doc-runtime/';

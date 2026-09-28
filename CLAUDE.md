@@ -18,14 +18,23 @@ section by section.
 
 ## Repo layout
 
-- `spec/` — public product spec; `spec/tech/` — public engineering spec and `hooks.md` registry.
-- `scripts/check-spec-hooks.mjs` — validates private-hook markers; run `node scripts/check-spec-hooks.mjs`
-  after any spec edit.
-- `.library/` — dev library root for generated learnings (gitignored; packaged builds use userData).
-- `docs/index.html`, `docs/.nojekyll`, `docs/sample/` — the only committed `docs/` files; they form
-  the public GitHub Pages site.
-- `.github/workflows/pages.yml` — deploys `docs/` to https://knail1.github.io/eli5-learner/ on pushes
-  to `main` that touch `docs/**`.
+Top level is directories; the only root files are package.json, package-lock.json, README.md,
+LICENSE, CLAUDE.md, tsconfig.json (a pointer into config/ for editors), .gitignore, .prettierignore,
+.nvmrc and .env.example. Keep it that way: new tool configs go in `config/`.
+
+- `src/` — app source (main, preload, renderer, doc-runtime); `resources/` — files shipped with the app
+  (prompts, skills incl. vendored upstream sources, help, tray icons).
+- `config/` — every tool config: tsconfig.{base,node,web}.json, electron.vite/vite/vitest/playwright
+  configs, eslint.config.js, electron-builder.yml, prettier.json, allow-lists; `config/packaging/`
+  holds the entitlements and app icon. Run tools through the npm scripts (they pass `--config`).
+  ESLint editor integrations need `eslint.workingDirectories`/`overrideConfigFile` pointed at it.
+- `test/` — unit, integration, e2e, cross-browser, perf, package, contracts, evals, fixtures.
+- `scripts/` — repo checks (spec hooks, hygiene, licenses, editions), eval and real-run tooling.
+- `spec/` — public product spec; `spec/tech/` — engineering spec and `hooks.md` registry.
+- `docs/` — the public GitHub Pages site only (`docs/index.html`, `docs/.nojekyll`, `docs/sample/`).
+- Generated and gitignored: `out/`, `build/` (doc-runtime pre-step), `release/`, `test-results/`,
+  `.library/` (dev library root for generated learnings).
+- `.github/workflows/` — `ci.yml` (checks, e2e, packaging, evals) and `pages.yml` (deploys `docs/`).
 
 ## This repo is public
 
@@ -68,7 +77,7 @@ Node 22.12+ (Electron 44's installer needs it; `postinstall` downloads the Elect
 - `npm run check:hygiene -- --out out --package`, `npm run check:licenses`, `npm run check:editions`
 - `npm run package:arm64` (unsigned dmg in `release/`), then `npm run test:package`
 - `npm run eval` spends real money (real providers); never run it without being asked
-- Enterprise mechanism check: `ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=test/fixtures/overlay-fake npx electron-vite build`
+- Enterprise mechanism check: `ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=test/fixtures/overlay-fake npx electron-vite build --config config/electron.vite.config.ts` (or `npm run check:editions`)
 
 ## Code conventions
 

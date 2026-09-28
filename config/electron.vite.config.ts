@@ -1,11 +1,17 @@
 import { existsSync } from 'node:fs';
-import { relative, resolve, sep } from 'node:path';
+import { dirname, relative, resolve, sep } from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'electron-vite';
 import type { Plugin } from 'vite';
-import { APP_CSP_DEV, APP_CSP_PROD } from './src/main/security/csp';
+import { APP_CSP_DEV, APP_CSP_PROD } from '../src/main/security/csp';
 
-const root = import.meta.dirname;
+// Every path below is relative to the repository root. electron-vite bundles this file to a temp
+// module before running it, so import.meta.dirname is not reliably config/: walk up to package.json.
+const root = (() => {
+  let dir = import.meta.dirname;
+  while (!existsSync(resolve(dir, 'package.json')) && dirname(dir) !== dir) dir = dirname(dir);
+  return dir;
+})();
 
 // electron-vite 5's isolated-entries reporter calls TTY-only cursor methods unconditionally, which
 // throws in CI and other piped output. No-ops keep the preload build working there.

@@ -128,8 +128,8 @@ describe('.github/workflows/ci.yml (13 §12)', () => {
     }
   });
 
-  it('enforces the 13 §3.1 per-directory line coverage floors in vitest.config.ts', async () => {
-    const cfg = (await import('../../../vitest.config')).default as {
+  it('enforces the 13 §3.1 per-directory line coverage floors in config/vitest.config.ts', async () => {
+    const cfg = (await import('../../../config/vitest.config')).default as {
       test?: { coverage?: { thresholds?: Record<string, unknown> } };
     };
     const t = cfg.test?.coverage?.thresholds ?? {};
@@ -186,7 +186,9 @@ describe('.github/workflows/ci.yml (13 §12)', () => {
     expect(r).toContain(
       'ELI5_TEST_BUILD=1 ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=test/fixtures/overlay-fake npm run build',
     );
-    expect(r).toContain('npx playwright test test/e2e/edition-fixture.e2e.ts --project=e2e');
+    expect(r).toContain(
+      'npx playwright test -c config/playwright.e2e.config.ts test/e2e/edition-fixture.e2e.ts --project=e2e',
+    );
   });
 
   it('edition-fixture runs the edition build matrix check (F, F-missing, P-stub)', () => {
@@ -214,20 +216,21 @@ describe('.github/workflows/ci.yml (13 §12)', () => {
     const p = job('package');
     expect(p.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/main'");
     expect(p.needs).toEqual(['static', 'unit', 'build-public', 'e2e', 'edition-fixture', 'hygiene']);
-    expect(runs('package')).toContain('electron-builder --mac dmg');
+    expect(runs('package')).toContain('electron-builder --config config/electron-builder.yml --mac dmg');
     const up = steps('package').find((s) => String(s.uses).startsWith('actions/upload-artifact@'));
     expect(obj(up?.with)['retention-days']).toBe(7);
     expect(obj(p.env).CSC_IDENTITY_AUTO_DISCOVERY).toBe('false');
   });
 
   it('package builds only the runner architecture, so the dmg carries its own keyring binary (01 §8.3)', () => {
-    // electron-builder.yml lists arm64 and x64; without an arch flag an arm64 runner also emits an
+    // config/electron-builder.yml lists arm64 and x64; without an arch flag an arm64 runner also emits an
     // x64 dmg that lacks @napi-rs/keyring-darwin-x64. macos-latest is arm64 (13 §12).
     const builds = runs('package')
       .split('\n')
       .filter((l) => l.includes('electron-builder'));
     expect(builds.length).toBeGreaterThan(0);
-    for (const l of builds) expect(l).toMatch(/electron-builder --mac dmg --arm64(\s|$)/);
+    for (const l of builds)
+      expect(l).toMatch(/electron-builder --config config\/electron-builder\.yml --mac dmg --arm64(\s|$)/);
   });
 
   it('evals run only on schedule or dispatch, with issues: write and the provider secrets', () => {
@@ -267,7 +270,9 @@ describe('package.json packaging scripts (01 §8.3)', () => {
     const dmg = Object.entries(scripts).filter(([, cmd]) => cmd.includes('electron-builder'));
     expect(dmg.map(([name]) => name).sort()).toEqual(['package', 'package:arm64']);
     for (const [name, cmd] of dmg)
-      expect(cmd, name).toMatch(/electron-builder --mac dmg --(arm64|x64|\$\(node -p process\.arch\))(\s|$)/);
+      expect(cmd, name).toMatch(
+        /electron-builder --config config\/electron-builder\.yml --mac dmg --(arm64|x64|\$\(node -p process\.arch\))(\s|$)/,
+      );
     expect(scripts['package:arm64']).toContain('--arm64');
     expect(scripts.package).toContain('--$(node -p process.arch)');
   });

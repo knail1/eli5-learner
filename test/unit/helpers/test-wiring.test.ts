@@ -4,8 +4,8 @@
  * `vitest run` covers the memory budget (13 §13).
  */
 import { describe, expect, it } from 'vitest';
-import playwrightConfig from '../../../playwright.config';
-import vitestConfig from '../../../vitest.config';
+import playwrightConfig from '../../../config/playwright.e2e.config';
+import vitestConfig from '../../../config/vitest.config';
 
 describe('default test runs include the quality checks', () => {
   it('playwright test runs e2e, cross-browser in Chromium and WebKit, and startup', () => {
@@ -16,10 +16,11 @@ describe('default test runs include the quality checks', () => {
     }));
     expect(projects).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ dir: 'test/e2e' }),
-        expect.objectContaining({ dir: 'test/crossbrowser', browser: 'chromium' }),
-        expect.objectContaining({ dir: 'test/crossbrowser', browser: 'webkit' }),
-        expect.objectContaining({ dir: 'test/perf' }),
+        // testDir is relative to config/playwright.e2e.config.ts.
+        expect.objectContaining({ dir: '../test/e2e' }),
+        expect.objectContaining({ dir: '../test/crossbrowser', browser: 'chromium' }),
+        expect.objectContaining({ dir: '../test/crossbrowser', browser: 'webkit' }),
+        expect.objectContaining({ dir: '../test/perf' }),
       ]),
     );
   });

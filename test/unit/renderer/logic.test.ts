@@ -3,7 +3,7 @@ import type { CatalogEntry, JobSnapshot, SourceInput } from '../../../src/preloa
 import type { IpcError, StartJobRequest, UiRoute } from '../../../src/preload/contract';
 import { loadRenderer } from './harness';
 
-// Renderer modules sit outside tsconfig.node.json, so they load by runtime specifier (see harness).
+// Renderer modules sit outside config/tsconfig.node.json, so they load by runtime specifier (see harness).
 interface Draft {
   draftId: string;
   inputs: SourceInput[];

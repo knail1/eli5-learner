@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "lib": ["ES2023"],
+    "types": ["node", "vite/client"],
+    "paths": {
+      "@eli5/overlay": ["../src/main/editions/overlay.none.ts"],
+      "@eli5/public/*": ["../src/main/*/index.ts"]
+    }
+  },
+  "include": [
+    "../src/env.d.ts",
+    "../src/main/**/*",
+    "../src/preload/**/*",
+    "../test/**/*",
+    "../scripts/**/*.ts",
+    "./*.config.ts"
+  ]
+}

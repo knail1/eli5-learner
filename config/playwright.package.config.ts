@@ -5,7 +5,8 @@ import { defineConfig } from '@playwright/test';
  * skipped unless ELI5_RUN_PACKAGE_TESTS=1. Not part of `npm test` or `npm run test:e2e`.
  */
 export default defineConfig({
-  testDir: 'test/package',
+  testDir: '../test/package',
+  outputDir: '../test-results/package',
   testMatch: '**/*.pkg.ts',
   timeout: 120_000,
   retries: 0,

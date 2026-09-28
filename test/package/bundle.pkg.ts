@@ -65,7 +65,7 @@ test('an unsigned arm64 dmg and app are in release/', () => {
 });
 
 test('entitlements grant allow-jit only (12 §7.8)', () => {
-  expectOnlyAllowJit(readFileSync('build/entitlements.mac.plist', 'utf8'));
+  expectOnlyAllowJit(readFileSync('config/packaging/entitlements.mac.plist', 'utf8'));
   // A signed build embeds them; the ad-hoc public build may carry none, which grants nothing.
   const embedded = codesign('-d', '--entitlements', '-', '--xml', EXE);
   expect(embedded.status, embedded.stderr).toBe(0);
@@ -111,7 +111,7 @@ test("the app icon is the project's own, not Electron's default", () => {
   const iconFile = /<key>CFBundleIconFile<\/key>\s*<string>([^<]+)<\/string>/.exec(plist)?.[1];
   expect(iconFile).toBe('icon.icns');
   const packed = readFileSync(path.join(RESOURCES, 'icon.icns'));
-  expect(packed.equals(readFileSync('build/icon.icns'))).toBe(true);
+  expect(packed.equals(readFileSync('config/packaging/icon.icns'))).toBe(true);
 });
 
 test('the asar holds out/**, package.json and production dependencies only', () => {

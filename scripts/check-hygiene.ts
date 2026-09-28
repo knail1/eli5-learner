@@ -2,15 +2,15 @@
 //
 //   npx jiti scripts/check-hygiene.ts [--out out] [--package]
 //
-// 1. Tracked-file rules: no tracked enterprise/**, docs/** (except .hygiene-allow paths), .env*,
+// 1. Tracked-file rules: no tracked enterprise/**, docs/** (except config/hygiene-allow paths), .env*,
 //    spec/internal.md, key material or local config.
 // 2. Secret scan: the baseline SecretScanner rules (10 §5.4) over tracked files and out/**,
-//    minus the per-file, per-rule exceptions in .hygiene-allow.
+//    minus the per-file, per-rule exceptions in config/hygiene-allow.
 // 3. Deny-list (HOOK-CFG-03): terms from ELI5_HYGIENE_DENYLIST (inline, or `@path` to a file)
 //    over the contents and paths of tracked files and out/**, case-insensitive. Skipped with a
 //    notice when unset; set but empty is a configuration error. Findings name the term's index
 //    only, because CI logs of a public repo are public.
-// 4. Bundle check: out/main/build-info.json (written by electron.vite.config.ts) records that
+// 4. Bundle check: out/main/build-info.json (written by config/electron.vite.config.ts) records that
 //    `@eli5/overlay` resolved to overlay.none in a public build with no module from outside src/;
 //    out/** also has no leftover overlay path and (with --package) no FakeProvider.
 //
@@ -54,7 +54,7 @@ export interface AllowList {
 }
 
 /**
- * `.hygiene-allow`: one docs path per line, or `secret <glob> <rule-id> [<preview>]`. `#` at the
+ * `config/hygiene-allow`: one docs path per line, or `secret <glob> <rule-id> [<preview>]`. `#` at the
  * start of a line or after whitespace starts a comment (a preview may itself contain `#`).
  */
 export function parseAllowFile(text: string): AllowList {
@@ -66,7 +66,7 @@ export function parseAllowFile(text: string): AllowList {
     if (parts[0] === 'secret') {
       const [, glob, rule, preview, ...rest] = parts;
       if (!glob || !rule || rest.length > 0) {
-        throw new Error(`.hygiene-allow line ${i + 1}: expected "secret <glob> <rule-id> [<preview>]"`);
+        throw new Error(`config/hygiene-allow line ${i + 1}: expected "secret <glob> <rule-id> [<preview>]"`);
       }
       out.secrets.push(preview === undefined ? { glob, rule } : { glob, rule, preview });
     } else {
@@ -98,7 +98,7 @@ const basename = (p: string): string => p.slice(p.lastIndexOf('/') + 1);
 function trackedPathReason(p: string, allow: readonly string[]): string | null {
   if (p.startsWith('docs/')) {
     const ok = allow.some((a) => (a.endsWith('/') ? p.startsWith(a) : p === a));
-    return ok ? null : 'generated docs/ output is not committed (only .hygiene-allow paths)';
+    return ok ? null : 'generated docs/ output is not committed (only config/hygiene-allow paths)';
   }
   if (p.startsWith('enterprise/')) return 'the enterprise overlay is private (HOOK-CFG-02)';
   if (p === 'spec/internal.md') return 'the private spec is never committed';
@@ -185,7 +185,7 @@ export function scanDenylistPaths(paths: readonly string[], terms: readonly stri
   return out;
 }
 
-/** Where electron.vite.config.ts records the main build's resolved edition and overlay. */
+/** Where config/electron.vite.config.ts records the main build's resolved edition and overlay. */
 export const BUILD_INFO = 'main/build-info.json';
 const PUBLIC_OVERLAY = 'src/main/editions/overlay.none.ts';
 
@@ -287,7 +287,7 @@ export interface HygieneResult {
 
 export async function runHygiene(opts: RunHygieneOptions): Promise<HygieneResult> {
   const { root, log } = opts;
-  const allowPath = join(root, '.hygiene-allow');
+  const allowPath = join(root, 'config', 'hygiene-allow');
   const allow = existsSync(allowPath) ? parseAllowFile(readFileSync(allowPath, 'utf8')) : { paths: [], secrets: [] };
 
   const tracked = trackedFiles(root);

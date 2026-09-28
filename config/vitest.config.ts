@@ -2,7 +2,8 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 
-const root = import.meta.dirname;
+// This file lives in config/; every path below is relative to the repository root.
+const root = resolve(import.meta.dirname, '..');
 const overlayDir = resolve(root, process.env.ELI5_OVERLAY_DIR ?? 'enterprise');
 const hasOverlay = existsSync(resolve(overlayDir, 'index.ts')) && existsSync(resolve(overlayDir, 'contracts'));
 if (!hasOverlay && !process.env.ELI5_OVERLAY_NOTICE) {
@@ -11,6 +12,7 @@ if (!hasOverlay && !process.env.ELI5_OVERLAY_NOTICE) {
 }
 
 const shared = {
+  root,
   define: {
     __ELI5_EDITION__: JSON.stringify('public'),
     __ELI5_TEST__: 'true',

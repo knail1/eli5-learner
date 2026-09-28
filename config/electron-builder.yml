@@ -1,4 +1,5 @@
 # Public packaging (01 §8.3). Enterprise identity is bound privately (HOOK-CFG-02).
+# Paths are relative to the repository root (run with --config config/electron-builder.yml).
 appId: io.github.eli5-learner
 productName: ELI5 Learner
 asar: true
@@ -6,6 +7,7 @@ asarUnpack:
   - '**/*.node'
 directories:
   output: release
+  buildResources: config/packaging
 files:
   - out/**
   - package.json
@@ -18,14 +20,14 @@ extraResources:
     to: pdfjs
     filter: [pdf.mjs, pdf.worker.mjs]
 mac:
-  icon: build/icon.icns
+  icon: config/packaging/icon.icns
   target:
     - target: dmg
       arch: [arm64, x64]
   category: public.app-category.education
   hardenedRuntime: true
-  entitlements: build/entitlements.mac.plist
-  entitlementsInherit: build/entitlements.mac.plist
+  entitlements: config/packaging/entitlements.mac.plist
+  entitlementsInherit: config/packaging/entitlements.mac.plist
   # Signing and notarization run only when credentials are present (01 §8.3). Without them
   # (CSC_IDENTITY_AUTO_DISCOVERY=false) the app stays unsigned; after-pack re-signs arm64 ad hoc.
   notarize: false
