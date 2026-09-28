@@ -481,7 +481,7 @@ Job staging under `<userData>/jobs/` is deleted when a job reaches `done`. A `fa
 
 ### 11.1 Logger
 
-`security/log.ts` writes JSON lines to `<userData>/logs/main.log`, rotates at 5 MB, and keeps 3 files. Each line is `{ts, level, event, ...fields}`. `event` is a dotted constant (`job.transition`, `llm.call`, `settings.reset`, `ipc.rejected-sender`, `notification.shown`, `notification.clicked`, `notification.fallback`).
+`security/log.ts` writes JSON lines to `<userData>/logs/main.log`. It starts a new file once a week (measured from the current file's first line, so the age survives restarts), or sooner when the file reaches 5 MB. It keeps four archives, `main.log.1` (newest) to `main.log.4`, and deletes older ones, including extras left by earlier versions, so the logs stay under about 25 MB and cover about four weeks. Each line is `{ts, level, event, ...fields}`. `event` is a dotted constant (`job.transition`, `llm.call`, `settings.reset`, `ipc.rejected-sender`, `notification.shown`, `notification.clicked`, `notification.fallback`).
 
 ```ts
 export type LogFieldValue = string | number | boolean | null;

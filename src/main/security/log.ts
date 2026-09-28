@@ -52,7 +52,9 @@ export const LOG_FIELD_ALLOWLIST: ReadonlySet<string> = new Set([
 
 const MAX_STRING = 200;
 const ROTATE_BYTES = 5 * 1024 * 1024;
-const KEEP_FILES = 3;
+const ROTATE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+/** Archives kept besides main.log: four weeks of history, at most 25 MB in all. */
+const KEEP_ARCHIVES = 4;
 
 export interface LogSink {
   write(line: string): void;
@@ -123,17 +125,44 @@ function stackOnly(stack: string, appRoot?: string): string {
   return redact(out.replace(/\/Users\/[^/\s]+/g, '~'));
 }
 
-/** File sink with size-based rotation: main.log, main.log.1, main.log.2 (mode 0600). */
+export interface RotatingFileSinkOptions {
+  now?: () => Date;
+  maxBytes?: number;
+  keepArchives?: number;
+}
+
+/**
+ * File sink that starts a new file every week, or sooner at 5 MB: main.log, then main.log.1 (the
+ * newest archive) to main.log.4. Older archives are deleted, so logs never grow past ~25 MB (mode 0600).
+ */
 export class RotatingFileSink implements LogSink {
   private fd: number | undefined;
   private size = 0;
+  private startedAt = 0;
+  private readonly now: () => Date;
+  private readonly maxBytes: number;
+  private readonly keep: number;
 
-  constructor(private readonly file: string) {}
+  constructor(
+    private readonly file: string,
+    opts: RotatingFileSinkOptions = {},
+  ) {
+    this.now = opts.now ?? (() => new Date());
+    this.maxBytes = opts.maxBytes ?? ROTATE_BYTES;
+    this.keep = opts.keepArchives ?? KEEP_ARCHIVES;
+  }
 
   write(line: string): void {
     try {
       if (this.fd === undefined) this.open();
-      if (this.size + line.length > ROTATE_BYTES) this.rotate();
+      const t = this.now().getTime();
+      if (
+        this.size > 0 &&
+        (this.size + Buffer.byteLength(line) > this.maxBytes || t - this.startedAt >= ROTATE_AGE_MS)
+      ) {
+        this.rotate();
+      }
+      if (this.size === 0) this.startedAt = t;
       fs.writeSync(this.fd!, line);
       this.size += Buffer.byteLength(line);
     } catch {
@@ -143,17 +172,47 @@ export class RotatingFileSink implements LogSink {
 
   private open(): void {
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
+    this.prune();
     this.fd = fs.openSync(this.file, 'a', 0o600);
     this.size = fs.fstatSync(this.fd).size;
+    this.startedAt = this.size > 0 ? this.firstLineTime() : this.now().getTime();
+  }
+
+  /** When the current file was started: its first line's `ts`, else its birth time. */
+  private firstLineTime(): number {
+    try {
+      const buf = Buffer.alloc(256);
+      const fd = fs.openSync(this.file, 'r');
+      const n = fs.readSync(fd, buf, 0, buf.length, 0);
+      fs.closeSync(fd);
+      const ts = /"ts":"([^"]+)"/.exec(buf.subarray(0, n).toString('utf8'))?.[1];
+      const t = ts ? Date.parse(ts) : NaN;
+      if (Number.isFinite(t)) return t;
+    } catch {
+      // fall through
+    }
+    const st = fs.statSync(this.file);
+    return st.birthtimeMs || st.mtimeMs;
+  }
+
+  /** Deletes archives past the limit (e.g. left by a version that kept more). */
+  private prune(): void {
+    const base = path.basename(this.file);
+    for (const name of fs.readdirSync(path.dirname(this.file))) {
+      const m = name.startsWith(`${base}.`) ? /^\d+$/.exec(name.slice(base.length + 1)) : null;
+      if (m && Number(m[0]) > this.keep) fs.rmSync(path.join(path.dirname(this.file), name), { force: true });
+    }
   }
 
   private rotate(): void {
     if (this.fd !== undefined) fs.closeSync(this.fd);
-    for (let i = KEEP_FILES - 1; i >= 1; i--) {
-      const from = i === 1 ? this.file : `${this.file}.${i - 1}`;
-      if (fs.existsSync(from)) fs.renameSync(from, `${this.file}.${i}`);
-    }
     this.fd = undefined;
+    fs.rmSync(`${this.file}.${this.keep}`, { force: true });
+    for (let i = this.keep - 1; i >= 1; i--) {
+      const from = `${this.file}.${i}`;
+      if (fs.existsSync(from)) fs.renameSync(from, `${this.file}.${i + 1}`);
+    }
+    if (fs.existsSync(this.file)) fs.renameSync(this.file, `${this.file}.1`);
     this.open();
   }
 }
