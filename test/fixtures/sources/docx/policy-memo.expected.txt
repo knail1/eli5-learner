@@ -1,0 +1,31 @@
+<source ref="policy-memo.docx" format="docx" truncated="false">
+# Remote Work Policy
+# Purpose
+This memo sets out how Example Widgets Inc. supports remote work for its 120 staff.
+## Scope
+The policy covers all full-time employees.[1]
+Eligible roles include:
+- Engineering
+  - Platform services
+    - On-call rotation excluded
+- Finance
+## Approval steps
+1. Submit a request form
+2. Manager signs off within five days
+  1. Escalations go to the operations lead
+### Equipment
+Table: Table 1: Equipment allowance
+| Item | Allowance |
+| --- | --- |
+| Laptop | $1,500 |
+| Monitor | $300 |
+Office days per tier are listed below.
+| Team | Office days |
+| Support | See tiers:; Tier; Days; A; 3 |
+## Architecture overview
+[image #d7804607-img-1: "Office network diagram"]
+Contact IT for exceptions
+> Remote work is a privilege, not a right.
+## Notes
+1. Contractors follow their own agreement.
+</source>

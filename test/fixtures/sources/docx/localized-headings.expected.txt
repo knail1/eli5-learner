@@ -1,0 +1,9 @@
+<source ref="localized-headings.docx" format="docx" truncated="false">
+# Jahresbericht
+Der Umsatz stieg um 7 Prozent.
+## Résultats
+Les marges sont stables.
+### 概要
+売上は増加しました。
+Nur ein Hinweis, keine Überschrift.
+</source>

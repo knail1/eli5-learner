@@ -1,0 +1,3 @@
+<source ref="photo.jpg" format="jpeg" truncated="false">
+[image #979d8e97-img-1]
+</source>

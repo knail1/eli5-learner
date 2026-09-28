@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <!-- 04 §6.3: no network; scripts and pdf.js worker only from eli5res://. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src eli5res:; worker-src eli5res: blob:; connect-src eli5res: blob: data:; img-src blob: data:"
+    />
+    <title>pdf-render</title>
+  </head>
+  <body>
+    <script type="module" src="render.js"></script>
+  </body>
+</html>

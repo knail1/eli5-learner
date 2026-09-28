@@ -1,0 +1,66 @@
+<source ref="quarterly-review.pptx" format="pptx" slides="11" truncated="false">
+## Slide 1: Quarterly Review: Q3 2026
+Example Widgets Inc.
+> Speaker notes: Welcome everyone.
+> Keep the opening under two minutes.
+
+## Slide 2: Agenda
+[image omitted: Company logo]
+- Results
+- Revenue bridge
+- Outlook
+
+## Slide 3: Revenue bridge
+[image omitted: Company logo]
+- Net revenue up 12% YoY
+  - Driven by enterprise renewals
+    - Renewal rate reached 94%
+- Services revenue flat
+  - Hardware margin improved
+> Speaker notes: Emphasize that churn is flat.
+> Renewals carried the quarter.
+
+## Slide 4: Research spend
+[image omitted: Company logo]
+R&D <50% of operating expense
+Revenue grew in Q3 as planned
+
+## Slide 5: Regional results
+| Region | Q2 | Q3 |
+| --- | --- | --- |
+| NA | 41 | 46 |
+| EMEA | 30 | 33 |
+| Total \| all regions |  | 79 |
+
+## Slide 6: Revenue by quarter
+Chart: Revenue ($M)
+| Category | 2026 |
+| --- | --- |
+| Q1 | 38 |
+| Q2 | 41 |
+| Q3 | 46 |
+| Q4 | 49 |
+
+## Slide 7: Two teams
+Devices team: cut unit cost by 8%
+Platform team: shipped the billing rewrite
+
+## Slide 9: Architecture
+[image #94c7a03b-img-1: "System architecture diagram"]
+> Speaker notes: Walk through the three services left to right.
+
+## Slide 10
+Questions welcome at any point
+
+## Slide 11: Release process
+- Plan
+- Build
+- Verify
+- Ship
+
+## Slide 12: Next steps
+1. Hire two support engineers
+2. Close the Q4 books by January 15
+Owner: finance team
+> Speaker notes: Ask for volunteers.
+</source>

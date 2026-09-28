@@ -1,0 +1,11 @@
+<source ref="out-of-order.pptx" format="pptx" slides="3" truncated="false">
+## Slide 1: Opening
+- Why this deck exists
+> Speaker notes: Notes for the opening slide.
+
+## Slide 2: Middle
+- The main argument
+
+## Slide 3: Closing
+- Thanks for reading
+</source>
