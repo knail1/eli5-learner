@@ -60,6 +60,13 @@ The ELI5 tab rebuilds the same material in plain words, with analogies and pictu
   While it works, the section is marked "Updating…" and the status line shows the job, which you can cancel:
 
   <img src="images/updating_section.png" alt="A section outlined and marked Updating, with the status line 'Updating section' and a Cancel button" width="640">
+
+  When it's done, the section is rewritten in place and nothing else in the document changes. Here,
+  *Expand this* on "protective order" rebuilt the section: a plain definition of the term, a key
+  point explaining why the breach matters, and a step-by-step walkthrough of how a protective order
+  normally protects someone:
+
+  <img src="images/protective_order_expanded.png" alt="The expanded section 'The specific danger for people with protective orders': a definition paragraph, a Key point callout, and a four-step walkthrough 'How a protective order normally protects someone' with Previous and Next buttons" width="640">
 - **Section ELI5 tabs.** Focused ELI5 tabs, spun off from any passage and labeled by topic. You can close them.
 - **Library and menu bar.** Every document is listed in a sidebar. The menu bar shows the last three, and the app keeps running in the menu bar when the window is closed.
 - **Merge suggestions.** When a new document covers the same or a closely related topic as one already
