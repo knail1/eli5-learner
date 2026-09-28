@@ -15,7 +15,8 @@ import {
 } from '../../../../src/main/devtools';
 import { Registry } from '../../../../src/main/editions/registry';
 import { registerPublicCapabilities } from '../../../../src/main/editions/public';
-import type { LLMProvider } from '../../../../src/main/llm';
+import { configureLlmRuntime, DEFAULT_RETRY, resetLlmRuntime } from '../../../../src/main/llm';
+import type { GenerationRequest, LLMProvider } from '../../../../src/main/llm';
 import { FakeProvider } from '../../../../src/main/llm/testing/fake';
 import type { Job, JobFailureCode, JobSnapshot, StartJobRequest } from '../../../../src/main/pipeline';
 
@@ -24,6 +25,7 @@ beforeEach(async () => {
   dir = await mkdtemp(path.join(tmpdir(), 'eli5-realrun-'));
 });
 afterEach(async () => {
+  resetLlmRuntime();
   await rm(dir, { recursive: true, force: true });
 });
 
@@ -102,6 +104,36 @@ describe('installBudgetGuard (pre-freeze hook)', () => {
     expect(registry.llm().id).toBe('claude');
   });
 
+  it('builds the public providers without internal retries, so one reservation bounds one billed call', async () => {
+    let sends = 0;
+    configureLlmRuntime({
+      keys: { get: () => Promise.resolve(['k', 'test', 'only'].join('-')) },
+      retry: DEFAULT_RETRY,
+      fetch: (input) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (!url.includes('count_tokens')) sends++;
+        return Promise.resolve(new Response('{"type":"error","error":{"type":"api_error"}}', { status: 500 }));
+      },
+    });
+    const s = settings();
+    const registry = new Registry({ edition: 'public', getSettings: () => s });
+    registerPublicCapabilities(registry);
+    const ledger = new BudgetLedger({ path: path.join(dir, 'l.jsonl'), capUsd: 10 });
+    installBudgetGuard(registry, ledger);
+    registry.freeze();
+    const r: GenerationRequest = {
+      taskId: 'in-depth',
+      system: 's',
+      messages: [{ role: 'user', text: 'u' }],
+      maxOutputTokens: 4_000,
+    };
+    await expect(registry.llm().generate(r)).rejects.toMatchObject({ kind: 'server' });
+    expect(sends).toBe(1);
+    // Charged as one attempt: at most the input estimate plus 4000 output tokens at $25/MTok.
+    expect(ledger.spentUsd).toBeGreaterThan(0);
+    expect(ledger.spentUsd).toBeLessThan(4_001 * 25e-6);
+  });
+
   it('refuses to run after the registry is frozen', () => {
     const s = settings();
     const registry = new Registry({ edition: 'public', getSettings: () => s });
@@ -132,6 +164,27 @@ describe('prepareRealRun', () => {
     expect(session?.ledger.capUsd).toBe(2.5);
     expect(session?.ledger.path).toBe(path.join(dir, 'devtools', 'real-run-ledger.jsonl'));
     expect(ids.sort()).toEqual(['claude', 'openai']);
+  });
+});
+
+describe('prepareRealRun ledger lock', () => {
+  it('locks the ledger for the session so a concurrent run on the same file is refused', async () => {
+    const spy = { frozen: false, registerLLMProvider: () => {} };
+    const e = env({ ELI5_REAL_RUN_URLS: 'https://example.com/a' });
+    const first = prepareRealRun({ env: e, isPackaged: false, userData: dir, registry: spy });
+    expect(() => prepareRealRun({ env: e, isPackaged: false, userData: dir, registry: spy })).toThrow(/in use/);
+    if (!first) throw new Error('not armed');
+    const q = new ScriptedQueue([{ status: 'done', slug: 'a' }]);
+    await startRealRun({
+      session: first,
+      jobs: q,
+      library,
+      provider: () =>
+        new BudgetGuardProvider(new FakeProvider({ responses: {} }, { model: 'claude-opus-5' }), first.ledger),
+      ...harness(),
+    });
+    // Released when the run finishes.
+    prepareRealRun({ env: e, isPackaged: false, userData: dir, registry: spy })?.ledger.release();
   });
 });
 
@@ -215,7 +268,14 @@ function session(urls: string[], capUsd = 1, timeoutMs = 5_000): RealRunSession 
   };
 }
 
-const provider = (model = 'claude-opus-5'): Pick<LLMProvider, 'id' | 'model'> => ({ id: 'claude', model });
+let guardLedger: BudgetLedger | undefined;
+const provider = (model = 'claude-opus-5'): LLMProvider => {
+  guardLedger ??= new BudgetLedger({ path: path.join(dir, 'guard.jsonl'), capUsd: 1 });
+  return new BudgetGuardProvider(new FakeProvider({ responses: {} }, { model }), guardLedger);
+};
+beforeEach(() => {
+  guardLedger = undefined;
+});
 const library = { docPath: (slug: string): string => path.join('/lib', slug, 'index.html') };
 
 function harness(): { out: string[]; codes: number[]; write: (t: string) => void; quit: (c: number) => void } {
@@ -316,6 +376,21 @@ describe('startRealRun', () => {
     });
     expect(summary.jobs.map((j) => j.status)).toEqual(['done', 'timeout']);
     expect(q.cancelled).toEqual(['job-1']);
+    expect(h.codes).toEqual([1]);
+  });
+
+  it('refuses a provider that is not behind the budget guard before starting any job', async () => {
+    const h = harness();
+    const q = new ScriptedQueue([]);
+    const summary = await startRealRun({
+      session: session(['https://example.com/a']),
+      jobs: q,
+      library,
+      provider: () => new FakeProvider({ responses: {} }, { model: 'claude-opus-5' }),
+      ...h,
+    });
+    expect(q.started).toEqual([]);
+    expect(summary).toMatchObject({ ok: false, error: expect.stringMatching(/budget guard/) as string, jobs: [] });
     expect(h.codes).toEqual([1]);
   });
 

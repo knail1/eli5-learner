@@ -114,3 +114,34 @@ describe('BudgetLedger', () => {
     expect(() => l.settle(r, c)).toThrow();
   });
 });
+
+describe('BudgetLedger session lock', () => {
+  const locked = (isAlive: (pid: number) => boolean = () => true): BudgetLedger =>
+    new BudgetLedger({ path: file, capUsd: 1, clock, newId: ids, lock: true, isAlive });
+
+  it('holds <ledger>.lock with the PID so a second locked ledger on the same file is refused', async () => {
+    const a = locked();
+    expect((await readFile(`${file}.lock`, 'utf8')).trim()).toBe(String(process.pid));
+    expect(() => locked()).toThrow(/in use/);
+    a.release();
+    await expect(readFile(`${file}.lock`, 'utf8')).rejects.toThrow();
+    locked().release();
+  });
+
+  it('takes over a lock left by a process that is no longer running', async () => {
+    const a = locked();
+    void a; // simulates a crashed run: never released
+    await writeFile(`${file}.lock`, '999999\n');
+    const b = locked((pid) => pid !== 999999);
+    expect((await readFile(`${file}.lock`, 'utf8')).trim()).toBe(String(process.pid));
+    b.release();
+  });
+
+  it('release is idempotent and an unlocked ledger never touches the lock file', async () => {
+    const a = locked();
+    a.release();
+    a.release();
+    open(1).release();
+    await expect(readFile(`${file}.lock`, 'utf8')).rejects.toThrow();
+  });
+});

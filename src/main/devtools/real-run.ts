@@ -1,7 +1,7 @@
 import path from 'node:path';
 import type { ProviderId, Settings } from '../config';
-import { createClaudeProvider, createOpenAIProvider } from '../llm';
-import type { LLMProvider } from '../llm';
+import { createClaudeProvider, createOpenAIProvider, DEFAULT_RETRY } from '../llm';
+import type { LLMProvider, RetryPolicy } from '../llm';
 import { isTerminal } from '../pipeline';
 import type { Job, JobFailureCode, JobSnapshot, JobStatus, StartJobRequest } from '../pipeline';
 import { log } from '../security';
@@ -11,9 +11,10 @@ import { ratesFor } from './rates';
 
 /**
  * Headless real-provider run for developers (unpackaged builds only). The bootstrap calls
- * prepareRealRun before registry.freeze() to wrap the LLM providers in BudgetGuardProvider, then
+ * prepareRealRun as the last step before registry.freeze() (after loadOverlay and applyExtension, so
+ * no later registration replaces the guard) to wrap the LLM providers in BudgetGuardProvider, then
  * startRealRun once the JobQueue is initialized: one create job per URL, a JSON summary on stdout,
- * then quit.
+ * then quit via the injected `quit` (the bootstrap passes `(code) => app.exit(code)`).
  */
 
 export const MAX_REAL_RUN_BUDGET_USD = 50;
@@ -82,20 +83,26 @@ export interface GuardableRegistry {
 
 export type ProviderFactories = Partial<Record<ProviderId, (s: Settings) => LLMProvider>>;
 
-const PUBLIC_FACTORIES: ProviderFactories = { claude: createClaudeProvider, openai: createOpenAIProvider };
+/** Real runs disable provider-internal retries so one reservation bounds one billed attempt. */
+const NO_RETRY: RetryPolicy = Object.freeze({ ...DEFAULT_RETRY, maxRetries: 0, maxRetriesByKind: {} });
+
+const PUBLIC_FACTORIES: ProviderFactories = {
+  claude: (s) => createClaudeProvider(s, { retry: NO_RETRY }),
+  openai: (s) => createOpenAIProvider(s, { retry: NO_RETRY }),
+};
 
 /**
  * Re-registers each real provider id with a factory that wraps the base provider in a
- * BudgetGuardProvider sharing one ledger, so switching llm.provider cannot escape the cap.
+ * BudgetGuardProvider sharing one ledger, so switching llm.provider cannot escape the cap. The
+ * default base is the public Claude and OpenAI providers without retries; this replaces any overlay
+ * registration for those ids. Ids not wrapped (e.g. bedrock) are refused by startRealRun. A custom
+ * `base` is assumed to follow the process retry policy, which the guard reserves for.
  */
-export function installBudgetGuard(
-  registry: GuardableRegistry,
-  ledger: BudgetLedger,
-  base: ProviderFactories = PUBLIC_FACTORIES,
-): void {
+export function installBudgetGuard(registry: GuardableRegistry, ledger: BudgetLedger, base?: ProviderFactories): void {
   if (registry.frozen) throw new Error('installBudgetGuard must run before registry.freeze()');
-  for (const [id, factory] of Object.entries(base)) {
-    registry.registerLLMProvider(id, (s) => new BudgetGuardProvider(factory(s), ledger));
+  const opts = base ? {} : { retry: () => NO_RETRY };
+  for (const [id, factory] of Object.entries(base ?? PUBLIC_FACTORIES)) {
+    registry.registerLLMProvider(id, (s) => new BudgetGuardProvider(factory(s), ledger, opts));
   }
 }
 
@@ -114,8 +121,14 @@ export function prepareRealRun(o: {
 }): RealRunSession | undefined {
   const config = realRunConfigFromEnv(o.env, { isPackaged: o.isPackaged, userData: o.userData });
   if (!config) return undefined;
-  const ledger = new BudgetLedger({ path: config.ledgerPath, capUsd: config.budgetUsd });
-  installBudgetGuard(o.registry, ledger, o.base);
+  // Locked for the session: a concurrent run on the same ledger is refused (released on finish).
+  const ledger = new BudgetLedger({ path: config.ledgerPath, capUsd: config.budgetUsd, lock: true });
+  try {
+    installBudgetGuard(o.registry, ledger, o.base);
+  } catch (err) {
+    ledger.release();
+    throw err;
+  }
   log.info('realrun.armed', { count: config.urls.length });
   return { config, ledger };
 }
@@ -158,17 +171,17 @@ export interface StartRealRunOptions {
   session: RealRunSession;
   jobs: RealRunQueue;
   library: { docPath(slug: string): string };
-  /** The active provider (registry.llm()), checked for a price before any job starts. */
-  provider: () => Pick<LLMProvider, 'id' | 'model'>;
+  /** The active provider (registry.llm()): it must be budget-guarded and priced before any job starts. */
+  provider: () => LLMProvider;
   glossary?: boolean;
   write?: (text: string) => void;
-  quit?: (exitCode: number) => void;
+  /** Required: ends the process after the summary (the Electron bootstrap passes `app.exit`). */
+  quit: (exitCode: number) => void;
 }
 
 export async function startRealRun(o: StartRealRunOptions): Promise<RealRunSummary> {
   const { config, ledger } = o.session;
   const write = o.write ?? ((t: string) => void process.stdout.write(t));
-  const quit = o.quit ?? ((code: number) => void (process.exitCode = code));
   const p = o.provider();
   const base = { provider: p.id, model: p.model, budgetUsd: config.budgetUsd, ledgerPath: config.ledgerPath };
   const finish = (jobs: RealRunJobSummary[], error?: string): RealRunSummary => {
@@ -180,12 +193,16 @@ export async function startRealRun(o: StartRealRunOptions): Promise<RealRunSumma
       ...(error !== undefined ? { error } : {}),
       jobs,
     };
+    ledger.release();
     write(JSON.stringify(summary, null, 2) + '\n');
     log.info('realrun.finished', { count: jobs.length, status: summary.ok ? 'ok' : 'failed' });
-    quit(summary.ok ? 0 : 1);
+    o.quit(summary.ok ? 0 : 1);
     return summary;
   };
 
+  // An unguarded provider (an id installBudgetGuard did not wrap, or a later registration that
+  // replaced the guard) would spend without a cap.
+  if (!(p instanceof BudgetGuardProvider)) return finish([], `provider ${p.id} is not behind the budget guard`);
   const rates = ratesFor(p.model);
   if (!rates) return finish([], `budget guard: unknown model ${p.model} has no price`);
   if (ledger.remainingUsd < (MIN_OUTPUT_TOKENS * rates.outputPerMTok) / 1e6) return finish([], 'budget exhausted');

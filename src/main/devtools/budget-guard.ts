@@ -1,4 +1,4 @@
-import { LLMError } from '../llm';
+import { DEFAULT_RETRY, LLMError, llmRuntime } from '../llm';
 import type {
   ConnectionCheck,
   GenerationRequest,
@@ -7,6 +7,7 @@ import type {
   LLMProvider,
   ModelLimits,
   ProviderId,
+  RetryPolicy,
 } from '../llm';
 import type { BudgetLedger, Charge } from './ledger';
 import { CACHE_WRITE_MULTIPLIER, costOf, ratesFor } from './rates';
@@ -15,6 +16,8 @@ import { CACHE_WRITE_MULTIPLIER, costOf, ratesFor } from './rates';
  * Dev-only LLMProvider wrapper that enforces a hard USD cap for real-run tooling. Before each call it
  * counts input, clamps maxOutputTokens so the worst case (input + full output) fits the remaining
  * budget, and reserves that worst case in the ledger. After the call it records the actual cost.
+ * The inner provider may retry internally (02 §7.1) and each attempt may be billed, so the worst case
+ * is reserved once per attempt the retry policy allows.
  */
 
 /** Fewer output tokens than this cannot produce a useful draft; refuse instead. */
@@ -35,18 +38,32 @@ export function estimateInputTokens(req: Pick<GenerationRequest, 'system' | 'mes
   return estimateChars(chars) + images * IMAGE_TOKENS;
 }
 
+/** Most attempts one call can make under `policy`: the first plus the largest retry allowance. */
+export function maxAttempts(policy: RetryPolicy): number {
+  const byKind = Object.values(policy.maxRetriesByKind ?? {}).filter((n): n is number => typeof n === 'number');
+  return 1 + Math.max(0, policy.maxRetries, ...byKind);
+}
+
+export interface BudgetGuardOptions {
+  /** The retry policy the inner provider uses, read per call. Default: the process LLM runtime's. */
+  retry?: () => RetryPolicy;
+}
+
 export class BudgetGuardProvider implements LLMProvider {
   readonly id: ProviderId;
   readonly model: string;
   readonly limits: ModelLimits;
+  private readonly retry: () => RetryPolicy;
 
   constructor(
     private readonly inner: LLMProvider,
     private readonly ledger: BudgetLedger,
+    o: BudgetGuardOptions = {},
   ) {
     this.id = inner.id;
     this.model = inner.model;
     this.limits = inner.limits;
+    this.retry = o.retry ?? (() => llmRuntime().retry ?? DEFAULT_RETRY);
   }
 
   generate(req: GenerationRequest): Promise<GenerationResult> {
@@ -88,24 +105,37 @@ export class BudgetGuardProvider implements LLMProvider {
     const inRate = rates.inputPerMTok / 1e6;
     const outRate = rates.outputPerMTok / 1e6;
     const input = await this.inputTokens(req);
+    const attempts = maxAttempts(this.retry());
 
     // From here to reserve() is synchronous, so concurrent calls are serialized on the ledger.
     const inputCost = input * inRate * (req.cacheSystemPrompt ? CACHE_WRITE_MULTIPLIER : 1);
-    const fits = Math.floor((this.ledger.remainingUsd - inputCost) / outRate + 1e-9);
+    // Output tokens one attempt may use so that every allowed attempt fits the remaining budget.
+    const fits = Math.floor((this.ledger.remainingUsd / attempts - inputCost) / outRate + 1e-9);
+    // Refuse only when the budget (not the request's own smaller maxOutputTokens) is the limit.
+    if (fits < MIN_OUTPUT_TOKENS) throw new LLMError('cancelled', 'budget exhausted');
     const maxOut = Math.min(req.maxOutputTokens, fits);
-    if (maxOut < MIN_OUTPUT_TOKENS) throw new LLMError('cancelled', 'budget exhausted');
-    const worst = inputCost + maxOut * outRate;
-    const res = this.ledger.reserve({ maxCostUsd: worst, model: this.inner.model, taskId: req.taskId });
+    const perAttempt = inputCost + maxOut * outRate;
+    const res = this.ledger.reserve({
+      maxCostUsd: perAttempt * attempts,
+      model: this.inner.model,
+      taskId: req.taskId,
+    });
 
     let result: GenerationResult;
     try {
       result = await send({ ...req, maxOutputTokens: maxOut });
     } catch (err) {
+      // The attempt count is unknown on failure: charge every allowed attempt, except the last when
+      // it failed before generating anything.
       const unbilled = err instanceof LLMError && UNBILLED.includes(err.kind);
-      this.ledger.settle(res, { ...ZERO, costUsd: unbilled ? 0 : worst, outcome: 'error' });
+      this.ledger.settle(res, {
+        ...ZERO,
+        costUsd: perAttempt * (unbilled ? attempts - 1 : attempts),
+        outcome: 'error',
+      });
       throw err;
     }
-    this.ledger.settle(res, this.charge(req, result, rates));
+    this.ledger.settle(res, this.charge(req, result, rates, perAttempt));
     return result;
   }
 
@@ -113,6 +143,7 @@ export class BudgetGuardProvider implements LLMProvider {
     req: GenerationRequest,
     result: GenerationResult,
     rates: NonNullable<ReturnType<typeof ratesFor>>,
+    perAttempt: number,
   ): Charge {
     const u = result.usage;
     const read = u.cachedInputTokens ?? 0;
@@ -131,8 +162,8 @@ export class BudgetGuardProvider implements LLMProvider {
       cacheWriteTokens: write,
       outputTokens: u.outputTokens,
     };
-    // Retries inside the provider may each have been billed for input; charge them at the input rate.
-    const retries = Math.max(0, result.attempts - 1) * u.inputTokens * (rates.inputPerMTok / 1e6);
+    // A failed attempt retried inside the provider may have been billed up to its worst case.
+    const retries = Math.max(0, result.attempts - 1) * perAttempt;
     return { ...tokens, costUsd: costOf(rates, tokens) + retries, outcome: 'ok' };
   }
 }

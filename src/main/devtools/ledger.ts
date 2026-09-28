@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs';
 import path from 'node:path';
 
 /**
@@ -7,6 +7,8 @@ import path from 'node:path';
  * (worst-case cost) before it is sent and a `charge` line (actual cost) after. On open the file is
  * re-read, so the cap spans every run; a reservation without a charge (a crashed run) counts at its
  * worst case. Writes are synchronous so a reservation is on disk before any money can be spent.
+ * With `lock`, the ledger holds `<path>.lock` (O_EXCL, containing the PID) for the whole session, so
+ * two runs cannot each spend the same remaining budget from one snapshot.
  */
 
 export interface LedgerClock {
@@ -18,6 +20,10 @@ export interface BudgetLedgerOptions {
   capUsd: number;
   clock?: LedgerClock;
   newId?: () => string;
+  /** Hold `<path>.lock` until release(); a real run sets this. */
+  lock?: boolean;
+  /** Whether a PID found in a lock file is still running (injected in tests). */
+  isAlive?: (pid: number) => boolean;
 }
 
 export interface Reservation {
@@ -57,6 +63,16 @@ interface ChargeLine extends Charge {
 
 type LedgerLine = ReserveLine | ChargeLine;
 
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM: the process exists but belongs to someone else.
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
 const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x) && x >= 0;
 
 function parseLine(raw: string, n: number, file: string): LedgerLine {
@@ -83,6 +99,8 @@ export class BudgetLedger {
   private readonly newId: () => string;
   private spent = 0;
   private readonly open = new Map<string, Reservation>();
+  private lockPath: string | undefined;
+  private readonly onExit = (): void => this.release();
 
   constructor(o: BudgetLedgerOptions) {
     if (!Number.isFinite(o.capUsd) || o.capUsd <= 0) throw new Error('Budget cap must be a positive number of USD');
@@ -90,7 +108,21 @@ export class BudgetLedger {
     this.capUsd = o.capUsd;
     this.clock = o.clock ?? { now: () => new Date() };
     this.newId = o.newId ?? randomUUID;
-    this.load();
+    if (o.lock) this.acquire(o.isAlive ?? pidAlive);
+    try {
+      this.load();
+    } catch (err) {
+      this.release();
+      throw err;
+    }
+  }
+
+  /** Drops the session lock (if held). Idempotent. */
+  release(): void {
+    if (this.lockPath === undefined) return;
+    rmSync(this.lockPath, { force: true });
+    this.lockPath = undefined;
+    process.removeListener('exit', this.onExit);
   }
 
   /** Charged cost plus the worst case of reservations from earlier runs that never settled. */
@@ -133,6 +165,39 @@ export class BudgetLedger {
   private append(line: LedgerLine): void {
     mkdirSync(path.dirname(this.path), { recursive: true });
     appendFileSync(this.path, JSON.stringify(line) + '\n', 'utf8');
+  }
+
+  private acquire(isAlive: (pid: number) => boolean): void {
+    const lock = `${this.path}.lock`;
+    mkdirSync(path.dirname(lock), { recursive: true });
+    for (let tries = 0; tries < 2; tries++) {
+      let fd: number;
+      try {
+        fd = openSync(lock, 'wx');
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+        let pid = Number.NaN;
+        try {
+          pid = Number.parseInt(readFileSync(lock, 'utf8').trim(), 10);
+        } catch {
+          // Removed between open and read: retry.
+        }
+        if (Number.isInteger(pid) && pid > 0 && isAlive(pid)) {
+          throw new Error(`Budget ledger ${this.path} is in use by process ${pid}; wait for that run to finish`);
+        }
+        rmSync(lock, { force: true }); // stale: its run is gone
+        continue;
+      }
+      try {
+        writeSync(fd, `${process.pid}\n`);
+      } finally {
+        closeSync(fd);
+      }
+      this.lockPath = lock;
+      process.once('exit', this.onExit);
+      return;
+    }
+    throw new Error(`Budget ledger ${this.path} lock could not be taken`);
   }
 
   private load(): void {

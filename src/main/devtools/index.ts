@@ -4,7 +4,8 @@ export { CACHE_READ_MULTIPLIER, CACHE_WRITE_MULTIPLIER, MODEL_RATES, costOf, rat
 export type { CostTokens, ModelRates } from './rates';
 export { BudgetLedger } from './ledger';
 export type { BudgetLedgerOptions, Charge, LedgerClock, Reservation } from './ledger';
-export { BudgetGuardProvider, IMAGE_TOKENS, MIN_OUTPUT_TOKENS, estimateInputTokens } from './budget-guard';
+export { BudgetGuardProvider, IMAGE_TOKENS, MIN_OUTPUT_TOKENS, estimateInputTokens, maxAttempts } from './budget-guard';
+export type { BudgetGuardOptions } from './budget-guard';
 export {
   DEFAULT_REAL_RUN_TIMEOUT_MS,
   MAX_REAL_RUN_BUDGET_USD,
