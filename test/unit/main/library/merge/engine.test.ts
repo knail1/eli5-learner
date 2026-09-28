@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -412,6 +412,51 @@ describe('accept (09 §10.6)', () => {
     expect(docUpdated).toHaveBeenCalledWith({ slug: s.target.topicSlug, sectionId: MARKER, tabKey: 'indepth' });
   });
 
+  it('reports the tab of the first marker in eli5:doc:updated', async () => {
+    const s = await setup();
+    const eli5Marker = 'sec-eli5-0000abcd' as SectionId;
+    const { h, sug } = await suggested(s, {
+      appendMerged: (input) => ({ ...fakeAppend(input), markerSectionIds: [eli5Marker] }),
+    });
+    const docUpdated = vi.fn();
+    h.service.onDocUpdated(docUpdated);
+    await h.service.accept(sug.id);
+    expect(docUpdated).toHaveBeenCalledWith({ slug: s.target.topicSlug, sectionId: eli5Marker, tabKey: 'eli5' });
+  });
+
+  it('finishes steps 8-10 in-session when they fail once after the commit point', async () => {
+    const s = await setup();
+    const { h, sug } = await suggested(s);
+    vi.spyOn(s.lib, 'moveToTrash').mockRejectedValueOnce(new Error('busy'));
+    const docUpdated = vi.fn();
+    h.service.onDocUpdated(docUpdated);
+    await expect(h.service.accept(sug.id)).resolves.toEqual({ targetSlug: s.target.topicSlug });
+    expect((await readSuggestions(s.lib)).suggestions[0]?.status).toBe('accepted');
+    expect(await h.service.list()).toEqual([]);
+    expect(s.lib.getEntry(s.source.id)).toBeUndefined();
+    expect(await exists(path.join(s.lib.root, s.source.topicSlug))).toBe(false);
+    expect(docUpdated).toHaveBeenCalledWith({ slug: s.target.topicSlug, sectionId: MARKER, tabKey: 'indepth' });
+  });
+
+  it('leaves a committed accept for the next start when the retry fails too, and still reports the target', async () => {
+    const s = await setup();
+    const { h, sug } = await suggested(s);
+    vi.spyOn(s.lib, 'applyMergeToCatalog').mockRejectedValue(new Error('disk full'));
+    const docUpdated = vi.fn();
+    h.service.onDocUpdated(docUpdated);
+    await expect(h.service.accept(sug.id)).resolves.toEqual({ targetSlug: s.target.topicSlug });
+    expect((await readSuggestions(s.lib)).suggestions[0]?.status).toBe('accepting');
+    expect(docUpdated).toHaveBeenCalledWith({ slug: s.target.topicSlug, sectionId: MARKER, tabKey: 'indepth' });
+    vi.restoreAllMocks();
+    // The next start finishes it (09 §10.8 step 2).
+    h.dispose();
+    const lib2 = await s.open();
+    const h2 = createMergeSuggestions({ library: lib2, judge: vi.fn() as unknown as MergeJudge });
+    await h2.ready;
+    expect((await readSuggestions(lib2)).suggestions[0]?.status).toBe('accepted');
+    expect(lib2.getEntry(s.source.id)).toBeUndefined();
+  });
+
   it('refuses a suggestion that is not pending with SUGGESTION_STALE', async () => {
     const s = await setup();
     const { h, sug } = await suggested(s);
@@ -549,6 +594,52 @@ describe('persistence and recovery (09 §10.5, §10.8)', () => {
     expect(s.lib.getEntry(s.source.id)).toBeDefined();
   });
 
+  /** A `.trash` name inside the retention window (reconcile purges older ones). */
+  const stamp = (s: Setup) =>
+    s.clock
+      .now()
+      .toISOString()
+      .replace(/\.\d{3}Z$/, '')
+      .replace(/[-:]/g, '');
+
+  it('restores the pre-merge index.html when a crash hit between the index.html and meta.json writes', async () => {
+    const s = await setup();
+    const { h, sug } = await suggested(s);
+    h.dispose();
+    const root = s.lib.root;
+    const live = (f: string) => path.join(root, s.target.topicSlug, f);
+    // Step 5 backup exists, step 7 wrote index.html, then the process died before meta.json.
+    const backup = path.join(root, '.trash', `${s.target.topicSlug}--${stamp(s)}-premerge`);
+    await mkdir(backup, { recursive: true });
+    await writeFile(path.join(backup, 'index.html'), await readFile(live('index.html')));
+    await writeFile(path.join(backup, 'meta.json'), await readFile(live('meta.json')));
+    await writeFile(live('index.html'), MERGED_HTML);
+    await write(s.lib, { schemaVersion: 1, suggestions: [{ ...sug, status: 'accepting' }], dismissedPairs: [] });
+
+    const lib2 = await s.open();
+    const h2 = createMergeSuggestions({ library: lib2, judge: vi.fn() as unknown as MergeJudge });
+    expect(await h2.service.list()).toEqual([{ ...sug, status: 'pending' }]);
+    expect(await readFile(live('index.html'), 'utf8')).toBe(HTML);
+    expect(await exists(path.join(backup, 'index.html'))).toBe(true);
+  });
+
+  it('does not restore a backup whose meta.json no longer matches the target', async () => {
+    const s = await setup();
+    const { h, sug } = await suggested(s);
+    h.dispose();
+    const root = s.lib.root;
+    const live = (f: string) => path.join(root, s.target.topicSlug, f);
+    const backup = path.join(root, '.trash', `${s.target.topicSlug}--${stamp(s)}-premerge`);
+    await mkdir(backup, { recursive: true });
+    await writeFile(path.join(backup, 'index.html'), 'old html');
+    await writeFile(path.join(backup, 'meta.json'), '{"old":true}');
+    await write(s.lib, { schemaVersion: 1, suggestions: [{ ...sug, status: 'accepting' }], dismissedPairs: [] });
+    const lib2 = await s.open();
+    const h2 = createMergeSuggestions({ library: lib2, judge: vi.fn() as unknown as MergeJudge });
+    expect((await h2.service.list())[0]?.status).toBe('pending');
+    expect(await readFile(live('index.html'), 'utf8')).toBe(HTML);
+  });
+
   it('finishes a committed accept idempotently', async () => {
     const s = await setup();
     const { h, sug } = await suggested(s);
@@ -660,5 +751,49 @@ describe('persistence and recovery (09 §10.5, §10.8)', () => {
     const h2 = createMergeSuggestions({ library: s.lib, judge: vi.fn() as unknown as MergeJudge });
     await h2.ready;
     expect(s.lib.readOnly).toBe(true);
+  });
+  it('never overwrites a suggestions.json it could not read, and retries the load later', async () => {
+    const s = await setup();
+    const { h, sug } = await suggested(s);
+    h.dispose();
+    const file = path.join(s.lib.root, '.eli5', 'suggestions.json');
+    const saved = await readFile(file, 'utf8');
+    await rm(file);
+    await mkdir(file); // EISDIR on read: an I/O error, not a corrupt file
+    const logger = { info: vi.fn(), debug: vi.fn(), error: vi.fn(), warn: vi.fn() };
+    const judge = judgeReturning((c) => c.map((x) => ({ ...x, score: 0.9, reason: 'r' })));
+    const h2 = createMergeSuggestions({ library: s.lib, judge, logger, clock: s.clock });
+    await h2.ready;
+    expect(await h2.service.list()).toEqual([]);
+    expect(await h2.runMergeCheck(s.source.id)).toBeNull();
+    expect(judge).not.toHaveBeenCalled();
+    await expectCode(h2.service.accept(sug.id), 'MERGE_FAILED');
+    await expectCode(h2.service.dismiss(sug.id), 'MERGE_FAILED');
+    expect((await stat(file)).isDirectory()).toBe(true);
+    // Readable again: the next call loads it.
+    await rm(file, { recursive: true });
+    await writeFile(file, saved);
+    expect(await h2.service.list()).toEqual([sug]);
+  });
+
+  it('keeps a newer-version file untouched and read-only even when its suggestions do not parse', async () => {
+    const s = await setup();
+    const { h, sug } = await suggested(s);
+    h.dispose();
+    const file = path.join(s.lib.root, '.eli5', 'suggestions.json');
+    const newer = JSON.stringify({
+      schemaVersion: 2,
+      suggestions: [sug, { ...sug, id: uuid(), status: 'snoozed', extra: 1 }],
+      dismissedPairs: [{ a: 'x', b: 'y', at: 'later', why: 'new field' }, 'odd'],
+      future: true,
+    });
+    await writeFile(file, newer);
+    const lib2 = await s.open();
+    const h2 = createMergeSuggestions({ library: lib2, judge: vi.fn() as unknown as MergeJudge });
+    await h2.ready;
+    expect(lib2.readOnly).toBe(true);
+    expect(await h2.service.list()).toEqual([sug]);
+    expect(await readFile(file, 'utf8')).toBe(newer);
+    expect((await readdir(path.join(lib2.root, '.eli5'))).some((n) => n.includes('.corrupt-'))).toBe(false);
   });
 });

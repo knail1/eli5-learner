@@ -59,7 +59,7 @@ export interface AppendMergedResult {
   html: string;
   /** Tab records in display order, for the target's meta.json. */
   tabs: MergeTabRecord[];
-  /** [indepthMarker, eli5Marker?]; [0] is always the in-depth marker (09 §10.6 step 12). */
+  /** [indepthMarker?, eli5Marker?]; each only when that source tab had content (09 §10.6 step 12). */
   markerSectionIds: SectionId[];
   /** Old source SectionId -> new SectionId; used only to re-anchor (07 §4.3). */
   idMap: Record<SectionId, SectionId>;

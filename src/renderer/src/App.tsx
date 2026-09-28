@@ -278,7 +278,7 @@ function Shell() {
           filterRef={filterRef}
         />
         <div data-region="suggestions">
-          <SuggestionsPanel onOpenDoc={openDoc} />
+          <SuggestionsPanel onOpenDoc={openDoc} currentSlug={selectedSlug} />
         </div>
         <footer className="sidebar-footer">
           <button

@@ -98,6 +98,36 @@ describe('App layout and routes (11 §5, §6)', () => {
     expect(host.querySelector('.settings h1')?.textContent).toBe('Settings');
   });
 
+  it('opens the target when a suggestion merges away the document on screen (09 §10.6 step 12)', async () => {
+    const source = entry('Widget ROAS', '2026-01-02T00:00:00Z');
+    const target = entry('Widget ad spend', '2026-01-01T00:00:00Z');
+    fake.api.library.list = async () => ok([source, target]);
+    fake.api.library.open = vi.fn(async () => ok(undefined)) as typeof fake.api.library.open;
+    fake.api.suggestions.list = async () =>
+      ok([
+        {
+          id: 's1',
+          createdAt: '2026-01-03T00:00:00Z',
+          status: 'pending' as const,
+          source: { id: source.id, slug: source.topicSlug, title: source.title },
+          target: { id: target.id, slug: target.topicSlug, title: target.title },
+          score: 0.9,
+          reason: 'Same topic.',
+          scorer: 'lexical+llm' as const,
+        },
+      ]);
+    fake.api.suggestions.accept = vi.fn(async () =>
+      ok({ targetSlug: target.topicSlug }),
+    ) as typeof fake.api.suggestions.accept;
+    const host = await render(App);
+    await click(host.querySelector('.library-item'));
+    expect(fake.api.library.open).toHaveBeenLastCalledWith(source.topicSlug);
+    await click(button(host, 'Merge in'));
+    await flush();
+    expect(fake.api.suggestions.accept).toHaveBeenCalledWith('s1');
+    expect(fake.api.library.open).toHaveBeenLastCalledWith(target.topicSlug);
+  });
+
   it('reopens the last document at startup if it still exists', async () => {
     window.localStorage.setItem('eli5.lastDoc', 'topic-a');
     fake.api.library.list = async () => ok([entry('Topic A', '2026-01-01T00:00:00Z')]);

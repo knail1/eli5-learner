@@ -11,15 +11,15 @@ import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import type { DocUpdatedEvent } from '../../../preload/contract';
-import { appendMergedDocument } from '../../document';
+import { appendMergedDocument, tabKeyOfSectionId } from '../../document';
 import { log as defaultLog, type Logger } from '../../security';
 import { uuidFrom } from '../catalog';
-import { DIR_MODE, errnoOf, writeJsonAtomic } from '../fs-atomic';
+import { DIR_MODE, errnoOf, writeFileAtomic, writeJsonAtomic } from '../fs-atomic';
 import { ELI5_DIR, INDEX_FILE, TRASH_DIR, type FsLibrary, type MergeDelegate } from '../library';
 import { LockSet } from '../locks';
 import { compactTimestamp, readVersioned, suggestionsMigrations } from '../migrations';
 import { RESOLVED_SUGGESTION_RETENTION_DAYS, defaultMergeEligibility } from '../policy';
-import { SUGGESTIONS_SCHEMA_VERSION, SuggestionsFileSchema } from '../schema';
+import { MergeSuggestionSchema, SUGGESTIONS_SCHEMA_VERSION, SuggestionsFileSchema } from '../schema';
 import {
   LibraryError,
   type CatalogEntry,
@@ -46,13 +46,31 @@ import {
 import { LexicalScorer, type SimilarityScorer } from './similarity';
 
 export const SUGGESTIONS_FILE = 'suggestions.json';
-/** A file from a newer app, read leniently in read-only mode (09 §5.3 step 3). */
-const NEWER_SUGGESTIONS_FILE = SuggestionsFileSchema.extend({
-  schemaVersion: z
-    .number()
-    .int()
-    .transform(() => 1 as const),
-}).loose();
+/** Keeps the array items this app understands; anything else becomes []. */
+const knownItems = <T>(schema: z.ZodType<T>) =>
+  z.unknown().transform((v): T[] =>
+    Array.isArray(v)
+      ? v.flatMap((x) => {
+          const r = schema.safeParse(x);
+          return r.success ? [r.data] : [];
+        })
+      : [],
+  );
+/**
+ * A file from a newer app, read leniently in read-only mode (09 §5.3 step 3). Items this version
+ * cannot parse (a new status, say) are skipped rather than failing the file, which would rename it
+ * as corrupt and let this app overwrite the newer data.
+ */
+const NEWER_SUGGESTIONS_FILE = z
+  .object({
+    schemaVersion: z
+      .number()
+      .int()
+      .transform(() => 1 as const),
+    suggestions: knownItems(MergeSuggestionSchema),
+    dismissedPairs: knownItems(SuggestionsFileSchema.shape.dismissedPairs.element),
+  })
+  .loose();
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** 02 `matchMerge` (the section lane's shared limiter applies inside the LLM module, 06 §10 step 3). */
@@ -148,6 +166,9 @@ class MergeEngine implements MergeDelegate {
   private readonly log: Logger;
   private readonly locks = new LockSet();
   private file: SuggestionsFile = emptyFile();
+  /** False until suggestions.json was read; nothing is written before that (never clobber it). */
+  private loaded = false;
+  private reloading: Promise<void> | undefined;
   private readonly changedCbs = new Set<(s: MergeSuggestion[]) => void>();
   private readonly docUpdatedCbs = new Set<(e: DocUpdatedEvent) => void>();
   private readonly unsubLibrary: Unsub;
@@ -166,7 +187,7 @@ class MergeEngine implements MergeDelegate {
     this.log = o.logger ?? defaultLog;
     this.service = {
       list: async () => {
-        await this.ready;
+        await this.ensureLoaded();
         return this.openList();
       },
       accept: (id) => this.accept(id),
@@ -174,13 +195,27 @@ class MergeEngine implements MergeDelegate {
       onChanged: (cb) => this.subscribe(this.changedCbs, cb),
       onDocUpdated: (cb) => this.subscribe(this.docUpdatedCbs, cb),
     };
-    this.ready = this.init().catch((err: unknown) => {
-      this.log.error('merge.init-failed', { errno: errnoOf(err) }, err);
-    });
+    this.ready = this.initLogged();
     // Suggestions go stale when a document leaves the Library (09 §12).
     this.unsubLibrary = this.lib.on('changed', (e) => {
       if (e.reason === 'removed' || e.reason === 'reconciled') void this.validate().catch(() => {});
     });
+  }
+
+  private initLogged(): Promise<void> {
+    return this.init().catch((err: unknown) => {
+      this.log.error('merge.init-failed', { errno: errnoOf(err) }, err);
+    });
+  }
+
+  /** Waits for startup; if suggestions.json could not be read (an I/O error), tries again. */
+  private async ensureLoaded(): Promise<boolean> {
+    await this.ready;
+    if (!this.loaded) {
+      this.reloading ??= this.initLogged().finally(() => (this.reloading = undefined));
+      await this.reloading;
+    }
+    return this.loaded;
   }
 
   dispose(): void {
@@ -248,6 +283,7 @@ class MergeEngine implements MergeDelegate {
       renameCorrupt: true,
       now: () => this.clock.now(),
     });
+    this.loaded = true;
     switch (r.status) {
       case 'ok':
         this.file = r.data;
@@ -269,6 +305,7 @@ class MergeEngine implements MergeDelegate {
 
   /** Prunes, then writes atomically. Nothing is written in read-only mode. */
   private async persist(): Promise<void> {
+    if (!this.loaded) return;
     this.prune();
     if (this.lib.readOnly) return;
     await writeJsonAtomic(this.filePath, this.file);
@@ -308,6 +345,12 @@ class MergeEngine implements MergeDelegate {
       if (meta?.merges.some((m) => m.suggestionId === s.id)) committed = meta;
     }
     if (!committed) {
+      // A crash between the index.html and meta.json writes of step 7 left merged HTML behind.
+      if (this.lib.getEntry(s.target.id)) {
+        await this.lib
+          .withDocLock(s.target.slug, () => this.restoreFromPremergeBackup(s.target.slug))
+          .catch((err: unknown) => this.log.error('merge.restore-failed', { slug: s.target.slug }, err));
+      }
       await this.withSuggestionsLock(async () => {
         this.setStatus(s.id, 'pending');
         await this.persist();
@@ -329,6 +372,23 @@ class MergeEngine implements MergeDelegate {
       this.lib.emitChanged('merged', [s.target.slug, s.source.slug]);
     } catch (err) {
       this.log.error('merge.recover-failed', { errno: errnoOf(err) }, err);
+    }
+  }
+
+  /**
+   * Puts back the newest `.trash/<slug>--<ts>-premerge/index.html` whose meta.json still equals the
+   * live one: the meta.json write never happened, so the live index.html must be the pre-merge one.
+   */
+  private async restoreFromPremergeBackup(slug: string): Promise<void> {
+    const trash = path.join(this.lib.root, TRASH_DIR);
+    const names = await fsp.readdir(trash).catch(() => [] as string[]);
+    const liveMeta = await fsp.readFile(this.lib.docPath(slug, 'meta.json'));
+    const backups = names.filter((n) => n.startsWith(`${slug}--`) && /-premerge(-\d+)?$/.test(n)).sort();
+    for (const name of backups.reverse()) {
+      const meta = await fsp.readFile(path.join(trash, name, 'meta.json')).catch(() => undefined);
+      if (!meta?.equals(liveMeta)) continue;
+      await this.restoreIndex(path.join(trash, name), slug);
+      return;
     }
   }
 
@@ -357,7 +417,7 @@ class MergeEngine implements MergeDelegate {
 
   /** Re-checks pending suggestions after a removal or reconcile. */
   private async validate(): Promise<void> {
-    await this.ready;
+    if (!(await this.ensureLoaded())) return;
     const changed = await this.withSuggestionsLock(async () => {
       const c = this.markMissingStale();
       if (c) await this.persist();
@@ -401,7 +461,7 @@ class MergeEngine implements MergeDelegate {
   }
 
   private async check(docId: string): Promise<MergeSuggestion | null> {
-    await this.ready;
+    if (!(await this.ensureLoaded())) return null;
     // Step 1.
     if (this.lib.readOnly) return null;
     const newEntry = this.lib.getEntry(docId);
@@ -534,7 +594,7 @@ class MergeEngine implements MergeDelegate {
   // ---- accept (09 §10.6) ----
 
   async accept(id: string): Promise<{ targetSlug: string }> {
-    await this.ready;
+    await this.assertLoaded();
     this.assertWritable();
     // Step 1.
     const s = await this.withSuggestionsLock(async () => {
@@ -546,7 +606,7 @@ class MergeEngine implements MergeDelegate {
     });
     this.emit();
 
-    let result: { targetSlug: string; markerId?: SectionId };
+    let result: AcceptResult;
     try {
       // Step 2: waits for any section job on either document (08).
       result = await this.lib.withDocLocks([s.target.slug, s.source.slug], () => this.acceptLocked(s));
@@ -560,12 +620,17 @@ class MergeEngine implements MergeDelegate {
         else this.setStatus(id, 'pending', e?.lastError ?? MERGE_FAILED_MESSAGE);
         await this.persist();
       });
-      this.emit();
       if (e?.status === 'committed') {
+        // Past the commit point: retry steps 8-10 now rather than only on the next start (09 §10.8).
         this.log.error('merge.finish-failed', { errno: errnoOf(e.cause) }, e.cause);
-        this.lib.emitChanged('updated', [s.target.slug]);
+        await this.recoverAccepting(s);
+        const done = this.file.suggestions.find((x) => x.id === id)?.status === 'accepted';
+        if (!done) this.lib.emitChanged('updated', [s.target.slug]);
+        this.emit();
+        this.emitMerged(s.target.slug, e.markerId);
         return { targetSlug: s.target.slug };
       }
+      this.emit();
       if (!e) this.log.warn('merge.accept-failed', { errno: errnoOf(err) });
       if (err instanceof LibraryError && err.code === 'LIBRARY_READ_ONLY') throw err;
       throw new LibraryError(e?.status === 'stale' ? 'SUGGESTION_STALE' : 'MERGE_FAILED', {});
@@ -580,16 +645,19 @@ class MergeEngine implements MergeDelegate {
     this.log.info('merge.accepted', { slug: s.target.slug });
     this.lib.emitChanged('merged', [s.target.slug, s.source.slug]);
     this.emit();
-    this.emitDocUpdated({
-      slug: s.target.slug,
-      tabKey: 'indepth',
-      ...(result.markerId ? { sectionId: result.markerId } : {}),
-    });
+    this.emitMerged(s.target.slug, result.markerId);
     return { targetSlug: result.targetSlug };
   }
 
+  /** Step 12 `eli5:doc:updated`: the marker's own tab (the in-depth one when it has no marker). */
+  private emitMerged(slug: string, markerId: SectionId | undefined): void {
+    this.emitDocUpdated(
+      markerId ? { slug, tabKey: tabKeyOfSectionId(markerId), sectionId: markerId } : { slug, tabKey: 'indepth' },
+    );
+  }
+
   /** Steps 3-9 under both doc locks. */
-  private async acceptLocked(s: MergeSuggestion): Promise<{ targetSlug: string; markerId?: SectionId }> {
+  private async acceptLocked(s: MergeSuggestion): Promise<AcceptResult> {
     this.assertWritable();
     // Step 3.
     const targetEntry = this.lib.getEntry(s.target.id);
@@ -663,13 +731,13 @@ class MergeEngine implements MergeDelegate {
       throw new AcceptOutcome('failed', MERGE_FAILED_MESSAGE, err);
     }
     // Steps 8-9.
+    const markerId = merged.markerSectionIds[0];
     try {
       await this.trashSourceFolder(s);
       await this.lib.applyMergeToCatalog(committed, s.source.id);
     } catch (err) {
-      throw new AcceptOutcome('committed', undefined, err);
+      throw new AcceptOutcome('committed', undefined, err, markerId);
     }
-    const markerId = merged.markerSectionIds[0];
     return { targetSlug: s.target.slug, ...(markerId ? { markerId } : {}) };
   }
 
@@ -688,7 +756,7 @@ class MergeEngine implements MergeDelegate {
     try {
       const html = await fsp.readFile(path.join(backup, INDEX_FILE));
       const live = await fsp.readFile(this.lib.docPath(slug, INDEX_FILE));
-      if (!html.equals(live)) await fsp.copyFile(path.join(backup, INDEX_FILE), this.lib.docPath(slug, INDEX_FILE));
+      if (!html.equals(live)) await writeFileAtomic(this.lib.docPath(slug, INDEX_FILE), html);
     } catch (err) {
       this.log.error('merge.restore-failed', { slug }, err);
     }
@@ -697,7 +765,7 @@ class MergeEngine implements MergeDelegate {
   // ---- dismiss (09 §10.7) ----
 
   async dismiss(id: string): Promise<void> {
-    await this.ready;
+    await this.assertLoaded();
     this.assertWritable();
     await this.withSuggestionsLock(async () => {
       const s = this.file.suggestions.find((x) => x.id === id);
@@ -712,10 +780,16 @@ class MergeEngine implements MergeDelegate {
     this.emit();
   }
 
+  private async assertLoaded(): Promise<void> {
+    if (!(await this.ensureLoaded())) throw new LibraryError('MERGE_FAILED', {});
+  }
+
   private assertWritable(): void {
     if (this.lib.readOnly) throw new LibraryError('LIBRARY_READ_ONLY', {});
   }
 }
+
+type AcceptResult = { targetSlug: string; markerId?: SectionId };
 
 /** Why an accept stopped (09 §10.6 steps 3, 11). */
 class AcceptOutcome extends Error {
@@ -723,6 +797,7 @@ class AcceptOutcome extends Error {
     readonly status: 'stale' | 'failed' | 'committed',
     readonly lastError?: string,
     override readonly cause?: unknown,
+    readonly markerId?: SectionId,
   ) {
     super(status);
     this.name = 'AcceptOutcome';
