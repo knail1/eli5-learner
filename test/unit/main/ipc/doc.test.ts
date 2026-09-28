@@ -125,6 +125,26 @@ describe('eli5:doc:regenerate-section / create-section-eli5 (08 §3, §6.1)', ()
     });
   });
 
+  it('maps SectionActionError to its code and notice text (08 §9)', async () => {
+    const { SectionActionError } = await import('../../../../src/main/document');
+    const { svc } = fakeActions();
+    svc.regenerateSection.mockRejectedValueOnce(
+      new SectionActionError('E_RATE_LIMITED', 'Too many requests; wait a moment'),
+    );
+    svc.closeTab.mockRejectedValueOnce(
+      new SectionActionError('E_CONFLICT', 'Wait for the update in this tab to finish'),
+    );
+    const h = await setup({ services: { sectionActions: svc } });
+    expect(await h.call(IPC.doc.regenerateSection, req(), 'viewer')).toEqual({
+      ok: false,
+      error: { code: 'E_RATE_LIMITED', message: 'Too many requests; wait a moment' },
+    });
+    expect(await h.call(IPC.doc.closeTab, { slug: 'solar-power', tabKey: 'sx0a1b2c' }, 'viewer')).toEqual({
+      ok: false,
+      error: { code: 'E_CONFLICT', message: 'Wait for the update in this tab to finish' },
+    });
+  });
+
   it('answers "Not implemented yet" until a SectionActions service is plugged in', async () => {
     const h = await setup();
     expect(await h.call(IPC.doc.regenerateSection, req(), 'viewer')).toEqual({

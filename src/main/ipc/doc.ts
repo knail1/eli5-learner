@@ -10,7 +10,7 @@ import {
   type SectionBusyEvent,
   type SectionId,
 } from '../../preload/contract';
-import { SECTION_ELI5_TAB_KEY_RE, SECTION_ID_RE, TAB_KEY_RE, tabKeyOfSectionId } from '../document';
+import { SECTION_ELI5_TAB_KEY_RE, SECTION_ID_RE, SectionActionError, TAB_KEY_RE, tabKeyOfSectionId } from '../document';
 import { fail, type Register } from './handle';
 import { SlugPayload } from './schemas';
 
@@ -86,18 +86,28 @@ function sameDocument(slug: string, e: IpcMainInvokeEvent): void {
   if (viewerSlug(e) !== slug) fail('E_FORBIDDEN', 'Forbidden');
 }
 
+/** 08 §9: a refused request carries its IpcErrorCode and the runtime's inline notice text. */
+async function mapped<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    if (err instanceof SectionActionError) fail(err.code, err.message);
+    throw err;
+  }
+}
+
 /** `eli5:doc:*` invokes (08 §3); viewer-only via VIEWER_CHANNELS. Events are wired by registerIpc. */
 export function registerDocIpc(on: Register, d: { actions: SectionActions }): void {
   on(IPC.doc.regenerateSection, SectionActionPayload, (p, e) => {
     sameDocument(p.slug, e);
-    return d.actions.regenerateSection(p);
+    return mapped(() => d.actions.regenerateSection(p));
   });
   on(IPC.doc.createSectionEli5, CreateSectionEli5Payload, (p, e) => {
     sameDocument(p.slug, e);
-    return d.actions.createSectionEli5(p);
+    return mapped(() => d.actions.createSectionEli5(p));
   });
   on(IPC.doc.closeTab, CloseTabPayload, (p, e) => {
     sameDocument(p.slug, e);
-    return d.actions.closeTab(p);
+    return mapped(() => d.actions.closeTab(p));
   });
 }

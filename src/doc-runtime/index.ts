@@ -43,7 +43,7 @@ export function boot(win: Window = window, doc: Document = document): RuntimeHan
   if (tabs) handle.tabs = tabs;
   if (glossary) handle.glossary = glossary;
   if (bridge) {
-    const selection = safe('selection', () => initSelection(doc, win, bridge));
+    const selection = safe('selection', () => initSelection(doc, win, bridge, tabs));
     if (selection) handle.selection = selection;
     safe('close-buttons', () => initCloseButtons(doc, bridge));
     if (tabs) safe('scroll', () => initScroll(doc, win, bridge, tabs));

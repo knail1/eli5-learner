@@ -1,0 +1,288 @@
+// Section actions service (08 §6.1, §7.2, §8): request checks, in-flight busy keys, tab close, and
+// the events IPC forwards (`eli5:doc:updated`, `scroll-to`, `section-busy`).
+import { readFile } from 'node:fs/promises';
+import type {
+  CloseTabRequest,
+  DocUpdatedEvent,
+  MenuAction,
+  ScrollToEvent,
+  SectionActionRequest,
+  SectionBusyEvent,
+  SectionId,
+} from '../../../preload/contract';
+import type { SectionActions } from '../../ipc';
+import type { SectionRunner } from '../../pipeline';
+import { DocumentFormatError } from '../errors';
+import { MAX_SECTION_ELI5_TABS, removeTab, sectionIdsOfTab } from '../mutate';
+import { parseDocument } from '../parse';
+import { renderDocument } from '../render';
+import { tabKeyOfSectionId } from '../section-id';
+import type { ParsedDocument, SectionJobPayload } from '../types';
+import { sectionHash } from './hash';
+import { RateLimiter } from './rate-limit';
+import { createSectionRunner } from './regenerate';
+import {
+  SectionActionError,
+  failureNotice,
+  mirrorTabs,
+  type InteractiveDeps,
+  type InteractiveJobs,
+  type ResolvedDeps,
+  type Unsub,
+} from './types';
+import { ViewerRefresh } from './viewer';
+
+/** Inline notice texts for refused requests (08 §9). */
+export const NOTICES = {
+  busy: 'This section is already being updated',
+  rateLimited: 'Too many requests; wait a moment',
+  noApiKey: 'Add an API key in Settings',
+  tooManyTabs: 'Close a section ELI5 tab before adding another',
+  notEditable: "This document can't be edited",
+  docGone: 'This document no longer exists',
+  sectionGone: 'This section changed. Reload and try again',
+  tabBusy: 'Wait for the update in this tab to finish',
+} as const;
+
+export interface InteractiveReading {
+  /** IpcServices.sectionActions (src/main/ipc/doc.ts). */
+  readonly actions: SectionActions;
+  /** PipelineDeps.sectionRunner (06 §8.2). */
+  readonly runner: SectionRunner;
+  /** Subscribes to the queue and rebuilds busy keys from non-terminal section jobs (08 §8.1). */
+  attachJobs(jobs: InteractiveJobs): void;
+  /** Emits `eli5:doc:updated` and refreshes the viewer when it shows that document (08 §7.4). */
+  notifyUpdated(e: DocUpdatedEvent): void;
+  dispose(): void;
+}
+
+interface Inflight {
+  slug: string;
+  sectionId: SectionId;
+  action: MenuAction;
+  jobId?: string;
+}
+
+const busyKey = (slug: string, sectionId: string): string => `${slug}#${sectionId}`;
+const refuse = (code: SectionActionError['code'], message: string): never => {
+  throw new SectionActionError(code, message);
+};
+
+class Emitter<T> {
+  private readonly subs = new Set<(e: T) => void>();
+  on(cb: (e: T) => void): Unsub {
+    this.subs.add(cb);
+    return () => this.subs.delete(cb);
+  }
+  emit(e: T): void {
+    for (const cb of [...this.subs]) cb(e);
+  }
+}
+
+export function createInteractiveReading(input: InteractiveDeps): InteractiveReading {
+  const d: ResolvedDeps = {
+    ...input,
+    clock: input.clock ?? { now: () => new Date() },
+    readFile: input.readFile ?? ((p) => readFile(p, 'utf8')),
+  };
+  const inflight = new Map<string, Inflight>();
+  const updated = new Emitter<DocUpdatedEvent>();
+  const scroll = new Emitter<ScrollToEvent>();
+  const busy = new Emitter<SectionBusyEvent>();
+  const limiter = new RateLimiter({
+    ...(d.rateLimit ?? {}),
+    now: () => d.clock.now().getTime(),
+  });
+  /** Last status seen per section job, to tell a user retry (failed -> queued) from a new job. */
+  const lastStatus = new Map<string, string>();
+  const retried = new Set<string>();
+  let jobs: InteractiveJobs | undefined;
+  let unsubJobs: Unsub | undefined;
+
+  /** 08 §8.3: the full busy list for the document in the viewer. */
+  const broadcast = (slug: string, notices: SectionBusyEvent['notices'] = []): void => {
+    if (d.viewer.currentSlug() !== slug) return;
+    const list = [...inflight.values()]
+      .filter((f) => f.slug === slug)
+      .map((f) => ({ sectionId: f.sectionId, action: f.action }));
+    busy.emit({ busy: list, ...(notices.length ? { notices } : {}) });
+  };
+  const refresh = new ViewerRefresh(d.viewer, {
+    scrollTo: (e) => scroll.emit(e),
+    afterLoad: () => {
+      const slug = d.viewer.currentSlug();
+      if (slug) broadcast(slug);
+    },
+  });
+
+  const notifyUpdated = (e: DocUpdatedEvent): void => {
+    updated.emit(e);
+    refresh.updated(e);
+  };
+
+  const release = (p: SectionJobPayload, jobId?: string): boolean => {
+    const key = busyKey(p.slug, p.sectionId);
+    const cur = inflight.get(key);
+    if (!cur || (jobId !== undefined && cur.jobId !== undefined && cur.jobId !== jobId)) return false;
+    inflight.delete(key);
+    return true;
+  };
+
+  const track = (p: SectionJobPayload, jobId: string): boolean => {
+    const key = busyKey(p.slug, p.sectionId);
+    const cur = inflight.get(key);
+    if (cur) {
+      cur.jobId ??= jobId;
+      return false;
+    }
+    inflight.set(key, { slug: p.slug, sectionId: p.sectionId, action: p.action, jobId });
+    return true;
+  };
+
+  const onJobChanged = (s: { id: string; kind: string; status: string }): void => {
+    if (s.kind !== 'section' || !jobs) return;
+    const job = jobs.get(s.id);
+    const p = job?.section;
+    if (!job || !p) return;
+    const prev = lastStatus.get(s.id);
+    if (s.status === 'done') lastStatus.delete(s.id);
+    else lastStatus.set(s.id, s.status);
+    if (prev === 'failed' && s.status === 'queued') retried.add(s.id);
+    if (s.status === 'done' || s.status === 'failed') {
+      const released = release(p, s.id);
+      const code = s.status === 'failed' ? job.failure?.code : undefined;
+      const message = code ? failureNotice(code) : undefined;
+      if (released || message) broadcast(p.slug, message ? [{ sectionId: p.sectionId, message }] : []);
+    } else if (s.status === 'queued') {
+      // A new job, a user retry or a crash resume (08 §8.1).
+      if (track(p, s.id)) broadcast(p.slug);
+    }
+  };
+
+  const readModel = async (slug: string): Promise<ParsedDocument> => {
+    let html: string;
+    try {
+      html = await d.readFile(d.library.docPath(slug));
+    } catch {
+      return refuse('E_NOT_FOUND', NOTICES.docGone);
+    }
+    try {
+      return parseDocument(html);
+    } catch (err) {
+      if (err instanceof DocumentFormatError) return refuse('E_CONFLICT', NOTICES.notEditable);
+      throw err;
+    }
+  };
+
+  /** 08 §6.1 steps 1-8 for both action channels. */
+  const request = async (r: Omit<SectionActionRequest, 'action'>, action: MenuAction): Promise<{ jobId: string }> => {
+    if (d.viewer.currentSlug() !== r.slug) refuse('E_FORBIDDEN', 'Forbidden');
+    if (!limiter.take(r.slug)) refuse('E_RATE_LIMITED', NOTICES.rateLimited);
+    const key = busyKey(r.slug, r.sectionId);
+    let reserved = false;
+    try {
+      if (tabKeyOfSectionId(r.sectionId) !== r.tabKey) refuse('E_BAD_REQUEST', 'Invalid request');
+      if (!d.library.hasSlug(r.slug)) refuse('E_NOT_FOUND', NOTICES.docGone);
+      if (inflight.has(key)) refuse('E_CONFLICT', NOTICES.busy);
+      // Reserved before any await, so two requests for one section cannot both pass step 4.
+      inflight.set(key, { slug: r.slug, sectionId: r.sectionId, action });
+      reserved = true;
+      if (!(await (d.hasApiKey?.() ?? Promise.resolve(true)))) refuse('E_NO_API_KEY', NOTICES.noApiKey);
+      const { model } = await readModel(r.slug);
+      const section = model.tabs.find((t) => t.key === r.tabKey)?.sections.find((s) => s.id === r.sectionId);
+      if (!section) return refuse('E_NOT_FOUND', NOTICES.sectionGone);
+      if (section.kind === 'references') refuse('E_BAD_REQUEST', 'Invalid request');
+      if (action === 'eli5-tab' && model.tabs.filter((t) => t.kind === 'section-eli5').length >= MAX_SECTION_ELI5_TABS)
+        refuse('E_CONFLICT', NOTICES.tooManyTabs);
+      if (!jobs) throw new Error('interactive reading: job queue not attached');
+      const payload: SectionJobPayload = {
+        slug: r.slug,
+        tabKey: r.tabKey,
+        sectionId: r.sectionId,
+        action,
+        selectionText: r.selectionText,
+        ...(r.note ? { note: r.note } : {}),
+        heading: section.heading,
+        baseHash: sectionHash(section),
+      };
+      const { jobId } = await jobs.enqueueSection(payload);
+      const cur = inflight.get(key);
+      if (cur && !cur.jobId) cur.jobId = jobId;
+      broadcast(r.slug);
+      d.log?.info('document.section-action', { slug: r.slug, sectionId: r.sectionId, jobId, kind: action });
+      return { jobId };
+    } catch (err) {
+      if (reserved && !inflight.get(key)?.jobId) inflight.delete(key);
+      limiter.refund(r.slug);
+      throw err;
+    }
+  };
+
+  /** 08 §7.2: delete a section ELI5 tab under the lock; its SectionIds are retired. */
+  const closeTab = async (r: CloseTabRequest): Promise<void> => {
+    if (d.viewer.currentSlug() !== r.slug) refuse('E_FORBIDDEN', 'Forbidden');
+    if (!d.library.hasSlug(r.slug)) refuse('E_NOT_FOUND', NOTICES.docGone);
+    const left = await d.library.withDocLock(r.slug, async () => {
+      const now = d.clock.now().toISOString();
+      const { model, assets, runtime, theme } = await readModel(r.slug);
+      const index = model.tabs.findIndex((t) => t.key === r.tabKey);
+      const tab = model.tabs[index];
+      if (!tab) return refuse('E_NOT_FOUND', 'This tab no longer exists');
+      if (tab.kind !== 'section-eli5') refuse('E_FORBIDDEN', 'Forbidden');
+      for (const f of inflight.values()) {
+        if (f.slug === r.slug && tabKeyOfSectionId(f.sectionId) === r.tabKey) refuse('E_CONFLICT', NOTICES.tabBusy);
+      }
+      const next = removeTab(model, r.tabKey, now);
+      const closedIds = sectionIdsOfTab(model, r.tabKey);
+      const html = renderDocument(next, assets, { runtime, theme });
+      await d.library.updateDocument(r.slug, {
+        html,
+        meta: (m) => ({ ...m, tabs: mirrorTabs(next.tabs), retiredIds: [...(m.retiredIds ?? []), ...closedIds] }),
+      });
+      return model.tabs[index - 1]?.key ?? model.tabs[0]?.key;
+    });
+    d.log?.info('document.tab-closed', { slug: r.slug, tabKey: r.tabKey });
+    notifyUpdated({ slug: r.slug, ...(left ? { tabKey: left } : {}) });
+  };
+
+  const runner = createSectionRunner({
+    deps: d,
+    committed: (p, e) => {
+      release(p);
+      broadcast(p.slug);
+      notifyUpdated(e);
+    },
+    consumeRetry: (jobId) => retried.delete(jobId),
+  });
+
+  const actions: SectionActions = {
+    regenerateSection: (r) => request(r, r.action),
+    createSectionEli5: (r) => request(r, 'eli5-tab'),
+    closeTab,
+    onUpdated: (cb) => updated.on(cb),
+    onScrollTo: (cb) => scroll.on(cb),
+    onSectionBusy: (cb) => busy.on(cb),
+  };
+
+  return {
+    actions,
+    runner,
+    notifyUpdated,
+    attachJobs(q) {
+      unsubJobs?.();
+      jobs = q;
+      unsubJobs = q.on('changed', onJobChanged);
+      for (const s of q.list()) {
+        if (s.kind !== 'section' || s.status === 'done' || s.status === 'failed') continue;
+        const p = q.get(s.id)?.section;
+        if (p) track(p, s.id);
+      }
+      const slug = d.viewer.currentSlug();
+      if (slug) broadcast(slug);
+    },
+    dispose() {
+      unsubJobs?.();
+      refresh.dispose();
+    },
+  };
+}

@@ -323,8 +323,30 @@ section.merge-marker > h2 {
   border-top: 3px solid var(--accent);
   padding-top: 12px;
 }
+/* 08 §5.5 step 2: thin animated left rule plus "Updating…" / "Creating ELI5 tab…". */
 section[data-eli5-busy] {
   box-shadow: -4px 0 0 var(--accent);
+  animation: eli5-busy-pulse 1.4s ease-in-out infinite;
+}
+.eli5-busy-label {
+  display: block;
+  font: 600 13px/1.4 var(--font-sans);
+  color: var(--accent);
+  margin: 0 0 6px;
+}
+@keyframes eli5-busy-pulse {
+  50% {
+    box-shadow: -4px 0 0 transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  section[data-eli5-busy] {
+    animation: none;
+  }
+}
+/* 08 §5.2 step 5: the passage stays marked while the menu is open. */
+::highlight(eli5-pending) {
+  background-color: var(--highlight);
 }
 .eli5-notice {
   font: 14px/1.4 var(--font-sans);
