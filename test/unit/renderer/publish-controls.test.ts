@@ -1,4 +1,4 @@
-import { createElement } from 'react';
+import { act, createElement, useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   EditionInfo,
@@ -7,12 +7,22 @@ import type {
   PublishResult,
   PublishTarget,
 } from '../../../src/preload/contract';
-import { PUBLIC_EDITION, button, click, installFakeApi, loadRenderer, ok, render, type FakeApi } from './harness';
+import {
+  PUBLIC_EDITION,
+  button,
+  click,
+  flush,
+  installFakeApi,
+  loadRenderer,
+  ok,
+  render,
+  type FakeApi,
+} from './harness';
 
 /** Publish slot in the document header (10 §7, 11 §5.3, HOOK-UI-01). */
 
 const { PublishControls, truncateMiddle, linkText } = await loadRenderer<{
-  PublishControls: (p: { slug: string }) => unknown;
+  PublishControls: (p: { slug: string; onOpenSettings?: () => void }) => unknown;
   truncateMiddle: (s: string, max?: number) => string;
   linkText: (url: string) => string;
 }>('viewer/PublishControls.tsx');
@@ -59,19 +69,24 @@ beforeEach(() => {
   fake.api.publish.cancel = vi.fn(async () => ok(undefined));
 });
 
-function mount(edition?: EditionInfo) {
+let setSlug: (s: string) => void = () => {};
+
+function mount(edition?: EditionInfo, extra: { onOpenSettings?: () => void } = {}) {
   if (edition) {
     const targets = fake.api.publish.targets;
     fake = installFakeApi(edition);
     fake.api.publish.targets = targets;
   }
   return render(function Harness() {
-    return createElement(
-      EditionProvider as never,
-      null,
-      createElement(PublishControls as never, { slug: 'widget-pricing' }),
-    );
+    const [slug, set] = useState('widget-pricing');
+    setSlug = set;
+    return createElement(EditionProvider as never, null, createElement(PublishControls as never, { slug, ...extra }));
   });
+}
+
+async function switchTo(slug: string) {
+  await act(async () => setSlug(slug));
+  await flush();
 }
 
 /** A run() whose result the test releases. */
@@ -275,5 +290,88 @@ describe('PublishControls (10 §7)', () => {
     const host = await mount();
     await click(button(host, 'Open'));
     expect(host.querySelector('[role="alert"]')?.textContent).toContain('no longer there');
+  });
+  it('a feature-enabled target that is not configured shows disabled with its reason and Open settings', async () => {
+    fake.api.publish.targets = vi.fn(async () =>
+      ok([local(), { ...stub('git', false), unavailableReason: 'Not configured' }, stub('drive', false)]),
+    );
+    const onOpenSettings = vi.fn();
+    const host = await mount(
+      { ...PUBLIC_EDITION, edition: 'enterprise', uiFeatures: ['publish.git'] },
+      { onOpenSettings },
+    );
+    expect(button(host, 'Push to Pages')?.disabled).toBe(true);
+    expect(host.textContent).toContain('Not configured');
+    // drive's feature is off: still absent.
+    expect(button(host, 'Share to cloud drive')).toBeUndefined();
+    await click(button(host, 'Open settings'));
+    expect(onOpenSettings).toHaveBeenCalled();
+    expect(button(host, 'Export copy')?.disabled).toBe(false);
+  });
+
+  it('without an Open settings handler the reason still shows, with no dead button', async () => {
+    fake.api.publish.targets = vi.fn(async () =>
+      ok([local({ available: false, unavailableReason: 'Folder missing' })]),
+    );
+    const host = await mount();
+    expect(button(host, 'Export copy')?.disabled).toBe(true);
+    expect(host.textContent).toContain('Folder missing');
+    expect(button(host, 'Open settings')).toBeUndefined();
+  });
+
+  it('switching away from a running publish and back restores its progress and Cancel', async () => {
+    const finish = pendingRun();
+    const host = await mount();
+    await click(button(host, 'Export copy'));
+    fake.emit('publish', {
+      slug: 'widget-pricing',
+      targetId: 'local',
+      stage: 'preparing',
+    } satisfies PublishProgressEvent);
+    await switchTo('other-doc');
+    expect(button(host, 'Export copy')?.disabled).toBe(false);
+    expect(button(host, 'Cancel')).toBeUndefined();
+    await switchTo('widget-pricing');
+    expect(button(host, 'Export copy')?.disabled).toBe(true);
+    expect(host.textContent).toContain('Preparing…');
+    await click(button(host, 'Cancel'));
+    expect(fake.api.publish.cancel).toHaveBeenCalledWith('widget-pricing', 'local');
+    // The finished publish, reported by its 'done' event, clears progress and shows the chip.
+    fake.emit('publish', {
+      slug: 'widget-pricing',
+      targetId: 'local',
+      stage: 'done',
+      result: result(),
+    } satisfies PublishProgressEvent);
+    finish(ok(result()));
+    await flush();
+    expect(button(host, 'Cancel')).toBeUndefined();
+    expect(button(host, 'Export copy')?.disabled).toBe(false);
+    expect(host.querySelector('.result-chip')?.textContent).toContain('Export copy');
+  });
+
+  it('a publish that is progressing while another document is shown is picked up on return', async () => {
+    const finish = pendingRun();
+    const host = await mount();
+    await click(button(host, 'Export copy'));
+    await switchTo('other-doc');
+    fake.emit('publish', {
+      slug: 'widget-pricing',
+      targetId: 'local',
+      stage: 'preparing',
+    } satisfies PublishProgressEvent);
+    expect(host.textContent).not.toContain('Preparing…');
+    await switchTo('widget-pricing');
+    expect(host.textContent).toContain('Preparing…');
+    fake.emit('publish', {
+      slug: 'widget-pricing',
+      targetId: 'local',
+      stage: 'failed',
+      error: { code: 'E_PUBLISH_FAILED', message: 'Folder is not available.' },
+    } satisfies PublishProgressEvent);
+    finish({ ok: false, error: { code: 'E_PUBLISH_FAILED', message: 'Folder is not available.' } });
+    await flush();
+    expect(button(host, 'Cancel')).toBeUndefined();
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('Folder is not available.');
   });
 });

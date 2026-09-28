@@ -3,11 +3,11 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createDocProtocolHandler } from '../../../../src/main/library';
 
-/** The Pages setup help page (10 §8), served as eli5doc://help/pages-setup.html (12 §7.7). */
+/** The Pages setup help page (10 §8), served as eli5doc://help/publish-github-pages.html (12 §7.7). */
 
 const repo = path.resolve(import.meta.dirname, '../../../..');
 const helpRoot = path.join(repo, 'resources/help');
-const page = () => readFile(path.join(helpRoot, 'pages-setup.html'), 'utf8');
+const page = () => readFile(path.join(helpRoot, 'publish-github-pages.html'), 'utf8');
 const text = (html: string) =>
   html
     .replace(/<style[\s\S]*?<\/style>/g, '')
@@ -18,10 +18,10 @@ const text = (html: string) =>
     .replace(/&quot;/g, '"')
     .replace(/\s+/g, ' ');
 
-describe('resources/help/pages-setup.html (10 §8)', () => {
+describe('resources/help/publish-github-pages.html (10 §8)', () => {
   it('is served by the eli5doc://help handler', async () => {
     const handler = createDocProtocolHandler({ root: '/nonexistent', isCatalogued: () => false, helpRoot });
-    const res = await handler(new Request('eli5doc://help/pages-setup.html'));
+    const res = await handler(new Request('eli5doc://help/publish-github-pages.html'));
     expect(res.status).toBe(200);
     expect(await res.text()).toBe(await page());
   });

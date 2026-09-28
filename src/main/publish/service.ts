@@ -11,10 +11,10 @@ import type { IpcErrorCode } from '../../preload/contract';
 import type { Settings } from '../config';
 import { NotAvailableInEdition, type CapabilityRegistry } from '../editions';
 import type { PublishService, PublishServiceProgress } from '../ipc';
-import { LibraryError, type FsLibrary } from '../library';
+import { LibraryError, isValidSlug, type FsLibrary } from '../library';
 import { log as defaultLog, type Logger } from '../security';
 import { buildPublishFileSet } from './files';
-import { expandHome, isWithin } from './local';
+import { expandHome } from './local';
 import { PublishError } from './types';
 import type { PublicationRecord, PublishContext, PublishResult, PublishStage, PublishTarget } from './types';
 
@@ -31,7 +31,10 @@ export class PublishRequestError extends Error {
 
 export interface PublishServiceDeps {
   registry: Pick<CapabilityRegistry, 'publisher' | 'publishers' | 'secretScanner' | 'prePublishPolicy'>;
-  library: Pick<FsLibrary, 'root' | 'hasSlug' | 'getEntry' | 'getMeta' | 'docPath' | 'withDocLock' | 'updateDocument'>;
+  library: Pick<
+    FsLibrary,
+    'root' | 'hasSlug' | 'getEntry' | 'getMeta' | 'docPath' | 'withDocLock' | 'appendPublication'
+  >;
   settings: () => Settings;
   /** Electron clipboard (10 §7 step 2: copying happens in main). */
   clipboard: { writeText(text: string): void };
@@ -104,8 +107,11 @@ export function createPublishService(d: PublishServiceDeps): PublishServiceHandl
 
   const exportDir = () => expandHome(d.settings().publish.local.dir, home);
 
-  /** 10 §7 step 3: a `file:` link must point inside publish.local.dir (lexically). */
-  const fileInsideExport = (u: URL): string => {
+  /**
+   * 10 §7: a `file:` link names an export, `<dir>/<slug>/index.html`, and nothing else in the
+   * folder, so Open can never launch another file (12 §7.5). Returns the path and its slug.
+   */
+  const exportFile = (u: URL): { abs: string; slug: string } => {
     if (u.hostname !== '' && u.hostname !== 'localhost') throw forbidden();
     let abs: string;
     try {
@@ -113,13 +119,32 @@ export function createPublishService(d: PublishServiceDeps): PublishServiceHandl
     } catch {
       throw forbidden();
     }
-    const dir = exportDir();
-    if (abs === dir || !isWithin(dir, abs)) throw forbidden();
-    return abs;
+    const slug = path.basename(path.dirname(abs));
+    if (path.basename(abs) !== 'index.html' || !isValidSlug(slug)) throw forbidden();
+    return { abs, slug };
   };
 
-  /** Scheme and folder checks shared by the link actions (10 §7). */
-  const checkLink = (raw: string, schemes: readonly ('https:' | 'file:')[]): { url: URL; file?: string } => {
+  /** The export sits in the current publish.local.dir (lexically, 10 §7 step 3). */
+  const inCurrentDir = (abs: string) => path.dirname(path.dirname(abs)) === exportDir();
+
+  /** A local export recorded in that document's history (10 §7 step 4: links survive restarts). */
+  const recorded = async (href: string, slug: string): Promise<boolean> => {
+    if (!d.library.hasSlug(slug)) return false;
+    try {
+      return (await d.library.getMeta(slug)).publications.some((r) => r.kind === 'local' && r.primaryUrl === href);
+    } catch {
+      return false;
+    }
+  };
+
+  /**
+   * Scheme and folder checks shared by the link actions (10 §7). Copy and reveal also accept an
+   * export recorded before publish.local.dir changed; Open (step 3) takes the current folder only.
+   */
+  const checkLink = async (
+    raw: string,
+    schemes: readonly ('https:' | 'file:')[],
+  ): Promise<{ url: URL; file?: string; current?: boolean }> => {
     let url: URL;
     try {
       url = new URL(raw);
@@ -131,7 +156,10 @@ export function createPublishService(d: PublishServiceDeps): PublishServiceHandl
       if (!url.hostname || url.username || url.password) throw forbidden();
       return { url };
     }
-    return { url, file: fileInsideExport(url) };
+    const { abs, slug } = exportFile(url);
+    if (inCurrentDir(abs)) return { url, file: abs, current: true };
+    if (await recorded(url.href, slug)) return { url, file: abs, current: false };
+    throw forbidden();
   };
 
   async function publishLocked(
@@ -195,9 +223,8 @@ export function createPublishService(d: PublishServiceDeps): PublishServiceHandl
           contentSha256: index.sha256,
         };
         try {
-          await d.library.updateDocument(slug, {
-            meta: (m) => ({ ...m, publications: [...m.publications, record] }),
-          });
+          // Not updateDocument: the catalog and updatedAt stay untouched (step 7).
+          await d.library.appendPublication(slug, record);
         } catch (err) {
           logger.warn('publish.history-failed', { slug, code: err instanceof LibraryError ? err.code : 'unknown' });
           return { ...result, warnings: [...result.warnings, historyWarning(publisher.kind)] };
@@ -286,17 +313,18 @@ export function createPublishService(d: PublishServiceDeps): PublishServiceHandl
     },
 
     async copyLink(url) {
-      checkLink(url, ['https:', 'file:']);
+      await checkLink(url, ['https:', 'file:']);
       d.clipboard.writeText(url);
     },
 
     async openLink(url) {
-      const { url: u, file } = checkLink(url, ['https:', 'file:']);
+      const { url: u, file, current } = await checkLink(url, ['https:', 'file:']);
       if (file === undefined) {
         if (!(await d.openExternal(u.href))) throw new PublishRequestError('E_RATE_LIMITED', 'Link not opened');
         return;
       }
-      // The exported file must exist and, through any symlink, still sit inside the folder.
+      if (!current) throw new PublishRequestError('E_FORBIDDEN', 'This copy was exported to a different folder');
+      // The export must exist and, with every symlink resolved, still be <dir>/<slug>/index.html.
       let real: string;
       let realDir: string;
       try {
@@ -305,13 +333,13 @@ export function createPublishService(d: PublishServiceDeps): PublishServiceHandl
       } catch {
         throw new PublishRequestError('E_NOT_FOUND', 'The exported copy is no longer there');
       }
-      if (!isWithin(realDir, real) || real === realDir) throw forbidden();
+      if (real !== path.join(realDir, path.relative(exportDir(), file))) throw forbidden();
       const problem = await d.openPath(file);
       if (problem !== '') throw new PublishRequestError('E_IO', 'The exported copy could not be opened');
     },
 
     async reveal(url) {
-      const { file } = checkLink(url, ['file:']);
+      const { file } = await checkLink(url, ['file:']);
       if (file !== undefined) d.showItemInFolder(file);
     },
 

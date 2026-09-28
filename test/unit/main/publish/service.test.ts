@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -61,6 +61,7 @@ class FakePublisher implements Publisher {
 
 interface World {
   lib: FsLibrary;
+  clock: { advance(ms: number): void };
   slug: string;
   exportDir: string;
   settings: Settings;
@@ -79,7 +80,7 @@ interface World {
 let w: World;
 
 async function world(extraPublishers: string[] = []): Promise<World> {
-  const { lib } = await testLibrary();
+  const { lib, clock } = await testLibrary();
   const entry = await createDoc(lib, 'Widget pricing');
   const exportDir = await mkdtemp(path.join(tmpdir(), 'eli5-export-'));
   const settings = structuredClone(DEFAULTS);
@@ -114,6 +115,7 @@ async function world(extraPublishers: string[] = []): Promise<World> {
   svc.onProgress((e) => events.push(e));
   const out: World = {
     lib,
+    clock,
     slug: entry.topicSlug,
     exportDir,
     settings,
@@ -204,6 +206,21 @@ describe('run (10 §4 runPublish)', () => {
     ]);
     // The exported folder never holds meta.json or catalog.json.
     await expect(readFile(path.join(w.exportDir, w.slug, 'meta.json'))).rejects.toThrow();
+  });
+
+  it('recording history leaves the catalog, updatedAt and Library events alone (10 §4 step 7)', async () => {
+    const before = await w.lib.getMeta(w.slug);
+    const catalogBefore = await readFile(path.join(w.lib.root, 'catalog.json'), 'utf8');
+    const changes: unknown[] = [];
+    w.lib.on('changed', (e) => changes.push(e));
+    w.clock.advance(60_000);
+    await w.svc.run(w.slug, 'local');
+    const after = await w.lib.getMeta(w.slug);
+    expect(after.publications).toHaveLength(1);
+    expect(after.updatedAt).toBe(before.updatedAt);
+    expect(await readFile(path.join(w.lib.root, 'catalog.json'), 'utf8')).toBe(catalogBefore);
+    expect(w.lib.getEntry(w.slug)?.updatedAt).toBe(before.updatedAt);
+    expect(changes).toEqual([]);
   });
 
   it('history returns records newest first', async () => {
@@ -361,7 +378,7 @@ describe('run (10 §4 runPublish)', () => {
   });
 
   it('a history write failure after a successful export returns the result with a warning', async () => {
-    vi.spyOn(w.lib, 'updateDocument').mockRejectedValueOnce(new LibraryError('LIBRARY_READ_ONLY'));
+    vi.spyOn(w.lib, 'appendPublication').mockRejectedValueOnce(new LibraryError('LIBRARY_READ_ONLY'));
     const r = await w.svc.run(w.slug, 'local');
     expect(r.warnings).toEqual(['Exported, but the publish history could not be saved']);
   });
@@ -488,6 +505,56 @@ describe('link actions (10 §7)', () => {
     expect(w.openExternal).not.toHaveBeenCalled();
     expect(w.openPath).not.toHaveBeenCalled();
     expect(w.showItemInFolder).not.toHaveBeenCalled();
+  });
+
+  it('a file: link must be <folder>/<slug>/index.html: other files in the folder are E_FORBIDDEN', async () => {
+    await w.svc.run(w.slug, 'local');
+    const cmd = path.join(w.exportDir, 'evil.command');
+    await writeFile(cmd, '#!/bin/sh\n');
+    const nested = path.join(w.exportDir, w.slug, 'other.command');
+    await writeFile(nested, '#!/bin/sh\n');
+    for (const f of [cmd, nested, path.join(w.exportDir, 'Not A Slug', 'index.html')]) {
+      const url = pathToFileURL(f).href;
+      expect(await code(w.svc.openLink(url))).toBe('E_FORBIDDEN');
+      expect(await code(w.svc.reveal(url))).toBe('E_FORBIDDEN');
+      expect(await code(w.svc.copyLink(url))).toBe('E_FORBIDDEN');
+    }
+    expect(w.openPath).not.toHaveBeenCalled();
+    expect(w.showItemInFolder).not.toHaveBeenCalled();
+    expect(w.clipboard.writeText).not.toHaveBeenCalled();
+  });
+
+  it('openLink refuses an index.html that is a symlink to another file', async () => {
+    const dir = path.join(w.exportDir, 'linked-doc');
+    await mkdir(dir);
+    const target = path.join(w.exportDir, 'payload.command');
+    await writeFile(target, '#!/bin/sh\n');
+    await symlink(target, path.join(dir, 'index.html'));
+    expect(await code(w.svc.openLink(pathToFileURL(path.join(dir, 'index.html')).href))).toBe('E_FORBIDDEN');
+    expect(w.openPath).not.toHaveBeenCalled();
+  });
+
+  it('after publish.local.dir changes, a recorded export still copies and reveals; Open explains', async () => {
+    await w.svc.run(w.slug, 'local');
+    const old = inside();
+    const moved = await mkdtemp(path.join(tmpdir(), 'eli5-export2-'));
+    w.settings.publish.local.dir = moved;
+    try {
+      await w.svc.copyLink(old);
+      expect(w.clipboard.writeText).toHaveBeenCalledWith(old);
+      await w.svc.reveal(old);
+      expect(w.showItemInFolder).toHaveBeenCalledWith(path.join(w.exportDir, w.slug, 'index.html'));
+      const err = await rejection(w.svc.openLink(old));
+      expect((err as PublishRequestError).code).toBe('E_FORBIDDEN');
+      expect((err as PublishRequestError).message).toBe('This copy was exported to a different folder');
+      expect(w.openPath).not.toHaveBeenCalled();
+      // A link that was never recorded stays forbidden outside the current folder.
+      const other = pathToFileURL(path.join(w.exportDir, 'other-doc', 'index.html')).href;
+      expect(await code(w.svc.copyLink(other))).toBe('E_FORBIDDEN');
+      expect(await code(w.svc.reveal(other))).toBe('E_FORBIDDEN');
+    } finally {
+      await rm(moved, { recursive: true, force: true });
+    }
   });
 
   it('reveal takes file: links only', async () => {

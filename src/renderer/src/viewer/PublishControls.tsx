@@ -15,8 +15,10 @@ import { relativeDate } from '../library/order';
 /**
  * Publish slot in the document header (11 §5.3, §11; 10 §7). The public slot holds only Export
  * copy for the `local` target; drive and git targets are mounted only when HOOK-UI-01 enables
- * their UiFeature. Progress, Cancel, the result chip, "Last published" and failures render inline;
- * nothing here is a modal.
+ * their UiFeature (10 §4: visibility is by flag; a shown target with available:false renders
+ * disabled with its unavailableReason and, when the host passes one, Open settings, 10 §11).
+ * Progress, Cancel, the result chip, "Last published" and failures render inline; nothing here is
+ * a modal.
  */
 
 const FEATURE_FOR: Record<PublishTarget['kind'], UiFeature | null> = {
@@ -68,6 +70,11 @@ interface Outcome {
 
 type Failure = Pick<IpcError, 'message' | 'detailCode' | 'findings'>;
 
+interface Busy {
+  targetId: string;
+  stage: PublishStage | null;
+}
+
 function LinkActions(p: { url: string; copied: boolean; act: (a: 'copy' | 'open' | 'reveal', url: string) => void }) {
   return (
     <>
@@ -91,10 +98,10 @@ function LinkActions(p: { url: string; copied: boolean; act: (a: 'copy' | 'open'
   );
 }
 
-export function PublishControls(p: { slug: string }) {
+export function PublishControls(p: { slug: string; onOpenSettings?: () => void }) {
   const edition = useEdition();
   const [targets, setTargets] = useState<PublishTarget[]>([]);
-  const [busy, setBusy] = useState<{ targetId: string; stage: PublishStage | null } | null>(null);
+  const [busy, setBusy] = useState<Busy | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -102,6 +109,11 @@ export function PublishControls(p: { slug: string }) {
   const slugRef = useRef(p.slug);
   slugRef.current = p.slug;
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Running publishes per slug, kept across document switches so returning to a document that is
+  // still publishing restores its progress and Cancel (the service rejects a second run).
+  const running = useRef(new Map<string, Busy>());
+  const targetsRef = useRef<PublishTarget[]>([]);
+  targetsRef.current = targets;
 
   const refresh = useCallback((slug: string) => {
     void window.eli5.publish.targets(slug).then((r) => {
@@ -111,7 +123,7 @@ export function PublishControls(p: { slug: string }) {
 
   useEffect(() => {
     setTargets([]);
-    setBusy(null);
+    setBusy(running.current.get(p.slug) ?? null);
     setOutcome(null);
     setFailure(null);
     setCopied(null);
@@ -124,27 +136,46 @@ export function PublishControls(p: { slug: string }) {
   useEffect(
     () =>
       window.eli5.publish.onProgress((e) => {
-        if (e.slug !== slugRef.current || e.stage === 'failed' || e.stage === 'done') return;
         const stage = e.stage;
-        setBusy((b) => (b && b.targetId === e.targetId ? { ...b, stage } : b));
+        if (stage !== 'failed' && stage !== 'done') {
+          const next: Busy = { targetId: e.targetId, stage };
+          running.current.set(e.slug, next);
+          if (e.slug === slugRef.current) setBusy(next);
+          return;
+        }
+        if (running.current.get(e.slug)?.targetId === e.targetId) running.current.delete(e.slug);
+        if (e.slug !== slugRef.current) return;
+        // The run() reply covers the usual case; the event also covers a publish started before a
+        // document switch, whose reply was dropped.
+        setBusy((b) => (b?.targetId === e.targetId ? null : b));
+        if (stage === 'done' && e.result) {
+          const t = targetsRef.current.find((x) => x.id === e.targetId);
+          const label = t ? buttonLabel(t) : e.result.kind === 'local' ? 'Export copy' : e.targetId;
+          setOutcome({ targetId: e.targetId, label, result: e.result });
+          refresh(e.slug);
+        } else if (stage === 'failed' && e.error) {
+          setFailure(e.error);
+        }
       }),
-    [],
+    [refresh],
   );
 
   useEffect(() => () => clearTimeout(copiedTimer.current), []);
 
   const visible = targets.filter((t) => {
-    if (!t.available) return false;
     const f = FEATURE_FOR[t.kind];
     return f === null ? t.kind === 'local' : !!edition?.uiFeatures.includes(f);
   });
 
   const run = async (t: PublishTarget) => {
     const slug = p.slug;
-    setBusy({ targetId: t.id, stage: null });
+    const started: Busy = { targetId: t.id, stage: null };
+    running.current.set(slug, started);
+    setBusy(started);
     setFailure(null);
     setOutcome(null);
     const r = await window.eli5.publish.run(slug, t.id);
+    if (running.current.get(slug)?.targetId === t.id) running.current.delete(slug);
     if (slugRef.current !== slug) return;
     setBusy(null);
     if (r.ok) {
@@ -188,7 +219,7 @@ export function PublishControls(p: { slug: string }) {
             <button
               key={t.id}
               type="button"
-              disabled={busy !== null}
+              disabled={busy !== null || !t.available}
               onClick={() => void run(t)}
               aria-busy={busy?.targetId === t.id}
             >
@@ -196,6 +227,18 @@ export function PublishControls(p: { slug: string }) {
               {buttonLabel(t)}
             </button>
           ))}
+          {visible
+            .filter((t) => !t.available)
+            .map((t) => (
+              <span key={`${t.id}-unavailable`} className="muted">
+                {`${buttonLabel(t)}: ${t.unavailableReason ?? 'Not available'}`}
+                {p.onOpenSettings && (
+                  <button type="button" onClick={p.onOpenSettings}>
+                    Open settings
+                  </button>
+                )}
+              </span>
+            ))}
           {busy && (
             <>
               <span className="muted" role="status">

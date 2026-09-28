@@ -26,6 +26,7 @@ import {
   type LibraryRootInput,
   type MergeSuggestion,
   type ProcessProbe,
+  type PublicationRecord,
   type ReadOnlyReason,
   type SlugReservation,
 } from './types';
@@ -455,6 +456,26 @@ export class FsLibrary implements Library {
     });
     this.emitChanged('updated', [slug]);
     return { ...entry };
+  }
+
+  /**
+   * 10 §4 step 7: appends a PublicationRecord to meta.json (atomic) and nothing else. Publishing is
+   * not an edit: `updatedAt`, catalog.json and the catalog entry stay as they are, and no Library
+   * change is emitted. Same lock rule as updateDocument.
+   */
+  async appendPublication(slug: string, record: PublicationRecord): Promise<void> {
+    this.assertWritable();
+    this.docPath(slug);
+    if (!this.holdsDocLock(slug)) {
+      if (this.d.devChecks) throw new LibraryError('LOCK_NOT_HELD', { slug });
+      return this.withDocLock(slug, () => this.appendPublication(slug, record));
+    }
+    if (!this.hasSlug(slug)) throw new LibraryError('NOT_FOUND', { slug });
+    const current = await this.getMeta(slug);
+    this.assertWritable();
+    const parsed = DocumentMetaSchema.safeParse({ ...current, publications: [...current.publications, record] });
+    if (!parsed.success) throw new LibraryError('META_INVALID', { slug });
+    await writeJsonAtomic(this.docPath(slug, META_FILE), sanitizeMeta(parsed.data, this.d.policy.sourceUrls));
   }
 
   /** 09 §9: `updateDocument(slug, {meta: m => m})`. */
