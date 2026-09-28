@@ -21,5 +21,6 @@ export {
 } from './keystore';
 export type { KeyStore, KeyAccount } from './keystore';
 export { findSecrets, looksLikeSecret, redact, checkApiKeyFormat } from './guards';
-export { resourcePath, initPaths, resolveUserDataDir } from './paths';
+export { resourcePath, initPaths, resolveUserDataDir, migrateLegacyUserData } from './paths';
+export type { LegacyMigration } from './paths';
 export { edition } from './edition';

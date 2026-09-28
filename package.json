@@ -1,5 +1,6 @@
 {
   "name": "eli5-learner",
+  "productName": "ELI5 Learner",
   "version": "0.1.0",
   "private": true,
   "description": "Turns decks, docs, PDFs, screenshots and URLs into interactive HTML explainers with an in-depth view and an ELI5 view.",

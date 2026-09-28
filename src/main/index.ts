@@ -1,3 +1,4 @@
+import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -20,7 +21,7 @@ import { IPC, type IpcChannel, type UiRoute } from '../preload/contract';
 import { effectiveModel } from './config';
 import { SettingsStore } from './config/store';
 import { createKeyStore } from './config/keystore';
-import { initPaths, resourcePath, resolveUserDataDir } from './config/paths';
+import { initPaths, migrateLegacyUserData, resourcePath, resolveUserDataDir } from './config/paths';
 import { Registry } from './editions/registry';
 import { registerPublicCapabilities } from './editions/public';
 import { loadOverlay } from './editions/load-overlay';
@@ -95,6 +96,25 @@ protocol.registerSchemesAsPrivileged([
   APP_SCHEME_PRIVILEGES,
 ]);
 
+// Builds before productName "ELI5 Learner" kept their data under the package name; move it once,
+// before anything opens userData (12 §4.1). Dev and test runs use their own folder and skip this.
+const legacyMigration = app.isPackaged
+  ? migrateLegacyUserData({
+      appData: app.getPath('appData'),
+      target: app.getPath('userData'),
+      legacyNames: ['eli5-learner'],
+      isAlive: (pid) => {
+        try {
+          process.kill(pid, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      hostname: os.hostname(),
+    })
+  : undefined;
+
 // Dev and test runs never touch the real profile (12 §4.1).
 app.setPath(
   'userData',
@@ -119,6 +139,9 @@ async function bootstrap(): Promise<void> {
     }),
   );
   log.info('app.start', { kind: edition, status: app.isPackaged ? 'packaged' : 'dev' });
+  if (legacyMigration && legacyMigration.status !== 'nothing-to-migrate') {
+    log.info('app.user-data-migration', { status: legacyMigration.status });
+  }
   initPaths({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() });
 
   // 1. settings
