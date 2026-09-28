@@ -8,7 +8,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ResolvedSource, SourceFormat } from '../sources';
-import { DEFAULT_IMAGE_BUDGET, EXTRACT_TIMEOUTS_MS } from './limits';
+import { DEFAULT_EXTRACT_LIMITS, DEFAULT_IMAGE_BUDGET, EXTRACT_TIMEOUTS_MS } from './limits';
 import { MEDIA_TYPE, readImageHeader, type ImageHeader } from './image-header';
 import { readSourceBytes } from './payload';
 import { ExtractError, skip } from './skip';
@@ -37,8 +37,13 @@ export interface BudgetState {
   pendingStandalone: number;
 }
 
-/** Bytes held back per announced standalone image until it reserves its real size. */
-export const STANDALONE_BYTES_ESTIMATE = 1_000_000;
+/**
+ * Bytes held back per announced standalone image until it reserves its real size: the largest a
+ * normalized image can be (04 §7.1 maxOutputBytes), so other images can never take bytes a
+ * standalone image needs (§7.4). A tiled tall screenshot can need more; the pipeline extracts
+ * standalone sources first (§7.4), which covers that case.
+ */
+export const STANDALONE_BYTES_HELD = DEFAULT_EXTRACT_LIMITS.images.maxOutputBytes;
 
 /**
  * The shared budget for one job. Standalone images get priority: the pipeline announces how many
@@ -86,12 +91,18 @@ export class JobImageBudget implements ImageBudget {
       return true;
     }
     const heldImages = s.pendingStandalone;
-    const heldBytes = s.pendingStandalone * STANDALONE_BYTES_ESTIMATE;
+    const heldBytes = s.pendingStandalone * STANDALONE_BYTES_HELD;
     if (s.usedImages + heldImages + 1 > s.maxImages) return false;
     if (s.usedBytes + heldBytes + bytes > s.maxTotalBytes) return false;
     s.usedImages++;
     s.usedBytes += bytes;
     return true;
+  }
+
+  /** Returns reservations whose images were never sent (cut by the char cap, or the source was skipped). */
+  release(images: number, bytes: number): void {
+    this.s.usedImages = Math.max(0, this.s.usedImages - images);
+    this.s.usedBytes = Math.max(0, this.s.usedBytes - bytes);
   }
 
   snapshot(): BudgetState {
@@ -324,7 +335,10 @@ export function createImageExtractor(deps: { sips?: SipsConverter } = {}): Extra
       if (res.assets.length === 0) return skip(source, 'corrupt');
 
       const warnings: string[] = [];
-      const plan = planTiles(header.width, header.height, ctx.limits.images.maxAspect);
+      // The normalizer tiles the upright bitmap, so EXIF orientations 5-8 swap the axes (§7.1 step 2).
+      const rotated = header.orientation !== undefined && header.orientation >= 5 && header.orientation <= 8;
+      const [w, h] = rotated ? [header.height, header.width] : [header.width, header.height];
+      const plan = planTiles(w, h, ctx.limits.images.maxAspect);
       if (plan?.dropped) warnings.push(`Tall image: ${plural(plan.dropped, 'part')} past the first 6 not sent`);
 
       const nextId = imageIdGen(source);

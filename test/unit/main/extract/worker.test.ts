@@ -162,6 +162,15 @@ describe('ExtractWorkerHost isolation', () => {
     host.dispose();
   });
 
+  it('settles an in-flight extract at once when the host is disposed', async () => {
+    const host = new ExtractWorkerHost({ fork: () => new FakeProcess(() => undefined), ...fakeServices() });
+    const pending = host.extract(fixtureSource('sources/pdf/mixed.pdf'), opts());
+    await Promise.resolve();
+    await Promise.resolve();
+    host.dispose();
+    expect(await pending).toMatchObject({ ok: false, skipped: { code: 'timeout' } });
+  });
+
   it('forwards cancellation to the worker', async () => {
     const ac = new AbortController();
     let proc: FakeProcess | undefined;

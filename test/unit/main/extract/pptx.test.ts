@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_EXTRACT_LIMITS,
   JobImageBudget,
@@ -8,6 +8,7 @@ import {
   type SlideBlock,
 } from '../../../../src/main/extract';
 import { chartTable, readingOrder, removeRepeatedLines } from '../../../../src/main/extract/pptx';
+import { SafeZip } from '../../../../src/main/extract/zip-safety';
 import { fixtureSource, testContext } from '../../../contracts/extractor.contract';
 
 async function deck(rel: string, over: Parameters<typeof testContext>[0] = {}): Promise<ExtractedContent> {
@@ -63,6 +64,18 @@ describe('pptx extractor (04 §5.1)', () => {
     const c = await deck('sources/pptx/quarterly-review.pptx');
     expect(JSON.stringify(c.blocks)).not.toContain('Internal review draft');
     expect(c.warnings.some((w) => /repeated footer line/.test(w))).toBe(true);
+  });
+
+  it('inflates media shared across slides once (04 §10.3 running total)', async () => {
+    const read = vi.spyOn(SafeZip.prototype, 'read');
+    try {
+      await deck('sources/pptx/quarterly-review.pptx');
+      const media = read.mock.calls.map(([name]) => name).filter((n) => n.startsWith('ppt/media/'));
+      expect(media.length).toBeGreaterThan(0);
+      expect(new Set(media).size).toBe(media.length);
+    } finally {
+      read.mockRestore();
+    }
   });
 
   it('turns tables, charts and SmartArt into blocks', async () => {

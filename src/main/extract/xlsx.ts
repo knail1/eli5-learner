@@ -5,6 +5,7 @@
  */
 import * as XLSX from 'xlsx';
 import type { ResolvedSource } from '../sources';
+import { assertNoDtdParts } from './ooxml-xml';
 import { readSourceBytes, readSourceText } from './payload';
 import { ExtractError } from './skip';
 import { cleanInline, newContent, plural } from './text-util';
@@ -123,7 +124,10 @@ export const xlsxExtractor: Extractor = {
   canHandle: (s) => s.format === 'xlsx',
   async extract(source: ResolvedSource, ctx: ExtractContext): Promise<ExtractResult> {
     const bytes = await readSourceBytes(source);
-    SafeZip.open(bytes).verifyAll();
+    const zip = SafeZip.open(bytes);
+    zip.verifyAll();
+    // SheetJS parses the XML itself, so every part is checked for DTD/entity declarations first (04 §10.3).
+    assertNoDtdParts(zip);
     const { maxSheets, maxRows, maxCols } = ctx.limits.xlsx;
     const wb = readWorkbook(bytes, {
       type: 'array',

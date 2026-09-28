@@ -1,0 +1,9 @@
+<source ref="table-image.docx" format="docx" truncated="false">
+## Floor plan
+[image #25a14f35-img-1: "Warehouse floor plan"]
+Example Widgets Inc. moved packing next to the loading dock.
+| Zone | Layout |
+| Packing |  |
+[image #25a14f35-img-2: "Packing zone layout"]
+Pick rates are reviewed monthly.
+</source>

@@ -148,6 +148,45 @@ function toItems(items: readonly PdfTextItem[]): PItem[] {
   return out;
 }
 
+/** Rejection used when a pdf-internal deadline (§10.2) passes before a pdf.js call settles. */
+class DeadlineError extends Error {
+  constructor() {
+    super('pdf deadline');
+    this.name = 'DeadlineError';
+  }
+}
+
+/** Races `p` against an absolute deadline and the signal, so a hung pdf.js call cannot outlive them. */
+function within<T>(p: Promise<T>, deadline: number, signal: AbortSignal): Promise<T> {
+  p.catch(() => undefined); // a rejection after the race is already settled
+  if (signal.aborted || Date.now() >= deadline) return Promise.reject(new DeadlineError());
+  return new Promise<T>((resolve, reject) => {
+    const fail = (): void => {
+      clearTimeout(timer);
+      reject(new DeadlineError());
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', fail);
+      reject(new DeadlineError());
+    }, deadline - Date.now());
+    signal.addEventListener('abort', fail, { once: true });
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', fail);
+        resolve(v);
+      },
+      (e: unknown) => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', fail);
+        reject(e instanceof Error ? e : new Error(String(e)));
+      },
+    );
+  });
+}
+
+const PDF_TEXT_SECONDS = Math.round(EXTRACT_TIMEOUTS_MS.pdfText / 1000);
+
 export function createPdfExtractor(): Extractor {
   return {
     id: 'pdf',
@@ -200,22 +239,29 @@ async function readDocument(
     warnings.push(`Read the first ${limits.pdf.maxPages} of ${doc.numPages} pages`);
     content.truncated = true;
   }
+  // §10.2: the text pass has its own 60 s deadline; rendering extends it only when needed (below).
   const started = Date.now();
+  const textDeadline = started + EXTRACT_TIMEOUTS_MS.pdfText;
   const pages: PageData[] = [];
+  const stopText = (): void => {
+    if (!pages.length) throw new ExtractError('timeout', 'pdf: text pass', { seconds: PDF_TEXT_SECONDS });
+    warnings.push(`Stopped after ${pages.length} of ${total} pages (timeout)`);
+    content.truncated = true;
+  };
   for (let p = 1; p <= total; p++) {
-    if (ctx.signal.aborted || Date.now() - started > EXTRACT_TIMEOUTS_MS.pdfText) {
-      if (!pages.length) throw new ExtractError('timeout', 'pdf: text pass');
-      warnings.push(`Stopped after ${pages.length} of ${total} pages (timeout)`);
-      content.truncated = true;
+    if (ctx.signal.aborted || Date.now() > textDeadline) {
+      stopText();
       break;
     }
     let page: PdfPage;
     let text: { items: PdfTextItem[] };
     try {
-      page = await doc.getPage(p);
-      text = await page.getTextContent({ includeMarkedContent: false });
-    } catch {
-      throw new ExtractError('corrupt', 'pdf: page read');
+      page = await within(doc.getPage(p), textDeadline, ctx.signal);
+      text = await within(page.getTextContent({ includeMarkedContent: false }), textDeadline, ctx.signal);
+    } catch (err) {
+      if (!(err instanceof DeadlineError)) throw new ExtractError('corrupt', 'pdf: page read');
+      stopText();
+      break;
     }
     const vb = page.getViewport({ scale: 1 }).viewBox;
     const geom: PageGeom = {
@@ -228,13 +274,19 @@ async function readDocument(
     const all = items.map((i) => i.str).join('');
     const nonWs = all.replace(/\s/g, '').length;
     let imageOnly = isGarbageText(all);
+    let stopped = false;
     if (!imageOnly && nonWs < limits.pdf.minCharsPerPage) {
       try {
-        const ops = await page.getOperatorList();
+        const ops = await within(page.getOperatorList(), textDeadline, ctx.signal);
         imageOnly = maxImageCoverage(ops, pdfjs.OPS, geom.width * geom.height) >= 0.5;
-      } catch {
+      } catch (err) {
         imageOnly = false;
+        stopped = err instanceof DeadlineError;
       }
+    }
+    if (stopped) {
+      stopText();
+      break;
     }
     pages.push({
       number: p,
@@ -268,6 +320,7 @@ async function readDocument(
   const images: ImageAsset[] = [];
   let kept = 0;
   let dropped = 0;
+  let budgetDrops = 0;
   if (imageOnly.length) {
     content.stats.scannedPages = imageOnly.length;
     const cap = limits.pdf.maxRenderedPages;
@@ -276,46 +329,88 @@ async function readDocument(
       warnings.push(`Rendered first ${cap} of ${imageOnly.length} scanned pages`);
       content.truncated = true;
     }
-    const rendered = await ctx.renderPdfPages(bytes, toRender, {
-      targetLongEdgePx: limits.images.targetLongEdgePx,
-      signal: ctx.signal,
-    });
+    // §10.2: a scanned PDF gets 120 s plus 15 s per page actually rendered, from the start.
+    const seconds = Math.round(
+      (EXTRACT_TIMEOUTS_MS.pdfScannedBase + EXTRACT_TIMEOUTS_MS.pdfPerRenderedPage * toRender.length) / 1000,
+    );
+    const deadline = started + seconds * 1000;
+    const ac = new AbortController();
+    const onAbort = (): void => ac.abort();
+    ctx.signal.addEventListener('abort', onAbort, { once: true });
+    const timer = setTimeout(() => ac.abort(), Math.max(0, deadline - Date.now()));
     const nextId = imageIdGen(source);
     let renderedOk = 0;
-    let budgetDrops = 0;
-    for (const r of [...rendered].sort((a, b) => a.page - b.page)) {
-      if (!('png' in r)) {
-        ctx.log(`pdf: page render failed`);
-        dropped++;
-        continue;
+    let scannedDone = 0;
+    let interrupted = false;
+    try {
+      let rendered: Awaited<ReturnType<ExtractContext['renderPdfPages']>> = [];
+      try {
+        rendered = await within(
+          ctx.renderPdfPages(bytes, toRender, { targetLongEdgePx: limits.images.targetLongEdgePx, signal: ac.signal }),
+          deadline,
+          ac.signal,
+        );
+      } catch (err) {
+        if (ac.signal.aborted || err instanceof DeadlineError) interrupted = true;
+        else ctx.log('pdf: page renderer failed');
       }
-      renderedOk++;
-      const norm = await ctx.normalizeImage(r.png, 'image/png', { origin: 'page-render', signal: ctx.signal });
-      if (!norm.ok || !norm.assets.length) {
-        dropped++;
-        continue;
-      }
-      const blocks = pageBlocks.get(r.page) ?? [];
-      const n = norm.assets.length;
-      for (const [k, a] of norm.assets.entries()) {
-        if (!ctx.imageBudget.tryReserve(a.byteLength, 'page-render')) {
-          budgetDrops++;
+      for (const r of [...rendered].sort((a, b) => a.page - b.page)) {
+        if (!('png' in r)) {
+          ctx.log(`pdf: page render failed`);
           dropped++;
-          break;
+          scannedDone++;
+          continue;
         }
-        const id = nextId();
-        images.push({ ...a, id, origin: 'page-render', pageOrSlide: r.page });
-        blocks.push({
-          kind: 'image',
-          imageId: id,
-          origin: 'page-render',
-          alt: n > 1 ? `Scanned page ${r.page}, part ${k + 1} of ${n}` : `Scanned page ${r.page}`,
-        });
-        kept++;
+        renderedOk++;
+        let norm: Awaited<ReturnType<ExtractContext['normalizeImage']>>;
+        try {
+          norm = await within(
+            ctx.normalizeImage(r.png, 'image/png', { origin: 'page-render', signal: ac.signal }),
+            deadline,
+            ac.signal,
+          );
+        } catch (err) {
+          if (ac.signal.aborted || err instanceof DeadlineError) {
+            interrupted = true;
+            break;
+          }
+          norm = { ok: false, code: 'corrupt' };
+        }
+        scannedDone++;
+        if (!norm.ok || !norm.assets.length) {
+          dropped++;
+          continue;
+        }
+        const blocks = pageBlocks.get(r.page) ?? [];
+        const n = norm.assets.length;
+        for (const [k, a] of norm.assets.entries()) {
+          if (!ctx.imageBudget.tryReserve(a.byteLength, 'page-render')) {
+            budgetDrops++;
+            dropped++;
+            break;
+          }
+          const id = nextId();
+          images.push({ ...a, id, origin: 'page-render', pageOrSlide: r.page });
+          blocks.push({
+            kind: 'image',
+            imageId: id,
+            origin: 'page-render',
+            alt: n > 1 ? `Scanned page ${r.page}, part ${k + 1} of ${n}` : `Scanned page ${r.page}`,
+          });
+          kept++;
+        }
+        pageBlocks.set(r.page, blocks);
       }
-      pageBlocks.set(r.page, blocks);
+    } finally {
+      clearTimeout(timer);
+      ctx.signal.removeEventListener('abort', onAbort);
     }
-    if (renderedOk === 0 && toRender.length) {
+    if (interrupted) {
+      // §10.2: a page format with partial output returns what was collected.
+      if (kept === 0 && textPages.length === 0) throw new ExtractError('timeout', 'pdf: rendering', { seconds });
+      warnings.push(`Stopped after ${textPages.length + scannedDone} of ${total} pages (timeout)`);
+      content.truncated = true;
+    } else if (renderedOk === 0 && toRender.length) {
       if (textPages.length === 0) throw new ExtractError('scan-render-failed', 'pdf: no page rendered');
       warnings.push('Scanned PDF pages could not be rendered');
     }
@@ -335,15 +430,20 @@ async function readDocument(
   content.stats.imagesDropped = dropped;
   if (pages.length > 0 && imageOnly.length === pages.length) content.format = 'pdf-scanned';
   if (kept === 0 && imageOnly.length && textPages.length === 0) {
-    throw new ExtractError('image-budget-exceeded', 'pdf: no scanned page fit the budget', {
-      maxImages: ctx.imageBudget.maxImages,
-    });
+    // Nothing usable. Name the budget only when it was the cause; render or normalization
+    // failures of every page are scan-render-failed (§6.3).
+    if (budgetDrops > 0) {
+      throw new ExtractError('image-budget-exceeded', 'pdf: no scanned page fit the budget', {
+        maxImages: ctx.imageBudget.maxImages,
+      });
+    }
+    throw new ExtractError('scan-render-failed', 'pdf: no page image usable');
   }
 
   // Title: info dictionary or XMP if meaningful, else the first heading on page 1 (§6.1 step 5).
   let title: string | undefined;
   try {
-    const meta = await doc.getMetadata();
+    const meta = await within(doc.getMetadata(), Date.now() + 5_000, ctx.signal);
     const cand = [meta.info?.Title, meta.metadata?.get('dc:title')]
       .map((v) => (typeof v === 'string' ? cleanInline(v) : ''))
       .find((v) => v && !looksLikeFileName(v, source));

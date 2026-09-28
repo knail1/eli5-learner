@@ -124,6 +124,8 @@ export interface ImageBudget {
   readonly maxImages: number; // default 20 per job
   readonly maxTotalBytes: number; // default 20 MB per job, post-normalization
   tryReserve(bytes: number, priority: 'standalone' | 'page-render' | 'embedded'): boolean;
+  /** Optional: hands back reservations for images that were never sent (extractSource, §7.4). */
+  release?(images: number, bytes: number): void;
 }
 
 // ---- 04 §10.1 limits (constants, not settings; values live in limits.ts, M1) ----

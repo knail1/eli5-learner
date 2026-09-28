@@ -242,3 +242,19 @@ export async function buildLocalizedHeadings(): Promise<Uint8Array> {
   ].join('');
   return buildDocx({ body, styles: stylesXml(styles) });
 }
+
+/**
+ * table-image.docx: a picture inside a table cell, and one inside a bold pseudo-heading that the
+ * §5.2 fallback promotes. Both must end up as ImageBlocks (04 §2 invariant 1).
+ */
+export async function buildTableImage(): Promise<Uint8Array> {
+  const body = [
+    p('Floor plan', { bold: true, extra: imageRun('rId_diagrampng', 'Warehouse floor plan') }),
+    p('Example Widgets Inc. moved packing next to the loading dock.'),
+    `<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/></w:tblPr><w:tblGrid><w:gridCol w:w="3000"/><w:gridCol w:w="3000"/></w:tblGrid>` +
+      `<w:tr>${tc(p('Zone'))}${tc(p('Layout'))}</w:tr>` +
+      `<w:tr>${tc(p('Packing'))}${tc(p('', { extra: imageRun('rId_diagrampng', 'Packing zone layout') }))}</w:tr></w:tbl>`,
+    p('Pick rates are reviewed monthly.'),
+  ].join('');
+  return buildDocx({ body, styles: stylesXml([]), media: [['diagram.png', diagramPng()]] });
+}

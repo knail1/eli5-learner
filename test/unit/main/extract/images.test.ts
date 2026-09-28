@@ -1,5 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { JobImageBudget, extractSource, planTiles, type SipsConverter } from '../../../../src/main/extract';
 import { readImageHeader, sniffImage } from '../../../../src/main/extract/image-header';
@@ -171,6 +172,27 @@ describe('standalone images (04 §7)', () => {
   });
 });
 
+describe('tall rotated images (04 §7.2)', () => {
+  it('plans tiles on the upright size when EXIF orientation swaps the axes', async () => {
+    // Stored 2000x100 with orientation 6: upright it is 100x2000, well past 1:8.
+    const jpeg = encodeGrayJpeg(2000, 100, () => 128, 6);
+    const dir = mkdtempSync(join(tmpdir(), 'eli5-rot-'));
+    const file = join(dir, 'rotated.jpg');
+    writeFileSync(file, jpeg);
+    const src = {
+      ...fixtureSource('sources/images/photo.jpg'),
+      location: file,
+      sizeBytes: jpeg.byteLength,
+      payload: { kind: 'path' as const, path: file },
+    };
+    const r = await extractSource(src, testContext()).finally(() => rmSync(dir, { recursive: true, force: true }));
+    if (!r.ok) throw new Error(r.skipped.code);
+    const dropped = planTiles(100, 2000, 8)?.dropped ?? 0;
+    expect(dropped).toBeGreaterThan(0);
+    expect(r.content.warnings).toContain(`Tall image: ${dropped} parts past the first 6 not sent`);
+  });
+});
+
 describe('job image budget (04 §7.4)', () => {
   it('holds slots for announced standalone images', () => {
     const b = new JobImageBudget({ maxImages: 3, maxTotalBytes: 10_000_000 });
@@ -180,6 +202,18 @@ describe('job image budget (04 §7.4)', () => {
     expect(b.tryReserve(100, 'standalone')).toBe(true);
     expect(b.tryReserve(100, 'standalone')).toBe(true);
     expect(b.tryReserve(100, 'standalone')).toBe(false);
+  });
+
+  it('holds bytes for announced standalone images, up to the largest normalized size', () => {
+    const b = new JobImageBudget({ maxImages: 20, maxTotalBytes: 20_000_000 });
+    b.reserveStandalone(2);
+    while (b.tryReserve(1_000_000, 'embedded')) {
+      // embedded images take what is left
+    }
+    expect(b.tryReserve(3_750_000, 'standalone')).toBe(true);
+    expect(b.tryReserve(3_750_000, 'standalone')).toBe(true);
+    b.release(1, 1_000_000);
+    expect(b.snapshot()).toMatchObject({ usedImages: 13, usedBytes: 18_500_000 });
   });
 
   it('enforces the byte cap and round-trips through snapshots', () => {

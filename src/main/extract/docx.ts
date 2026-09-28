@@ -7,7 +7,18 @@ import mammoth from 'mammoth';
 import type { ResolvedSource } from '../sources';
 import { domToBlocks, parseBody, type DomNode } from './html-to-blocks';
 import { imageIdGen, processEmbeddedImages, type EmbeddedCandidate, type SipsConverter } from './images';
-import { attr, child, children, coreTitle, descendants, leafText, parseRels, parseXml, rootEl } from './ooxml-xml';
+import {
+  assertNoDtdParts,
+  attr,
+  child,
+  children,
+  coreTitle,
+  descendants,
+  leafText,
+  parseRels,
+  parseXml,
+  rootEl,
+} from './ooxml-xml';
 import { readSourceBytes } from './payload';
 import { ExtractError } from './skip';
 import { cleanInline, countChars, newContent } from './text-util';
@@ -75,6 +86,7 @@ interface El extends DomNode {
   remove(): void;
   replaceWith(n: El): void;
   insertBefore(n: El, ref: El): void;
+  appendChild(n: El): void;
   ownerDocument: { createElement(tag: string): El };
   textContent: string | null;
 }
@@ -124,6 +136,8 @@ function prepareDom(body: El): { promoted: number } {
       if (!next || next.tagName !== 'P' || fullyBold(next)) continue;
       const h = p.ownerDocument.createElement('h2');
       h.textContent = text;
+      // Image placeholders in the paragraph move along, so every candidate keeps its block.
+      for (const img of Array.from(p.querySelectorAll('img[data-eli5-img]'))) h.appendChild(img);
       p.replaceWith(h);
       promoted++;
     }
@@ -175,12 +189,7 @@ async function extractDocx(source: ResolvedSource, ctx: ExtractContext, sips?: S
   const documentXml = zip.readText('word/document.xml');
   if (documentXml === undefined) throw new ExtractError('corrupt', 'docx: no document part');
   // Guards every part mammoth will parse against DTD/entity declarations (04 §10.3).
-  for (const e of zip.entries) {
-    if (/\.(xml|rels)$/i.test(e.name)) {
-      const xml = zip.readText(e.name) ?? '';
-      if (/<!DOCTYPE|<!ENTITY/i.test(xml)) throw new ExtractError('corrupt', 'xml: DOCTYPE or ENTITY declaration');
-    }
-  }
+  assertNoDtdParts(zip);
   const headingStyles = headingStylesFromStylesXml(zip.readText('word/styles.xml'));
 
   const candidates: EmbeddedCandidate[] = [];
@@ -211,7 +220,7 @@ async function extractDocx(source: ResolvedSource, ctx: ExtractContext, sips?: S
 
   const body = parseBody(result.value) as El;
   const { promoted } = prepareDom(body);
-  const { blocks, imageRefs } = domToBlocks(body);
+  const { blocks, imageRefs } = domToBlocks(body, { placeholders: true });
   const warnings: string[] = [];
   if (promoted) warnings.push(`No heading styles found; ${promoted} bold lines treated as headings`);
 
@@ -238,7 +247,16 @@ async function extractDocx(source: ResolvedSource, ctx: ExtractContext, sips?: S
   }
   if ([...rels.values()].some((r) => /\/oleObject$/.test(r.type))) warnings.push('Embedded objects (OLE) were ignored');
 
-  const emb = await processEmbeddedImages(candidates, ctx, imageIdGen(source), sips);
+  // Only candidates with a placeholder in the block tree can be placed (invariant 1, 04 §2).
+  const placed = new Set(imageRefs.map((r) => r.ref));
+  const unplaced = candidates.filter((c) => !placed.has(c.key)).length;
+  if (unplaced) ctx.log(`docx: ${unplaced} images without a placeholder`);
+  const emb = await processEmbeddedImages(
+    candidates.filter((c) => placed.has(c.key)),
+    ctx,
+    imageIdGen(source),
+    sips,
+  );
   const replaced = blocks.flatMap((b) =>
     b.kind === 'image' && emb.blocks.has(b.imageId) ? emb.blocks.get(b.imageId)! : [b],
   );

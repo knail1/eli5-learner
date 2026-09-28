@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_EXTRACT_LIMITS,
   ExtractError,
+  JobImageBudget,
   applyCharCap,
   extractSource,
   type ExtractLimits,
@@ -219,5 +220,78 @@ describe('extractSource (04 §3)', () => {
   it('never throws out of extractSource', async () => {
     const r = await extractSource(fixtureSource('sources/text/plain.txt', { format: 'docx' }), testContext());
     expect(r).toMatchObject({ ok: false, skipped: { code: 'corrupt' } });
+  });
+
+  it('truncates an oversized first table or list instead of skipping the source (04 §8.2)', async () => {
+    // 200 rows x 20 cells x 150 chars = 600k characters, inside the csv caps.
+    const cell = 'c'.repeat(150);
+    const header = Array.from({ length: 20 }, (_, i) => `Col ${i + 1}`).join(',');
+    const csv = [header, ...Array.from({ length: 200 }, () => Array(20).fill(cell).join(','))].join('\n');
+    const r = await extractSource(textSource(csv, 'csv'), testContext());
+    if (!r.ok) throw new Error(r.skipped.code);
+    const table = r.content.blocks.find((b) => b.kind === 'table');
+    if (table?.kind !== 'table') throw new Error('no table');
+    expect(table.rows.length).toBeGreaterThan(100);
+    expect(table.rows.length).toBeLessThan(200);
+    expect(table.truncated?.rows).toBeGreaterThanOrEqual(200 - table.rows.length);
+    expect(r.content.stats.chars).toBeLessThanOrEqual(400_000);
+    expect(r.content.truncated).toBe(true);
+
+    const list = Array.from({ length: 5000 }, (_, i) => `- item ${i} ${'x'.repeat(120)}`).join('\n');
+    const l = await extractSource(textSource(list), testContext());
+    if (!l.ok) throw new Error(l.skipped.code);
+    expect(l.content.blocks[0]).toMatchObject({ kind: 'list' });
+    expect(l.content.stats.chars).toBeGreaterThan(390_000);
+    expect(l.content.stats.chars).toBeLessThanOrEqual(400_000);
+  });
+
+  it('never turns non-empty content into zero blocks, even for a lone heading', () => {
+    const c = newContent(
+      { id: 's', ref: 'r', format: 'markdown' },
+      { blocks: [{ kind: 'heading', level: 1, text: 'h'.repeat(30) }] },
+    );
+    applyCharCap(c, 10);
+    expect(c.blocks).toEqual([{ kind: 'heading', level: 1, text: 'h'.repeat(10) }]);
+  });
+
+  it('returns budget reserved for images that are never sent (04 §7.4)', async () => {
+    const asset = (id: string) => ({
+      id,
+      mediaType: 'image/png' as const,
+      data: new Uint8Array(100),
+      width: 1,
+      height: 1,
+      byteLength: 100,
+      origin: 'embedded' as const,
+    });
+    const budget = new JobImageBudget({ maxImages: 20, maxTotalBytes: 10_000 });
+    const limits: ExtractLimits = { ...DEFAULT_EXTRACT_LIMITS, maxCharsPerSource: 4 };
+    const reserving: Extractor['extract'] = async (s, ctx) => {
+      expect(ctx.imageBudget.tryReserve(100, 'embedded')).toBe(true);
+      expect(ctx.imageBudget.tryReserve(100, 'embedded')).toBe(true);
+      return {
+        ok: true,
+        content: newContent(s, {
+          blocks: [
+            { kind: 'paragraph', text: 'abcd' },
+            { kind: 'image', imageId: 'a', origin: 'embedded' },
+            { kind: 'paragraph', text: 'efgh' },
+            { kind: 'image', imageId: 'b', origin: 'embedded' },
+          ],
+          images: [asset('a'), asset('b')],
+        }),
+      };
+    };
+    const r = await extractSource(textSource('x'), testContext({ imageBudget: budget, limits }), [fake(reserving)]);
+    expect(r.ok && r.content.images.map((i) => i.id)).toEqual(['a']);
+    expect(budget.snapshot()).toMatchObject({ usedImages: 1, usedBytes: 100 });
+
+    const skipping: Extractor['extract'] = async (s, ctx) => {
+      ctx.imageBudget.tryReserve(100, 'embedded');
+      return { ok: true, content: newContent(s) };
+    };
+    const e = await extractSource(textSource('x'), testContext({ imageBudget: budget }), [fake(skipping)]);
+    expect(e.ok).toBe(false);
+    expect(budget.snapshot()).toMatchObject({ usedImages: 1, usedBytes: 100 });
   });
 });

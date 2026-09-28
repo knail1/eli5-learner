@@ -5,6 +5,7 @@
  */
 import { XMLParser } from 'fast-xml-parser';
 import { ExtractError } from './skip';
+import type { SafeZip } from './zip-safety';
 
 /** A preserveOrder node: `{ 'a:p': [...children], ':@': { '@_lvl': '1' } }` or `{ '#text': '...' }`. */
 export type XNode = Record<string, unknown>;
@@ -34,6 +35,16 @@ const parser = new XMLParser({
 export function assertNoDtd(xml: string): void {
   if (/<!DOCTYPE/i.test(xml) || /<!ENTITY/i.test(xml)) {
     throw new ExtractError('corrupt', 'xml: DOCTYPE or ENTITY declaration');
+  }
+}
+
+/**
+ * Checks every .xml/.rels part before a library that parses the package itself (mammoth, SheetJS)
+ * sees it (04 §10.3): no part may carry a DTD or entity declaration.
+ */
+export function assertNoDtdParts(zip: SafeZip): void {
+  for (const e of zip.entries) {
+    if (/\.(xml|rels)$/i.test(e.name)) assertNoDtd(zip.readText(e.name) ?? '');
   }
 }
 

@@ -51,8 +51,9 @@ export function isImageFormat(format: SourceFormat): boolean {
 }
 
 /**
- * Overall budget for one source. A PDF may need rendering, which is only known after the text
- * pass, so it gets the scanned budget; the text pass itself is bounded at pdfText inside pdf.ts.
+ * Outer backstop for one source. For a PDF this is the largest scanned budget, because rendering is
+ * only known after the text pass; pdf.ts enforces the real deadlines itself (§10.2): 60 s for the
+ * text pass, and 120 s + 15 s per page actually rendered when scanned pages exist.
  */
 export function timeoutFor(format: SourceFormat, limits: ExtractLimits): number {
   switch (format) {

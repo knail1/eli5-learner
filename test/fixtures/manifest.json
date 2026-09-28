@@ -38,6 +38,18 @@
       "provenance": "synthetic"
     },
     {
+      "path": "sources/docx/table-image.docx",
+      "format": "docx",
+      "generator": "test/fixtures/build/docx.ts",
+      "sha256": "25a14f35e93534e1c2173b242a88ba8e9e3522a8c2e5d4c045f3f5c739c3adcb",
+      "expect": {
+        "kind": "extract",
+        "golden": "sources/docx/table-image.expected.txt",
+        "imageCount": 2
+      },
+      "provenance": "synthetic"
+    },
+    {
       "path": "sources/hostile/declared-total-size.docx",
       "format": "hostile",
       "generator": "test/fixtures/build/hostile.ts",
@@ -86,6 +98,17 @@
       "format": "hostile",
       "generator": "test/fixtures/build/hostile.ts",
       "sha256": "b643dbbb22b2cd722aeb57a81f62cc9681fe7741be7a5d75e9e07adbdfdfdc93",
+      "expect": {
+        "kind": "skip",
+        "skipCode": "corrupt"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/hostile/xml-entity.xlsx",
+      "format": "hostile",
+      "generator": "test/fixtures/build/hostile.ts",
+      "sha256": "597343dd4bc316858918cbdb9c4c984f1ed9ad4da9eb1d98d3b18ce0deb6d90f",
       "expect": {
         "kind": "skip",
         "skipCode": "corrupt"
@@ -239,6 +262,16 @@
       "expect": {
         "kind": "extract",
         "golden": "sources/text/cp1252.expected.txt"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/text/empty.txt",
+      "format": "txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "expect": {
+        "kind": "skip",
+        "skipCode": "empty"
       },
       "provenance": "synthetic"
     },

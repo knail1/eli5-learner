@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { extractSource, htmlToBlocks } from '../../../../src/main/extract';
+import { domToBlocks, parseBody } from '../../../../src/main/extract/html-to-blocks';
 import { fixtureSource, testContext } from '../../../contracts/extractor.contract';
 
 describe('htmlToBlocks (04 §9.3)', () => {
@@ -30,15 +31,34 @@ describe('htmlToBlocks (04 §9.3)', () => {
     expect(imageRefs).toEqual([]);
   });
 
-  it('turns docx placeholders into image blocks and flattens nested tables', () => {
-    const { blocks, imageRefs } = htmlToBlocks(
-      '<p><img data-eli5-img="docx-img:0" alt="Diagram"></p><table><tr><td>x<table><tr><td>a</td><td>b</td></tr></table></td></tr></table>',
+  it('turns docx placeholders into image blocks (also in table cells) and flattens nested tables', () => {
+    const { blocks, imageRefs } = domToBlocks(
+      parseBody(
+        '<p><img data-eli5-img="docx-img:0" alt="Diagram"></p><table><tr><td>x<table><tr><td>a</td><td>b</td></tr></table></td>' +
+          '<td><p><img data-eli5-img="docx-img:1" alt="Cell chart"></p></td></tr></table>',
+      ),
+      { placeholders: true },
     );
-    expect(imageRefs).toEqual([{ ref: 'docx-img:0', alt: 'Diagram' }]);
+    expect(imageRefs).toEqual([
+      { ref: 'docx-img:0', alt: 'Diagram' },
+      { ref: 'docx-img:1', alt: 'Cell chart' },
+    ]);
     expect(blocks).toEqual([
       { kind: 'image', imageId: 'docx-img:0', origin: 'embedded', alt: 'Diagram' },
-      { kind: 'table', rows: [['x; a; b']] },
+      { kind: 'table', rows: [['x; a; b', '']] },
+      { kind: 'image', imageId: 'docx-img:1', origin: 'embedded', alt: 'Cell chart' },
     ]);
+  });
+
+  it('ignores placeholder attributes in untrusted HTML', async () => {
+    const html = '<p>Hi <img data-eli5-img="x-1" alt="logo"></p>';
+    expect(htmlToBlocks(html)).toEqual({
+      blocks: [{ kind: 'paragraph', text: 'Hi [image: logo]' }],
+      imageRefs: [],
+    });
+    const src = fixtureSource('sources/text/article.html', { payload: { kind: 'html', html } });
+    const r = await extractSource(src, testContext());
+    expect(r.ok && r.content.blocks).toEqual([{ kind: 'paragraph', text: 'Hi [image: logo]' }]);
   });
 
   it('extracts a local HTML file with its title', async () => {

@@ -2,7 +2,8 @@
  * HTML to blocks (04 §9.3), shared by docx (§5.2), rich-text pastes, and 05 after Readability.
  * linkedom parses without running scripts. Inline elements reduce to text; link URLs are dropped
  * (bare autolinks keep their text, which is the URL). Remote images are never fetched: their alt
- * text stays inline. Only docx placeholders (`img[data-eli5-img]`) become ImageBlocks.
+ * text stays inline. Only docx placeholders (`img[data-eli5-img]`, honored only when docx asks)
+ * become ImageBlocks.
  */
 import { parseHTML } from 'linkedom';
 import { cleanInline, cleanMultiline } from './text-util';
@@ -100,9 +101,29 @@ export function parseBody(html: string): DomNode {
   return (document.body ?? document.documentElement) as unknown as DomNode;
 }
 
+export interface DomToBlocksOptions {
+  /**
+   * Honor docx image placeholders (`img[data-eli5-img]`). Only the docx extractor sets this;
+   * untrusted HTML carrying the attribute is treated like any other image (alt text only).
+   */
+  placeholders?: boolean;
+}
+
 class Walker {
   readonly blocks: ContentBlock[] = [];
   readonly imageRefs: ImageRef[] = [];
+
+  constructor(private readonly placeholders: boolean) {}
+
+  /** Records a placeholder image and returns true, or false when `n` is not one. */
+  placeholder(n: DomNode, pendingImages: ImageBlock[]): boolean {
+    const ph = this.placeholders ? attrOf(n, 'data-eli5-img') : null;
+    if (ph === null) return false;
+    const alt = attrOf(n, 'alt')?.trim() || undefined;
+    this.imageRefs.push({ ref: ph, ...(alt ? { alt } : {}) });
+    pendingImages.push({ kind: 'image', imageId: ph, origin: 'embedded', ...(alt ? { alt } : {}) });
+    return true;
+  }
 
   /** Inline text of a node; images become "[image: alt]" or, for placeholders, are collected. */
   inlineText(n: DomNode, pendingImages?: ImageBlock[]): string {
@@ -112,13 +133,8 @@ class Walker {
     if (DROP.has(t)) return '';
     if (t === 'BR') return ' ';
     if (t === 'IMG') {
-      const ph = attrOf(n, 'data-eli5-img');
+      if (pendingImages && this.placeholder(n, pendingImages)) return '';
       const alt = attrOf(n, 'alt')?.trim() || undefined;
-      if (ph !== null && pendingImages) {
-        this.imageRefs.push({ ref: ph, ...(alt ? { alt } : {}) });
-        pendingImages.push({ kind: 'image', imageId: ph, origin: 'embedded', ...(alt ? { alt } : {}) });
-        return '';
-      }
       return alt ? ` [image: ${alt}] ` : '';
     }
     return kids(n)
@@ -175,8 +191,11 @@ class Walker {
         return;
       }
       case 'TABLE': {
-        const table = this.table(n);
+        // Placeholder images inside cells follow the table as their own blocks.
+        const imgs: ImageBlock[] = [];
+        const table = this.table(n, imgs);
         if (table) this.blocks.push(table);
+        this.blocks.push(...imgs);
         return;
       }
       case 'BLOCKQUOTE':
@@ -208,7 +227,7 @@ class Walker {
       const children: ListItem[] = [];
       for (const c of kids(li)) {
         if (isEl(c) && (tag(c) === 'UL' || tag(c) === 'OL')) children.push(...this.listItems(c, imgs));
-        else if (isEl(c) && tag(c) === 'TABLE') text += ` ${cellText(c)} `;
+        else if (isEl(c) && tag(c) === 'TABLE') text += ` ${cellText(c, (img) => this.placeholder(img, imgs))} `;
         else text += ` ${this.inlineText(c, imgs)} `;
       }
       const item: ListItem = { text: cleanInline(text) };
@@ -218,7 +237,7 @@ class Walker {
     return items;
   }
 
-  private table(t: DomNode): TableBlock | undefined {
+  private table(t: DomNode, imgs: ImageBlock[]): TableBlock | undefined {
     const rows: Array<{ cells: string[]; header: boolean; inHead: boolean }> = [];
     const collectRows = (n: DomNode, inHead: boolean): void => {
       for (const c of kids(n)) {
@@ -234,7 +253,7 @@ class Walker {
             if (!isEl(cell) || (tag(cell) !== 'TD' && tag(cell) !== 'TH')) continue;
             any = true;
             if (tag(cell) !== 'TH') allTh = false;
-            cells.push(cellText(cell));
+            cells.push(cellText(cell, (img) => this.placeholder(img, imgs)));
             const span = Math.min(Number(attrOf(cell, 'colspan') ?? '1') || 1, 100);
             for (let k = 1; k < span; k++) cells.push('');
           }
@@ -257,8 +276,11 @@ class Walker {
   }
 }
 
-/** Cell text; nested tables flatten to their cell text joined with "; " (04 §5.2). */
-function cellText(cell: DomNode): string {
+/**
+ * Cell text; nested tables flatten to their cell text joined with "; " (04 §5.2). `onImage`
+ * claims placeholder images (returns true), which then add no text.
+ */
+function cellText(cell: DomNode, onImage: (img: DomNode) => boolean): string {
   const parts: string[] = [];
   let buf = '';
   const visit = (n: DomNode): void => {
@@ -277,6 +299,7 @@ function cellText(cell: DomNode): string {
       return;
     }
     if (t === 'IMG') {
+      if (onImage(n)) return;
       const alt = attrOf(n, 'alt')?.trim();
       if (alt) buf += ` [image: ${alt}] `;
       return;
@@ -291,8 +314,8 @@ function cellText(cell: DomNode): string {
 }
 
 /** Converts an already-parsed DOM subtree (used by docx after its DOM pre-pass). */
-export function domToBlocks(root: DomNode): HtmlBlocks {
-  const w = new Walker();
+export function domToBlocks(root: DomNode, opts: DomToBlocksOptions = {}): HtmlBlocks {
+  const w = new Walker(opts.placeholders ?? false);
   w.walk(root);
   return { blocks: w.blocks, imageRefs: w.imageRefs };
 }

@@ -127,6 +127,42 @@ describe('pdf extractor (04 §6)', () => {
     expect(c.stats.imagesDropped).toBe(1);
   });
 
+  it('skips with scan-render-failed, not a budget reason, when every page fails normalization', async () => {
+    const services = fakeServices({ normalizeFails: 'corrupt' });
+    const r = await extractSource(
+      fixtureSource('sources/pdf/scanned-3p.pdf'),
+      testContext({ services, renderPdfPages: services.renderPdfPages, normalizeImage: services.normalizeImage }),
+    );
+    expect(r).toMatchObject({ ok: false, skipped: { code: 'scan-render-failed' } });
+  });
+
+  it('keeps the text pages of a mixed PDF when rendering is interrupted (04 §10.2)', async () => {
+    const ac = new AbortController();
+    const services = fakeServices();
+    const r = await extractSource(
+      fixtureSource('sources/pdf/mixed.pdf'),
+      testContext({
+        services,
+        signal: ac.signal,
+        normalizeImage: services.normalizeImage,
+        renderPdfPages: (_pdf, _pages, o) =>
+          new Promise((_resolve, reject) => {
+            o.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+            ac.abort();
+          }),
+      }),
+    );
+    if (!r.ok) throw new Error(r.skipped.code);
+    expect(r.content.truncated).toBe(true);
+    expect(r.content.warnings).toContain('Stopped after 2 of 3 pages (timeout)');
+    expect(
+      pages(r.content)
+        .map((p) => p.number)
+        .slice(0, 2),
+    ).toEqual([1, 2]);
+    expect(r.content.images).toEqual([]);
+  });
+
   it('keeps page renders within the job image budget', async () => {
     const budget = new JobImageBudget({ maxImages: 1 });
     const c = await pdf('sources/pdf/scanned-3p.pdf', { imageBudget: budget });

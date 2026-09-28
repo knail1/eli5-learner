@@ -30,7 +30,6 @@ import { SafeZip, dirOf, relsPathFor, resolvePartPath } from './zip-safety';
 const EMU_PER_INCH = 914400;
 const ROW_TOLERANCE = EMU_PER_INCH / 2;
 const DEFAULT_TITLES = /^(powerpoint presentation|presentation\d*|slide \d+|untitled|title)$/i;
-const FOOTER_PH = new Set(['ftr', 'sldNum', 'dt']);
 const TITLE_PH = new Set(['title', 'ctrTitle']);
 const REL = {
   slideLayout: '/slideLayout',
@@ -322,7 +321,10 @@ interface SlideCtx {
   warnings: Set<string>;
   images: EmbeddedCandidate[];
   slideIndex: number;
+  /** Slide-number placeholders dropped (never content); counted with the removed footer lines. */
   footerPlaceholders: { n: number };
+  /** Media inflated once per part, however many slides place it (§10.3 running total). */
+  mediaCache: Map<string, Uint8Array>;
   layoutCache: Map<string, Map<string, { x: number; y: number }>>;
 }
 
@@ -370,7 +372,9 @@ function slideContent(tree: XNode | undefined, sc: SlideCtx): { title?: string; 
   let title: string | undefined;
   const blocks: ContentBlock[] = [];
   for (const s of readingOrder(raw)) {
-    if (s.ph && FOOTER_PH.has(s.ph.type)) {
+    // Footer and date placeholders go through the repeated-line rule like any other line (§5.1
+    // edge cases); a slide number is never content.
+    if (s.ph?.type === 'sldNum') {
       sc.footerPlaceholders.n++;
       continue;
     }
@@ -414,7 +418,11 @@ function slideContent(tree: XNode | undefined, sc: SlideCtx): { title?: string; 
     } else if (s.tag === 'p:pic') {
       const blip = path(s.node, 'p:blipFill', 'a:blip');
       const part = relTarget(sc, attr(blip, 'r:embed'));
-      const bytes = part ? sc.zip.read(part) : undefined;
+      let bytes = part ? sc.mediaCache.get(part) : undefined;
+      if (part && !bytes) {
+        bytes = sc.zip.read(part);
+        if (bytes) sc.mediaCache.set(part, bytes);
+      }
       if (!bytes) {
         sc.warnings.add('Some slides had broken links to charts or objects; skipped');
         continue;
@@ -540,6 +548,7 @@ async function extractPptx(source: ResolvedSource, ctx: ExtractContext, sips?: S
   const slides: SlideBlock[] = [];
   const images: EmbeddedCandidate[] = [];
   const footerPlaceholders = { n: 0 };
+  const mediaCache = new Map<string, Uint8Array>();
   const layoutCache = new Map<string, Map<string, { x: number; y: number }>>();
   let hiddenSkipped = 0;
   let untitled = 0;
@@ -575,6 +584,7 @@ async function extractPptx(source: ResolvedSource, ctx: ExtractContext, sips?: S
       images,
       slideIndex: i + 1,
       footerPlaceholders,
+      mediaCache,
       layoutCache,
     };
     const firstImage = images.length;
@@ -594,7 +604,7 @@ async function extractPptx(source: ResolvedSource, ctx: ExtractContext, sips?: S
     content.truncated = true;
   }
 
-  const removed = removeRepeatedLines(slides);
+  const removed = removeRepeatedLines(slides) + footerPlaceholders.n;
   if (removed) warnings.add(`Removed ${plural(removed, 'repeated footer line')}`);
   if (untitled) warnings.add(`${plural(untitled, 'slide')} had no title`);
   if (hiddenSkipped) warnings.add(`${plural(hiddenSkipped, 'hidden slide')} skipped`);

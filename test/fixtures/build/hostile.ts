@@ -3,7 +3,10 @@
  * lying sizes, so a raw ZIP writer builds the archives entry by entry.
  */
 import { crc32, deflateRawSync } from 'node:zlib';
+import JSZip from 'jszip';
+import { FIXED_DATE } from './common';
 import { buildXmlEntityDeck } from './pptx';
+import { buildBudget } from './xlsx';
 
 export { buildXmlEntityDeck };
 
@@ -101,4 +104,20 @@ export function lyingSizes(): Uint8Array {
     { name: '[Content_Types].xml', data: CONTENT_TYPES('/word/document.xml'), method: 0 },
     { name: 'word/document.xml', data: deflateRawSync(big, { level: 9 }), method: 8, declaredSize: 1024 },
   ]);
+}
+
+/**
+ * The budget workbook with a DTD and entity declaration in xl/workbook.xml: SheetJS parses the XML
+ * itself, so the extractor must refuse it as corrupt first (04 §10.3).
+ */
+export async function xmlEntityWorkbook(): Promise<Uint8Array> {
+  const zip = await JSZip.loadAsync(await buildBudget());
+  const part = zip.file('xl/workbook.xml');
+  if (!part) throw new Error('workbook part missing');
+  const xml = await part.async('string');
+  const dtd = '<!DOCTYPE workbook [<!ENTITY company "Example Widgets Inc.">]>';
+  const patched = /^<\?xml[^>]*\?>/.test(xml) ? xml.replace(/^(<\?xml[^>]*\?>)/, `$1${dtd}`) : dtd + xml;
+  zip.file('xl/workbook.xml', patched, { date: FIXED_DATE });
+  for (const f of Object.values(zip.files)) f.date = FIXED_DATE;
+  return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 6 } });
 }

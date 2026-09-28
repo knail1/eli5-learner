@@ -70,10 +70,15 @@ export class ExtractWorkerHost {
     return run;
   }
 
-  /** Kills the worker (job end). */
+  /**
+   * Kills the worker (job end). A source still extracting settles at once as cancelled (the same
+   * `timeout` skip extractSource gives a cancel), instead of waiting for the kill timer.
+   */
   dispose(): void {
     this.disposed = true;
     this.killWorker();
+    const a = this.active;
+    if (a) this.finish(a, skip(a.source, 'timeout'));
   }
 
   private log(msg: string): void {

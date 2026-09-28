@@ -3,8 +3,15 @@
  * builds it (absent = hand-written), and what extraction must produce. The manifest's entries for
  * these files are derived from this list plus the committed bytes' sha256.
  */
-import { buildBoldHeadings, buildLocalizedHeadings, buildPolicyMemo } from './docx';
-import { lyingSizes, zipBombDeclaredTotal, zipBombDeclaredXml, zipBombEntries, buildXmlEntityDeck } from './hostile';
+import { buildBoldHeadings, buildLocalizedHeadings, buildPolicyMemo, buildTableImage } from './docx';
+import {
+  lyingSizes,
+  zipBombDeclaredTotal,
+  zipBombDeclaredXml,
+  zipBombEntries,
+  buildXmlEntityDeck,
+  xmlEntityWorkbook,
+} from './hostile';
 import { diagramPng, hugeHeaderPng, photoJpg, screenshotTallPng } from './images';
 import { buildEncrypted, buildMixed, buildScanned3p, buildTwoColumn } from './pdf';
 import { buildOutOfOrder, buildQuarterlyReview } from './pptx';
@@ -46,6 +53,7 @@ export const EXTRACT_FIXTURES: readonly FixtureSpec[] = [
   { path: 'sources/docx/policy-memo.docx', format: 'docx', generator: g('docx'), build: buildPolicyMemo, expect: { kind: 'extract', imageCount: 1 } },
   { path: 'sources/docx/bold-headings.docx', format: 'docx', generator: g('docx'), build: buildBoldHeadings, expect: { kind: 'extract', imageCount: 0 } },
   { path: 'sources/docx/localized-headings.docx', format: 'docx', generator: g('docx'), build: buildLocalizedHeadings, expect: { kind: 'extract', imageCount: 0 } },
+  { path: 'sources/docx/table-image.docx', format: 'docx', generator: g('docx'), build: buildTableImage, expect: { kind: 'extract', imageCount: 2 } },
   { path: 'sources/pdf/two-column.pdf', format: 'pdf', generator: g('pdf'), build: buildTwoColumn, expect: { kind: 'extract', imageCount: 0 } },
   { path: 'sources/pdf/scanned-3p.pdf', format: 'pdf-scanned', generator: g('pdf'), build: buildScanned3p, expect: { kind: 'extract', imageCount: 3 } },
   { path: 'sources/pdf/mixed.pdf', format: 'pdf', generator: g('pdf'), build: buildMixed, expect: { kind: 'extract', imageCount: 1 } },
@@ -59,11 +67,13 @@ export const EXTRACT_FIXTURES: readonly FixtureSpec[] = [
   { path: 'sources/text/sales.csv', format: 'txt', expect: { kind: 'extract' } },
   { path: 'sources/text/article.html', format: 'html', expect: { kind: 'extract' } },
   { path: 'sources/text/bom-utf16.txt', format: 'txt', generator: g('text'), build: bomUtf16, expect: { kind: 'extract' } },
+  { path: 'sources/text/empty.txt', format: 'txt', expect: { kind: 'skip', skipCode: 'empty' } },
   { path: 'sources/text/cp1252.txt', format: 'txt', generator: g('text'), build: cp1252, expect: { kind: 'extract' } },
   { path: 'sources/hostile/zip-bomb-entries.pptx', format: 'hostile', generator: g('hostile'), build: zipBombEntries, expect: { kind: 'skip', skipCode: 'zip-bomb' } },
   { path: 'sources/hostile/declared-xml-size.pptx', format: 'hostile', generator: g('hostile'), build: zipBombDeclaredXml, expect: { kind: 'skip', skipCode: 'zip-bomb' } },
   { path: 'sources/hostile/declared-total-size.docx', format: 'hostile', generator: g('hostile'), build: zipBombDeclaredTotal, expect: { kind: 'skip', skipCode: 'zip-bomb' } },
   { path: 'sources/hostile/lying-sizes.docx', format: 'hostile', generator: g('hostile'), build: lyingSizes, expect: { kind: 'skip', skipCode: 'zip-bomb' } },
   { path: 'sources/hostile/xml-entity.pptx', format: 'hostile', generator: g('hostile'), build: buildXmlEntityDeck, expect: { kind: 'skip', skipCode: 'corrupt' } },
+  { path: 'sources/hostile/xml-entity.xlsx', format: 'hostile', generator: g('hostile'), build: xmlEntityWorkbook, expect: { kind: 'skip', skipCode: 'corrupt' } },
   { path: 'sources/hostile/huge-dimensions.png', format: 'hostile', generator: g('images'), build: hugeHeaderPng, expect: { kind: 'skip', skipCode: 'image-too-large' } },
 ];

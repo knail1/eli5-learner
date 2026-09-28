@@ -15,7 +15,17 @@ import { createPptxExtractor } from './pptx';
 import { ExtractError, skip } from './skip';
 import { textExtractor } from './text';
 import { countChars } from './text-util';
-import type { ContentBlock, ExtractContext, ExtractedContent, ExtractResult, Extractor } from './types';
+import type {
+  ContentBlock,
+  ExtractContext,
+  ExtractedContent,
+  ExtractResult,
+  Extractor,
+  ImageAsset,
+  ImageBudget,
+  ListItem,
+  TableBlock,
+} from './types';
 import { csvExtractor, xlsxExtractor } from './xlsx';
 
 export interface PublicExtractorDeps {
@@ -45,6 +55,71 @@ const ABORT_GRACE_MS = 250;
 
 // ---- §10.1 maxCharsPerSource ----
 
+/** Keeps leading list items (depth first) within `budget.left` characters. */
+function capItems(items: readonly ListItem[], budget: { left: number }): ListItem[] {
+  const out: ListItem[] = [];
+  for (const it of items) {
+    if (it.text.length > budget.left) {
+      if (out.length === 0 && budget.left > 0) out.push({ text: it.text.slice(0, budget.left) });
+      budget.left = 0;
+      break;
+    }
+    budget.left -= it.text.length;
+    const kept: ListItem = { text: it.text };
+    if (it.children?.length) {
+      const children = capItems(it.children, budget);
+      if (children.length) kept.children = children;
+    }
+    out.push(kept);
+    if (budget.left <= 0) break;
+  }
+  return out;
+}
+
+/** Keeps a table's caption, header and leading rows within the budget; records dropped rows. */
+function capTable(b: TableBlock, budget: { left: number }): TableBlock | undefined {
+  const fixed = (b.caption?.length ?? 0) + (b.header ?? []).reduce((a, c) => a + c.length, 0);
+  if (fixed > budget.left) return undefined;
+  budget.left -= fixed;
+  const rows: string[][] = [];
+  for (const r of b.rows) {
+    const n = r.reduce((a, c) => a + c.length, 0);
+    if (n > budget.left) break;
+    rows.push(r);
+    budget.left -= n;
+  }
+  if (!rows.length && !fixed) return undefined;
+  const dropped = b.rows.length - rows.length + (b.truncated?.rows ?? 0);
+  return { ...b, rows, truncated: { ...b.truncated, rows: dropped } };
+}
+
+/**
+ * Oversized block when the cap is reached. Lists and tables are cut at an item or row boundary;
+ * a heading or paragraph is cut only when nothing else was kept, so the cap never turns non-empty
+ * content into zero blocks ("Truncation is never a skip", 04 §8.2).
+ */
+function cutBlock(b: ContentBlock, budget: { left: number }, nothingKept: boolean): ContentBlock | undefined {
+  switch (b.kind) {
+    case 'slide':
+    case 'page': {
+      const inner = capBlocks(b.blocks, budget);
+      if (!inner.length) return undefined;
+      return b.kind === 'slide' ? { ...b, blocks: inner, notes: undefined } : { ...b, blocks: inner };
+    }
+    case 'list': {
+      const items = capItems(b.items, budget);
+      return items.length ? { ...b, items } : undefined;
+    }
+    case 'table':
+      return capTable(b, budget);
+    case 'heading':
+    case 'paragraph':
+      return nothingKept ? { ...b, text: b.text.slice(0, budget.left) } : undefined;
+    default:
+      return undefined;
+  }
+}
+
 function capBlocks(blocks: readonly ContentBlock[], budget: { left: number }): ContentBlock[] {
   const out: ContentBlock[] = [];
   for (const b of blocks) {
@@ -54,12 +129,9 @@ function capBlocks(blocks: readonly ContentBlock[], budget: { left: number }): C
       budget.left -= n;
       continue;
     }
-    if ((b.kind === 'slide' || b.kind === 'page') && budget.left > 0) {
-      const inner = capBlocks(b.blocks, budget);
-      if (inner.length) out.push({ ...b, blocks: inner, ...(b.kind === 'slide' ? { notes: undefined } : {}) });
-    } else if (out.length === 0 && b.kind === 'paragraph' && budget.left > 0) {
-      // A single oversized paragraph (e.g. a text file with no blank lines) is cut, not dropped.
-      out.push({ ...b, text: b.text.slice(0, budget.left) });
+    if (budget.left > 0) {
+      const cut = cutBlock(b, budget, out.length === 0);
+      if (cut) out.push(cut);
     }
     budget.left = 0;
     break;
@@ -92,12 +164,50 @@ export function applyCharCap(c: ExtractedContent, max: number): void {
   c.warnings.push(`Text cut at ${max.toLocaleString('en-US')} characters`);
 }
 
+// ---- §7.4 budget reservations per source ----
+
+/**
+ * Tracks what one source reserves from the job budget, so reservations for images that are never
+ * sent (cut by the char cap, or the source skipped) go back to the job (§7.4). After close(), a
+ * still-running extractor (late after a timeout) cannot reserve any more.
+ */
+class SourceBudget implements ImageBudget {
+  private images = 0;
+  private bytes = 0;
+  private closed = false;
+  constructor(private readonly inner: ImageBudget) {}
+  get maxImages(): number {
+    return this.inner.maxImages;
+  }
+  get maxTotalBytes(): number {
+    return this.inner.maxTotalBytes;
+  }
+  tryReserve(bytes: number, priority: 'standalone' | 'page-render' | 'embedded'): boolean {
+    if (this.closed || !this.inner.tryReserve(bytes, priority)) return false;
+    this.images++;
+    this.bytes += bytes;
+    return true;
+  }
+  /** Keeps the reservations of `sent` and releases the rest. */
+  close(sent: readonly ImageAsset[]): void {
+    this.closed = true;
+    const images = this.images - sent.length;
+    const bytes = this.bytes - sent.reduce((a, i) => a + i.byteLength, 0);
+    if (images > 0 || bytes > 0) this.inner.release?.(Math.max(0, images), Math.max(0, bytes));
+    this.images = sent.length;
+    this.bytes -= Math.max(0, bytes);
+  }
+}
+
 // ---- error mapping ----
 
 function mapError(err: unknown, source: ResolvedSource, ctx: ExtractContext, timeoutMs: number): ExtractResult {
   if (err instanceof ExtractError) {
     ctx.log(`extract: ${err.code}`);
-    if (err.code === 'timeout') return skip(source, 'timeout', { seconds: Math.round(timeoutMs / 1000) });
+    if (err.code === 'timeout') {
+      // Report the deadline that actually fired (pdf.ts has its own, §10.2).
+      return skip(source, 'timeout', { seconds: err.params.seconds ?? Math.round(timeoutMs / 1000) });
+    }
     return skip(source, err.code, err.params);
   }
   const name = err instanceof Error ? err.name : typeof err;
@@ -112,6 +222,17 @@ function mapError(err: unknown, source: ResolvedSource, ctx: ExtractContext, tim
 
 /** 04 §3. `extractors` defaults to the public static registry. */
 export async function extractSource(
+  source: ResolvedSource,
+  ctx: ExtractContext,
+  extractors?: readonly Extractor[],
+): Promise<ExtractResult> {
+  const budget = new SourceBudget(ctx.imageBudget);
+  const result = await runExtract(source, { ...ctx, imageBudget: budget }, extractors);
+  budget.close(result.ok ? result.content.images : []);
+  return result;
+}
+
+async function runExtract(
   source: ResolvedSource,
   ctx: ExtractContext,
   extractors?: readonly Extractor[],
@@ -160,7 +281,8 @@ export async function extractSource(
   } catch (err) {
     if (ac.signal.aborted && !(err instanceof ExtractError && err.code !== 'timeout')) {
       ctx.log(timedOut ? 'extract: timeout' : 'extract: aborted');
-      return skip(source, 'timeout', { seconds: Math.round(timeoutMs / 1000) });
+      const seconds = err instanceof ExtractError ? err.params.seconds : undefined;
+      return skip(source, 'timeout', { seconds: seconds ?? Math.round(timeoutMs / 1000) });
     }
     return mapError(err, source, ctx, timeoutMs);
   } finally {
