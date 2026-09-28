@@ -1,0 +1,91 @@
+{
+  "id": "eli5",
+  "title": "ELI5 tab (13 §9.4, E1-E5)",
+  "criteria": [
+    {
+      "id": "E1",
+      "name": "Plain language",
+      "fiveMeans": "No unexplained jargon; the listed jargon terms are replaced by plain words.",
+      "anchors": [
+        {
+          "score": 2,
+          "excerpt": "'The team lowered MTTR by tuning the SIEM correlation rules and triaging IOCs faster.'",
+          "why": "Three unexplained terms in one sentence."
+        },
+        {
+          "score": 5,
+          "excerpt": "'The team got faster at fixing problems: they taught their alarm system to connect related warnings, so they could spot the real clues sooner.'",
+          "why": "The same idea in everyday words, with nothing left to look up."
+        }
+      ]
+    },
+    {
+      "id": "E2",
+      "name": "Rebuilt structure",
+      "fiveMeans": "Organized for comprehension, not a mirror of the source outline.",
+      "anchors": [
+        {
+          "score": 2,
+          "excerpt": "Sections: 'Slide 1 in simple words', 'Slide 2 in simple words', 'Slide 3 in simple words'.",
+          "why": "Walks the source outline slide by slide."
+        },
+        {
+          "score": 5,
+          "excerpt": "Sections: 'What the company is trying to do', 'The one number that matters', 'What could go wrong'.",
+          "why": "Rebuilt around the questions a newcomer has."
+        }
+      ]
+    },
+    {
+      "id": "E3",
+      "name": "Faithfulness",
+      "fiveMeans": "Simplifications do not become false.",
+      "anchors": [
+        {
+          "score": 2,
+          "excerpt": "Source: 'The test found a lift that was not statistically significant.' ELI5: 'The test proved the new button works better.'",
+          "why": "The simplification reverses the finding."
+        },
+        {
+          "score": 5,
+          "excerpt": "ELI5: 'The new button did a little better, but not by enough to be sure it was not luck, so the team will test longer.'",
+          "why": "Simple and still true to the source."
+        }
+      ]
+    },
+    {
+      "id": "E4",
+      "name": "Core idea",
+      "fiveMeans": "A reader can state the main point after one read.",
+      "anchors": [
+        {
+          "score": 2,
+          "excerpt": "Five equally weighted paragraphs about budgets, dates, owners, tools and risks, with no sentence saying what matters most.",
+          "why": "No main point emerges."
+        },
+        {
+          "score": 5,
+          "excerpt": "Opening line: 'The big idea: the company spends more to win customers than it used to, but each one now stays longer, so it still comes out ahead.'",
+          "why": "The main point is stated up front and everything else supports it."
+        }
+      ]
+    },
+    {
+      "id": "E5",
+      "name": "Analogies",
+      "fiveMeans": "Analogies are apt and not misleading.",
+      "anchors": [
+        {
+          "score": 2,
+          "excerpt": "'A data lake is like a swimming pool: people swim in it for fun.'",
+          "why": "The analogy is vivid but teaches the wrong thing."
+        },
+        {
+          "score": 5,
+          "excerpt": "'A data lake is like a big storage unit where you put boxes in as they are, and sort them only when you need something.'",
+          "why": "Maps the key property (store raw now, organize later) onto a familiar thing."
+        }
+      ]
+    }
+  ]
+}

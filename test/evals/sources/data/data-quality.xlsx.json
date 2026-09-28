@@ -1,0 +1,42 @@
+{
+  "sheets": [
+    {
+      "name": "Scorecard",
+      "rows": [
+        ["Synthetic workbook for evaluation. Example Widgets Inc. is a fictional company.", "", "", "", ""],
+        ["Table", "Null rate (key fields)", "Duplicate rate", "Freshness (hours late)", "Status"],
+        ["orders", "0.1%", "0.0%", 0.5, "Green"],
+        ["customers", "4.8%", "2.3%", 2, "Red"],
+        ["inventory", "0.4%", "0.0%", 26, "Red"],
+        ["web_sessions", "1.2%", "0.6%", 3, "Amber"]
+      ]
+    },
+    {
+      "name": "Thresholds",
+      "rows": [
+        ["Check", "Green", "Amber", "Red"],
+        ["Null rate", "< 1%", "1% to 3%", "> 3%"],
+        ["Duplicate rate", "< 0.5%", "0.5% to 1%", "> 1%"],
+        ["Freshness", "< 1 hour late", "1 to 6 hours late", "> 6 hours late"]
+      ]
+    },
+    {
+      "name": "Actions",
+      "rows": [
+        ["Table", "Cause", "Fix", "Owner"],
+        [
+          "customers",
+          "Web sign-up form allows blank email; CRM import creates duplicates",
+          "Make email required; dedupe on email before load",
+          "CRM team"
+        ],
+        [
+          "inventory",
+          "Warehouse export job failed silently for a day",
+          "Add freshness alert at 6 hours",
+          "Data platform team"
+        ]
+      ]
+    }
+  ]
+}

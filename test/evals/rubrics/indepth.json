@@ -1,0 +1,125 @@
+{
+  "id": "indepth",
+  "title": "In depth tab (13 §9.4, D1-D7)",
+  "criteria": [
+    {
+      "id": "D1",
+      "name": "Accuracy",
+      "fiveMeans": "No claim contradicts or goes beyond the sources; every number matches the sources.",
+      "anchors": [
+        {
+          "score": 2,
+          "excerpt": "Source: 'Online orders rose from 20k to 40k.' Document: 'Online orders tripled to 60k, making online the largest channel.'",
+          "why": "The number is wrong and the 'largest channel' claim is not in the source."
+        },
+        {
+          "score": 5,
+          "excerpt": "Source: 'Online orders rose from 20k to 40k; retail held at 42k.' Document: 'Online orders doubled to 40k, closing in on retail at 42k.'",
+          "why": "Every figure matches and the comparison follows directly from the source."
+        }
+      ]
+    },
+    {
+      "id": "D2",
+      "name": "Coverage",
+      "fiveMeans": "Every must-convey fact is conveyed, clearly enough that a reader would come away knowing it.",
+      "anchors": [
+        {
+          "score": 2,
+          "excerpt": "Must convey: 'MFA is required for admin accounts', 'access reviews run quarterly', 'orphaned accounts are disabled within 24 hours'. Document mentions only MFA.",
+          "why": "Two of three required facts are missing."
+        },
+        {
+          "score": 5,
+          "excerpt": "Document: 'Admins must use MFA. Every quarter, managers re-approve who has access, and accounts left behind by departed staff are switched off within a day.'",
+          "why": "All three facts are conveyed, in plain terms."
+        }
+      ]
+    },
+    {
+      "id": "D3",
+      "name": "Calibration",
+      "fiveMeans": "Explains what a non-expert reader would not know and does not re-explain the obvious.",
+      "anchors": [
+        {
+          "score": 2,
+          "excerpt": "'A company sells products to customers. Revenue is money. The CAC was $120 and LTV:CAC hit 3.1x.'",
+          "why": "Belabors trivia while leaving CAC and LTV:CAC unexplained."
+        },
+        {
+          "score": 5,
+          "excerpt": "'It cost $120 in marketing to win each new customer (CAC), and each customer is expected to bring in about three times that over their life, a ratio investors treat as healthy.'",
+          "why": "Explains the unfamiliar ideas once, briefly, and skips the obvious."
+        }
+      ]
+    },
+    {
+      "id": "D4",
+      "name": "Explanatory structure",
+      "fiveMeans": "Leads with the point, builds logically, and headings are informative.",
+      "anchors": [
+        {
+          "score": 2,
+          "excerpt": "Headings: 'Slide 1', 'Slide 2', 'Other'. The conclusion (the pilot should be extended) appears only in the last paragraph.",
+          "why": "Mirrors the source order, uninformative headings, buries the point."
+        },
+        {
+          "score": 5,
+          "excerpt": "Headings: 'The pilot cut errors by half', 'Why the night shift gained most', 'What extending it would cost'. The first paragraph states the recommendation.",
+          "why": "Leads with the point; each heading tells the reader what the section shows."
+        }
+      ]
+    },
+    {
+      "id": "D5",
+      "name": "Visual explanation",
+      "fiveMeans": "Charts, diagrams or annotated figures carry real information and match the data (WSJ-grade).",
+      "anchors": [
+        {
+          "score": 2,
+          "excerpt": "[Chart: 'Growth' | categories A, B | values 1, 2] next to a paragraph about quarterly churn.",
+          "why": "The chart is decorative, unlabeled and unrelated to the text's data."
+        },
+        {
+          "score": 5,
+          "excerpt": "[Chart: 'Online orders doubled in a year' | Widget orders by channel, thousands | Retail 40 to 42, Wholesale 30 to 28, Online 20 to 40 | highlight: Online, up 100%]",
+          "why": "Title states the finding, units given, values match the source, the key change is highlighted."
+        }
+      ]
+    },
+    {
+      "id": "D6",
+      "name": "Glossary quality",
+      "fiveMeans": "Glossary terms are the ones the original audience assumed; explanations are short and correct.",
+      "anchors": [
+        {
+          "score": 2,
+          "excerpt": "Glossary: 'Company: an organization.' 'Quarter: three months.' (SIEM and EDR, used throughout, are not defined.)",
+          "why": "Defines the obvious and misses the real jargon."
+        },
+        {
+          "score": 5,
+          "excerpt": "Glossary: 'SIEM: a system that collects security logs from many tools in one place so analysts can search and alert on them.' 'EDR: software on each laptop or server that records suspicious activity and can isolate the machine.'",
+          "why": "Picks the assumed terms; each definition is one short, correct sentence."
+        }
+      ]
+    },
+    {
+      "id": "D7",
+      "name": "References",
+      "fiveMeans": "Every used and every skipped source is listed correctly, with a reason for each skipped one.",
+      "anchors": [
+        {
+          "score": 2,
+          "excerpt": "References: 'campaign-review.md'. (The job also used funnel.csv, and a login-walled URL was skipped; neither is listed.)",
+          "why": "A used source and the skipped source are missing."
+        },
+        {
+          "score": 5,
+          "excerpt": "References: 'campaign-review.md', 'funnel.csv'. Skipped: 'http://127.0.0.1/login-wall/ (sign-in required)'.",
+          "why": "All used sources listed, and the skipped one appears with its reason."
+        }
+      ]
+    }
+  ]
+}

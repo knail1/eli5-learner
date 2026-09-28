@@ -1,0 +1,13 @@
+Procurement note: second housing supplier (synthetic, for evaluation; Example Widgets Inc. is fictional)
+
+Why a second supplier
+The single housing supplier caused two line stoppages last year. Adding a second supplier cuts that risk. Volume will be split 70/30 in the first year.
+
+Payment terms
+Invoices are payable net 60, meaning within 60 days of the invoice date.
+The supplier offers a 2/10 early-payment discount: pay within 10 days and take 2% off the invoice.
+Taking the discount on the expected $3.0 million of annual purchases saves about $60,000 a year, but ties up cash 50 days earlier.
+
+Commitments
+There is no minimum purchase commitment. Each purchase order (PO) is binding once the supplier confirms it.
+Price changes after the first twelve months are capped at 4% per year.

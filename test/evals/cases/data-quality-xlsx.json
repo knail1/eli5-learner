@@ -1,0 +1,15 @@
+{
+  "id": "data-quality-xlsx",
+  "domain": "data",
+  "sources": ["evals/data/data-quality.xlsx.json"],
+  "glossary": true,
+  "mustCover": [
+    "customers and inventory tables are red",
+    "the customers table has a 4.8% null rate and 2.3% duplicates because the sign-up form allows a blank email",
+    "the inventory data was 26 hours late after an export job failed silently",
+    "a freshness alert at 6 hours is the fix for inventory",
+    "orders are green"
+  ],
+  "jargon": ["null rate", "freshness", "dedupe"],
+  "covers": ["xlsx"]
+}

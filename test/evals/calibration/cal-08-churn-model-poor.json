@@ -1,0 +1,52 @@
+{
+  "id": "cal-08-churn-model-poor",
+  "domain": "data",
+  "glossary": true,
+  "sources": "churn-model.md\n# Churn prediction model v2 (Example Widgets Inc., synthetic)\nThe model predicts which subscription customers will cancel in the next 60 days. On last quarter's held-out data it caught 71% of churners (recall) and 64% of customers it flagged did churn (precision).\nTop signals: support tickets in the last 30 days, a drop in weekly logins, and a failed payment.\nThe retention team will call the top 500 flagged customers each month. A pilot in March saved an estimated 38 subscriptions.",
+  "mustCover": [
+    "the model predicts cancellations in the next 60 days",
+    "it caught 71% of churners and 64% of flagged customers churned",
+    "top signals are recent support tickets, falling logins and failed payments",
+    "the retention team calls the top 500 flagged customers monthly",
+    "a March pilot saved about 38 subscriptions"
+  ],
+  "jargon": ["recall", "precision", "held-out data"],
+  "tabs": {
+    "indepth": "In depth\nChurn Model\nThe model uses machine learning with advanced algorithms to leverage data. It has 95% accuracy and will reduce churn by half.\n[Glossary] Model: A thing that predicts.\nSignals\nMany signals are used.\nSources\nUsed\n(none)",
+    "eli5": "ELI5\nSlide 1\nThe churn model uses recall and precision on held-out data to leverage signals.\nThink of it like\nA crystal ball that always knows the future."
+  },
+  "human": {
+    "indepth": {
+      "D1": 1,
+      "D2": 1,
+      "D3": 1,
+      "D4": 1,
+      "D5": 1,
+      "D6": 1,
+      "D7": 1
+    },
+    "eli5": {
+      "E1": 1,
+      "E2": 1,
+      "E3": 1,
+      "E4": 1,
+      "E5": 1
+    }
+  },
+  "sectionActions": [
+    {
+      "action": "deeper",
+      "note": "Explain how accuracy was measured",
+      "before": "Signals\nMany signals are used.",
+      "neighbours": "Churn Model\nThe model uses machine learning with advanced algorithms to leverage data. It has 95% accuracy and will reduce churn by half.",
+      "after": "Signals\nMany signals are used. The model is very accurate and uses cutting-edge technology to find the customers most likely to leave.",
+      "human": {
+        "S1": 1,
+        "S2": 3,
+        "S3": 1
+      },
+      "notes": "No depth at all, only buzzwords (S1=1); does not contradict the vague neighbour (S2=3); accuracy measurement never explained (S3=1)."
+    }
+  ],
+  "notes": "Invented numbers, nothing covered, jargon, no structure, no visuals, wrong glossary, references missing. ELI5 is jargon and misleading."
+}

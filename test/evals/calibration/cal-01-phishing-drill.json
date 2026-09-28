@@ -1,0 +1,52 @@
+{
+  "id": "cal-01-phishing-drill",
+  "domain": "security",
+  "glossary": true,
+  "sources": "phishing-drill.md\n# Q2 phishing drill results (Example Widgets Inc., synthetic)\nWe sent a simulated phishing email to all 1,200 staff on 14 May. 9% clicked the link (down from 17% in Q4). 3% entered a password on the fake page (down from 6%). 38% reported the email with the Report button (up from 21%).\nFinance and sales had the highest click rates (14% and 12%).\nNext: short training for anyone who entered a password; a drill every quarter; the Report button added to the mobile mail app.",
+  "mustCover": [
+    "9% clicked, down from 17%",
+    "3% entered a password, down from 6%",
+    "38% reported the email, up from 21%",
+    "finance and sales clicked most",
+    "training for password-enterers, quarterly drills, Report button on mobile"
+  ],
+  "jargon": ["phishing", "simulated phishing"],
+  "tabs": {
+    "indepth": "In depth\nFewer staff fell for the fake phishing email, and far more reported it\nIn May the security team sent all 1,200 staff a simulated phishing email: a harmless fake of the kind attackers send to steal passwords. 9% clicked its link, down from 17% last winter, and 3% typed a password into the fake page, down from 6%.\n[Glossary] phishing: An email that pretends to come from someone trusted to trick you into clicking a link or giving away a password.\n[Glossary] simulated phishing: A harmless fake phishing email sent by your own security team to measure and train staff.\nReporting is the number that improved most\n38% of staff used the Report button, up from 21%. Reports matter because one early report lets the security team pull a real phishing email from every inbox.\n[Chart] Clicks halved while reports nearly doubled\nShare of staff, %\nCategory | Q4 | Q2\nClicked | 17 | 9\nEntered password | 6 | 3\nReported | 21 | 38\nWhere the risk remains\nFinance and sales clicked most (14% and 12%), likely because they handle invoices and outside contacts every day.\nWhat happens next\nAnyone who entered a password gets short training; drills move to every quarter; the Report button comes to the mobile mail app.\nSources\nUsed\nphishing-drill.md",
+    "eli5": "ELI5\nThe big idea: fewer people got fooled, and more people told on the trickster\nThe security team sent a pretend trick email to everyone, like a fire drill for email. This time fewer people clicked it: about 1 in 11, instead of about 1 in 6 before.\nTelling someone is the best move\nMore people pressed the Report button. That is like shouting \"fire!\" early: once one person reports a bad email, the team can remove it for everyone.\nWho needs extra practice\nPeople in finance and sales clicked most, so they will get a bit more practice.\nThink of it like\nA fire drill: nobody is in danger, but it shows who knows where the exits are."
+  },
+  "human": {
+    "indepth": {
+      "D1": 5,
+      "D2": 5,
+      "D3": 5,
+      "D4": 5,
+      "D5": 5,
+      "D6": 5,
+      "D7": 5
+    },
+    "eli5": {
+      "E1": 5,
+      "E2": 5,
+      "E3": 5,
+      "E4": 5,
+      "E5": 5
+    }
+  },
+  "sectionActions": [
+    {
+      "action": "analogy",
+      "note": "Use a fire drill analogy",
+      "before": "Reporting is the number that improved most\n38% of staff used the Report button, up from 21%. Reports matter because one early report lets the security team pull a real phishing email from every inbox.",
+      "neighbours": "Fewer staff fell for the fake phishing email, and far more reported it\nIn May the security team sent all 1,200 staff a simulated phishing email. 9% clicked its link, down from 17% last winter, and 3% typed a password into the fake page, down from 6%.",
+      "after": "Reporting is the number that improved most\n38% of staff used the Report button, up from 21%. Reports matter because one early report lets the security team pull a real phishing email from every inbox.\nThink of it like a fire drill: the goal is not that nobody ever smells smoke, but that the first person who does pulls the alarm, so everyone else gets out in time. One report does the same for a phishing email.",
+      "human": {
+        "S1": 5,
+        "S2": 5,
+        "S3": 5
+      },
+      "notes": "Apt fire drill analogy for exactly this idea (early report protects everyone); facts unchanged; follows the note."
+    }
+  ],
+  "notes": "Accurate, complete, leads with the point, informative chart, glossary picks the real terms, references complete."
+}

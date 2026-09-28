@@ -1,0 +1,16 @@
+{
+  "id": "marketing-funnel-csv-multi",
+  "domain": "marketing",
+  "sources": ["evals/marketing/funnel.csv", "evals/marketing/funnel-brief.txt"],
+  "clarifying": "Who is right, sales or marketing?",
+  "glossary": true,
+  "mustCover": [
+    "marketing hit its target with 1,850 MQLs",
+    "MQL to SQL conversion fell from 30% to 22%",
+    "sales says many new leads were students from a webinar giveaway",
+    "marketing says sales took 3 days to follow up while leads go cold after 24 hours",
+    "the proposal tightens the MQL definition and commits to a first call within 24 hours"
+  ],
+  "jargon": ["MQL", "SQL", "conversion rate"],
+  "covers": ["csv", "text", "multi-source"]
+}

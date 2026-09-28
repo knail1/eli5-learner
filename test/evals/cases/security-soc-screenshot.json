@@ -1,0 +1,16 @@
+{
+  "id": "security-soc-screenshot",
+  "domain": "security",
+  "sources": ["evals/security/soc-dashboard.png.json"],
+  "clarifying": "What is this dashboard telling me?",
+  "glossary": true,
+  "mustCover": [
+    "1,240 alerts in the last 24 hours, 3 of them critical",
+    "62% of alerts were false positives",
+    "triage takes 18 minutes against a 15-minute target",
+    "one noisy rule caused 48% of the false positives and should be tuned",
+    "a laptop with malware was isolated"
+  ],
+  "jargon": ["SIEM", "false positive", "triage"],
+  "covers": ["image", "images-only"]
+}

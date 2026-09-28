@@ -1,0 +1,51 @@
+{
+  "id": "cal-03-email-mirror-jargon",
+  "domain": "marketing",
+  "glossary": true,
+  "sources": "email-report.pptx\nSlide 1: Email programme Q3 (Example Widgets Inc., synthetic)\nSlide 2: Deliverability - inbox placement 91% (Q2 84%) after SPF/DKIM fix\nSlide 3: Engagement - open rate 24%, CTR 3.1%, unsubscribe 0.2%\nSlide 4: Revenue - email-attributed revenue $410k, 11% of online sales\nSlide 5: Next - segment by purchase history; test send-time optimisation",
+  "mustCover": [
+    "inbox placement rose to 91% from 84% after an authentication fix",
+    "open rate 24% and click-through 3.1%",
+    "email drove $410k, 11% of online sales",
+    "next: segment by purchase history and test send times"
+  ],
+  "jargon": ["inbox placement", "SPF", "DKIM", "CTR", "send-time optimisation"],
+  "tabs": {
+    "indepth": "In depth\nSlide 1: Email programme Q3\nThis deck covers the email programme in Q3.\nSlide 2: Deliverability\nInbox placement was 91% vs 84% in Q2 after the SPF/DKIM fix.\n[Glossary] Email: A message sent over the internet.\n[Glossary] Revenue: Money earned from sales.\nSlide 3: Engagement\nOpen rate 24%, CTR 3.1%, unsubscribe 0.2%.\nSlide 4: Revenue\nEmail-attributed revenue was $410k, 11% of online sales.\nSlide 5: Next\nSegment by purchase history; test send-time optimisation.\nSources\nUsed\nemail-report.pptx",
+    "eli5": "ELI5\nSlide 1 in simple words\nThis is about emails in Q3.\nSlide 2 in simple words\nInbox placement went up to 91% after the SPF/DKIM fix.\nSlide 3 in simple words\nOpen rate was 24% and CTR was 3.1%.\nSlide 4 in simple words\nEmails made $410k.\nSlide 5 in simple words\nNext they will segment and try send-time optimisation."
+  },
+  "human": {
+    "indepth": {
+      "D1": 5,
+      "D2": 5,
+      "D3": 1,
+      "D4": 2,
+      "D5": 1,
+      "D6": 1,
+      "D7": 5
+    },
+    "eli5": {
+      "E1": 1,
+      "E2": 1,
+      "E3": 4,
+      "E4": 2,
+      "E5": 1
+    }
+  },
+  "sectionActions": [
+    {
+      "action": "reexplain",
+      "note": "Explain what SPF and DKIM are",
+      "before": "Slide 2: Deliverability\nInbox placement was 91% vs 84% in Q2 after the SPF/DKIM fix.",
+      "neighbours": "Slide 1: Email programme Q3\nThis deck covers the email programme in Q3.\nSlide 3: Engagement\nOpen rate 24%, CTR 3.1%, unsubscribe 0.2%.",
+      "after": "Slide 2: Deliverability\nInbox placement was 91% vs 84% in Q2 after the SPF/DKIM fix, which was a technical change to email authentication settings.",
+      "human": {
+        "S1": 2,
+        "S2": 4,
+        "S3": 2
+      },
+      "notes": "Barely clearer: one vague clause added (S1=2); fits the neighbours; SPF and DKIM are still not explained (S3=2)."
+    }
+  ],
+  "notes": "Accurate and complete but a slide-by-slide mirror; jargon unexplained; glossary defines the obvious; no visuals. ELI5 mirrors slides, keeps jargon, no analogy."
+}

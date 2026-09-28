@@ -1,0 +1,57 @@
+{
+  "id": "section",
+  "title": "Section action (13 §9.4, S1-S3)",
+  "criteria": [
+    {
+      "id": "S1",
+      "name": "Action honored",
+      "fiveMeans": "The rewrite does what was asked: expanded (more detail), clearer (re-explained), an analogy added, deeper (more technical depth), or a focused ELI5 of just this section.",
+      "anchors": [
+        {
+          "score": 2,
+          "excerpt": "Action: analogy. Before: 'Safety stock covers demand above forecast.' After: 'Safety stock is extra inventory that covers demand above forecast.'",
+          "why": "Reworded, but no analogy was added."
+        },
+        {
+          "score": 5,
+          "excerpt": "Action: analogy. After adds: 'Think of it like packing one more snack than you expect to need for a long drive: you pay a little to avoid running out.'",
+          "why": "A fitting analogy for exactly this section's idea."
+        }
+      ]
+    },
+    {
+      "id": "S2",
+      "name": "Consistent with surrounding sections",
+      "fiveMeans": "Fits the neighbouring sections: no contradictions, no repetition of what they already say, same terms and tone.",
+      "anchors": [
+        {
+          "score": 2,
+          "excerpt": "Rewritten section says lead time is four weeks; the next section still says six weeks and repeats the whole forecasting explanation.",
+          "why": "Contradicts a neighbour and duplicates its content."
+        },
+        {
+          "score": 5,
+          "excerpt": "Rewritten section uses the same six-week lead time and hands off to the next section: 'The next section shows how that buffer is sized.'",
+          "why": "Consistent facts and a smooth hand-off."
+        }
+      ]
+    },
+    {
+      "id": "S3",
+      "name": "User note honored",
+      "fiveMeans": "The reader's note is followed.",
+      "anchors": [
+        {
+          "score": 2,
+          "excerpt": "Note: 'use a cooking analogy'. After: an analogy about traffic lights.",
+          "why": "The note is ignored."
+        },
+        {
+          "score": 5,
+          "excerpt": "Note: 'use a cooking analogy'. After: 'It is like prepping ingredients before dinner service so orders can go out fast.'",
+          "why": "Follows the note exactly."
+        }
+      ]
+    }
+  ]
+}

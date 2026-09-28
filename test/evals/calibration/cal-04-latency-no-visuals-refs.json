@@ -1,0 +1,50 @@
+{
+  "id": "cal-04-latency-no-visuals-refs",
+  "domain": "data",
+  "glossary": true,
+  "context": "Sources the app skipped (with reason):\n- ops-notes.numbers: File type is not supported.",
+  "sources": "latency-review.md\n# Dashboard latency review (Example Widgets Inc., synthetic)\nThe sales dashboard takes 14 seconds to load at the 95th percentile (p95); target is 3 seconds.\nCause: every load recomputes a 40-million-row join. A nightly pre-aggregated table would cut p95 to about 2 seconds.\nCost: 2 engineer-weeks; storage +$300/month.",
+  "mustCover": [
+    "p95 load time is 14 seconds against a 3-second target",
+    "each load recomputes a 40-million-row join",
+    "a nightly pre-aggregated table would cut p95 to about 2 seconds",
+    "it costs 2 engineer-weeks and $300 a month"
+  ],
+  "jargon": ["p95", "pre-aggregated table", "join"],
+  "tabs": {
+    "indepth": "In depth\nThe sales dashboard is five times slower than it should be, and a nightly summary table would fix it\nFor the slowest 5% of loads, the sales dashboard takes 14 seconds to appear; the target is 3 seconds.\n[Glossary] p95: The time within which 95% of loads finish; only the slowest 5% take longer.\n[Glossary] join: Combining two tables row by row by matching a shared field, which is slow on very large tables.\nWhy it is slow\nEvery time someone opens it, the database recombines 40 million rows from scratch.\n[Glossary] pre-aggregated table: A table computed ahead of time that already holds the totals a dashboard needs.\nThe fix and its cost\nComputing those totals once a night into a pre-aggregated table would bring the slow loads down to about 2 seconds. It takes 2 engineer-weeks and adds $300 a month in storage.\nSources\nUsed\nlatency-review.md",
+    "eli5": "ELI5\nThe big idea: the dashboard is slow because it does all its homework every time you look\nEach time someone opens the sales screen, the computer adds up millions of numbers from scratch, so it can take 14 seconds.\nThe fix\nDo the adding once each night and keep the answer ready, so the screen shows up in about 2 seconds.\nThink of it like\nMaking lunch the night before instead of cooking from scratch while everyone waits at the door."
+  },
+  "human": {
+    "indepth": {
+      "D1": 5,
+      "D2": 5,
+      "D3": 5,
+      "D4": 5,
+      "D5": 1,
+      "D6": 5,
+      "D7": 2
+    },
+    "eli5": {
+      "E1": 5,
+      "E2": 5,
+      "E3": 5,
+      "E4": 5,
+      "E5": 5
+    }
+  },
+  "sectionActions": [
+    {
+      "action": "deeper",
+      "before": "Why it is slow\nEvery time someone opens it, the database recombines 40 million rows from scratch.",
+      "neighbours": "The fix and its cost\nComputing those totals once a night into a pre-aggregated table would bring the slow loads down to about 2 seconds. It takes 2 engineer-weeks and adds $300 a month in storage.",
+      "after": "Why it is slow\nEach load joins the 40-million-row orders table to the customers and products tables, then groups the result by region and week. Nothing is computed ahead of time, so the database reads every order row on every load, and the slowest 5% of loads, which also miss the cache, take 14 seconds. A nightly pre-aggregated table would turn each load into a read of a few thousand rows.",
+      "human": {
+        "S1": 5,
+        "S2": 4
+      },
+      "notes": "Real technical depth (join, grouping, full scan, cache) (S1=5); the last sentence repeats the fix that the next section covers (S2=4)."
+    }
+  ],
+  "notes": "Excellent text but no chart or figure at all (D5=1) and the skipped ops-notes.numbers is not listed (D7=2)."
+}

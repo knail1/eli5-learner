@@ -1,0 +1,22 @@
+{
+  "id": "marketing-campaign-md",
+  "domain": "marketing",
+  "sources": ["evals/marketing/campaign-review.md"],
+  "glossary": true,
+  "mustCover": [
+    "the campaign spent 240,000 dollars and returned 912,000 dollars, a ROAS of 3.8",
+    "paid search had the best ROAS at 5.0",
+    "paid social underperformed, with a CAC more than three times search",
+    "display looks strong mainly because of last-click attribution on retargeting",
+    "50,000 dollars moves from social to search in Q4 and display gets a holdout test"
+  ],
+  "jargon": ["ROAS", "CAC", "CTR", "attribution"],
+  "sectionActions": [
+    {
+      "action": "analogy",
+      "sectionHint": "attribution",
+      "note": "Use a sports analogy"
+    }
+  ],
+  "covers": ["markdown", "section-analogy", "section-note"]
+}

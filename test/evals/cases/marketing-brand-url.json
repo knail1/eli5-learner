@@ -1,0 +1,21 @@
+{
+  "id": "marketing-brand-url",
+  "domain": "marketing",
+  "sources": ["evals/sites/brand-positioning.html"],
+  "glossary": true,
+  "mustCover": [
+    "25% of the budget moves from performance ads to brand advertising",
+    "share of voice fell from 18% to 11%",
+    "the cost of each search click rose 40%",
+    "brand lift studies compare people who saw the ads with people who did not, aiming for a 5-point rise in consideration",
+    "leadership accepts up to a 3% drop in quarterly leads"
+  ],
+  "jargon": ["share of voice", "brand lift", "performance ads"],
+  "sectionActions": [
+    {
+      "action": "reexplain",
+      "sectionHint": "measure"
+    }
+  ],
+  "covers": ["url", "section-reexplain"]
+}

@@ -1,0 +1,21 @@
+{
+  "id": "data-ab-test-md",
+  "domain": "data",
+  "sources": ["evals/data/ab-test-readout.md"],
+  "glossary": true,
+  "mustCover": [
+    "conversion rose from 3.10% to 3.24%, a 4.5% relative lift",
+    "the result is not statistically significant",
+    "the confidence interval includes zero",
+    "the team recommends running two more weeks instead of shipping",
+    "stopping early when a daily result looks significant inflates false positives"
+  ],
+  "jargon": ["p-value", "confidence interval", "MDE", "statistically significant"],
+  "sectionActions": [
+    {
+      "action": "section-eli5",
+      "sectionHint": "result"
+    }
+  ],
+  "covers": ["markdown", "section-eli5"]
+}
