@@ -1,0 +1,279 @@
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+  checkBundle,
+  checkTrackedPaths,
+  loadDenylist,
+  parseAllowFile,
+  runHygiene,
+  scanDenylist,
+  scanSecrets,
+} from '../../../scripts/check-hygiene';
+
+// Secret-shaped strings are assembled at runtime (13 §3.2) so this file never holds a literal one.
+const ALNUM = 'aB3dE5gH7jK9mN1pQ2rS4tU6vW8xY0zC';
+const cycle = (n: number): string => Array.from({ length: n }, (_, i) => ALNUM[i % ALNUM.length]).join('');
+const fakeKey = (): string => 'sk' + '-ant-' + 'api03-' + cycle(40);
+const fakeUrlCreds = (): string => 'https' + '://deploy:' + 'hunter2pass' + '@git.example.com/r.git';
+
+const repoRoot = resolve(import.meta.dirname, '../../..');
+const temps: string[] = [];
+
+afterEach(() => {
+  for (const d of temps.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+
+/** A throwaway git repo with `files` written and staged (tracked = in the index). */
+function tempRepo(files: Record<string, string>, untracked: Record<string, string> = {}): string {
+  const dir = mkdtempSync(join(tmpdir(), 'eli5-hygiene-'));
+  temps.push(dir);
+  execFileSync('git', ['init', '-q'], { cwd: dir });
+  const write = (rel: string, text: string): void => {
+    mkdirSync(dirname(join(dir, rel)), { recursive: true });
+    writeFileSync(join(dir, rel), text);
+  };
+  for (const [rel, text] of Object.entries(files)) write(rel, text);
+  if (Object.keys(files).length > 0) execFileSync('git', ['add', '-f', '--', ...Object.keys(files)], { cwd: dir });
+  for (const [rel, text] of Object.entries(untracked)) write(rel, text);
+  return dir;
+}
+
+const DEFAULT_ALLOW = 'docs/.gitkeep\ndocs/.nojekyll\ndocs/index.html\ndocs/sample/\n';
+
+describe('parseAllowFile (.hygiene-allow)', () => {
+  it('splits docs paths from secret exceptions and ignores comments and blanks', () => {
+    const a = parseAllowFile('# c\n\ndocs/index.html\ndocs/sample/\nsecret test/** url-credentials\n');
+    expect(a.paths).toEqual(['docs/index.html', 'docs/sample/']);
+    expect(a.secrets).toEqual([{ glob: 'test/**', rule: 'url-credentials' }]);
+  });
+
+  it('rejects a malformed secret entry', () => {
+    expect(() => parseAllowFile('secret only-a-glob\n')).toThrow(/\.hygiene-allow line 1/);
+  });
+});
+
+describe('checkTrackedPaths (13 §11 rule 1, 12 §12 gate 2)', () => {
+  const allow = parseAllowFile(DEFAULT_ALLOW).paths;
+  const bad = (paths: string[]): string[] => checkTrackedPaths(paths, allow).map((f) => f.path);
+
+  it('passes ordinary sources and the whitelisted Pages files', () => {
+    expect(
+      bad(['src/main/index.ts', 'docs/index.html', 'docs/.nojekyll', 'docs/sample/index.html', '.env.example']),
+    ).toEqual([]);
+  });
+
+  it('flags generated docs, the overlay, env files, the private spec and key material', () => {
+    const paths = [
+      'docs/my-learning/index.html',
+      'docs/samplex/index.html',
+      'enterprise/index.ts',
+      '.env',
+      '.env.local',
+      'config/.env.production',
+      'spec/internal.md',
+      'certs/dev.pem',
+      'signing.p12',
+      'id.key',
+      'config.local.json',
+      'CLAUDE.local.md',
+      '.library/x/index.html',
+    ];
+    expect(bad(paths)).toEqual(paths);
+  });
+
+  it('describes each finding without file contents', () => {
+    const [f] = checkTrackedPaths(['enterprise/index.ts'], allow);
+    expect(f).toMatchObject({ check: 'tracked-path', path: 'enterprise/index.ts' });
+    expect(f?.detail).toMatch(/enterprise/);
+  });
+});
+
+describe('scanSecrets (13 §11 rule 2, baseline SecretScanner from 10 §5.4)', () => {
+  it('reports masked findings with path, line and rule', () => {
+    const key = fakeKey();
+    const found = scanSecrets([{ path: 'src/a.ts', text: `ok\nconst k = "${key}";\n` }], []);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ check: 'secret', path: 'src/a.ts', line: 2 });
+    expect(found[0]?.detail).toContain('llm-api-key');
+    expect(JSON.stringify(found)).not.toContain(key);
+  });
+
+  it('honours per-file, per-rule exceptions with globs', () => {
+    const files = [
+      { path: 'test/unit/a.test.ts', text: fakeUrlCreds() },
+      { path: 'src/b.ts', text: fakeUrlCreds() },
+      { path: 'test/unit/c.test.ts', text: fakeKey() },
+    ];
+    const found = scanSecrets(files, [{ glob: 'test/**', rule: 'url-credentials' }]);
+    expect(found.map((f) => f.path)).toEqual(['src/b.ts', 'test/unit/c.test.ts']);
+  });
+
+  it('matches a single-segment * glob inside one directory only', () => {
+    const allow = [{ glob: 'out/renderer/assets/*.js', rule: 'url-credentials' }];
+    const found = scanSecrets(
+      [
+        { path: 'out/renderer/assets/index-abc.js', text: fakeUrlCreds() },
+        { path: 'out/renderer/assets/deep/x.js', text: fakeUrlCreds() },
+      ],
+      allow,
+    );
+    expect(found.map((f) => f.path)).toEqual(['out/renderer/assets/deep/x.js']);
+  });
+});
+
+describe('loadDenylist (HOOK-CFG-03)', () => {
+  it('returns null when the variable is unset or blank', () => {
+    expect(loadDenylist(undefined)).toBeNull();
+    expect(loadDenylist('  \n ')).toBeNull();
+  });
+
+  it('reads inline newline-separated terms, dropping blanks and comments', () => {
+    expect(loadDenylist('Alpha Corp\n\n# note\n  beta-host \n')).toEqual(['alpha corp', 'beta-host']);
+  });
+
+  it('reads an @file path', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'eli5-deny-'));
+    temps.push(dir);
+    writeFileSync(join(dir, 'terms.txt'), 'gamma\ndelta\n');
+    expect(loadDenylist('@' + join(dir, 'terms.txt'))).toEqual(['gamma', 'delta']);
+  });
+
+  it('fails loudly when the @file is missing', () => {
+    expect(() => loadDenylist('@/nonexistent/eli5/terms.txt')).toThrow(/ELI5_HYGIENE_DENYLIST/);
+  });
+});
+
+describe('scanDenylist (HOOK-CFG-03)', () => {
+  it('matches case-insensitively and never prints the term itself', () => {
+    const found = scanDenylist(
+      [
+        { path: 'README.md', text: 'hello\nBuilt at ACME Widgets inc\n' },
+        { path: 'src/x.ts', text: 'clean' },
+      ],
+      ['acme widgets', 'zeta'],
+    );
+    expect(found).toEqual([{ check: 'denylist', path: 'README.md', line: 2, detail: 'matches deny-list term #1' }]);
+    expect(JSON.stringify(found).toLowerCase()).not.toContain('acme');
+  });
+});
+
+describe('checkBundle (13 §11 rule 4, 12 §12 gate 3)', () => {
+  it('passes a clean public bundle', () => {
+    expect(
+      checkBundle([{ path: 'out/main/index.js', text: 'class LocalPublisher {}' }], { packageMode: true }),
+    ).toEqual([]);
+  });
+
+  it('flags an unresolved or non-public overlay reference', () => {
+    const found = checkBundle(
+      [
+        { path: 'out/main/index.js', text: 'import("@eli5/overlay")' },
+        { path: 'out/main/chunk.js', text: '// test/fixtures/overlay-fake/index.ts' },
+        { path: 'out/main/other.js', text: 'require("../enterprise/index.ts")' },
+      ],
+      { packageMode: false },
+    );
+    expect(found.map((f) => f.path)).toEqual(['out/main/index.js', 'out/main/chunk.js', 'out/main/other.js']);
+  });
+
+  it('allows overlay.none but flags FakeProvider only in package mode', () => {
+    const files = [{ path: 'out/main/index.js', text: '// src/main/editions/overlay.none.ts\nclass FakeProvider {}' }];
+    expect(checkBundle(files, { packageMode: false })).toEqual([]);
+    expect(checkBundle(files, { packageMode: true })).toEqual([
+      { check: 'bundle', path: 'out/main/index.js', line: 2, detail: 'FakeProvider present in a package build' },
+    ]);
+  });
+});
+
+describe('runHygiene over temp git repos', () => {
+  const quiet = (): { lines: string[]; log: (s: string) => void } => {
+    const lines: string[] = [];
+    return { lines, log: (s) => lines.push(s) };
+  };
+
+  it('passes a clean repo and notes the skipped deny-list scan', async () => {
+    const dir = tempRepo({
+      'src/a.ts': 'export const a = 1;\n',
+      '.hygiene-allow': DEFAULT_ALLOW,
+      'docs/index.html': 'x',
+    });
+    const out = quiet();
+    const r = await runHygiene({ root: dir, env: {}, log: out.log });
+    expect(r.findings).toEqual([]);
+    expect(r.ok).toBe(true);
+    expect(out.lines.join('\n')).toContain('deny-list scan skipped');
+  });
+
+  it('ignores untracked and gitignored files', async () => {
+    const dir = tempRepo({ 'src/a.ts': 'ok', '.gitignore': '.env\n' }, { '.env': `KEY=${fakeKey()}\n` });
+    const r = await runHygiene({ root: dir, env: {}, log: () => {} });
+    expect(r.ok).toBe(true);
+  });
+
+  it('fails on a tracked overlay file and a committed secret', async () => {
+    const dir = tempRepo({ 'enterprise/index.ts': 'export {}', 'src/k.ts': `const k = '${fakeKey()}';` });
+    const out = quiet();
+    const r = await runHygiene({ root: dir, env: {}, log: out.log });
+    expect(r.ok).toBe(false);
+    expect(r.findings.map((f) => [f.check, f.path])).toEqual([
+      ['tracked-path', 'enterprise/index.ts'],
+      ['secret', 'src/k.ts'],
+    ]);
+    expect(out.lines.join('\n')).not.toContain(fakeKey());
+  });
+
+  it('runs the deny-list over tracked files and out/** when the variable is set', async () => {
+    const dir = tempRepo(
+      { 'README.md': 'Made by Omicron Labs\n' },
+      { 'out/main/index.js': 'const org = "OMICRON LABS";\n', 'notes.txt': 'omicron labs (untracked)' },
+    );
+    const out = quiet();
+    const r = await runHygiene({
+      root: dir,
+      env: { ELI5_HYGIENE_DENYLIST: 'omicron labs' },
+      outDir: 'out',
+      log: out.log,
+    });
+    expect(r.findings.map((f) => [f.check, f.path])).toEqual([
+      ['denylist', 'README.md'],
+      ['denylist', 'out/main/index.js'],
+    ]);
+    expect(out.lines.join('\n').toLowerCase()).not.toContain('omicron');
+  });
+
+  it('scans out/** for secrets and bundle rules, skipping binaries', async () => {
+    const dir = tempRepo(
+      { 'src/a.ts': 'ok' },
+      {
+        'out/main/index.js': 'class FakeProvider {}\n',
+        'out/renderer/app.js': fakeUrlCreds(),
+        'out/renderer/logo.png': `\u0000PNG${fakeKey()}`,
+      },
+    );
+    const r = await runHygiene({ root: dir, env: {}, outDir: 'out', packageMode: true, log: () => {} });
+    expect(r.findings.map((f) => [f.check, f.path])).toEqual([
+      ['secret', 'out/renderer/app.js'],
+      ['bundle', 'out/main/index.js'],
+    ]);
+  });
+
+  it('fails when --out is given but the directory is missing', async () => {
+    const dir = tempRepo({ 'src/a.ts': 'ok' });
+    await expect(runHygiene({ root: dir, env: {}, outDir: 'out', log: () => {} })).rejects.toThrow(/out/);
+  });
+});
+
+describe('this repository', () => {
+  it('has no tracked-path or tracked-file secret findings under .hygiene-allow', async () => {
+    const r = await runHygiene({ root: repoRoot, env: {}, log: () => {} });
+    expect(r.findings).toEqual([]);
+  });
+
+  it('whitelists exactly the public Pages paths from .gitignore', () => {
+    const allow = parseAllowFile(readFileSync(join(repoRoot, '.hygiene-allow'), 'utf8'));
+    expect(allow.paths).toEqual(['docs/.gitkeep', 'docs/.nojekyll', 'docs/index.html', 'docs/sample/']);
+  });
+});

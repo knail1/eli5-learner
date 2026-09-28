@@ -1,0 +1,256 @@
+# Continuous integration (spec/tech/13-testing-quality.md §12). Separate from pages.yml.
+# macOS runners throughout: the hidden-window fetch fallback, clipboard, Tray and scanned-PDF
+# rendering run in real Electron on the target OS. Every job except evals is offline.
+# Pull requests use the plain pull_request trigger only, so secrets stay unavailable to forks.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  static:
+    if: github.event_name != 'schedule'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Cache Electron binary
+        uses: actions/cache@v5
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npx prettier --check .
+      - name: Spec hook registry
+        run: node scripts/check-spec-hooks.mjs
+      - name: Dependency audit (high or critical fails unless in audit-allow.json)
+        run: |
+          npm audit --omit=dev --json > audit.json || true
+          node scripts/check-licenses.mjs --audit audit.json
+      - name: Runtime dependency licenses
+        run: node scripts/check-licenses.mjs
+
+  unit:
+    if: github.event_name != 'schedule'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Cache Electron binary
+        uses: actions/cache@v5
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npm ci
+      - name: Vitest (unit, integration, renderer and doc-runtime, public contracts)
+        run: npx vitest run --project unit --project integration --project renderer --project contracts:public --coverage
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: ignore
+
+  build-public:
+    if: github.event_name != 'schedule'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Cache Electron binary
+        uses: actions/cache@v5
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Assert no enterprise overlay in the checkout (13 §10.3)
+        run: test ! -e enterprise
+      - run: npm ci
+      - name: Public package build
+        run: npm run build
+      - uses: actions/upload-artifact@v5
+        with:
+          name: out
+          path: out/
+          retention-days: 3
+
+  e2e:
+    if: github.event_name != 'schedule'
+    needs: build-public
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Cache Electron binary
+        uses: actions/cache@v5
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npm ci
+      - run: npx playwright install chromium webkit
+      - name: End-to-end and cross-browser (test build with FakeProvider)
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@v5
+        if: failure()
+        with:
+          name: e2e-traces
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+
+  edition-fixture:
+    if: github.event_name != 'schedule'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Cache Electron binary
+        uses: actions/cache@v5
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npm ci
+      - run: npm run build:runtime
+      - name: Cell F (fixture overlay builds)
+        run: ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=test/fixtures/overlay-fake npx electron-vite build
+      - name: Cell F-missing (enterprise build without an overlay fails with the 01 §6.5 message)
+        run: |
+          if ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=./no-such-overlay npx electron-vite build > f-missing.log 2>&1; then
+            echo "expected the enterprise build without an overlay to fail"
+            exit 1
+          fi
+          grep -q 'requires an overlay' f-missing.log
+
+  hygiene:
+    if: github.event_name != 'schedule'
+    needs: build-public
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Cache Electron binary
+        uses: actions/cache@v5
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npm ci
+      - uses: actions/download-artifact@v5
+        with:
+          name: out
+          path: out/
+      - name: Public-repo hygiene (13 §11; deny-list step is HOOK-CFG-03)
+        env:
+          ELI5_HYGIENE_DENYLIST: ${{ secrets.ELI5_HYGIENE_DENYLIST }}
+        run: npx jiti scripts/check-hygiene.ts --out out --package
+      - name: gitleaks
+        run: |
+          brew install gitleaks
+          gitleaks detect --source . --redact --no-banner
+
+  package:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [static, unit, build-public, e2e, edition-fixture, hygiene]
+    runs-on: macos-latest
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Cache Electron binaries
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: electron-builder-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npm ci
+      - name: Unsigned dmg
+        run: npm run build && npx electron-builder --mac dmg
+      - uses: actions/upload-artifact@v5
+        with:
+          name: dmg
+          path: release/*.dmg
+          retention-days: 7
+
+  evals:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    permissions:
+      contents: read
+      issues: write
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ELI5_ALLOW_NET: '1'
+      ELI5_EVAL_MAX_USD: '10'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Cache Electron binary
+        uses: actions/cache@v5
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npm ci
+      - name: Generation quality evals (13 §9)
+        run: |
+          if [ ! -d test/evals/cases ] || ! npm run | grep -q '^  eval$'; then
+            echo "::notice::evals skipped: no eval set or eval script yet"
+            exit 0
+          fi
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::notice::evals skipped: ANTHROPIC_API_KEY is not configured"
+            exit 0
+          fi
+          npm run eval -- --provider claude
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: eval-results
+          path: test/evals/results/*.json
+          if-no-files-found: ignore
