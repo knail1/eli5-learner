@@ -220,7 +220,7 @@ jobs:
           key: electron-builder-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
       - name: Unsigned arm64 dmg
-        run: npm run build && npx electron-builder --config config/electron-builder.yml --mac dmg --arm64
+        run: npm run build && npx electron-builder --config config/electron-builder.yml --mac dmg --arm64 --publish never
       - uses: actions/upload-artifact@v5
         with:
           name: dmg

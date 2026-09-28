@@ -36,8 +36,8 @@
     "check:hygiene": "jiti scripts/check-hygiene.ts",
     "check:licenses": "node scripts/check-licenses.mjs",
     "check:editions": "node scripts/check-editions.mjs",
-    "package": "rimraf out build/doc-runtime && npm run build && electron-builder --config config/electron-builder.yml --mac dmg --$(node -p process.arch)",
-    "package:arm64": "rimraf out build/doc-runtime && npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --config config/electron-builder.yml --mac dmg --arm64",
+    "package": "rimraf out build/doc-runtime && npm run build && electron-builder --config config/electron-builder.yml --mac dmg --$(node -p process.arch) --publish never",
+    "package:arm64": "rimraf out build/doc-runtime && npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --config config/electron-builder.yml --mac dmg --arm64 --publish never",
     "test:package": "ELI5_RUN_PACKAGE_TESTS=1 playwright test -c config/playwright.package.config.ts"
   },
   "devDependencies": {

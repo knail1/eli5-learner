@@ -222,6 +222,16 @@ describe('.github/workflows/ci.yml (13 §12)', () => {
     expect(obj(p.env).CSC_IDENTITY_AUTO_DISCOVERY).toBe('false');
   });
 
+  it('packaging never publishes a release (CI has no release token and v1 does not publish)', () => {
+    // electron-builder infers a GitHub publisher on CI and fails without GH_TOKEN (first GitHub run).
+    for (const l of runs('package')
+      .split('\n')
+      .filter((x) => x.includes('electron-builder')))
+      expect(l).toMatch(/--publish never/);
+    const yml = readFileSync(join(repoRoot, 'config', 'electron-builder.yml'), 'utf8');
+    expect(yml).toMatch(/^publish: null$/m);
+  });
+
   it('package builds only the runner architecture, so the dmg carries its own keyring binary (01 §8.3)', () => {
     // config/electron-builder.yml lists arm64 and x64; without an arch flag an arm64 runner also emits an
     // x64 dmg that lacks @napi-rs/keyring-darwin-x64. macos-latest is arm64 (13 §12).
