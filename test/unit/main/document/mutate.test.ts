@@ -216,6 +216,35 @@ describe('section ELI5 tabs (07 §4, §8)', () => {
     expect(sectionEli5Label('', '42', [])).toBe('ELI5: Section');
   });
 
+  it('a selection tab is labelled by its topic and quotes the selection, truncated (08 §7.5)', () => {
+    const covered = [from, secAt(base, 0, 2)];
+    const long = 'Budget shifted toward search over the year. '.repeat(20).trim();
+    const r = addSectionEli5Tab(base, from, long, SECTION_ELI5_DRAFT, LATER, {
+      idSource: new SeededIdSource(5),
+      selectionOf: covered,
+    });
+    const tab = r.model.tabs.at(-1);
+    expect(tab?.label).toBe('ELI5: ROAS, simply');
+    expect(tab?.origin).toEqual({ sectionId: from, selection: long, scope: 'selection', sectionIds: covered });
+    const html = render(r.model);
+    const quote =
+      /<blockquote class="tab-asked"><p><span class="tab-asked-label">You asked about:<\/span> “([^”]*)”<\/p><\/blockquote>/.exec(
+        html,
+      );
+    expect(quote?.[1]?.length).toBeLessThanOrEqual(240);
+    expect(quote?.[1]?.endsWith('…')).toBe(true);
+    expect(html).toContain(`<p class="tab-from">From: <a href="#${from}">2. How the budget moved</a></p>`);
+    // The origin survives a parse and re-render byte for byte.
+    expect(render(parseDocument(html).model)).toBe(html);
+    // A topic-less draft falls back to the first words of the selection; collisions get suffixes.
+    const bare = addSectionEli5Tab(r.model, from, 'safety stock buffer', { ...SECTION_ELI5_DRAFT, title: ' ' }, LATER, {
+      selectionOf: [from],
+    });
+    expect(bare.model.tabs.at(-1)?.label).toBe('ELI5: safety stock buffer');
+    const again = addSectionEli5Tab(bare.model, from, 'x y z', SECTION_ELI5_DRAFT, LATER, { selectionOf: [from] });
+    expect(again.model.tabs.at(-1)?.label).toBe('ELI5: ROAS, simply (2)');
+  });
+
   it('enforces the 20-tab limit', () => {
     let m = base;
     for (let i = 0; i < MAX_SECTION_ELI5_TABS; i++)

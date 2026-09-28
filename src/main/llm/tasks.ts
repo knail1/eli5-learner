@@ -69,7 +69,7 @@ export interface StepResult<T> {
   prompt: string; // "id@version"
 }
 
-export type SectionAction = 'expand' | 'reexplain' | 'analogy' | 'deeper' | 'eli5-tab';
+export type SectionAction = 'expand' | 'reexplain' | 'analogy' | 'deeper' | 'eli5-tab' | 'eli5-selection';
 
 export interface SectionActionInput {
   action: SectionAction;
@@ -81,6 +81,8 @@ export interface SectionActionInput {
   selection: string;
   note?: string;
   sourceExcerpt?: string;
+  /** 'eli5-selection' only: headings and adjacent blocks around the selection, for grounding (08 §7.5). */
+  context?: string;
   signal: AbortSignal;
 }
 
@@ -134,6 +136,7 @@ const ACTION_PROMPT: Record<SectionAction, PromptId> = {
   analogy: 'section-analogy',
   deeper: 'section-deeper',
   'eli5-tab': 'section-eli5-tab',
+  'eli5-selection': 'selection-eli5-tab',
 };
 
 /**
@@ -662,8 +665,9 @@ export function createTasks(deps: TaskDeps): LlmTasks {
         selection: input.selection ? wrapSource('selected text', input.selection) : '',
         note: input.note ?? '',
         sourceExcerpt: input.sourceExcerpt ? wrapSource('original source excerpt', input.sourceExcerpt) : '',
+        context: input.context ? wrapSource('surrounding context', input.context) : '',
       };
-      if (input.action === 'eli5-tab') {
+      if (input.action === 'eli5-tab' || input.action === 'eli5-selection') {
         const r = await run<DocumentDraftTab>(id, vars, { signal: input.signal });
         return { ...r.data, kind: 'section-eli5' };
       }

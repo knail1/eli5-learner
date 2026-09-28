@@ -70,7 +70,14 @@ const TabSchema = z.object({
   kind: z.enum(['indepth', 'eli5', 'section-eli5']),
   label: z.string(),
   createdAt: z.string(),
-  origin: z.object({ sectionId: SectionIdSchema, selection: z.string() }).optional(),
+  origin: z
+    .object({
+      sectionId: SectionIdSchema,
+      selection: z.string(),
+      scope: z.literal('selection').optional(),
+      sectionIds: z.array(SectionIdSchema).optional(),
+    })
+    .optional(),
   placeholder: z.literal(true).optional(),
   sections: z.array(SectionSchema),
 });

@@ -176,7 +176,9 @@ Any document in the Library, new or months old, can be refined in place from the
   - Give me an analogy
   - Go deeper
   - Create a separate ELI5 for this section
+  - ELI5 this selection
 - An optional one line text field lets the user add a note to the action.
+- Selecting text in the body never picks up the glossary margin notes next to it, and a selection that starts inside a note stays inside that note, so each can be copied on its own.
 
 **Regenerate in place**
 
@@ -189,6 +191,7 @@ Any document in the Library, new or months old, can be refined in place from the
 - "Create a separate ELI5 for this section" generates a focused ELI5 of the selected passage and adds it as a new tab to the right of the existing tabs.
 - Tab label derives from the section heading (for example "ELI5: Revenue recognition"), never a number.
 - Section ELI5 tabs can be closed (deleted) by the user so the tab bar does not sprawl.
+- "ELI5 this selection" does the same for exactly the selected text, from one phrase to several paragraphs (also across sections): a new tab labeled by topic that starts with the passage the user asked about and explains only that.
 - The same select and act menu works inside ELI5 tabs.
 
 ## Library, storage, and merge suggestions

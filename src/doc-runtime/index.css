@@ -298,6 +298,23 @@ html.js .panel-title {
   color: var(--muted);
   margin: 24px 0 0;
 }
+/* "ELI5 this selection" tabs quote what the reader asked about (08 §7.5). */
+.tab-asked {
+  font: 15px/1.5 var(--font-sans);
+  color: var(--ink-2);
+  background: var(--paper-2);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+  margin: 12px 0 0;
+  padding: 10px 14px;
+}
+.tab-asked p {
+  margin: 0;
+}
+.tab-asked-label {
+  font-weight: 600;
+  color: var(--muted);
+}
 section {
   scroll-margin-top: calc(var(--eli5-tabbar-h) + 12px);
   padding-top: 8px;
@@ -974,6 +991,20 @@ dfn.gl-term.gl-hot {
 }
 .gl-note.gl-hot {
   box-shadow: 0 0 0 2px var(--gl-rule);
+}
+/* Selection zones (08 §5.6): a body selection skips the notes; a note selection stays in its note. */
+html.js:not(.eli5-sel-note) .gl-note {
+  -webkit-user-select: none;
+  user-select: none;
+}
+html.js.eli5-sel-note body {
+  -webkit-user-select: none;
+  user-select: none;
+}
+html.js.eli5-sel-note .gl-note[data-eli5-sel],
+html.js.eli5-sel-note .gl-note[data-eli5-sel] * {
+  -webkit-user-select: text;
+  user-select: text;
 }
 .gl-icon {
   display: inline-block;

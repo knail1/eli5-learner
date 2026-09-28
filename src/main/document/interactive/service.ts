@@ -3,6 +3,7 @@
 import { readFile } from 'node:fs/promises';
 import type {
   CloseTabRequest,
+  CreateSectionEli5Request,
   DocHistoryChangedEvent,
   DocHistoryState,
   DocUpdatedEvent,
@@ -219,7 +220,10 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
   };
 
   /** 08 §6.1 steps 1-8 for both action channels. */
-  const request = async (r: Omit<SectionActionRequest, 'action'>, action: MenuAction): Promise<{ jobId: string }> => {
+  const request = async (
+    r: Omit<SectionActionRequest, 'action'> & Pick<CreateSectionEli5Request, 'sectionIds'>,
+    action: MenuAction,
+  ): Promise<{ jobId: string }> => {
     if (d.viewer.currentSlug() !== r.slug) refuse('E_FORBIDDEN', 'Forbidden');
     if (!limiter.take(r.slug)) refuse('E_RATE_LIMITED', NOTICES.rateLimited);
     const key = busyKey(r.slug, r.sectionId);
@@ -236,7 +240,17 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
       const section = model.tabs.find((t) => t.key === r.tabKey)?.sections.find((s) => s.id === r.sectionId);
       if (!section) return refuse('E_NOT_FOUND', NOTICES.sectionGone);
       if (section.kind === 'references') refuse('E_BAD_REQUEST', 'Invalid request');
-      if (action === 'eli5-tab' && model.tabs.filter((t) => t.kind === 'section-eli5').length >= MAX_SECTION_ELI5_TABS)
+      // 08 §7.5: every section a selection covers must still exist in the tab and be actionable.
+      const covered = action === 'eli5-selection' ? (r.sectionIds ?? [r.sectionId]) : undefined;
+      for (const id of covered ?? []) {
+        const c = model.tabs.find((t) => t.key === r.tabKey)?.sections.find((s) => s.id === id);
+        if (!c) refuse('E_NOT_FOUND', NOTICES.sectionGone);
+        else if (c.kind === 'references') refuse('E_BAD_REQUEST', 'Invalid request');
+      }
+      if (
+        (action === 'eli5-tab' || action === 'eli5-selection') &&
+        model.tabs.filter((t) => t.kind === 'section-eli5').length >= MAX_SECTION_ELI5_TABS
+      )
         refuse('E_CONFLICT', NOTICES.tooManyTabs);
       if (!jobs) throw new Error('interactive reading: job queue not attached');
       const payload: SectionJobPayload = {
@@ -246,6 +260,7 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
         action,
         selectionText: r.selectionText,
         ...(r.note ? { note: r.note } : {}),
+        ...(covered ? { sectionIds: covered } : {}),
         heading: section.heading,
         baseHash: sectionHash(section),
       };
@@ -333,7 +348,7 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
 
   const actions: SectionActions = {
     regenerateSection: (r) => request(r, r.action),
-    createSectionEli5: (r) => request(r, 'eli5-tab'),
+    createSectionEli5: (r) => request(r, r.scope === 'selection' ? 'eli5-selection' : 'eli5-tab'),
     closeTab,
     onUpdated: (cb) => updated.on(cb),
     onScrollTo: (cb) => scroll.on(cb),

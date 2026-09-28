@@ -145,6 +145,17 @@ export function sectionEli5Label(heading: string, selection: string, existing: r
   }
 }
 
+/**
+ * 08 §7.5: label of an "ELI5 this selection" tab: "ELI5: " + the draft's topic title, or the first 6
+ * words of the selection when the title is empty; " (2)", " (3)" on collision.
+ */
+export function selectionEli5Label(title: string, selection: string, existing: readonly string[]): string {
+  const topic = collapseWs(title)
+    .replace(/^ELI5:\s*/i, '')
+    .trim();
+  return sectionEli5Label(topic === '' ? '' : topic, selection, existing);
+}
+
 /** 07 §8 / 08 §7.1: appends a section ELI5 tab at the right with a fresh key and fresh SectionIds. */
 export function addSectionEli5Tab(
   model: DocumentModel,
@@ -178,19 +189,40 @@ export function addSectionEli5Tab(
     },
   });
   if (sections.length === 0) throw new DocumentBuildError('empty_tab');
-  const sel = collapseWs(selection);
-  const tab: Tab = {
-    key: tabKey,
-    kind: 'section-eli5',
-    label: sectionEli5Label(
-      hit.section.heading,
-      sel,
-      model.tabs.map((t) => t.label),
-    ),
-    createdAt: now,
-    origin: { sectionId: from, selection: sel.length > MAX_SELECTION ? sel.slice(0, MAX_SELECTION) : sel },
-    sections,
-  };
+  const labels = model.tabs.map((t) => t.label);
+  const covered = opts.selectionOf;
+  let tab: Tab;
+  if (covered) {
+    // 08 §7.5: paragraph breaks are kept for the quote; runs of spaces collapse.
+    const sel = selection
+      .split(/\n{2,}/)
+      .map(collapseWs)
+      .filter((p) => p !== '')
+      .join('\n\n');
+    tab = {
+      key: tabKey,
+      kind: 'section-eli5',
+      label: selectionEli5Label(draft.title, sel, labels),
+      createdAt: now,
+      origin: {
+        sectionId: from,
+        selection: sel.length > MAX_SELECTION ? sel.slice(0, MAX_SELECTION) : sel,
+        scope: 'selection',
+        sectionIds: covered.length > 0 ? [...covered] : [from],
+      },
+      sections,
+    };
+  } else {
+    const sel = collapseWs(selection);
+    tab = {
+      key: tabKey,
+      kind: 'section-eli5',
+      label: sectionEli5Label(hit.section.heading, sel, labels),
+      createdAt: now,
+      origin: { sectionId: from, selection: sel.length > MAX_SELECTION ? sel.slice(0, MAX_SELECTION) : sel },
+      sections,
+    };
+  }
   return { model: { ...model, tabs: [...model.tabs, tab], updatedAt: now }, tabKey, warnings };
 }
 

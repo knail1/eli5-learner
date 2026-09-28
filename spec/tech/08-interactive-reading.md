@@ -35,7 +35,7 @@ The viewer is the `WebContentsView` described in [01](01-architecture.md) §2.1.
 // src/main/document/interactive/types.ts  (re-exported as types from src/preload/contract.ts)
 
 export type SectionAction = 'expand' | 'reexplain' | 'analogy' | 'deeper';
-export type MenuAction = SectionAction | 'eli5-tab';
+export type MenuAction = SectionAction | 'eli5-tab' | 'eli5-selection';
 
 /** Request for the four in-place actions. Channel eli5:doc:regenerate-section. */
 export interface SectionActionRequest {
@@ -47,8 +47,16 @@ export interface SectionActionRequest {
   note?: string;             // 0..200 chars, single line
 }
 
-/** Channel eli5:doc:create-section-eli5. */
-export type CreateSectionEli5Request = Omit<SectionActionRequest, 'action'>;
+/**
+ * Channel eli5:doc:create-section-eli5. Without `scope` (or 'section') it is "Create a separate ELI5
+ * for this section" (§7.1). `scope: 'selection'` is "ELI5 this selection" (§7.5): `selectionText` is
+ * the whole selection (3..12,000 chars, paragraph breaks kept) and `sectionIds` lists the 1..40
+ * covered sections of the tab in document order, starting with `sectionId`.
+ */
+export type CreateSectionEli5Request = Omit<SectionActionRequest, 'action'> & {
+  scope?: 'section' | 'selection';
+  sectionIds?: SectionId[];
+};
 
 /** Channel eli5:doc:close-tab. */
 export interface CloseTabRequest { slug: string; tabKey: string }
@@ -61,6 +69,7 @@ export interface SectionJobPayload {
   action: MenuAction;
   selectionText: string;
   note?: string;
+  sectionIds?: SectionId[];  // 'eli5-selection' only: every covered section, first = sectionId (§7.5)
   heading: string;           // source section heading at request time, for status strings
   baseHash: string;          // sectionHash(section) at request time (§6.3)
 }
@@ -131,6 +140,9 @@ export interface DocBridgeMessage<T extends string, P> {
 | 3 | Give me an analogy | `analogy` | Section replaced in place |
 | 4 | Go deeper | `deeper` | Section replaced in place |
 | 5 | Create a separate ELI5 for this section | `eli5-tab` | New tab added at the right |
+| 6 | ELI5 this selection | `eli5-selection` | New tab at the right that explains exactly the selected text (§7.5) |
+
+Actions 1 to 5 act on the start section (§5.3). Action 6 acts on the whole selection, which may be one phrase or several paragraphs across sections. When the normalized selection (§7.5) is longer than 12,000 characters, action 6 is disabled and a line under the actions reads `Too long to ELI5 as a selection (12,000 characters max)`; the other actions stay available.
 
 Above the actions is a single-line text input, placeholder `Add a note (optional)`, max 200 characters. The menu is a small floating toolbar: not a modal, no backdrop, no new window (PRD "Select and act").
 
@@ -172,8 +184,9 @@ Selectors are the markup emitted by [07](07-output-document.md) §6.1 and §9.2:
 
 - The target is the innermost `section[data-section-id]` that contains the range start. [07](07-output-document.md) emits flat sections, so nesting is defensive only.
 - A selection that spans sections is clipped to the start section. The menu then shows a one-line hint `Applies to: {heading}`.
-- Selections inside glossary margin notes, the references section, the tab bar, the document header or footer, or the menu itself produce no menu.
-- **Text normalization:** `range.toString()`, collapse whitespace runs to one space, trim, and cut at 4000 characters on a word boundary with a trailing `…`. The note is trimmed, newlines become spaces, and it is cut to 200 characters.
+- Selections inside glossary margin notes, the references section, the tab bar, the document header or footer, or the menu itself produce no menu. A note is a definition generated from the in-depth text, so rewriting it in place has no meaning; a note selection is for reading and copying only (§5.6).
+- **Selected text:** the range's contents without any excluded element (the `isExcluded` list above, so glossary notes never reach the model even when a body selection spans them, §5.6) and without chart SVG marks, with block boundaries as paragraph breaks.
+- **Text normalization:** the selected text of the clipped range, collapse whitespace runs to one space, trim, and cut at 4000 characters on a word boundary with a trailing `…`. The note is trimmed, newlines become spaces, and it is cut to 200 characters. Action 6 uses the unclipped selection instead (§7.5).
 - `tabKey` comes from the closest `.tabpanel[data-tab-key]` ancestor of the section ([07](07-output-document.md) §6.1). It must equal the tab segment of the `sectionId`, or the menu is not shown.
 
 ### 5.4 Interaction
@@ -193,12 +206,25 @@ Accessibility: each action is a `<button>` with its exact label as the accessibl
 ### 5.5 Submit
 
 1. Close the menu and clear the highlight.
-2. Mark the section busy locally (optimistic): add `data-eli5-busy="<action>"`, which renders a thin animated left rule plus the label `Updating…` or `Creating ELI5 tab…`. Pulsing is disabled under `prefers-reduced-motion`.
-3. Call `eli5Doc.regenerateSection(...)` or `eli5Doc.createSectionEli5(...)`.
+2. Mark the section busy locally (optimistic): add `data-eli5-busy="<action>"`, which renders a thin animated left rule plus the label `Updating…` or `Creating ELI5 tab…` (both tab actions). Pulsing is disabled under `prefers-reduced-motion`. "ELI5 this selection" marks the first covered section.
+3. Call `eli5Doc.regenerateSection(...)` or `eli5Doc.createSectionEli5(...)` (with `scope: 'selection'` and `sectionIds` for action 6).
 4. On `{ok:false}`, remove the busy mark and show a small inline notice under the section heading with `error.message`. The notice auto-dismisses after 6 s or on click. It is not a modal.
 5. On `{ok:true}`, keep the mark. Main's `eli5:doc:section-busy` events are the source of truth from now on.
 
 While a section is busy, selecting text in it still opens the menu, but every action is disabled and the hint reads `This section is being updated`.
+
+### 5.6 Selection zones (glossary notes)
+
+Glossary margin notes (`details.gl-note`, [07](07-output-document.md) §9.2) are DOM siblings of the body blocks they explain, so a plain drag through two body paragraphs would also select the note between them. The runtime keeps two self-contained selection zones. It runs in every context, in the app and in a plain browser (`src/doc-runtime/selection/zones.ts`).
+
+- **Body zone (default).** Notes are `user-select: none`, so a selection that starts in the body never visibly includes a note. Inline glossary terms (`dfn.gl-term`) are ordinary body text and select normally.
+- **Note zone.** A selection that starts inside a note stays inside that note: `html.eli5-sel-note` makes the rest of the page `user-select: none` and the active note (`[data-eli5-sel]`) selectable.
+- **Which zone:** decided by where the selection starts. `mousedown` (capture, primary button) sets it before the browser starts the selection; `selectionchange` keeps it in sync with the selection's anchor for keyboard selections and restores the body zone when a selection starts elsewhere.
+- **Clamp.** On `selectionchange`, a selection anchored in a note whose focus left it is cut back to the note's end (forward) or start (backward); a body selection whose focus landed inside a note is moved to just before (forward) or after (backward) that note.
+- **Copy.** When a body selection spans notes, the `copy` handler writes `text/plain` and `text/html` without them. Other copies are left to the browser.
+- **Select All** (`Cmd+A`, `Ctrl+A`), outside text fields and the menu: selects the visible tab panel in the body zone and the active note alone in the note zone.
+- **Menu.** A selection inside a note opens no menu (§5.3). The text a body selection sends never includes notes (§5.3 "Selected text").
+- The CSS rules are gated on `html.js`, so without JavaScript nothing changes; print styles are not affected.
 
 ## 6. Regenerate in place
 
@@ -208,12 +234,13 @@ Implemented in `src/main/document/interactive/regenerate.ts`. The four in-place 
 
 1. Check that the sender is the viewer `webContents` ([01](01-architecture.md) §5.1) and that `req.slug === viewerState.slug`. Otherwise return `E_FORBIDDEN`.
    1a. **Rate limit:** at most 10 section actions per minute per document ([12](12-configuration-security.md), IPC validation rules for `eli5:doc:*`). A sliding 60 s window keyed by `slug` counts accepted requests of both channels. Excess requests return `E_RATE_LIMITED`; the runtime shows the inline notice `Too many requests; wait a moment`.
-2. Validate with zod: `sectionId` matches `SECTION_ID_RE` (imported from 07, §3), its tab segment equals `tabKey`, and the text and note lengths are within §5.3 limits. Otherwise return `E_BAD_REQUEST`.
+2. Validate with zod: `sectionId` matches `SECTION_ID_RE` (imported from 07, §3), its tab segment equals `tabKey`, and the text and note lengths are within §5.3 limits. For `scope: 'selection'` the text may be up to 12,000 characters and `sectionIds` must hold 1 to 40 unique IDs of the same tab starting with `sectionId`; `sectionIds` is refused without that scope. Otherwise return `E_BAD_REQUEST`.
 3. Check that the document exists in the catalog ([09](09-library-storage.md)). Otherwise return `E_NOT_FOUND` "This document no longer exists".
 4. **Busy check:** if `inflight.has(slug + '#' + sectionId)`, return `E_CONFLICT` "This section is already being updated".
 5. Check that an API key is configured for the selected provider. Otherwise return `E_NO_API_KEY`. Checking this up front avoids queuing a job that is certain to fail.
 6. Read `index.html` without the lock and run `parseDocument(html)` ([07](07-output-document.md) §8). A `DocumentFormatError` returns `E_CONFLICT` "This document can't be edited" (07: such documents stay viewable but not editable). Find the section in `model.tabs[*].sections` by `sectionId`. If it is missing, return `E_NOT_FOUND` "This section changed. Reload and try again". If its `kind` is `'references'`, return `E_BAD_REQUEST` (the runtime never offers it, §5.3). Compute `baseHash = sectionHash(section)` (§6.3) and take `heading` from `section.heading`.
-7. For `eli5-tab`: if the model already has `MAX_SECTION_ELI5_TABS` (20, 07 §5.4) tabs of kind `section-eli5`, return `E_CONFLICT` "Close a section ELI5 tab before adding another".
+   For `eli5-selection`, every ID in `sectionIds` must also be a section of that tab (`E_NOT_FOUND` "This section changed. Reload and try again" otherwise) and none may be the references section (`E_BAD_REQUEST`).
+7. For `eli5-tab` and `eli5-selection`: if the model already has `MAX_SECTION_ELI5_TABS` (20, 07 §5.4) tabs of kind `section-eli5`, return `E_CONFLICT` "Close a section ELI5 tab before adding another".
 8. Add the busy key to `inflight`, enqueue the job with a `SectionJobPayload`, and broadcast busy state (§8.3). Return `{jobId}`.
 
 ### 6.2 Context assembly (generating stage)
@@ -225,7 +252,7 @@ The model gets the section plus its surroundings, not the whole document ([02](0
 3. Document framing: `model.title`, `model.dek`, and `tabKind = ctx.tab.kind` (`indepth` | `eli5` | `section-eli5`).
 4. `sourceExcerpt` (only for `deeper`): if [09](09-library-storage.md) retained extracted source text for this document, take up to 6000 characters around the best lexical match for `selectionText`. Otherwise omit it.
 5. **Budget:** if the target plus neighbors exceed 60% of the model's input budget (`inputBudget(limitsFor(provider, model), 0, llm.maxOutputTokens)`, [02](02-llm-provider.md) §8, read at request time), shrink each neighbor to its heading plus its first 1500 characters. If the target alone still does not fit, fail with `SECTION_TOO_LARGE` (§9).
-6. Call `runSectionAction({action, tabKind, section: ctx.draft, outline: ctx.outline, prev: ctx.prev, next: ctx.next, selection: selectionText, note, sourceExcerpt, signal})`. `eli5-tab` returns a `DocumentDraftTab` of kind `section-eli5`; the other four return one `SectionDraft`. The model never returns an ID.
+6. Call `runSectionAction({action, tabKind, section: ctx.draft, outline: ctx.outline, prev: ctx.prev, next: ctx.next, selection: selectionText, note, sourceExcerpt, signal})`. `eli5-tab` and `eli5-selection` return a `DocumentDraftTab` of kind `section-eli5`; the other four return one `SectionDraft`. The model never returns an ID. `eli5-selection` sends `context` (§7.5) instead of `prev`/`next` and skips step 5.
 
 **Register rules by tab kind** (sent as part of the prompt input; prompt text is in [02](02-llm-provider.md)):
 
@@ -277,6 +304,7 @@ interface DocumentMetaInteractive {
   tabs: { key: string; kind: 'indepth' | 'eli5' | 'section-eli5'; label: string;
           sourceSectionId?: SectionId; createdAt?: string }[];     // mirror of DocumentModel.tabs
   actions?: { at: string; action: MenuAction; sectionId: SectionId; tabKey: string;
+              sectionIds?: SectionId[];                                // eli5-selection only
               note?: string; jobId: string; resultTabKey?: string }[];  // append-only log, no content
 }
 ```
@@ -287,7 +315,7 @@ interface DocumentMetaInteractive {
 
 Every section action (§6.4, §7.1), tab close (§7.2) and woven merge (09 §10.6) records the document's previous `index.html` and `meta.json` as its single prior version (09 §4.1). Undo and redo swap the live files with that version. There is exactly one level: a new change after an undo replaces the slot, so redo is lost, as in a word processor.
 
-- **Labels.** Each write passes `label` to `updateDocument`: `expanded '<heading>'`, `re-explained '<heading>'`, `added an analogy to '<heading>'`, `went deeper on '<heading>'` (heading of the target section before the change), `added ELI5 tab '<label>'`, `closed tab '<label>'`, and 09's `merged '<source title>' in`. Names are one line and cut to 32 characters with `…`. A change without a label shows `last change`.
+- **Labels.** Each write passes `label` to `updateDocument`: `expanded '<heading>'`, `re-explained '<heading>'`, `added an analogy to '<heading>'`, `went deeper on '<heading>'` (heading of the target section before the change), `added ELI5 tab '<label>'`, `added ELI5 tab '<label>' for a selection` (§7.5), `closed tab '<label>'`, and 09's `merged '<source title>' in`. Names are one line and cut to 32 characters with `…`. A change without a label shows `last change`.
 - **Service** (`IpcServices.docHistory`, app window only, 01 §5.2): `eli5:doc:history {slug}` returns `DocHistoryState {canUndo, canRedo, undoLabel?, redoLabel?, busy}`; `eli5:doc:undo` and `eli5:doc:redo {slug}` swap and return the new state. An unknown slug returns `E_NOT_FOUND`.
 - **Refused while busy.** While any section job for the document is queued or running (any `inflight` key for the slug, §8.1), undo and redo return `E_CONFLICT` "Wait for the section update to finish" and `busy` is true. With nothing to swap they return `E_CONFLICT` "Nothing to undo" / "Nothing to redo".
 - **After a swap** main emits `eli5:doc:updated {slug}` (§7.4: the viewer reloads when it shows the document), and the library's `changed` event updates the Library sidebar and the Tray.
@@ -335,13 +363,25 @@ On `eli5:doc:updated {slug, sectionId?, tabKey?}` in main:
 
 Scroll position elsewhere in the document is not preserved across a reload. The user asked for this section, so jumping to it is the intended result (PRD "The viewer refreshes and scrolls to the updated section").
 
+### 7.5 ELI5 this selection (`eli5-selection`)
+
+"ELI5 this selection" builds a focused ELI5 tab about exactly the selected text, from one phrase to several paragraphs. It reuses the section ELI5 tab flow: same channel (`createSectionEli5` with `scope: 'selection'`), Section-lane job, busy key, rate limit, tab limit, prior version for Undo, cancel and retry from the status line, and the fire-and-forget model.
+
+1. **Runtime.** The snapshot also records the unclipped selection: its selected text (§5.3) with paragraph breaks kept (blocks joined by a blank line, spaces collapsed within a paragraph), and `sectionIds`, the start section plus every later actionable section of the same tab that holds selected text. Longer than 12,000 characters disables the action (§5.1). The job anchors to the first section: its busy key, busy mark and status heading.
+2. **Context (generating stage).** From the embedded model: the covered headings (`Section: …` or `Sections: a; b`), and the block just before the selection's start and just after its end, each cut to 600 characters, located by matching the first and last 6 words of the selection against block text. When the selection cannot be located (for example, it starts in a chart), the first block of the first section stands in. The context is for grounding only.
+3. **Prompt** `selection-eli5-tab` ([02](02-llm-provider.md) §9): explain exactly the selection, not the section; a short phrase gets a short explanation of that one concept, several paragraphs a plain-language walk through the passage (at most 4 sections). ELI5 skill rules, no `photo` or `figure` blocks (section-level jobs never search stock photos), a diagram only when one fits. The draft's `title` names the topic.
+4. **Save** (under the lock, as §7.1): `addSectionEli5Tab(model, sectionId, selectionText, draft, now, { selectionOf: sectionIds })`. The tab is labelled `"ELI5: " + title` (first 6 words of the selection when the title is empty; collisions per 07 §4.1). Its `origin` records `scope: 'selection'`, `sectionIds`, and the selection (paragraph breaks kept, cut to 4000 characters). The tab shows `From: <source heading>` and a quote `You asked about: "…"` cut to 240 characters (07 §6.1).
+5. `meta.json.actions` gets `{ action: 'eli5-selection', sectionIds, resultTabKey }`; the Undo label is `added ELI5 tab '<label>' for a selection`; the status line reads `Adding ELI5 tab for a selection: {heading}`, then `Added tab: {label}`.
+
+The tab is an ordinary `section-eli5` tab afterwards: closable (§7.2) and every action works inside it (§7.3).
+
 ## 8. Concurrency
 
 ### 8.1 Rules
 
 | Rule | Mechanism |
 | --- | --- |
-| At most one in-flight action per section, of any kind (the four in-place actions and `eli5-tab`) | `inflight: Set<"<slug>#<sectionId>">` in main, checked at request time (§6.1 step 4) |
+| At most one in-flight action per section, of any kind (the four in-place actions, `eli5-tab` and `eli5-selection`, which holds its first covered section) | `inflight: Set<"<slug>#<sectionId>">` in main, checked at request time (§6.1 step 4) |
 | Different sections of the same document may have actions queued at the same time | Allowed; they run in Section-lane FIFO order ([06](06-generation-pipeline.md) §4.1) |
 | Writes to one document never interleave | `withDocLock(slug)` around every section replace, tab add, tab close, woven merge, and create-job save |
 | A stale view of the file is never written back | Re-read and `parseDocument` inside the lock, find the section by ID in the model, `baseHash` precondition (§6.3, §6.4) |
@@ -384,13 +424,13 @@ A failed section job leaves `index.html` and `meta.json` unchanged ([06](06-gene
 
 `SECTION_TOO_LARGE`, `SECTION_GONE`, `SECTION_CHANGED`, `DOC_GONE`, and `TOO_MANY_TABS` are added to the `JobFailure['code']` union in [06](06-generation-pipeline.md). Retry from the status line re-issues the same `SectionJobPayload` with a fresh `baseHash` taken at retry time. Retry is disabled for `SECTION_GONE`, `DOC_GONE`, and `TOO_MANY_TABS`.
 
-Status strings for running section jobs come from [06](06-generation-pipeline.md) §6: `Updating section: {heading}` and `Updated: {heading}`. This file proposes two more for `eli5-tab`: `Adding ELI5 tab: {heading}` and `Added tab: {label}`.
+Status strings for running section jobs come from [06](06-generation-pipeline.md) §6: `Updating section: {heading}` and `Updated: {heading}`. This file proposes two more for `eli5-tab`: `Adding ELI5 tab: {heading}` and `Added tab: {label}`, and `Adding ELI5 tab for a selection: {heading}` for `eli5-selection` (which also ends with `Added tab: {label}`).
 
 ## 10. Out of scope (v1)
 
 - **Version history beyond one step.** v1 keeps exactly one prior version per document with undo/redo (§6.7, 09 §4.1). The `actions` log in `meta.json` stores no content. Per-section history with diff and rollback is the PRD's "Future enhancements" item, and the `SectionId` scheme plus the model-based replace (07 §8) are chosen so it can be added later without format changes.
 - Streaming partial section text into the viewer while the model is still writing.
-- Acting on several sections at once, or on a selection spanning sections (it is clipped, §5.3).
+- In-place actions on several sections at once, or on a selection spanning sections (it is clipped, §5.3). Only "ELI5 this selection" (§7.5) spans sections, and it adds a tab rather than rewriting them.
 - Re-glossing new jargon introduced by a regeneration (§6.5).
 - Actions on documents opened outside the app (plain browser: no menu, §2).
 
@@ -414,12 +454,15 @@ This feature depends on these guarantees from [07](07-output-document.md). They 
 
 Details are owned by [13](13-testing-quality.md). Minimum coverage for this module:
 
-- **Unit (Vitest):** the save path re-parses and replaces only the target (bytes outside the target `<section>` and `#eli5-model` identical before and after, per 07 §5.5); `sectionHash` is stable across a runtime-only re-render and changes on any section mutation; `baseHash` mismatch fails with `SECTION_CHANGED`; invalid `#eli5-model` is refused; rate limit (11th request in 60 s returns `E_RATE_LIMITED`); `TooManyTabsError` maps to `TOO_MANY_TABS`; `meta.json` patches (`tabs`, `actions`, `retiredIds`); change labels, the busy refusal of undo/redo and the viewer refresh after a swap (§6.7); §5.3 `enclosing` on cross-section and excluded-region selections against 07's markup (jsdom).
-- **E2E (Playwright `_electron`, fake `LLMProvider`):** select text, then Expand, then the section is replaced and scrolled into view while other sections are unchanged; a second action on a busy section is refused; section ELI5 tab creation, label, and close; an action inside an ELI5 tab; a failure leaves the file unchanged and shows the inline notice; a script in a document calling `eli5Doc.regenerateSection` without user activation is refused; Undo after a section action restores the original section in the saved file and the viewer, Redo brings the new text back, and a new action after an undo disables Redo.
+- **Unit (Vitest):** selection zones (§5.6: zone switching, clamping, copy without notes, Select All) and the menu text without notes; "ELI5 this selection" request bounds (runtime, preload and zod), covered-section checks, context assembly, topic label, quote, `actions` entry and Undo label; the save path re-parses and replaces only the target (bytes outside the target `<section>` and `#eli5-model` identical before and after, per 07 §5.5); `sectionHash` is stable across a runtime-only re-render and changes on any section mutation; `baseHash` mismatch fails with `SECTION_CHANGED`; invalid `#eli5-model` is refused; rate limit (11th request in 60 s returns `E_RATE_LIMITED`); `TooManyTabsError` maps to `TOO_MANY_TABS`; `meta.json` patches (`tabs`, `actions`, `retiredIds`); change labels, the busy refusal of undo/redo and the viewer refresh after a swap (§6.7); §5.3 `enclosing` on cross-section and excluded-region selections against 07's markup (jsdom).
+- **Cross-browser (Chromium, WebKit):** a real mouse drag across body paragraphs next to a glossary note leaves the note out of the selection and the copied text; a drag that starts inside a note stays in it.
+- **E2E (Playwright `_electron`, fake `LLMProvider`):** "ELI5 this selection" adds a topic-labelled tab quoting the selection, with its Undo label; select text, then Expand, then the section is replaced and scrolled into view while other sections are unchanged; a second action on a busy section is refused; section ELI5 tab creation, label, and close; an action inside an ELI5 tab; a failure leaves the file unchanged and shows the inline notice; a script in a document calling `eli5Doc.regenerateSection` without user activation is refused; Undo after a section action restores the original section in the saved file and the viewer, Redo brings the new text back, and a new action after an undo disables Redo.
 
 ## Acceptance criteria
 
-- [ ] Selecting at least 3 non-whitespace characters inside a section in any tab shows the inline menu near the selection, with the five actions in the §5.1 order and the optional note field. No modal and no new window appear.
+- [ ] Selecting at least 3 non-whitespace characters inside a section in any tab shows the inline menu near the selection, with the six actions in the §5.1 order and the optional note field. No modal and no new window appear.
+- [ ] A selection that starts in the body never includes glossary notes, visibly, in copied text, or in the text sent with an action; a selection that starts in a note stays inside that note and opens no menu (§5.6). Without JavaScript, and in print, nothing changes.
+- [ ] "ELI5 this selection" on a phrase or on several paragraphs (also across sections) adds a tab at the far right labelled `ELI5: <topic>` that quotes the selection and explains only it; it is closable and undoable like a section ELI5 tab, and it is disabled past 12,000 characters (§7.5).
 - [ ] Selections in glossary notes, references, the tab bar, the header, or outside any section show no menu. A cross-section selection targets the start section and shows `Applies to: {heading}`.
 - [ ] Clicking the note field does not lose the target; the action uses the snapshot taken when the menu opened.
 - [ ] The same `index.html` opened in Chrome, Safari, or Edge shows no menu, no close buttons, and no errors.

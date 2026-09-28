@@ -174,7 +174,7 @@ export async function setup(
   const viewer = new FakeViewer(slug);
   const clock = new FakeClock('2026-09-28T10:00:00.000Z');
   const runSectionAction = vi.fn(async (i: { action: string }): Promise<SectionDraft | DocumentDraftTab> =>
-    i.action === 'eli5-tab' ? NEW_TAB : NEW_SECTION,
+    i.action === 'eli5-tab' || i.action === 'eli5-selection' ? NEW_TAB : NEW_SECTION,
   );
   const hasApiKey = vi.fn(async () => true);
   const ir = createInteractiveReading({

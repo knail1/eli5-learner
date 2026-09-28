@@ -52,8 +52,11 @@ The ELI5 tab rebuilds the same material in plain words, with analogies, simple d
   - *Give me an analogy*
   - *Go deeper*
   - *Create a separate ELI5 for this section*
+  - *ELI5 this selection*: a focused ELI5 tab about exactly what you selected, from one phrase to
+    several paragraphs
 
-  Only that section is regenerated, in place.
+  The first four regenerate only that section, in place. Selecting body text never picks up the
+  glossary notes in the margin, and a selection inside a note stays inside it.
 
   <img src="images/highlight_expander.png" alt="Selecting a passage opens a small menu: Expand this, re-explain it, Give me an analogy, Go deeper, Create a separate ELI5, and an optional note" width="560">
 

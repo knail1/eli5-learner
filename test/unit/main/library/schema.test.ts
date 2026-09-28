@@ -62,6 +62,15 @@ const meta = {
       jobId: 'j2',
       resultTabKey: 'sx4e1a07',
     },
+    {
+      at: TS,
+      action: 'eli5-selection',
+      sectionId: 'sec-indepth-9b04e1aa',
+      sectionIds: ['sec-indepth-9b04e1aa', 'sec-indepth-0badc0de'],
+      tabKey: 'indepth',
+      jobId: 'j3',
+      resultTabKey: 'sx4e1a08',
+    },
   ],
 };
 

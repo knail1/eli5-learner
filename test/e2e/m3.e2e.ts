@@ -289,6 +289,39 @@ test.describe('reading a finished document', () => {
     const meta = await readJson<{ actions?: { action: string }[] }>(metaFile());
     expect(meta.actions?.map((a) => a.action)).toEqual(['expand', 'eli5-tab', 'expand']);
   });
+
+  test('ELI5 this selection adds a focused tab labelled by topic that quotes the selection (08 §7.5)', async () => {
+    const undo = l.win.getByRole('button', { name: 'Undo', exact: true });
+    await viewer.getByRole('tab', { name: 'In depth' }).click();
+    const id = (await sectionsOf(viewer, 'indepth')).find((s) => s.heading === 'What to watch next')?.id ?? '';
+    expect(id).not.toBe('');
+    const phrase = 'If online growth continues, the buffer for that channel will need to grow too.';
+    await selectAndFocusMenu(viewer, id, phrase);
+    await viewer.keyboard.press('Enter'); // note field: moves to the first action
+    for (let i = 0; i < 5; i++) await viewer.keyboard.press('ArrowRight');
+    await viewer.keyboard.press('Enter'); // "ELI5 this selection"
+
+    const tabs = viewer.locator('nav.tabbar [role=tab]');
+    await expect(tabs).toHaveText(['In depth', 'ELI5', 'ELI5: Two costs'], { timeout: 30_000 });
+    await expect(tabs.last()).toHaveAttribute('aria-selected', 'true');
+    const meta = await readJson<{
+      tabs: { key: string; kind: string; label: string }[];
+      actions?: { action: string; sectionId: string; sectionIds?: string[]; resultTabKey?: string }[];
+    }>(metaFile());
+    const added = meta.tabs.at(-1);
+    expect(added).toMatchObject({ kind: 'section-eli5', label: 'ELI5: Two costs' });
+    expect(meta.actions?.at(-1)).toEqual(
+      expect.objectContaining({ action: 'eli5-selection', sectionId: id, sectionIds: [id], resultTabKey: added?.key }),
+    );
+    const panel = viewer.locator(`.tabpanel[data-tab-key="${added?.key ?? 'none'}"]`);
+    await expect(panel.locator('blockquote.tab-asked')).toHaveText(`You asked about: “${phrase}”`);
+    await expect(panel.locator('.tab-from a')).toHaveText('What to watch next');
+    await expect(panel.getByRole('heading', { name: 'Too much or too little' })).toBeVisible();
+    await expect(undo).toHaveAttribute('title', "Undo: added ELI5 tab 'ELI5: Two costs' for a selection (⌘Z)");
+    expect(validateDocument(await readFile(docFile(), 'utf8')).errors).toEqual([]);
+    // Closable like any section ELI5 tab.
+    await expect(viewer.getByRole('button', { name: 'Close tab ELI5: Two costs' })).toBeVisible();
+  });
 });
 
 test('E11: a related document is suggested; one is dismissed, another woven in with highlights, then undone', async () => {

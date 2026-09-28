@@ -108,8 +108,9 @@ export const MergeRecordSchema = z.object({
 /** 08 §6.6. */
 export const ActionRecordSchema = z.object({
   at: Timestamp,
-  action: z.enum(['expand', 'reexplain', 'analogy', 'deeper', 'eli5-tab']),
+  action: z.enum(['expand', 'reexplain', 'analogy', 'deeper', 'eli5-tab', 'eli5-selection']),
   sectionId: SectionIdSchema,
+  sectionIds: z.array(SectionIdSchema).optional(),
   tabKey: z.string(),
   note: z.string().optional(),
   jobId: z.string(),

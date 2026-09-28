@@ -187,7 +187,9 @@ export async function createHarness(o: {
       const { jobId } =
         r.action === 'eli5-tab'
           ? await interactive.actions.createSectionEli5(req)
-          : await interactive.actions.regenerateSection({ ...req, action: r.action });
+          : r.action === 'eli5-selection'
+            ? await interactive.actions.createSectionEli5({ ...req, scope: 'selection', sectionIds: [r.sectionId] })
+            : await interactive.actions.regenerateSection({ ...req, action: r.action });
       const job = await finished(jobId);
       return { job, doc: await read(slug) };
     },

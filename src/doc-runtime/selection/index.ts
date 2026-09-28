@@ -1,8 +1,9 @@
 // Selection bridge and inline action menu (08 §5). Installed only when window.eli5Doc exists
-// (08 §2 item 6): snapshot, five actions + note, submit, busy marks and inline notices.
+// (08 §2 item 6): snapshot, six actions + note, submit, busy marks and inline notices.
 import type { DocBridge } from '../bridge';
 import type { TabsApi } from '../tabs';
 import { placeMenu } from './menu';
+import { rangeText } from './text';
 
 export const MENU_ACTIONS = [
   ['expand', 'Expand this'],
@@ -10,15 +11,30 @@ export const MENU_ACTIONS = [
   ['analogy', 'Give me an analogy'],
   ['deeper', 'Go deeper'],
   ['eli5-tab', 'Create a separate ELI5 for this section'],
+  ['eli5-selection', 'ELI5 this selection'],
 ] as const;
 export type MenuActionId = (typeof MENU_ACTIONS)[number][0];
 
 export const MAX_SELECTION_CHARS = 4000;
 export const MAX_NOTE_CHARS = 200;
+/** 08 §7.5: "ELI5 this selection" takes the whole selection up to this length. */
+export const MAX_SELECTION_ELI5_CHARS = 12000;
+export const TOO_LONG_NOTE = 'Too long to ELI5 as a selection (12,000 characters max)';
 const DEBOUNCE_MS = 150;
 const NOTICE_MS = 6000;
 const EXCLUDED =
   "[data-eli5-noact], nav.tabbar, details.gl-note, section[data-eli5-actionable='false'], header.doc-head, footer.doc-foot";
+/** Never part of the text the menu sends: glossary notes (08 §5.6) and the other excluded regions. */
+const TEXT_EXCLUDED = EXCLUDED;
+
+/** The whole selection for "ELI5 this selection" (08 §7.5): unclipped, paragraph breaks kept. */
+export interface SelectionScope {
+  text: string;
+  /** Sections with selected text, in document order; the first is the snapshot's section. */
+  sectionIds: string[];
+  /** Longer than MAX_SELECTION_ELI5_CHARS: the action is disabled. */
+  tooLong: boolean;
+}
 
 export interface SelectionSnapshot {
   tabKey: string;
@@ -27,6 +43,7 @@ export interface SelectionSnapshot {
   text: string;
   /** The selection spanned sections and was clipped to the start section (08 §5.3). */
   clipped: boolean;
+  selection: SelectionScope;
 }
 
 function elementOf(n: Node): Element | null {
@@ -65,19 +82,50 @@ export function normalizeNote(s: string): string {
     .slice(0, MAX_NOTE_CHARS);
 }
 
+const hasText = (s: string): boolean => s.replace(/\s/g, '').length > 0;
+
+/** The part of `range` inside `el`, or null when they do not overlap. */
+function within(range: Range, el: Element): Range | null {
+  const doc = el.ownerDocument;
+  const box = doc.createRange();
+  box.selectNodeContents(el);
+  // Range.START_TO_START 0, START_TO_END 1, END_TO_END 2, END_TO_START 3 (no global Range in tests).
+  if (range.compareBoundaryPoints(3, box) >= 0) return null; // range starts at or after el's end
+  if (range.compareBoundaryPoints(1, box) <= 0) return null; // range ends at or before el's start
+  const r = range.cloneRange();
+  if (range.compareBoundaryPoints(0, box) < 0) r.setStart(box.startContainer, box.startOffset);
+  if (range.compareBoundaryPoints(2, box) > 0) r.setEnd(box.endContainer, box.endOffset);
+  return r;
+}
+
+/** 08 §7.5: every actionable section of the start section's tab with selected text, start first. */
+function selectionScope(range: Range, start: HTMLElement): SelectionScope {
+  const panel = start.closest('.tabpanel') ?? start.parentElement;
+  const ids: string[] = [start.dataset.sectionId ?? ''];
+  for (const s of Array.from(panel?.querySelectorAll<HTMLElement>('section[data-section-id]') ?? [])) {
+    if (s === start || s.matches("[data-eli5-actionable='false']")) continue;
+    if (start.compareDocumentPosition(s) & 2) continue; // PRECEDING: before the start section
+    const part = within(range, s);
+    if (part && hasText(rangeText(part, TEXT_EXCLUDED))) ids.push(s.dataset.sectionId ?? '');
+  }
+  const text = rangeText(range, TEXT_EXCLUDED);
+  return { text, sectionIds: ids, tooLong: text.length > MAX_SELECTION_ELI5_CHARS };
+}
+
 /** Snapshot of the current selection, or null when no menu should open (08 §5.2 steps 1-4). */
 export function snapshotSelection(sel: Selection | null): SelectionSnapshot | null {
   if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
-  const hit = enclosing(sel.getRangeAt(0));
+  const full = sel.getRangeAt(0);
+  const hit = enclosing(full);
   if (!hit) return null;
-  const text = normalizeSelection(hit.range.toString());
+  const text = normalizeSelection(rangeText(hit.range, TEXT_EXCLUDED));
   if (text.replace(/\s/g, '').length < 3) return null;
   const panel = hit.section.closest<HTMLElement>('.tabpanel[data-tab-key]');
   const tabKey = panel?.dataset.tabKey ?? '';
   const sectionId = hit.section.dataset.sectionId ?? '';
   if (sectionId.slice(4, sectionId.lastIndexOf('-')) !== tabKey) return null;
   const heading = hit.section.querySelector(':scope > h2')?.textContent?.trim() ?? '';
-  return { tabKey, sectionId, heading, text, clipped: hit.clipped };
+  return { tabKey, sectionId, heading, text, clipped: hit.clipped, selection: selectionScope(full, hit.section) };
 }
 
 const MENU_CSS = `
@@ -90,12 +138,12 @@ input{font:inherit;padding:6px 8px;border-radius:6px;border:1px solid #555;backg
 button{font:inherit;font-weight:600;color:inherit;background:#34373d;border:0;border-radius:6px;padding:6px 8px;cursor:pointer}
 button:focus-visible,button:hover{background:#4a4e56;outline:none}
 button:disabled{opacity:.45;cursor:default}
-.hint{color:#c9c5bd}
-.hint:empty{display:none}
+.hint,.cap{color:#c9c5bd}
+.hint:empty,.cap:empty{display:none}
 @media print{.m{display:none}}`;
 
 /** 08 §5.5 step 2: the label under the heading while a section is busy. */
-const BUSY_LABEL: Record<string, string> = { 'eli5-tab': 'Creating ELI5 tab…' };
+const BUSY_LABEL: Record<string, string> = { 'eli5-tab': 'Creating ELI5 tab…', 'eli5-selection': 'Creating ELI5 tab…' };
 const busyLabel = (action: string): string => BUSY_LABEL[action] ?? 'Updating…';
 
 export interface SelectionController {
@@ -150,7 +198,9 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
     acts.appendChild(b);
     return b;
   });
-  menu.append(hint, note, acts);
+  const cap = doc.createElement('div');
+  cap.className = 'cap';
+  menu.append(hint, note, acts, cap);
   root.append(style, menu);
 
   let snap: SelectionSnapshot | null = null;
@@ -195,7 +245,9 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
       snapRange = range ?? null;
       const isBusy = busy.has(s.sectionId);
       hint.textContent = isBusy ? 'This section is being updated' : s.clipped ? `Applies to: ${s.heading}` : '';
-      for (const b of buttons) b.disabled = isBusy;
+      const tooLong = s.selection.tooLong;
+      for (const b of buttons) b.disabled = isBusy || (tooLong && b.dataset.action === 'eli5-selection');
+      cap.textContent = tooLong && !isBusy ? TOO_LONG_NOTE : '';
       buttons.forEach((b, j) => (b.tabIndex = j === 0 ? 0 : -1));
       note.value = '';
       menu.hidden = false;
@@ -211,6 +263,7 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
     async submit(action, rawNote) {
       const s = snap;
       if (!s || busy.has(s.sectionId)) return;
+      if (action === 'eli5-selection' && s.selection.tooLong) return;
       ctl.close();
       const section = doc.getElementById(s.sectionId);
       markBusy(doc, section, action);
@@ -218,10 +271,20 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
       const base = { tabKey: s.tabKey, sectionId: s.sectionId, selectionText: s.text, ...(n ? { note: n } : {}) };
       let res: { ok: boolean; error?: { message?: string } };
       try {
-        res =
-          action === 'eli5-tab'
-            ? await bridge.createSectionEli5(base)
-            : await bridge.regenerateSection({ ...base, action });
+        if (action === 'eli5-selection') {
+          // 08 §7.5: the whole selection, anchored to the first section it covers.
+          res = await bridge.createSectionEli5({
+            ...base,
+            selectionText: s.selection.text,
+            scope: 'selection',
+            sectionIds: s.selection.sectionIds,
+          });
+        } else {
+          res =
+            action === 'eli5-tab'
+              ? await bridge.createSectionEli5(base)
+              : await bridge.regenerateSection({ ...base, action });
+        }
       } catch (e) {
         res = { ok: false, error: { message: e instanceof Error ? e.message : 'Something went wrong' } };
       }

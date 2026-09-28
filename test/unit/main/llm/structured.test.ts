@@ -194,6 +194,7 @@ describe('default FakeProvider script (13 §6.1)', () => {
       'section-analogy': 'SectionDraft',
       'section-deeper': 'SectionDraft',
       'section-eli5-tab': 'DocumentDraftTab',
+      'selection-eli5-tab': 'DocumentDraftTab',
       summary: 'SummaryDraft',
       'merge-match': 'MergeMatchDraft',
       'photo-pick': 'PhotoPickDraft',

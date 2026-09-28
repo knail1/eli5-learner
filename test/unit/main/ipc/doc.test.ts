@@ -112,6 +112,46 @@ describe('eli5:doc:regenerate-section / create-section-eli5 (08 §3, §6.1)', ()
     expect(svc.regenerateSection).not.toHaveBeenCalled();
   });
 
+  it('create-section-eli5 accepts a selection scope with covered sections, up to 12,000 characters', async () => {
+    const { svc } = fakeActions();
+    const h = await setup({ services: { sectionActions: svc } });
+    const { action: _drop, ...base } = req();
+    const sel = {
+      ...base,
+      selectionText: 'Panels turn light into current.\n\n' + 'x'.repeat(11_000),
+      scope: 'selection',
+      sectionIds: ['sec-indepth-3f9a1c2e', 'sec-indepth-0000beef'],
+    };
+    expect(await h.call(IPC.doc.createSectionEli5, sel, 'viewer')).toEqual({ ok: true, value: { jobId: 'job-s2' } });
+    expect(svc.createSectionEli5).toHaveBeenCalledWith(sel);
+    expect(await h.call(IPC.doc.createSectionEli5, { ...base, scope: 'section' }, 'viewer')).toMatchObject({
+      ok: true,
+    });
+    for (const bad of [
+      { ...sel, selectionText: 'x'.repeat(12_001) },
+      { ...base, selectionText: 'x'.repeat(4001) }, // the section scope keeps the 4000 bound
+      { ...sel, scope: 'document' },
+      { ...sel, sectionIds: [] },
+      { ...sel, sectionIds: ['sec-indepth-0000beef', 'sec-indepth-3f9a1c2e'] }, // first must be sectionId
+      { ...sel, sectionIds: ['sec-indepth-3f9a1c2e', 'sec-eli5-0000beef'] }, // one tab only
+      { ...sel, sectionIds: ['sec-indepth-3f9a1c2e', 'sec-indepth-3f9a1c2e'] },
+      {
+        ...sel,
+        sectionIds: [
+          'sec-indepth-3f9a1c2e',
+          ...Array.from({ length: 40 }, (_, i) => `sec-indepth-${i.toString(16).padStart(8, '0')}`),
+        ],
+      },
+      { ...base, sectionIds: ['sec-indepth-3f9a1c2e'] }, // sectionIds only with the selection scope
+    ]) {
+      expect(await h.call(IPC.doc.createSectionEli5, bad, 'viewer')).toMatchObject({
+        ok: false,
+        error: { code: 'E_BAD_REQUEST' },
+      });
+    }
+    expect(svc.createSectionEli5).toHaveBeenCalledTimes(2);
+  });
+
   it('maps service errors at the boundary', async () => {
     const { svc } = fakeActions();
     svc.regenerateSection.mockRejectedValueOnce(new PipelineRequestError('E_CONFLICT', 'That section is busy'));

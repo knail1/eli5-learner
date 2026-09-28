@@ -88,6 +88,32 @@ describe('doc preload (08 §4.3)', () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
+  it('passes the selection scope of create-section-eli5 through, with its own 12,000-character bound (08 §7.5)', async () => {
+    const { action: _a, ...eli5 } = act;
+    const sel = {
+      ...eli5,
+      selectionText: 'x'.repeat(12_000),
+      scope: 'selection',
+      sectionIds: ['sec-indepth-3f9a1c2e', 'sec-indepth-0000beef'],
+      extra: 'dropped',
+    };
+    await api().createSectionEli5(sel);
+    const { extra: _e, ...sent } = sel;
+    expect(invoke).toHaveBeenCalledWith(IPC.doc.createSectionEli5, { ...sent, slug: 'example-widgets' });
+    for (const bad of [
+      { ...sel, selectionText: 'x'.repeat(12_001) },
+      { ...eli5, selectionText: 'x'.repeat(4001) },
+      { ...sel, sectionIds: ['sec-indepth-0000beef'] },
+      { ...sel, sectionIds: ['sec-indepth-3f9a1c2e', 'sec-eli5-0000beef'] },
+      { ...sel, sectionIds: 'sec-indepth-3f9a1c2e' },
+      { ...sel, scope: 'everything' },
+      { ...eli5, sectionIds: ['sec-indepth-3f9a1c2e'] },
+    ]) {
+      expect(await api().createSectionEli5(bad)).toMatchObject({ ok: false, error: { code: 'E_BAD_REQUEST' } });
+    }
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
   it('sends close-tab for any valid tab key, so main answers E_FORBIDDEN for fixed tabs (08 §7.2)', async () => {
     await api().closeTab('indepth');
     expect(invoke).toHaveBeenCalledWith(IPC.doc.closeTab, { slug: 'example-widgets', tabKey: 'indepth' });

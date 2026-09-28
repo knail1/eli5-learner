@@ -50,6 +50,7 @@ describe('selection bridge (08 §5)', () => {
       'Give me an analogy',
       'Go deeper',
       'Create a separate ELI5 for this section',
+      'ELI5 this selection',
     ]);
     const note = h.selection?.root.querySelector('input');
     if (note) note.value = '  shorter please  ';
@@ -75,6 +76,57 @@ describe('selection bridge (08 §5)', () => {
     await h.selection?.submit('eli5-tab');
     expect(bridge.createSectionEli5).toHaveBeenCalledWith(
       expect.objectContaining({ tabKey: 'eli5', selectionText: 'pays for ads' }),
+    );
+  });
+
+  it('ELI5 this selection sends the whole selection across sections, anchored to the first', async () => {
+    const bridge = fakeBridge();
+    const { win, doc } = loadGolden('with-tab', { bridge });
+    const h = boot(win, doc);
+    const first = doc.querySelector<HTMLElement>('#tab-indepth > section:nth-of-type(1)');
+    const second = doc.querySelector<HTMLElement>('#tab-indepth > section:nth-of-type(2)');
+    selectText(
+      doc,
+      '#tab-indepth > section:nth-of-type(1) p',
+      'judges every channel',
+      '#tab-indepth > section:nth-of-type(2) p',
+    );
+    doc.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true }));
+    vi.advanceTimersByTime(200);
+    await h.selection?.submit('eli5-selection', 'keep it short');
+    const call = bridge.createSectionEli5.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
+    expect(call).toMatchObject({
+      tabKey: 'indepth',
+      sectionId: first?.id,
+      scope: 'selection',
+      sectionIds: [first?.id, second?.id],
+      note: 'keep it short',
+    });
+    const text = String(call?.selectionText);
+    expect(text.startsWith('judges every channel')).toBe(true);
+    // Unclipped: it reaches into the second section, keeps paragraph breaks and skips glossary notes.
+    expect(text).toContain('How the budget moved');
+    expect(text).toContain('\n\n');
+    expect(text).not.toContain('return on ad spend');
+    expect(first?.getAttribute('data-eli5-busy')).toBe('eli5-selection');
+    expect(first?.querySelector('.eli5-busy-label')?.textContent).toBe('Creating ELI5 tab…');
+  });
+
+  it('disables ELI5 this selection past 12,000 characters and says why', () => {
+    const bridge = fakeBridge();
+    const { win, doc } = loadGolden('with-tab', { bridge });
+    const h = boot(win, doc);
+    const p = doc.querySelector('#tab-indepth > section p');
+    if (p) p.textContent = 'word '.repeat(2600);
+    selectText(doc, '#tab-indepth > section p');
+    doc.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true }));
+    vi.advanceTimersByTime(200);
+    const buttons = Array.from(h.selection?.root.querySelectorAll('button') ?? []);
+    const eli5Sel = buttons.find((b) => b.textContent === 'ELI5 this selection');
+    expect(eli5Sel?.disabled).toBe(true);
+    expect(buttons.filter((b) => b !== eli5Sel).every((b) => !b.disabled)).toBe(true);
+    expect(h.selection?.root.querySelector('.cap')?.textContent).toBe(
+      'Too long to ELI5 as a selection (12,000 characters max)',
     );
   });
 

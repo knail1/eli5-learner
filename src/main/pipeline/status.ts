@@ -29,6 +29,7 @@ export const STATUS_LINES = {
   sectionRunning: (heading: string) => `Updating section: ${heading}`,
   sectionDone: (heading: string) => `Updated: ${heading}`,
   sectionEli5Running: (heading: string) => `Adding ELI5 tab: ${heading}`,
+  selectionEli5Running: (heading: string) => `Adding ELI5 tab for a selection: ${heading}`,
   sectionEli5Done: (label: string) => `Added tab: ${label}`,
   failed: {
     NO_USABLE_CONTENT: (n: number) => `Failed: no usable content in ${n} source(s)`,
@@ -92,12 +93,14 @@ function failedLine(job: StatusLineJob): string {
 
 function sectionLine(job: StatusLineJob, ctx: StatusLineContext): string {
   const heading = job.section?.heading ?? '';
-  const eli5Tab = job.section?.action === 'eli5-tab';
+  const action = job.section?.action;
+  const eli5Tab = action === 'eli5-tab' || action === 'eli5-selection';
   if (job.status === 'done') {
     return eli5Tab
       ? STATUS_LINES.sectionEli5Done(ctx.tabLabel ?? job.result?.title ?? heading)
       : STATUS_LINES.sectionDone(heading);
   }
+  if (action === 'eli5-selection') return STATUS_LINES.selectionEli5Running(heading);
   return eli5Tab ? STATUS_LINES.sectionEli5Running(heading) : STATUS_LINES.sectionRunning(heading);
 }
 
