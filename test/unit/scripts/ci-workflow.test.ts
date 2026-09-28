@@ -152,7 +152,8 @@ describe('.github/workflows/ci.yml (13 §12)', () => {
   it('unit runs the offline Vitest projects with coverage and uploads the report', () => {
     const r = runs('unit');
     expect(r).toContain('npx vitest run');
-    for (const p of ['unit', 'integration', 'renderer', 'contracts:public']) expect(r).toContain(`--project ${p}`);
+    for (const p of ['unit', 'integration', 'renderer', 'evals:unit', 'contracts:public'])
+      expect(r).toContain(`--project ${p}`);
     expect(r).toContain('--coverage');
     expect(uses('unit').some((u) => u.startsWith('actions/upload-artifact@'))).toBe(true);
   });
@@ -178,6 +179,10 @@ describe('.github/workflows/ci.yml (13 §12)', () => {
     const r = runs('edition-fixture');
     expect(r).toContain('ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=test/fixtures/overlay-fake npx electron-vite build');
     expect(r).toContain('requires an overlay');
+  });
+
+  it('edition-fixture runs the edition build matrix check (F, F-missing, P-stub)', () => {
+    expect(runs('edition-fixture')).toContain('npm run check:editions');
   });
 
   it('edition-fixture proves the bundle check rejects the cell F build (13 §11 rule 4)', () => {
@@ -211,9 +216,17 @@ describe('.github/workflows/ci.yml (13 §12)', () => {
     const e = job('evals');
     expect(e.if).toBe("github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'");
     expect(e.permissions).toEqual({ contents: 'read', issues: 'write' });
+    // 13 §9.1 secrets, mapped onto the names the runner reads (scripts/eval/run.mjs).
     const env = obj(e.env);
-    expect(env.ANTHROPIC_API_KEY).toBe('${{ secrets.ANTHROPIC_API_KEY }}');
-    expect(env.OPENAI_API_KEY).toBe('${{ secrets.OPENAI_API_KEY }}');
+    expect(env.ELI5_EVAL_API_KEY_CLAUDE).toBe('${{ secrets.ANTHROPIC_API_KEY }}');
+    expect(env.ELI5_EVAL_API_KEY_OPENAI).toBe('${{ secrets.OPENAI_API_KEY }}');
+  });
+
+  it('evals run the eval script and open an issue on a regression (exit code 2, 13 §9.6)', () => {
+    const r = runs('evals');
+    expect(r).toContain('npm run eval --');
+    expect(r).toMatch(/-eq 2/);
+    expect(r).toContain('gh issue create');
   });
 
   it('keeps the nightly schedule to evals', () => {

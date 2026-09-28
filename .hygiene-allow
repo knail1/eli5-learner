@@ -21,6 +21,8 @@ secret test/unit/main/fetch/url.test.ts url-credentials
 secret test/unit/main/publish/service.test.ts url-credentials
 secret test/unit/main/sources/chain.test.ts url-credentials
 secret test/unit/main/sources/url.test.ts url-credentials
+# The app-scheme origin check must refuse an eli5app URL that carries user info (12 §7.2).
+secret test/unit/main/shell/app-protocol.test.ts url-credentials
 # The scanner's own tests exercise the generic rule with runtime-assembled fakes.
 secret test/unit/main/publish/scanner.test.ts generic-high-entropy
 # Bundle: scanner.ts's rule comment in main, and React's minified input-type table in the

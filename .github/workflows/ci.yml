@@ -62,8 +62,8 @@ jobs:
           path: ~/Library/Caches/electron
           key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
-      - name: Vitest (unit, integration, renderer and doc-runtime, public contracts)
-        run: npx vitest run --project unit --project integration --project renderer --project contracts:public --coverage
+      - name: Vitest (unit, integration, renderer and doc-runtime, eval runner, public contracts)
+        run: npx vitest run --project unit --project integration --project renderer --project evals:unit --project contracts:public --coverage
       - uses: actions/upload-artifact@v5
         if: always()
         with:
@@ -161,6 +161,8 @@ jobs:
             exit 1
           fi
           grep -q 'requires an overlay' f-missing.log
+      - name: Edition build matrix (F, F-missing, P-stub; 13 §10.3)
+        run: npm run check:editions
 
   hygiene:
     if: github.event_name != 'schedule'
@@ -228,8 +230,9 @@ jobs:
       contents: read
       issues: write
     env:
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      # 13 §9.1 secrets, under the names the runner reads (scripts/eval/run.mjs).
+      ELI5_EVAL_API_KEY_CLAUDE: ${{ secrets.ANTHROPIC_API_KEY }}
+      ELI5_EVAL_API_KEY_OPENAI: ${{ secrets.OPENAI_API_KEY }}
       ELI5_ALLOW_NET: '1'
       ELI5_EVAL_MAX_USD: '10'
     steps:
@@ -245,16 +248,25 @@ jobs:
           key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
       - name: Generation quality evals (13 §9)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ ! -d test/evals/cases ] || ! npm run | grep -q '^  eval$'; then
             echo "::notice::evals skipped: no eval set or eval script yet"
             exit 0
           fi
-          if [ -z "$ANTHROPIC_API_KEY" ]; then
+          if [ -z "$ELI5_EVAL_API_KEY_CLAUDE" ]; then
             echo "::notice::evals skipped: ANTHROPIC_API_KEY is not configured"
             exit 0
           fi
-          npm run eval -- --provider claude
+          code=0
+          npm run eval -- --provider claude || code=$?
+          # Exit 2 is a regression against the committed baseline (13 §9.6): open an issue.
+          if [ "$code" -eq 2 ]; then
+            gh issue create --title "Eval regression ($(date -u +%F))" \
+              --body "The nightly generation-quality eval regressed against the baseline. See run ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}."
+          fi
+          exit "$code"
       - uses: actions/upload-artifact@v5
         if: always()
         with:

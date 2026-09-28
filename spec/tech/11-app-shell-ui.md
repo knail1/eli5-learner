@@ -127,7 +127,10 @@ Edge cases:
   reopening is instant and scroll position is kept.
 - **Renderer crash** (`render-process-gone`): reload the renderer once. A second crash within 60 s
   shows an inline error page in the window ("Something went wrong. Reload"). Jobs in main are
-  unaffected.
+  unaffected. The page is a script-free `data:` page; a fragment link never navigates there, so
+  Reload links to the sentinel `https://eli5-learner.invalid/reload`, which every navigation guard
+  refuses and main turns into a reload. A second viewer crash within 60 s shows "Could not
+  display this document." with a Retry link back to the document (§8).
 
 ## 4. Menu bar item (Tray)
 

@@ -26,8 +26,19 @@
     "test:update-goldens": "ELI5_UPDATE_GOLDENS=1 vitest run",
     "fixtures:build": "ELI5_WRITE_FIXTURES=1 vitest run test/unit/fixtures/build.test.ts",
     "test:e2e": "ELI5_TEST_BUILD=1 npm run build && playwright test",
+    "test:crossbrowser": "playwright test -c playwright.crossbrowser.config.ts",
+    "test:perf": "vitest run --project perf",
+    "test:perf:startup": "npm run build && playwright test -c test/perf/playwright.perf.config.ts",
+    "test:evals": "vitest run --project evals:unit",
+    "eval": "node scripts/eval/run.mjs",
+    "eval:calibrate": "node scripts/eval/run.mjs --calibrate",
     "check:spec": "node scripts/check-spec-hooks.mjs",
-    "package": "rimraf out build/doc-runtime && npm run build && electron-builder --mac dmg"
+    "check:hygiene": "jiti scripts/check-hygiene.ts",
+    "check:licenses": "node scripts/check-licenses.mjs",
+    "check:editions": "node scripts/check-editions.mjs",
+    "package": "rimraf out build/doc-runtime && npm run build && electron-builder --mac dmg",
+    "package:arm64": "rimraf out build/doc-runtime && npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg --arm64",
+    "test:package": "ELI5_RUN_PACKAGE_TESTS=1 playwright test -c playwright.package.config.ts"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

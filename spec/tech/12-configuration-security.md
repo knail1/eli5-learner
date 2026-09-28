@@ -154,7 +154,7 @@ Dormant keys exist so that the public build can read an enterprise-shaped settin
 | API keys | macOS Keychain, service `ELI5 Learner` | Keychain ACL |
 | Documents | library root: gitignored `<repo>/.library` in dev, `<userData>/docs` packaged, or `ELI5_LIBRARY_DIR` (09 §3.1) | per 09 |
 
-`userData` is `app.getPath('userData')`, which resolves to `~/Library/Application Support/ELI5 Learner/` in a packaged build. Dev builds call `app.setPath('userData', …/ELI5 Learner (dev))` before `ready` so dev runs never touch a real profile. E2E tests set `ELI5_USER_DATA_DIR` to a temp directory; only unpackaged builds honor it (`!app.isPackaged`).
+`userData` is `app.getPath('userData')`, which resolves to `~/Library/Application Support/ELI5 Learner/` in a packaged build. Dev builds call `app.setPath('userData', …/ELI5 Learner (dev))` before `ready` so dev runs never touch a real profile. E2E tests set `ELI5_USER_DATA_DIR` to a temp directory; only unpackaged builds honor it (`!app.isPackaged`). Chromium's `--user-data-dir` switch still moves `userData` in a packaged build; the packaged-app smoke (13 §11.1) relies on it to keep test runs off the real profile.
 
 ### 4.2 Load algorithm
 
@@ -301,7 +301,7 @@ For every `webContents`:
 1. `will-attach-webview`: `preventDefault()`.
 2. `setWindowOpenHandler`: always `{action:'deny'}`. In the viewer, an `http(s)` target is passed to `shell.openExternal` after the URL check (§7.5). Other schemes are dropped.
 3. `will-navigate` and `will-redirect`: allowed only when the target is on the contents' allowlist:
-   - app renderer: the app URL origin only (01, 11);
+   - app renderer: the app URL only (01, 11): the dev server URL in dev, and in builds exactly `eli5app://app/index.html` (§7.7);
    - viewer: the currently loaded `eli5doc://doc/<slug>/` document or `eli5doc://help/<file>.html` page, where fragment changes are allowed and loading another slug or help page is done only by main through `loadURL`;
    - fetch windows: any `http(s)` (05). `file:`, `eli5doc:`, `data:`, `javascript:`, and custom schemes are blocked in every window.
 4. `will-frame-navigate`: apply the same allowlist to subframes. In the viewer, subframes are blocked outright.
@@ -309,7 +309,7 @@ For every `webContents`:
 6. Every `ipcMain` handler runs `assertSender(event, surface)` before touching the payload, checking identity first and URL last:
    1. `event.sender.id` must equal the expected `webContents.id`: `viewerView.webContents.id` for `eli5:doc:*` channels, the main window's `webContents.id` for all other channels.
    2. `event.senderFrame` must be non-null and `event.senderFrame === event.sender.mainFrame`. A null `senderFrame` (the frame navigated away or was destroyed) is rejected.
-   3. The frame URL scheme must match the surface: `eli5doc:` with host `doc` for the viewer, the app origin for the app renderer.
+   3. The frame URL scheme must match the surface: `eli5doc:` with host `doc` for the viewer, the app URL for the app renderer (`eli5app:` with host `app` and path `/index.html` in builds, the dev server origin in dev).
    A failure at any step returns `E_FORBIDDEN`, drops the message, and logs `ipc.rejected-sender` with the channel name only.
 
 ### 7.3 Permissions
@@ -356,7 +356,9 @@ This is used only for `eli5:viewer:open-external`, for `setWindowOpenHandler` in
 1. **Privileges, at module load.** `protocol.registerSchemesAsPrivileged([{ scheme: 'eli5doc', privileges: { standard: true, secure: true, supportFetchAPI: false, corsEnabled: false, bypassCSP: false, stream: false } }])` runs at the top level of the main entry module, before `app.whenReady()`. Electron ignores this call after `ready`.
 2. **Handler, on the viewer session.** After `ready`, main registers the handler on the viewer's partition: `session.fromPartition('eli5-viewer').protocol.handle('eli5doc', handler)`. The global `protocol` module applies only to the default session, so registering there would leave the viewer with `ERR_UNKNOWN_URL_SCHEME`. The handler uses `protocol.handle` (returns a `Response`), not the deprecated `registerFileProtocol`. No other session registers the scheme, so the app renderer and fetch windows cannot load it.
 
-The handler serves exactly two hosts:
+`eli5app://` serves the app renderer in builds. The `GrantFileProtocolExtraPrivileges` fuse is off (§7.8), so `file://` cannot read inside `app.asar` and the renderer is never loaded from `file://`. Privileges `{ standard: true, secure: true }` are registered at module load next to `eli5doc`; after `ready`, main registers the handler on the default session (the app renderer's) with `protocol.handle('eli5app', …)`, only when there is no dev server URL. It serves only host `app`, only files under `out/renderer` (resolved with `path.resolve` and required to start with `rendererDir + path.sep`, else 404), read with the asar-aware `fs.promises.readFile`, with a content type from the file extension. The app CSP (`'self'`) applies unchanged.
+
+The `eli5doc` handler serves exactly two hosts:
 
 | URL | Serves |
 | --- | --- |
@@ -386,7 +388,7 @@ Fuses are set in electron-builder's `afterPack` hook with `@electron/fuses`:
 | `EnableCookieEncryption` | on |
 | `GrantFileProtocolExtraPrivileges` | off |
 
-The build is signed with the hardened runtime and has no `com.apple.security.cs.allow-unsigned-executable-memory` or `disable-library-validation` entitlements beyond what Electron needs (`allow-jit`). Notarization is required for release DMGs. The public signing identity comes from CI secrets. The enterprise packaging identity is part of HOOK-CFG-02.
+On Apple silicon an unsigned build must be ad-hoc re-signed after the fuses are flipped (`resetAdHocDarwinSignature`, in `scripts/after-pack.cjs`), or macOS kills the app at launch. The build is signed with the hardened runtime and has no `com.apple.security.cs.allow-unsigned-executable-memory` or `disable-library-validation` entitlements beyond what Electron needs (`allow-jit`). Notarization is required for release DMGs. The public signing identity comes from CI secrets. The enterprise packaging identity is part of HOOK-CFG-02.
 
 ## 8. Enterprise settings overlay
 
@@ -501,7 +503,7 @@ The repository is public, so the rules below keep generated content, secrets, an
 | Path / artifact | Rule |
 | --- | --- |
 | `docs/*` | Gitignored (learnings are built from possibly private material). Only `docs/.gitkeep`, `docs/.nojekyll`, `docs/index.html`, and `docs/sample/` are un-ignored for the public Pages site; `docs/sample/` must be built from public sources only |
-| Enterprise overlay (`./enterprise/` or `$ELI5_OVERLAY_DIR`) | Must be gitignored (`/enterprise/`). The current `.gitignore` does not list it yet, and adding it is a v1 task. An overlay outside the repo tree is preferred |
+| Enterprise overlay (`./enterprise/` or `$ELI5_OVERLAY_DIR`) | Must be gitignored (`/enterprise/`; `.gitignore` lists it). An overlay outside the repo tree is preferred |
 | Private spec | The private spec and its hook bindings are gitignored and never linked from public files by path |
 | `.env*` | Gitignored except `.env.example`, which lists variable names with empty values |
 | `*.pem`, `*.p12`, `config.local.json` | Gitignored |
@@ -512,7 +514,7 @@ CI gates (run on every push and PR):
 
 1. **Secret scan:** a generic secret scanner runs over the diff with public rules only. Any finding fails the build.
 2. **Ignored-path check:** the build fails if any tracked file matches `docs/**` (other than the un-ignored exceptions), `enterprise/**`, or `.env` (other than `.env.example`).
-3. **Overlay isolation:** in the public build, the bundle must not contain the string `@eli5/overlay` resolved to anything other than `overlay.none.ts` (checked from the Vite manifest).
+3. **Overlay isolation:** in the public build, the bundle must not contain the string `@eli5/overlay` resolved to anything other than `overlay.none.ts` (checked from `out/main/build-info.json` and a scan of `out/**`; the build emits no Vite manifest).
 4. **Public-tree term check:** described in HOOK-CFG-03. This is the only denylist check and the only hook for it. 13 §11 (`scripts/check-hygiene.ts`, CI job `hygiene`) runs it as its deny-list step and refers to HOOK-CFG-03 rather than defining its own hook; 01 §6.5 uses the same env var.
 
 <!-- hook:HOOK-CFG-03 -->

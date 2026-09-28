@@ -10,3 +10,6 @@ package-lock.json
 resources/skills/eli5/upstream/
 resources/skills/beautiful-doc/html-effectiveness/
 resources/skills/beautiful-doc/theme.css
+release/
+test-results/
+playwright-report/

@@ -251,6 +251,7 @@ Doc 11 renders the status line (lower right). `status.ts` is the only producer o
 | `queued` after a crash resume | `Resuming` |
 | `reading` | `Reading sources ({done} of {total})`. For a single source: `Reading sources` |
 | `extracting` | `Extracting content` |
+| `generating`, before any step has started | `Generating document` |
 | `generating`, `indepth` and `eli5` both running | `Generating document (in-depth and ELI5)` |
 | `generating`, only `indepth` still running | `Generating document (in-depth explainer)` |
 | `generating`, only `eli5` still running | `Generating document (ELI5 version)` |

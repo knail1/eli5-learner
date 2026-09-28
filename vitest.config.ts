@@ -18,6 +18,8 @@ const shared = {
   resolve: {
     alias: {
       '@eli5/overlay': resolve(root, 'src/main/editions/overlay.none.ts'),
+      // Same alias as electron.vite.config.ts and tsconfig paths (01 §6.5).
+      '@eli5/public': resolve(root, 'src/main'),
     },
   },
 };

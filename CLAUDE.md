@@ -8,11 +8,10 @@ ELI5 Learner is a macOS Electron app that turns decks, docs, PDFs, screenshots a
 self-contained interactive `index.html` with an in-depth (WSJ-style) tab and an ELI5 tab, refinable
 section by section.
 
-- **Status:** M0 to M3 are built and wired at bootstrap: LLM (02), sources (03), extraction (04),
-  URL fetching (05), pipeline and job queue (06), document (07), interactive reading (08), library
-  and merge suggestions (09), publishing (10) and the app shell with Settings and notifications
-  (11). Next is M4 (E2E coverage and final verification). See the build order in
-  `spec/tech/README.md`.
+- **Status:** M0 to M4 are built: LLM (02), sources (03), extraction (04), URL fetching (05),
+  pipeline and job queue (06), document (07), interactive reading (08), library and merge
+  suggestions (09), publishing (10), the app shell (11), and M4 hardening (e2e, cross-browser,
+  evals, edition cells, CI, hygiene, packaging). See the build order in `spec/tech/README.md`.
 - **Source of truth:** `spec/ELI5 Learner Product Requirements Document.md` (what) and
   `spec/tech/` (how: one engineering spec per module; start at `spec/tech/README.md`, which also
   has the build order). `README.md` is the user-facing summary.
@@ -64,8 +63,11 @@ section by section.
 Node 22.12+ (Electron 44's installer needs it; `postinstall` downloads the Electron binary).
 
 - `npm run dev` — run the app; `npm run build` — production build into `out/`
-- `npm run typecheck`, `npm run lint`, `npm test` (Vitest, offline), `npm run test:e2e` (Playwright
-  `_electron`, run `npm run build` first), `npm run check:spec`
+- `npm run typecheck`, `npm run lint`, `npm test` (Vitest, offline), `npm run test:e2e` (test build,
+  then Playwright: e2e, startup, cross-browser), `npm run test:crossbrowser`, `npm run check:spec`
+- `npm run check:hygiene -- --out out --package`, `npm run check:licenses`, `npm run check:editions`
+- `npm run package:arm64` (unsigned dmg in `release/`), then `npm run test:package`
+- `npm run eval` spends real money (real providers); never run it without being asked
 - Enterprise mechanism check: `ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=test/fixtures/overlay-fake npx electron-vite build`
 
 ## Code conventions

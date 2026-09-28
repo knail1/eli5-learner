@@ -668,7 +668,9 @@ Algorithm (in `electron.vite.config.ts`, main build):
    2. Require `dir/index.ts` to exist, else fail the build with
       "Enterprise build requires an overlay at <dir>/index.ts (set ELI5_OVERLAY_DIR)".
    3. Alias `@eli5/overlay` → `dir/index.ts`. The overlay may import public modules only through
-      the alias `@eli5/public/*` → `src/main/*/index.ts` (no deep imports).
+      the alias `@eli5/public/*` → `src/main/*/index.ts` (no deep imports). One test-only exception:
+      the fixture overlay (13 §10.1) imports `@eli5/public/llm/testing/fake`, because
+      `src/main/llm/index.ts` leaves `FakeProvider` out so package bundles never contain it.
 5. `src/main/editions/load-overlay.ts`:
    ```ts
    import overlay from '@eli5/overlay';
@@ -775,7 +777,19 @@ declare const __ELI5_TEST__: boolean;
 | `test:e2e` | `ELI5_TEST_BUILD=1 npm run build && playwright test` | Electron e2e via `_electron` against a test build (13) |
 | `test:update-goldens` | `ELI5_UPDATE_GOLDENS=1 vitest run` | Rewrites extraction and document goldens (04, 07, 13) |
 | `fixtures:build` | `ELI5_WRITE_FIXTURES=1 vitest run test/unit/fixtures/build.test.ts` | Regenerates the synthetic binary fixtures and `test/fixtures/manifest.json` (13 §5) |
+| `test:crossbrowser` | `playwright test -c playwright.crossbrowser.config.ts` | Golden documents in Chromium and WebKit: smoke, axe, zero-network probe (13 §7.2, §7.3); no app build |
+| `test:perf` | `vitest run --project perf` | Extraction RSS budget (13 §13) |
+| `test:perf:startup` | `npm run build && playwright test -c test/perf/playwright.perf.config.ts` | Startup time, warning only (13 §13) |
+| `test:evals` | `vitest run --project evals:unit` | Offline tests of the eval runner (13 §9) |
+| `eval` | `node scripts/eval/run.mjs` | Real, paid generation-quality evals; keys from `ELI5_EVAL_API_KEY_*` only (13 §9) |
+| `eval:calibrate` | `node scripts/eval/run.mjs --calibrate` | Judge vs human agreement (13 §9.5) |
+| `check:spec` | `node scripts/check-spec-hooks.mjs` | Private-hook marker registry |
+| `check:hygiene` | `jiti scripts/check-hygiene.ts` | Public-repo hygiene (13 §11); pass `-- --out out --package` after a build |
+| `check:licenses` | `node scripts/check-licenses.mjs` | Runtime dependency licenses; `--audit <file>` for the advisory gate (13 §13) |
+| `check:editions` | `node scripts/check-editions.mjs` | Edition cells F, F-missing, P-stub (13 §10) |
 | `package` | `rimraf out build/doc-runtime && npm run build && electron-builder --mac dmg` | Clean build without `ELI5_TEST_BUILD`, then dmg. The e2e output in `out/` is never packaged |
+| `package:arm64` | `rimraf out build/doc-runtime && npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg --arm64` | Unsigned arm64 dmg on an Apple silicon machine |
+| `test:package` | `ELI5_RUN_PACKAGE_TESTS=1 playwright test -c playwright.package.config.ts` | Packaged-app bundle checks and launch smoke (13 §11.1); run after `package:arm64` |
 
 ### 8.3 Packaging (electron-builder)
 
@@ -822,7 +836,10 @@ mac:
   public dmg must use System Settings > Privacy & Security > **Open Anyway** (or
   `xattr -dr com.apple.quarantine "/Applications/ELI5 Learner.app"`); the README says so.
   Enterprise identity is part of HOOK-CFG-02.
-- **Fuses.** `@electron/fuses` is applied after packaging as configured in 12.
+- **Fuses.** `@electron/fuses` is applied after packaging as configured in 12. Because
+  `GrantFileProtocolExtraPrivileges` is off, builds load the renderer from `eli5app://app/index.html`
+  (12 §7.7), never `file://`. An unsigned Apple silicon build is ad-hoc re-signed after the fuses
+  flip (`resetAdHocDarwinSignature`), or macOS kills it at launch.
 - Minimum macOS: the oldest version supported by the chosen Electron release.
 - `enterprise/`, `spec/`, `docs/`, tests and `build/doc-runtime/` are never in `files`.
 - `LSUIElement` stays false (the app has a Dock icon while the window is open; Tray behavior in 11).
