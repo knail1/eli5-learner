@@ -8,10 +8,11 @@ ELI5 Learner is a macOS Electron app that turns decks, docs, PDFs, screenshots a
 self-contained interactive `index.html` with an in-depth (WSJ-style) tab and an ELI5 tab, refinable
 section by section.
 
-- **Status:** M0 (foundations) and M1 are built and wired at bootstrap: LLM (02), extraction (04),
-  URL fetching (05), document (07), library (09 §1–9) and the app shell skeleton (11). Source
-  resolvers (03) are still a skeleton. Next is M2 (job queue and IPC handlers). See the build order
-  in `spec/tech/README.md`.
+- **Status:** M0 to M3 are built and wired at bootstrap: LLM (02), sources (03), extraction (04),
+  URL fetching (05), pipeline and job queue (06), document (07), interactive reading (08), library
+  and merge suggestions (09), publishing (10) and the app shell with Settings and notifications
+  (11). Next is M4 (E2E coverage and final verification). See the build order in
+  `spec/tech/README.md`.
 - **Source of truth:** `spec/ELI5 Learner Product Requirements Document.md` (what) and
   `spec/tech/` (how: one engineering spec per module; start at `spec/tech/README.md`, which also
   has the build order). `README.md` is the user-facing summary.

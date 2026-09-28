@@ -70,6 +70,7 @@ export interface PublishTarget {
   destinationPreview?: string;   // e.g. "~/Documents/ELI5 Learner/revenue-recognition/"
   requiresSignIn: boolean;       // true only for MCP-brokered targets (drive)
   lastPublished?: PublicationRecord; // most recent successful publish of this slug to this target
+  changedSincePublish?: boolean; // with lastPublished: index.html no longer matches its contentSha256
 }
 
 export interface PublishFile {
@@ -151,10 +152,9 @@ export class PublishError extends Error {
 }
 ```
 
-`PublishError` maps to `IpcError` with `code: 'E_CONFLICT'` for `E_PUBLISH_CONFLICT`, `E_IO` for
-`E_PUBLISH_DESTINATION`, and `E_INTERNAL` otherwise, with `message` passed through (01 §5.1). The
-publish-specific code is carried in the event payload of `eli5:publish:progress` (§6) so the UI
-can show the right hint. `detail` is logged, never sent to the renderer.
+Every `PublishError` maps to `IpcError` with `code: 'E_PUBLISH_FAILED'`, the `PublishErrorCode` in
+`detailCode` and `message` passed through (01 §5.1), both as an invoke rejection and in the
+`eli5:publish:progress` payload (§6), so the UI can show the right hint. `detail` is logged, never sent to the renderer.
 
 ### 3.3 The publish file set
 
@@ -537,7 +537,7 @@ adds the following, with the same conventions (`IpcResult<T>`, zod validation, a
 | `eli5:publish:history` | R→M | `{slug}` | `PublicationRecord[]` newest first |
 | `eli5:publish:cancel` | R→M | `{slug; targetId}` | `void` (aborts `ctx.signal`; no-op if not running) |
 | `eli5:publish:copy-link` | R→M | `{url}` | `void` (writes to system clipboard in main) |
-| `eli5:publish:open-link` | R→M | `{url}` | `void` (`shell.openExternal`) |
+| `eli5:publish:open-link` | R→M | `{url}` | `void` (`https:` via `safeOpenExternal`; `file:` via `shell.openPath`, §7) |
 | `eli5:publish:reveal` | R→M | `{url}` (`file:` only) | `void` (`shell.showItemInFolder`) |
 
 Preload addition: `window.eli5.publish` gains `onProgress(cb)`, `history(slug)`, `cancel(slug,
@@ -555,7 +555,8 @@ The PRD requires the returned link to be "one click to copy or open in the defau
    sandboxed renderer's clipboard access is not guaranteed without focus.
 3. **Open** calls `eli5:publish:open-link`. Main validates the URL: `https:` always allowed;
    `file:` allowed only if it resolves inside `publish.local.dir`; everything else →
-   `E_FORBIDDEN`. Then `shell.openExternal(url)` opens the default browser.
+   `E_FORBIDDEN`. An `https:` link opens through `safeOpenExternal` (12 §7.5, which accepts
+   http(s) only); an allowed `file:` link opens with `shell.openPath` after the export-folder check.
 4. The most recent `PublicationRecord` per target is also shown in the document's publish menu as
    "Last published <relative time>" with the same Copy / Open actions, so links survive restarts.
 5. Failures show in the same chip area with the `message` and, where applicable, a single action:

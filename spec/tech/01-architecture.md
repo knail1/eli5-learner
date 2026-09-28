@@ -311,7 +311,7 @@ this table is corrected. Channel **names** are fixed here.
 | `eli5:doc:close-tab` | D→M | `CloseTabRequest {slug; tabKey}` (section ELI5 tabs only) | `void` | 08 §3 |
 | `eli5:doc:updated` | M→R | — | `{slug; sectionId?: SectionId; tabKey?: string}` | 08 |
 | `eli5:doc:scroll-to` | M→D | — | `ScrollToEvent {sectionId?; tabKey?; flash: boolean; loadSeq: number}` | 08 §3 |
-| `eli5:doc:section-busy` | M→D | — | `SectionBusyEvent` (full busy list for the loaded document) | 08 §4.1 |
+| `eli5:doc:section-busy` | M→D | — | `SectionBusyEvent` (full busy list for the loaded document; optional `notices` for failed jobs, 08 §9) | 08 §4.1 |
 | `eli5:viewer:set-bounds` | R→M | `{x; y; width; height}` | `void` | 11 |
 | `eli5:viewer:set-visible` | R→M | `{visible: boolean}` | `void` | 11 §10 |
 | `eli5:viewer:open-external` | D→M | `{url}` (`http`/`https` only) | `void` | 12 |
@@ -351,7 +351,7 @@ this table is corrected. Channel **names** are fixed here.
 | `eli5:publish:history` | R→M | `{slug}` | `PublicationRecord[]` newest first | 10 §6 |
 | `eli5:publish:cancel` | R→M | `{slug; targetId}` | `void` | 10 §6 |
 | `eli5:publish:copy-link` | R→M | `{url}` | `void` (clipboard written in main) | 10 §6 |
-| `eli5:publish:open-link` | R→M | `{url}` | `void` (`shell.openExternal`) | 10 §6 |
+| `eli5:publish:open-link` | R→M | `{url}` | `void` (`https:` via `safeOpenExternal`; `file:` inside the export folder via `shell.openPath`) | 10 §6 |
 | `eli5:publish:reveal` | R→M | `{url}` (`file:` only) | `void` (`shell.showItemInFolder`) | 10 §6 |
 
 This table is the complete v1 registry: channels not in it do not exist. A spec that needs a new

@@ -66,7 +66,10 @@ export interface SectionJobPayload {
 
 /** Main -> viewer events. */
 export interface ScrollToEvent { sectionId?: SectionId; tabKey?: string; flash: boolean; loadSeq: number }
-export interface SectionBusyEvent { busy: { sectionId: SectionId; action: MenuAction }[] }
+export interface SectionBusyEvent {
+  busy: { sectionId: SectionId; action: MenuAction }[];
+  notices?: { sectionId: SectionId; message: string }[]; // §9 inline notices for jobs that just failed
+}
 ```
 
 `SectionId`, `Tab`, `Section`, `DocumentModel`, and `SectionDraft`/`DocumentDraftTab` are defined in [07](07-output-document.md) §3 and [02](02-llm-provider.md) §10. The `SectionId` regex is not redefined here: `SECTION_ID_RE` is imported from `src/main/document/model.ts`, which holds 07's pattern `/^sec-[a-z][a-z0-9]{1,15}-[0-9a-f]{8}$/` (07 §3, §4.2). The tab key segment of a `sectionId` must equal `tabKey`.
@@ -113,7 +116,7 @@ export interface DocBridgeMessage<T extends string, P> {
 
 1. **Slug:** taken from `location.href` (`eli5doc://doc/<slug>/index.html`). Any `slug` in the page's argument is ignored.
 2. **User activation:** `act` and `close-tab` require `navigator.userActivation.isActive === true` at call time. The menu click and the Enter key both provide transient activation. Without it the call resolves to `E_FORBIDDEN` and no IPC is sent. This stops a script in the document from triggering paid LLM calls on load.
-3. **Shape:** the preload runs the same zod schema as main. Main re-validates anyway ([01](01-architecture.md) §5.1).
+3. **Shape:** the preload applies the same bounds as main's zod schema with plain checks (the sandboxed preload does not bundle `src/main`). Main re-validates anyway ([01](01-architecture.md) §5.1).
 4. **Scroll buffering:** the preload keeps the most recent `scroll-to` event if the runtime has not subscribed yet, and replays it on `onScrollTo` subscription if the event's `loadSeq` matches the current load. The buffer expires after 5 s.
 
 ## 5. Selection and the inline action menu
@@ -220,7 +223,7 @@ The model gets the section plus its surroundings, not the whole document ([02](0
 2. `ctx = getSectionContext(model, sectionId)` ([07](07-output-document.md) §8). It returns `{tab, section, draft, prev?, next?, outline}`: the target and its neighbors in `SectionDraft` form (figure assets mapped back to labels), and the headings of every section in the tab. An unknown ID fails the job with `SECTION_GONE`.
 3. Document framing: `model.title`, `model.dek`, and `tabKind = ctx.tab.kind` (`indepth` | `eli5` | `section-eli5`).
 4. `sourceExcerpt` (only for `deeper`): if [09](09-library-storage.md) retained extracted source text for this document, take up to 6000 characters around the best lexical match for `selectionText`. Otherwise omit it.
-5. **Budget:** if the target plus neighbors exceed 60% of the model's input budget ([02](02-llm-provider.md) §8), shrink each neighbor to its heading plus its first 1500 characters. If the target alone still does not fit, fail with `SECTION_TOO_LARGE` (§9).
+5. **Budget:** if the target plus neighbors exceed 60% of the model's input budget (`inputBudget(limitsFor(provider, model), 0, llm.maxOutputTokens)`, [02](02-llm-provider.md) §8, read at request time), shrink each neighbor to its heading plus its first 1500 characters. If the target alone still does not fit, fail with `SECTION_TOO_LARGE` (§9).
 6. Call `runSectionAction({action, tabKind, section: ctx.draft, outline: ctx.outline, prev: ctx.prev, next: ctx.next, selection: selectionText, note, sourceExcerpt, signal})`. `eli5-tab` returns a `DocumentDraftTab` of kind `section-eli5`; the other four return one `SectionDraft`. The model never returns an ID.
 
 **Register rules by tab kind** (sent as part of the prompt input; prompt text is in [02](02-llm-provider.md)):
@@ -346,7 +349,7 @@ After any change to `inflight` for the document shown in the viewer, and after e
 
 ## 9. Failure handling
 
-A failed section job leaves `index.html` and `meta.json` unchanged ([06](06-generation-pipeline.md) §8.2). Errors appear in two places: the status line (per 06 §6), and, if the document is still open, an inline notice on the section.
+A failed section job leaves `index.html` and `meta.json` unchanged ([06](06-generation-pipeline.md) §8.2). Errors appear in two places: the status line (per 06 §6), and, if the document is still open, an inline notice on the section. Main delivers the notice in the `notices` field of the next `eli5:doc:section-busy` event (§4.1).
 
 | Condition | Where detected | Job failure code | Status line | Inline notice |
 | --- | --- | --- | --- | --- |

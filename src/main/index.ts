@@ -9,13 +9,15 @@ import {
   dialog,
   ipcMain,
   nativeImage,
+  Notification,
   powerSaveBlocker,
   protocol,
   session,
   shell as electronShell,
   utilityProcess,
 } from 'electron';
-import type { IpcChannel } from '../preload/contract';
+import { IPC, type IpcChannel, type UiRoute } from '../preload/contract';
+import { effectiveModel } from './config';
 import { SettingsStore } from './config/store';
 import { createKeyStore } from './config/keystore';
 import { initPaths, resourcePath, resolveUserDataDir } from './config/paths';
@@ -24,6 +26,7 @@ import { registerPublicCapabilities } from './editions/public';
 import { loadOverlay } from './editions/load-overlay';
 import { edition } from './editions/types';
 import { prepareRealRun, startRealRun } from './devtools';
+import { createElectronViewerPort, createInteractiveReading } from './document';
 import { PDF_RENDER_SCHEME_PRIVILEGES } from './extract';
 import { configureFetch } from './fetch';
 import {
@@ -37,13 +40,23 @@ import {
 } from './ipc';
 import { JobQueue, createPipelineDeps, type SectionRunner } from './pipeline';
 import { sweepStaleDrafts } from './sources/drafts';
-import { DOC_SCHEME, createDocProtocolHandler, gitCheckIgnored, installDocProtocol, openLibrary } from './library';
-import { configureLlmRuntime, createLlmFetch, retryPolicyFromPipeline } from './llm';
+import {
+  DOC_SCHEME,
+  createDocProtocolHandler,
+  createMergeSuggestions,
+  gitCheckIgnored,
+  installDocProtocol,
+  openLibrary,
+} from './library';
+import { configureLlmRuntime, createLlmFetch, inputBudget, limitsFor, retryPolicyFromPipeline } from './llm';
+import { createPublishService } from './publish';
 import { hardenApp } from './security/harden';
 import { RotatingFileSink, createLogger, installLogger, log } from './security/log';
-import { registerSurface } from './security';
+import { registerSurface, safeOpenExternal } from './security';
 import {
   createMainWindow,
+  createNotificationControls,
+  createNotifier,
   createTray,
   initShell,
   isAppUrl,
@@ -85,6 +98,11 @@ app.setPath(
 );
 
 hardenApp();
+
+/** safeOpenExternal rate-limit bucket for opens that main starts itself (11 §14.6, 12 §7.5). */
+const MAIN_SENDER_ID = -1;
+/** electron-builder.yml appId; macOS Notification settings deep link (11 §14.7). */
+const APP_BUNDLE_ID = 'io.github.eli5-learner';
 
 /** Bootstrap order (01 §6.3). */
 async function bootstrap(): Promise<void> {
@@ -190,9 +208,9 @@ async function bootstrap(): Promise<void> {
   const sendToViewer = (channel: IpcChannel, payload: unknown): void => viewerWebContents()?.send(channel, payload);
 
   // ---------------------------------------------------------------------------------------------
-  // M3 feature slots (dependency injection points). Each slice builds its service in its own
-  // module; the integrator plugs the factories in at the M3-PLUG markers below. Until then every
-  // slot is empty: its channels answer "Not implemented yet" (ipc/services.ts) and the app runs.
+  // M3 feature slots (dependency injection points). Each feature builds its service in its own
+  // module and is plugged in below; an empty slot's channels answer "Not implemented yet"
+  // (ipc/services.ts), so a missing service never stops the app.
   //   sectionRunner  08  src/main/document/interactive/   (SectionRunner, 06 §8.2)
   //   services       08  sectionActions   SectionActions      src/main/document/interactive/
   //                  09  suggestions      MergeSuggestions    src/main/library/merge/
@@ -227,7 +245,35 @@ async function bootstrap(): Promise<void> {
     prepareRenderWebContents: (wc) => registerSurface(wc, 'other', (u) => u.protocol === 'eli5res:'),
     requireApiKey: !fakeLlm,
   });
-  // M3-PLUG 08: m3.sectionRunner = createSectionRunner({ ...pipeline, library, ... });
+  const apiKeyReady = fakeLlm ? async () => true : () => providerKeyPresent(settings.get().llm.provider, keyStore);
+  // 08: section actions and their runner. The 60% section budget (08 §6.2 step 5) is read from the
+  // live model settings with no system prompt counted (02 §8).
+  const viewerPort = createElectronViewerPort(viewerWebContents);
+  const interactive = createInteractiveReading({
+    library,
+    tasks: pipeline.tasks,
+    viewer: viewerPort,
+    hasApiKey: apiKeyReady,
+    sectionIds: pipeline.deps.sectionIds,
+    inputBudgetTokens: () => {
+      const s = settings.get();
+      return inputBudget(limitsFor(s.llm.provider, effectiveModel(s)), 0, s.llm.maxOutputTokens);
+    },
+    log,
+  });
+  m3.sectionRunner = interactive.runner;
+  m3.services.sectionActions = interactive.actions;
+  // 09 §10: merge suggestions. Created after reconcile; attaching makes library.runMergeCheck live.
+  const merge = createMergeSuggestions({
+    library,
+    judge: (summary, candidates, signal) => pipeline.tasks.matchMerge(summary, candidates, signal),
+    eligibility: registry.mergeEligibility(),
+    retentionDays: registry.libraryPolicy().resolvedSuggestionRetentionDays,
+  });
+  m3.services.suggestions = merge.service;
+  // An accept rewrites the target: the engine already pushes eli5:doc:updated; the viewer reloads
+  // and scrolls to the marker when it shows the target (09 §10.6 step 12, 08 §7.4).
+  merge.service.onDocUpdated((e) => interactive.refreshViewer(e));
   const jobs = new JobQueue({
     ...pipeline.deps,
     ...(m3.sectionRunner ? { sectionRunner: m3.sectionRunner } : {}),
@@ -241,9 +287,15 @@ async function bootstrap(): Promise<void> {
   // Crash recovery (06 §9.4) finishes before IPC exists, so the renderer's first eli5:jobs:list
   // already sees resumed jobs. A failure here must not stop the app from opening the Library.
   await jobs.init().catch((err: unknown) => log.error('pipeline.init-failed', {}, err));
+  interactive.attachJobs(jobs);
   // Running and queued jobs are persisted and resume on the next launch (06 §4.3, 11 §3.2): the
   // queue flushes before the Library lock is released and the process exits.
-  quitSteps.unshift({ name: 'jobs', run: () => jobs.close() }, { name: 'pipeline', run: () => pipeline.dispose() });
+  quitSteps.unshift(
+    { name: 'jobs', run: () => jobs.close() },
+    { name: 'pipeline', run: () => pipeline.dispose() },
+    { name: 'merge', run: () => merge.dispose() },
+  );
+  quitSteps.unshift({ name: 'interactive', run: () => interactive.dispose() });
 
   // Headless real run: no IPC, windows or Tray; the driver prints a summary and quits.
   if (realRun) {
@@ -270,10 +322,45 @@ async function bootstrap(): Promise<void> {
   // Settings > Library "Reveal in Finder" (11 §7): the root itself, never a renderer path.
   const revealLibraryRoot = (): void => electronShell.showItemInFolder(library.root);
 
-  // M3-PLUG 08:  m3.services.sectionActions = createSectionActions({ jobs, library, ... });
-  // M3-PLUG 09:  m3.services.suggestions = createMergeSuggestions({ library, ... });
-  // M3-PLUG 10:  m3.services.publish = createPublishService({ registry, library, settings, ... });
-  // M3-PLUG 11:  m3.notifier = createNotifier({ ... }); m3.services.notifications = { ... };
+  // 10: publishing. Links open through safeOpenExternal bound to the app window (12 §7.5).
+  const publish = createPublishService({
+    registry,
+    library,
+    settings: () => settings.get(),
+    clipboard,
+    openExternal: (u) => safeOpenExternal(u, mainWebContents()?.id ?? MAIN_SENDER_ID),
+    openPath: (p) => electronShell.openPath(p),
+    showItemInFolder: (p) => electronShell.showItemInFolder(p),
+  });
+  m3.services.publish = publish;
+  // 10 §11: abort running publishes first, before the queue and the Library close.
+  quitSteps.unshift({ name: 'publish', run: () => publish.dispose() });
+  // 11 §14: "Document ready" notifications; clicks are main-originated, so they share one fixed
+  // rate-limit sender id (11 §14.6).
+  const navigate = (route: UiRoute): void => sendToApp(IPC.app.navigate, { route });
+  m3.notifier = createNotifier({
+    Notification,
+    isSupported: () => Notification.isSupported(),
+    now: Date.now,
+    showMainWindow,
+    openInApp: (slug) => {
+      openDocument(slug);
+      navigate({ view: 'doc', slug });
+    },
+    navigate,
+    openExternal: async (u) => {
+      if (!(await safeOpenExternal(u, MAIN_SENDER_ID))) throw new Error('refused');
+    },
+    getMeta: async (slug) => (library.hasSlug(slug) ? library.getMeta(slug) : null),
+    settings: () => settings.get().notifications,
+    policy: () => registry.notificationPolicy(),
+  });
+  m3.services.notifications = createNotificationControls({
+    notifier: m3.notifier,
+    openExternal: (u) => electronShell.openExternal(u),
+    now: Date.now,
+    ...(app.isPackaged ? { bundleId: APP_BUNDLE_ID } : {}),
+  });
   // 11 §7: Settings folder chooser and help links (the Help menu shares the same opener).
   Object.assign(m3.services, settingsServices({ settings, libraryRoot: library.root }));
 
@@ -291,7 +378,7 @@ async function bootstrap(): Promise<void> {
     library,
     documents: { open: openDocument, reveal: revealDocument, revealRoot: revealLibraryRoot },
     sources: { userData, clipboard: () => snapshotClipboard(clipboard) },
-    apiKeyReady: fakeLlm ? async () => true : () => providerKeyPresent(settings.get().llm.provider, keyStore),
+    apiKeyReady,
     services: m3.services,
   });
   initShell({
@@ -301,6 +388,7 @@ async function bootstrap(): Promise<void> {
     hooks: { openDocument, revealDocument },
   });
   createMainWindow();
+  viewerPort.attach();
   createTray();
   seedTray({ catalog: library.list(), jobs: jobs.list() });
   log.info('app.ready', { kind: edition });

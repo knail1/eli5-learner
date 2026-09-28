@@ -593,17 +593,22 @@ link in the default browser. This is the only native notification the app posts 
 export interface DocumentReadyEvent { slug: string; docId: string; title: string }
 
 export interface NotifierDeps {
+  Notification: NotificationClass;                  // Electron's main-process Notification (injected for tests)
   isSupported: () => boolean;                       // Electron Notification.isSupported()
   now: () => number;
-  openInApp: (slug: string) => void;                // §14.4 'app' route
-  openExternal: (url: string) => Promise<void>;     // safeOpenExternal (12 §7.5); rejects on refusal
+  showMainWindow: () => void;                       // §3.2 step 6, recreating the window if needed
+  openInApp: (slug: string) => void;                // §14.4 'app' route: viewer open + navigate {view:'doc'}
+  navigate: (route: UiRoute) => void;               // eli5:app:navigate (not-found, Settings > Notifications)
+  openExternal: (url: string) => Promise<void>;     // safeOpenExternal (12 §7.5) with one fixed main sender id; rejects on refusal
   getMeta: (slug: string) => Promise<DocumentMeta | null>;  // 09; null when the document is gone
   settings: () => Settings['notifications'];        // read live, never cached
+  policy: () => NotificationPolicy;                 // registry.notificationPolicy() (HOOK-UI-03), read at post time
 }
 
 export interface Notifier {
   documentReady(e: DocumentReadyEvent): void;
   test(): { shown: boolean; reason?: 'disabled' | 'unsupported' };
+  liveCount(): number;                              // retained notifications (§14.5); tests, diagnostics
 }
 
 export function createNotifier(deps: NotifierDeps): Notifier;

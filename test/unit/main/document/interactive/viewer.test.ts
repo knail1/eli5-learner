@@ -23,6 +23,17 @@ describe('reload and scroll-to (08 §7.4)', () => {
     expect(s.events.scroll).toHaveLength(1);
   });
 
+  it('refreshViewer reloads and scrolls for an update another module already announced (09 §10.6 step 12)', async () => {
+    const s = await setup();
+    s.viewer.load();
+    s.ir.refreshViewer({ slug: s.slug, sectionId: sec(s.model, 0, 1), tabKey: 'indepth' });
+    expect(s.viewer.reloads).toBe(1);
+    // The merge engine pushes its own eli5:doc:updated; the viewer refresh must not repeat it.
+    expect(s.events.updated).toEqual([]);
+    s.viewer.load();
+    expect(s.events.scroll).toEqual([{ sectionId: sec(s.model, 0, 1), tabKey: 'indepth', flash: true, loadSeq: 2 }]);
+  });
+
   it('does not reload when the viewer shows another document', async () => {
     const s = await setup();
     const { jobId } = await s.ir.actions.regenerateSection(req(s));

@@ -449,8 +449,13 @@ export function appendMergedDocument(input: {
   targetHtml: string; targetMeta: DocumentMeta;
   sourceHtml: string; sourceMeta: DocumentMeta;
   suggestionId: string; mergedAt: string;
-}): { html: string; tabs: TabRecord[]; markerSectionIds: SectionId[]; idMap: Record<SectionId, SectionId> };
+}, opts?: { idSource?: IdSource; runtime?: DocRuntime }): {
+  html: string; tabs: TabRecord[]; markerSectionIds: SectionId[]; idMap: Record<SectionId, SectionId>;
+  warnings: string[];
+};
 ```
+
+The document module may not import library types ([01](01-architecture.md) §3), so `merge.ts` declares structural equivalents (`MergeDocMeta`, `MergeTabRecord`) that 09's `DocumentMeta` and `TabRecord` satisfy.
 
 The target's `title`, `summary` and `createdAt` are unchanged. `updatedAt` is set to the merge time and `mergedFromCount` is incremented. Re-summarizing after merge is not done in v1, since the target's topic is what the user chose to keep.
 

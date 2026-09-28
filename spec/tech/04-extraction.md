@@ -185,7 +185,7 @@ The format comes from `ResolvedSource.format`, which 03 set from magic bytes fir
 | `png`, `jpeg`, `gif`, `webp`, `bmp` | §7 image extractor, decoded directly in the render window | High |
 | `heic`, `tiff` | §7 image extractor, after the §7.1 `sips` pre-conversion to JPEG | High |
 | `xlsx` | §8.1 | Low |
-| `html` | §9.3. For a `path` payload (a local `.html` file) the file is read and passed through the readability helper from `05-url-fetching.md` first, as 03 specifies; `html` payloads from 03/05 are already readable HTML. | High |
+| `html` | §9.3. For a `path` payload (a local `.html` file) the file is read and passed through Readability first, as 03 specifies, using the worker-safe entry `src/main/extract/readable.ts` (same options as 05's helper; 05's `fetch/index.ts` loads Electron, which the extract worker must not, §10.4); `html` payloads from 03/05 are already readable HTML. | High |
 
 Macro-enabled OOXML (`.pptm`, `.docm`, `.xlsm`) arrives as the base format; macros are never read or run. AVIF, RTF, and legacy Office never reach this module (03 skips them).
 
@@ -449,7 +449,7 @@ Every failure produces `SkippedSource { ref, reason, code }` (shape and `SkipCod
 export type ExtractSkipCode = Extract<SkipCode,
   | 'unsupported-type' | 'encrypted' | 'corrupt' | 'empty'
   | 'too-large' | 'zip-bomb' | 'timeout' | 'image-too-large'
-  | 'image-budget-exceeded' | 'scan-render-failed' | 'internal-error'>;
+  | 'image-budget-exceeded' | 'scan-render-failed' | 'internal-error' | 'cancelled'>;
 ```
 
 | Code | `reason` text (template) | Typical cause |
@@ -465,6 +465,7 @@ export type ExtractSkipCode = Extract<SkipCode,
 | `image-budget-exceeded` | Too many images in one job (limit {n}) | §7.4 |
 | `scan-render-failed` | Scanned PDF pages could not be rendered | §6.3 |
 | `internal-error` | Unexpected error while reading this file | Bug; details in the debug log |
+| `cancelled` | Job was cancelled | Job cancel while extracting (03 §7.2): the signal was already aborted, or the worker was disposed mid-source |
 
 Rules:
 

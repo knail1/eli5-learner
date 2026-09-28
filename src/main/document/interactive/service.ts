@@ -53,6 +53,8 @@ export interface InteractiveReading {
   attachJobs(jobs: InteractiveJobs): void;
   /** Emits `eli5:doc:updated` and refreshes the viewer when it shows that document (08 §7.4). */
   notifyUpdated(e: DocUpdatedEvent): void;
+  /** Reload + scroll only, for an update another module already pushed (a merge accept, 09 §10.6 step 12). */
+  refreshViewer(e: DocUpdatedEvent): void;
   dispose(): void;
 }
 
@@ -282,6 +284,7 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
     actions,
     runner,
     notifyUpdated,
+    refreshViewer: (e) => refresh.updated(e),
     attachJobs(q) {
       unsubJobs?.();
       jobs = q;
