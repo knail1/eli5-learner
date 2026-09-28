@@ -9,6 +9,7 @@ import {
   shell as electronShell,
   nativeTheme,
   screen,
+  dialog,
   session,
 } from 'electron';
 import { IPC, type UiRoute, type ViewerBounds } from '../../preload/contract';
@@ -21,7 +22,9 @@ import {
   type LibraryItemMenuActions,
   type MenuShortcutId,
 } from './app-menu';
+import type { FolderChooserDeps } from './choose-folder';
 import { createHelpOpener, type HelpOpener } from './menu-help';
+import { createSettingsServices } from './settings-services';
 import { ERROR_PAGE, RELOAD_FRAGMENT, closeAction, crashTracker, shell } from './lifecycle';
 import {
   WINDOW_DEFAULTS,
@@ -138,6 +141,20 @@ export function helpOpener(): HelpOpener {
     openExternal: (url) => safeOpenExternal(url, MAIN_SENDER_ID),
   });
   return help;
+}
+
+/** The Settings slots for IpcServices (11 §7): the folder panel sheets on the main window when open. */
+export function settingsServices(
+  d: Pick<FolderChooserDeps, 'settings' | 'libraryRoot'>,
+): ReturnType<typeof createSettingsServices> {
+  return createSettingsServices({
+    ...d,
+    showOpenDialog: (opts) => {
+      const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+      return win ? dialog.showOpenDialog(win, opts) : dialog.showOpenDialog(opts);
+    },
+    help: helpOpener(),
+  });
 }
 
 /** Menu item for a window shortcut: run it in the app renderer, even when the viewer had focus (11 §9). */

@@ -17,6 +17,7 @@ export {
   navigate,
   installAppMenu,
   helpOpener,
+  settingsServices,
   showLibraryItemMenu,
   requestCloseMainWindow,
 } from './window';
@@ -56,3 +57,5 @@ export { notifyOnCreateDone } from './completion';
 export type { CompletionEvent } from './completion';
 export * from './notifications';
 export * from './choose-folder';
+export { createSettingsServices } from './settings-services';
+export type { SettingsServicesDeps } from './settings-services';
