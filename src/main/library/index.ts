@@ -1,4 +1,4 @@
-/** Public API of src/main/library (09). Catalog I/O, protocol and merge land in M1/M3. */
+/** Public API of src/main/library (09). Merge suggestions land in M3. */
 export * from './types';
 export * from './schema';
 export {
@@ -21,3 +21,23 @@ export {
   RESOLVED_SUGGESTION_RETENTION_DAYS,
 } from './policy';
 export { registerPublic } from './register';
+export {
+  openLibrary,
+  gitCheckIgnored,
+  FsLibrary,
+  READ_ONLY_MESSAGES,
+  STAGING_DIR,
+  TRASH_DIR,
+  ELI5_DIR,
+  CATALOG_FILE,
+  META_FILE,
+  INDEX_FILE,
+} from './library';
+export type { OpenLibraryOptions } from './library';
+export { writeFileAtomic, writeJsonAtomic, fsyncDir, renameDirAtomic } from './fs-atomic';
+export { AsyncMutex, acquireProcessLock, releaseProcessLock, defaultProcessProbe } from './locks';
+export type { ProcessLockRecord, ProcessLockResult } from './locks';
+export { readVersioned, metaMigrations, catalogMigrations, suggestionsMigrations } from './migrations';
+export type { Migration } from './migrations';
+export { createDocProtocolHandler, installDocProtocol, DOC_SCHEME } from './protocol';
+export type { DocProtocolDeps } from './protocol';

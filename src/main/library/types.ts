@@ -201,3 +201,27 @@ export class LibraryError extends Error {
     this.detail = detail;
   }
 }
+
+/** Injected time source (13 §3.2: constructor-injected; FakeClock in tests). */
+export interface LibraryClock {
+  now(): Date;
+}
+
+/** Injected randomness; structurally the document module's IdSource (SeededIdSource in tests). */
+export interface LibraryIdSource {
+  /** Exactly `chars` lowercase hex characters. */
+  hex(chars: number): string;
+}
+
+/** Why the library refuses writes (09 §8.5). */
+export type ReadOnlyReason = 'locked' | 'newer-schema';
+
+/** Probes used by the process lock's staleness check (09 §8.4). Injected in tests. */
+export interface ProcessProbe {
+  /** `process.kill(pid, 0)` succeeds or fails with EPERM. */
+  isAlive(pid: number): boolean;
+  /** Actual start time (`ps -o lstart=`), or undefined when it cannot be read. */
+  startTime(pid: number): Promise<Date | undefined>;
+  /** Executable name (`ps -o comm=`), or undefined when it cannot be read. */
+  command(pid: number): Promise<string | undefined>;
+}
