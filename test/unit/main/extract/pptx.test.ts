@@ -7,7 +7,7 @@ import {
   type ExtractLimits,
   type SlideBlock,
 } from '../../../../src/main/extract';
-import { chartTable, readingOrder, removeRepeatedLines } from '../../../../src/main/extract/pptx';
+import { chartTable, createPptxExtractor, readingOrder, removeRepeatedLines } from '../../../../src/main/extract/pptx';
 import { SafeZip } from '../../../../src/main/extract/zip-safety';
 import { fixtureSource, testContext } from '../../../contracts/extractor.contract';
 
@@ -185,9 +185,20 @@ describe('pptx extractor (04 §5.1)', () => {
   });
 
   it('fails with timeout when aborted before any slide', async () => {
+    // Called directly: through extractSource an outer abort is a job cancel (`cancelled`).
+    const ac = new AbortController();
+    ac.abort();
+    const run = createPptxExtractor().extract(
+      fixtureSource('sources/pptx/out-of-order.pptx'),
+      testContext({ signal: ac.signal }),
+    );
+    await expect(run).rejects.toMatchObject({ code: 'timeout' });
+  });
+
+  it('reports a job cancelled before extraction as cancelled', async () => {
     const ac = new AbortController();
     ac.abort();
     const r = await extractSource(fixtureSource('sources/pptx/out-of-order.pptx'), testContext({ signal: ac.signal }));
-    expect(r).toMatchObject({ ok: false, skipped: { code: 'timeout' } });
+    expect(r).toMatchObject({ ok: false, skipped: { code: 'cancelled' } });
   });
 });

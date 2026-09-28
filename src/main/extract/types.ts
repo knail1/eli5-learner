@@ -185,4 +185,5 @@ export type ExtractSkipCode = Extract<
   | 'image-budget-exceeded'
   | 'scan-render-failed'
   | 'internal-error'
+  | 'cancelled'
 >;

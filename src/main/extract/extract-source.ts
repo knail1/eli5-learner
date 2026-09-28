@@ -12,6 +12,7 @@ import { markdownExtractor } from './markdown';
 import { payloadSize } from './payload';
 import { createPdfExtractor } from './pdf';
 import { createPptxExtractor } from './pptx';
+import { readableHtml } from './readable';
 import { ExtractError, skip } from './skip';
 import { textExtractor } from './text';
 import { countChars } from './text-util';
@@ -44,7 +45,7 @@ export function createPublicExtractors(deps: PublicExtractorDeps = {}): Extracto
     createImageExtractor(deps.sips ? { sips: deps.sips } : {}),
     markdownExtractor,
     textExtractor,
-    createHtmlExtractor(deps.readable ? { readable: deps.readable } : {}),
+    createHtmlExtractor({ readable: deps.readable ?? readableHtml }),
   ];
 }
 
@@ -248,12 +249,13 @@ async function runExtract(
   const size = payloadSize(source);
   if (size > cap) return skip(source, 'too-large', { size, limit: cap });
 
+  if (ctx.signal.aborted) return skip(source, 'cancelled');
+
   const timeoutMs = timeoutFor(source.format, ctx.limits);
   const ac = new AbortController();
   let timedOut = false;
   const onOuterAbort = (): void => ac.abort();
-  if (ctx.signal.aborted) ac.abort();
-  else ctx.signal.addEventListener('abort', onOuterAbort, { once: true });
+  ctx.signal.addEventListener('abort', onOuterAbort, { once: true });
   const timer = setTimeout(() => {
     timedOut = true;
     ac.abort();
@@ -274,13 +276,21 @@ async function runExtract(
     run.catch(() => undefined); // a late rejection after the race is already settled
     const r = await Promise.race([run, late]);
     if (r === 'late') {
-      ctx.log(`extract: timeout`);
-      return skip(source, 'timeout', { seconds: Math.round(timeoutMs / 1000) });
+      ctx.log(timedOut ? 'extract: timeout' : 'extract: cancelled');
+      return timedOut ? skip(source, 'timeout', { seconds: Math.round(timeoutMs / 1000) }) : skip(source, 'cancelled');
+    }
+    // pptx/pdf return a truncated ok result when aborted mid-way; after a job cancel (not our
+    // deadline) that is still a cancel (03 §7.2).
+    if (ctx.signal.aborted && !timedOut) {
+      ctx.log('extract: cancelled');
+      return skip(source, 'cancelled');
     }
     result = r;
   } catch (err) {
     if (ac.signal.aborted && !(err instanceof ExtractError && err.code !== 'timeout')) {
-      ctx.log(timedOut ? 'extract: timeout' : 'extract: aborted');
+      ctx.log(timedOut ? 'extract: timeout' : 'extract: cancelled');
+      // An abort without our deadline firing is the job cancel (03 §7.2), not a timeout.
+      if (!timedOut) return skip(source, 'cancelled');
       const seconds = err instanceof ExtractError ? err.params.seconds : undefined;
       return skip(source, 'timeout', { seconds: seconds ?? Math.round(timeoutMs / 1000) });
     }

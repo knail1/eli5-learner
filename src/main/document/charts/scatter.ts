@@ -17,6 +17,7 @@ import {
   seriesClass,
   truncate,
 } from './common';
+import { NOTE_ROW, noteAbove } from './annotate';
 
 export function renderScatter(chart: ChartSpec): { body: string; height: number } {
   const height = 320;
@@ -28,7 +29,9 @@ export function renderScatter(chart: ChartSpec): { body: string; height: number 
           0,
         )
       : { svg: '', height: 0 };
-  const top = leg.height + (chart.yLabel ? 22 : 12);
+  // Rule 6: a band above the plot is reserved for the highlight note.
+  const noteTop = leg.height + (chart.yLabel ? 22 : 12);
+  const top = noteTop + (chart.highlight ? NOTE_ROW : 0);
   const bottom = chart.xLabel ? 46 : 28;
   const left = 44;
   const right = 16;
@@ -122,10 +125,12 @@ export function renderScatter(chart: ChartSpec): { body: string; height: number 
       escSvg(formatValue(t, chart.unit)),
     );
   }
+  const dots: { cx: number; cy: number; r: number; hl: boolean }[] = [];
   chart.series.forEach((s, si) => {
     s.values.forEach((v, i) => {
       if (v === null || !Number.isFinite(v)) return;
       const hl = chart.highlight?.category === chart.categories[i];
+      dots.push({ cx: xp(i), cy: y(v), r: hl ? 6 : 4.5, hl });
       body += el('circle', [
         ['cx', r2(xp(i))],
         ['cy', r2(y(v))],
@@ -135,6 +140,20 @@ export function renderScatter(chart: ChartSpec): { body: string; height: number 
       ]);
     });
   });
+  const hl = chart.highlight ? chart.categories.indexOf(chart.highlight.category) : -1;
+  if (chart.highlight && hl >= 0 && dots.some((d) => d.hl)) {
+    // The leader drops straight down at the highlighted x to the topmost dot in its path. When that
+    // dot is not a highlighted one (dense or duplicate x), a leader would cross it: the accent
+    // alone marks the point and the note stands without a leader.
+    const lx = xp(hl);
+    const inPath = dots.filter((d) => Math.abs(d.cx - lx) < d.r + 1);
+    const topDot = inPath.reduce<(typeof dots)[number] | undefined>(
+      (a, d) => (a && a.cy - a.r <= d.cy - d.r ? a : d),
+      undefined,
+    );
+    const targetY = topDot?.hl ? topDot.cy - topDot.r - 3 : -Infinity;
+    body += noteAbove(chart.highlight.note, lx, noteTop, targetY);
+  }
   if (chart.xLabel) {
     body += el(
       'text',

@@ -95,6 +95,9 @@ export function skipReason(
       return 'Scanned PDF pages could not be rendered';
     case 'internal-error':
       return 'Unexpected error while reading this file';
+    case 'cancelled':
+      // A job cancel is not a timeout (03 §7.2 maps abort to cancelled; reason per 03 §9).
+      return 'Job was cancelled';
   }
 }
 

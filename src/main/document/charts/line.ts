@@ -3,7 +3,6 @@
 import { scalePoint, scaleLinear } from 'd3-scale';
 import { area, line } from 'd3-shape';
 import type { ChartSpec } from '../../llm';
-import { annotation } from './bar';
 import {
   CHART_WIDTH,
   allValues,
@@ -20,6 +19,7 @@ import {
   textWidth,
   truncate,
 } from './common';
+import { NOTE_ROW, noteAbove } from './annotate';
 
 export function renderLine(chart: ChartSpec): { body: string; height: number } {
   const isArea = chart.kind === 'area';
@@ -33,7 +33,9 @@ export function renderLine(chart: ChartSpec): { body: string; height: number } {
           0,
         )
       : { svg: '', height: 0 };
-  const top = leg.height + (chart.yLabel ? 22 : 12);
+  // Rule 6: a band above the plot is reserved for the highlight note.
+  const noteTop = leg.height + (chart.yLabel ? 22 : 12);
+  const top = noteTop + (chart.highlight ? NOTE_ROW : 0);
   const bottom = chart.xLabel ? 46 : 28;
   const left = 44;
   const right = direct
@@ -170,7 +172,11 @@ export function renderLine(chart: ChartSpec): { body: string; height: number } {
   if (chart.highlight) {
     const ci = chart.categories.indexOf(chart.highlight.category);
     const v = ci >= 0 ? maxOf(chart.series.map((s) => s.values[ci] ?? null)) : undefined;
-    if (ci >= 0 && v !== undefined) body += annotation(xp(ci), y(v) - 6, chart.highlight.note, 'v', top);
+    if (ci >= 0 && v !== undefined) {
+      // An area's fill runs from the zero line to each value, so its leader stops above both.
+      const yt = y(isArea ? Math.max(0, v) : v);
+      body += noteAbove(chart.highlight.note, xp(ci), noteTop, yt - 7);
+    }
   }
   if (chart.xLabel) {
     body += el(
