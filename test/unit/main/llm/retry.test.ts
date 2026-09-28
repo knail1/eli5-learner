@@ -40,6 +40,10 @@ describe('classifyError (02 §3.1, §7.1 step 1)', () => {
     expect(classifyError(Object.assign(new Error('x'), { name: 'APIConnectionError' })).kind).toBe('network');
     expect(classifyError(Object.assign(new Error('x'), { cause: { code: 'ECONNRESET' } })).kind).toBe('network');
     expect(classifyError(new TypeError('fetch failed')).kind).toBe('network');
+    // A programming error is not retried as a network failure.
+    const bug = classifyError(new TypeError("Cannot read properties of undefined (reading 'x')"));
+    expect(bug.kind).toBe('bad_request');
+    expect(bug.retryable).toBe(false);
     expect(classifyError(new Error('bug')).kind).toBe('bad_request');
     const own = new LLMError('refusal', 'no');
     expect(classifyError(own)).toBe(own);

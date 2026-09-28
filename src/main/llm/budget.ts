@@ -251,7 +251,7 @@ export interface Chunk {
 export function planChunks(units: readonly ContentUnit[], targetTokens: number, maxImages: number): Chunk[] {
   const chunks: Chunk[] = [];
   let cur: Chunk | undefined;
-  for (const u of units) {
+  for (const u of splitImageHeavy(units, maxImages)) {
     const fits =
       cur !== undefined && cur.tokens + u.tokens <= targetTokens && cur.images.length + u.images.length <= maxImages;
     if (!fits) {
@@ -265,6 +265,33 @@ export function planChunks(units: readonly ContentUnit[], targetTokens: number, 
     if (!c.sourceRefs.includes(u.sourceRef)) c.sourceRefs.push(u.sourceRef);
   }
   return chunks;
+}
+
+/**
+ * A unit with more images than one request may carry is split: the first part keeps the text and
+ * the first `maxImages` images, and continuation units carry the rest under their `[Image: ...]`
+ * labels, so no image is silently dropped (02 §8.3 step 3).
+ */
+function splitImageHeavy(units: readonly ContentUnit[], maxImages: number): ContentUnit[] {
+  if (maxImages <= 0) return [...units];
+  return units.flatMap((u) => {
+    if (u.images.length <= maxImages) return [u];
+    const imgTokens = (imgs: readonly ImageInput[]): number =>
+      imgs.reduce((n, i) => n + ('tokens' in i && typeof i.tokens === 'number' ? i.tokens : 0), 0);
+    const textTokens = u.tokens - imgTokens(u.images);
+    const out: ContentUnit[] = [];
+    for (let i = 0; i < u.images.length; i += maxImages) {
+      const images = u.images.slice(i, i + maxImages);
+      const text = i === 0 ? u.text : images.map((img) => `[Image: ${img.label}]`).join('\n');
+      out.push({
+        sourceRef: u.sourceRef,
+        text,
+        tokens: (i === 0 ? textTokens : estimateTokens(text)) + imgTokens(images),
+        images,
+      });
+    }
+    return out;
+  });
 }
 
 /** Renders a chunk, grouping consecutive units of the same source into one delimiter. */

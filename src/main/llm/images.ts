@@ -96,7 +96,9 @@ export async function prepareImages(
           ? await reencode(img, { maxLongEdge: MAX_IMAGE_EDGE, quality: 85 }).catch(() => null)
           : null;
         if (!out || oversize(out)) {
-          skipped.push({ ref: label, reason: SKIP_IMAGE_TOO_LARGE, code: 'image-too-large' });
+          // `ref` is the ResolvedSource.ref (04 §8); the page or slide goes in the reason.
+          const where = label === c.sourceRef ? '' : ` (${label.slice(c.sourceRef.length).trim()})`;
+          skipped.push({ ref: c.sourceRef, reason: SKIP_IMAGE_TOO_LARGE + where, code: 'image-too-large' });
           continue;
         }
         img = out;

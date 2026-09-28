@@ -5,7 +5,13 @@ import { Limiter, type LimiterPriority } from './limiter';
 import { limitsFor } from './models';
 import { classifyError, DEFAULT_RETRY, humanMessage, withRetry, type RetryPolicy } from './retry';
 import { llmRuntime } from './runtime';
-import { DEFAULT_TIMEOUTS, TEST_CONNECTION_TIMEOUT_MS, withTimeouts, type TimeoutOptions } from './timeouts';
+import {
+  DEFAULT_TIMEOUTS,
+  TEST_CONNECTION_TIMEOUT_MS,
+  touchingFetch,
+  withTimeouts,
+  type TimeoutOptions,
+} from './timeouts';
 import type {
   ConnectionCheck,
   GenerationRequest,
@@ -44,6 +50,19 @@ export interface SendContext {
 
 const interactive = (req: GenerationRequest): LimiterPriority =>
   req.taskId.startsWith('section-') ? 'interactive' : 'normal';
+
+/** Remaining-quota headers (Anthropic `anthropic-ratelimit-*-remaining`, OpenAI `x-ratelimit-remaining-*`). */
+const REMAINING_HEADER = /^(?:anthropic-ratelimit-(.+)-remaining|x-ratelimit-remaining-(.+))$/;
+
+/** 02 §7.3: remaining-token counts are logged at debug level only; names and numbers, no content. */
+export function logRemaining(headers: Headers, fields: { taskId: string; provider: string; model: string }): void {
+  headers.forEach((value, name) => {
+    const m = REMAINING_HEADER.exec(name.toLowerCase());
+    const kind = m?.[1] ?? m?.[2];
+    const n = Number(value);
+    if (kind && value.trim() !== '' && Number.isFinite(n)) log.debug('llm.ratelimit', { ...fields, kind, count: n });
+  });
+}
 
 /**
  * Shared LLMProvider behaviour (02 §3, §7): image intent check, key lookup, limiter, idle/total
@@ -94,6 +113,11 @@ export abstract class BaseProvider implements LLMProvider {
   }
 
   async *stream(req: GenerationRequest): AsyncIterable<StreamChunk> {
+    // A consumer that stops iterating early aborts the upstream call so it frees its limiter slot.
+    const ctrl = new AbortController();
+    const onOuter = (): void => ctrl.abort(req.signal?.reason);
+    if (req.signal?.aborted) ctrl.abort(req.signal.reason);
+    else req.signal?.addEventListener('abort', onOuter, { once: true });
     const queue: StreamChunk[] = [];
     let wake: (() => void) | undefined;
     let failure: unknown;
@@ -103,7 +127,10 @@ export abstract class BaseProvider implements LLMProvider {
       wake?.();
     };
     // One attempt only: deltas already emitted cannot be taken back by a retry.
-    void this.execute(req, (delta) => push({ type: 'text', delta }), { ...DEFAULT_RETRY, maxRetries: 0 })
+    void this.execute({ ...req, signal: ctrl.signal }, (delta) => push({ type: 'text', delta }), {
+      ...DEFAULT_RETRY,
+      maxRetries: 0,
+    })
       .then((result) => push({ type: 'done', result }))
       .catch((e: unknown) => {
         failure = e;
@@ -112,19 +139,24 @@ export abstract class BaseProvider implements LLMProvider {
         finished = true;
         wake?.();
       });
-    for (;;) {
-      const next = queue.shift();
-      if (next) {
-        yield next;
-        if (next.type === 'done') return;
-        continue;
+    try {
+      for (;;) {
+        const next = queue.shift();
+        if (next) {
+          yield next;
+          if (next.type === 'done') return;
+          continue;
+        }
+        if (finished) {
+          if (failure !== undefined) throw failure;
+          return;
+        }
+        await new Promise<void>((r) => (wake = r));
+        wake = undefined;
       }
-      if (finished) {
-        if (failure !== undefined) throw failure;
-        return;
-      }
-      await new Promise<void>((r) => (wake = r));
-      wake = undefined;
+    } finally {
+      req.signal?.removeEventListener('abort', onOuter);
+      if (!finished) ctrl.abort(new LLMError('cancelled', 'Stream closed by the consumer'));
     }
   }
 
@@ -157,6 +189,11 @@ export abstract class BaseProvider implements LLMProvider {
     const key = await get();
     if (!key) throw new LLMError('auth', 'No API key set');
     return key;
+  }
+
+  /** Side calls such as token counting share the provider limiter (02 §7.3). */
+  protected limited<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    return this.limiter.run(fn, 'normal', signal);
   }
 
   protected resolveFetch(): typeof fetch {
@@ -198,14 +235,19 @@ export abstract class BaseProvider implements LLMProvider {
                     signal,
                     touch,
                     apiKey,
-                    fetch: fetchImpl,
+                    fetch: touchingFetch(fetchImpl, touch, (h) => logRemaining(h, fields)),
                     sdkTimeoutMs: timeouts.totalMs + 60_000,
                     ...(onDelta ? { onDelta } : {}),
                   }),
                 );
               } catch (e) {
                 const err = classify(e);
-                if (err.kind === 'rate_limited') this.limiter.pauseFor(err.retryAfterMs ?? policy.backoffMs[0] ?? 0);
+                // Capped: a retry-after above the cap ends the call (retry.ts), so it must not
+                // freeze the provider for that long either (02 §7.1 step 3, §7.3).
+                if (err.kind === 'rate_limited') {
+                  const wait = err.retryAfterMs ?? policy.backoffMs[0] ?? 0;
+                  this.limiter.pauseFor(Math.min(wait, policy.maxRetryAfterMs));
+                }
                 throw err;
               }
             },

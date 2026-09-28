@@ -176,6 +176,40 @@ describe('HTML skills (02 §11)', () => {
     expect(r.text).not.toContain('Reference example');
   });
 
+  it('skips a skill with malformed front matter instead of failing the library', () => {
+    const user = tmp();
+    write(user, 'eli5', '---\nappliesTo:\n  - indepth\n---\nBROKEN');
+    write(user, 'beautiful-doc', 'GOOD RULES');
+    const lib = new SkillLibrary([user, SKILLS_DIR]);
+    expect(lib.forSlot('beautiful-doc')?.body).toBe('GOOD RULES');
+    expect(lib.forSlot('eli5')?.body).not.toContain('BROKEN'); // bundled eli5 still serves the slot
+  });
+
+  it('honours appliesTo: a skill is used only for the tasks it names', () => {
+    const user = tmp();
+    write(user, 'eli5-only', '---\nslot: beautiful-doc\nappliesTo: [eli5]\n---\nELI5 ONLY RULES');
+    const lib = new SkillLibrary([user]);
+    expect(lib.render(['beautiful-doc'], 200_000, 'eli5').text).toContain('ELI5 ONLY RULES');
+    const indepth = lib.render(['beautiful-doc'], 200_000, 'indepth');
+    expect(indepth.text).not.toContain('ELI5 ONLY RULES');
+    expect(indepth.fallbacks).toEqual(['beautiful-doc']);
+  });
+
+  it('picks up a user skills folder created after watch() started', async () => {
+    const parent = tmp();
+    const user = path.join(parent, 'skills');
+    const lib = new SkillLibrary([user, SKILLS_DIR], 20);
+    lib.watch();
+    try {
+      await new Promise((r) => setTimeout(r, 100)); // the folder appears some time after startup
+      fs.mkdirSync(user);
+      write(user, 'eli5', 'LATE FOLDER');
+      await expect.poll(() => lib.forSlot('eli5')?.body, { timeout: 3000, interval: 25 }).toContain('LATE FOLDER');
+    } finally {
+      lib.close();
+    }
+  });
+
   it('picks up new user skills without restart (watch + debounce)', async () => {
     const user = tmp();
     const lib = new SkillLibrary([user, SKILLS_DIR], 20);

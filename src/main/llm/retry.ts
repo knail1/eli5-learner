@@ -201,10 +201,12 @@ export function classifyError(e: unknown, label = 'The model provider'): LLMErro
     return new LLMError(kind, humanMessage(kind, label) + detail, x.status, retryAfter, e);
   }
   const causeCode = codeOf(x) ?? codeOf(x.cause);
+  // A bare TypeError is a programming error, not a network failure; only undici's own
+  // `TypeError('fetch failed')` (whose cause may carry no code) counts as network.
   if (
     name === 'APIConnectionError' ||
     (causeCode !== undefined && NETWORK_CODES.has(causeCode)) ||
-    e instanceof TypeError
+    (e instanceof TypeError && message === 'fetch failed')
   ) {
     return new LLMError('network', humanMessage('network', label), undefined, undefined, e);
   }

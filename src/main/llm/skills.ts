@@ -11,12 +11,15 @@ import { parseFrontMatter } from './prompts';
  */
 
 export type SkillSlot = 'beautiful-doc' | 'eli5';
+/** Values of the optional `appliesTo` front matter (02 §11 Format). */
+export type SkillTask = 'indepth' | 'eli5' | 'section';
+const ALL_TASKS: readonly SkillTask[] = ['indepth', 'eli5', 'section'];
 export const SKILL_SLOTS: readonly SkillSlot[] = ['beautiful-doc', 'eli5'];
 
 export interface Skill {
   name: string;
   slot: string;
-  appliesTo: string[];
+  appliesTo: readonly string[];
   body: string;
   /** Example files sent to the model as reference (*.html, *.md). */
   examples: { file: string; text: string }[];
@@ -47,10 +50,19 @@ function readSkill(dir: string): Skill | null {
   } catch {
     return null;
   }
-  const { data, body } = parseFrontMatter(src);
+  let parsed: ReturnType<typeof parseFrontMatter>;
+  try {
+    parsed = parseFrontMatter(src);
+  } catch {
+    // A malformed user or policy skill is skipped, never fatal (02 §11 hot reload).
+    log.warn('llm.skill-invalid', { path: path.basename(dir) });
+    return null;
+  }
+  const { data, body } = parsed;
   const name = typeof data.name === 'string' ? data.name : path.basename(dir);
   const slot = typeof data.slot === 'string' ? data.slot : name;
-  const appliesTo = Array.isArray(data.appliesTo) ? data.appliesTo : ['indepth', 'eli5', 'section'];
+  const appliesTo =
+    typeof data.appliesTo === 'string' ? [data.appliesTo] : Array.isArray(data.appliesTo) ? data.appliesTo : ALL_TASKS;
   const examples: Skill['examples'] = [];
   const css: Skill['css'] = [];
   for (const file of safeReaddir(dir).sort()) {
@@ -117,15 +129,38 @@ export class SkillLibrary {
     this.skills = next;
   }
 
-  /** Watch every existing root; changes reload after `debounceMs` (02 §11). */
+  /**
+   * Watch every root; changes reload after `debounceMs` (02 §11). A root that does not exist yet
+   * (the user skills folder on a fresh install) is awaited through its parent folder.
+   */
   watch(): void {
-    for (const root of this.roots) {
-      if (!fs.existsSync(root)) continue;
+    for (const root of this.roots) this.watchRoot(root);
+  }
+
+  private watchRoot(root: string): void {
+    if (fs.existsSync(root)) {
       try {
         this.watchers.push(fs.watch(root, { recursive: true }, () => this.schedule()));
       } catch {
         log.warn('llm.skills-watch-failed', { path: path.basename(root) });
       }
+      return;
+    }
+    const parent = path.dirname(root);
+    if (parent === root || !fs.existsSync(parent)) return;
+    try {
+      const w = fs.watch(parent, () => onParent());
+      const onParent = (): void => {
+        if (!fs.existsSync(root) || !this.watchers.includes(w)) return;
+        w.close();
+        this.watchers = this.watchers.filter((x) => x !== w);
+        this.watchRoot(root);
+        this.schedule();
+      };
+      this.watchers.push(w);
+      onParent(); // the folder may have appeared while the watcher was being set up
+    } catch {
+      log.warn('llm.skills-watch-failed', { path: path.basename(root) });
     }
   }
 
@@ -140,8 +175,10 @@ export class SkillLibrary {
   }
 
   /** The skill serving a slot: a skill whose name or `slot` equals it, first root first. */
-  forSlot(slot: string): Skill | undefined {
-    return this.skills.get(slot) ?? [...this.skills.values()].find((s) => s.slot === slot);
+  forSlot(slot: string, task?: SkillTask): Skill | undefined {
+    const applies = (s: Skill | undefined): s is Skill => s !== undefined && (!task || s.appliesTo.includes(task));
+    const byName = this.skills.get(slot);
+    return applies(byName) ? byName : [...this.skills.values()].find((s) => s.slot === slot && applies(s));
   }
 
   /** CSS from the slot skills, for 07's theme (02 §11 "Visual CSS ... theme input"). */
@@ -152,13 +189,14 @@ export class SkillLibrary {
   /**
    * System-prompt text for the requested slots under `## Style guide: <name>` headings. Examples are
    * truncated to 8k tokens per skill; if all skills exceed 20% of the context window, examples are
-   * dropped first, then bodies truncated, and a warning is logged (02 §11 Budget).
+   * dropped first, then bodies truncated, and a warning is logged (02 §11 Budget). With `task`, a
+   * skill whose `appliesTo` excludes it is passed over (the slot falls back to the built-in text).
    */
-  render(slots: readonly string[], contextTokens: number): RenderedSkills {
+  render(slots: readonly string[], contextTokens: number, task?: SkillTask): RenderedSkills {
     const budget = Math.floor(contextTokens * SKILLS_CONTEXT_SHARE);
     const fallbacks: string[] = [];
     const parts = slots.map((slot) => {
-      const skill = this.forSlot(slot);
+      const skill = this.forSlot(slot, task);
       if (!skill) {
         fallbacks.push(slot);
         const text = FALLBACK_SKILL_TEXT[slot as SkillSlot] ?? '';
@@ -198,7 +236,11 @@ export class SkillLibrary {
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       this.timer = undefined;
-      this.reload();
+      try {
+        this.reload();
+      } catch {
+        log.warn('llm.skills-reload-failed', {}); // keep the previous skills
+      }
     }, this.debounceMs);
   }
 }

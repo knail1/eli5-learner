@@ -156,6 +156,8 @@ export interface StructuredCall<N extends DraftSchemaName> {
   request: Omit<GenerationRequest, 'jsonSchema'>;
   schema: N;
   validation?: ValidationContext;
+  /** HOOK-LLM-02 preSendFilter, applied to the repair request too (the first is filtered by the caller). */
+  filter?: (req: GenerationRequest) => GenerationRequest | Promise<GenerationRequest>;
 }
 
 export interface StructuredResult<T> {
@@ -246,7 +248,7 @@ export async function generateStructured<N extends DraftSchemaName>(
     ],
   };
   log.info('llm.repair', { taskId: req.taskId, count: outcome.errors.length });
-  const second = await send(call.provider, repairReq);
+  const second = await send(call.provider, call.filter ? await call.filter(repairReq) : repairReq);
   usage = addUsage(usage, second.usage);
   const again = check(second, call.schema, ctx);
   if (!again.ok) {

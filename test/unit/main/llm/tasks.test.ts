@@ -253,6 +253,54 @@ describe('task functions (02 §12) with FakeProvider and the default script', ()
     expect(seen[0]?.effort).toBe('low');
   });
 
+  it('the exact token count in prepareContent goes through preSendFilter; a block keeps the estimate', async () => {
+    const counted: Pick<GenerationRequest, 'system' | 'messages'>[] = [];
+    class CountingFake extends FakeProvider {
+      override countTokens(req: Pick<GenerationRequest, 'system' | 'messages'>): Promise<number> {
+        counted.push(req);
+        return super.countTokens(req);
+      }
+    }
+    const contents = [content('a.md', ['Example Widgets Inc. SECRET-MARKER assembles widgets.'])];
+    const sourceList = [{ ref: 'a.md', label: 'a.md' }];
+    const redacting: PromptPolicy = {
+      preamble: 'ORG PREAMBLE',
+      overridesDir: null,
+      skills: [],
+      preSendFilter: (r) => ({
+        ...r,
+        messages: r.messages.map((m) => ({ ...m, text: m.text.replace('SECRET-MARKER', '[redacted]') })),
+      }),
+    };
+    const fake = new CountingFake(defaultScript());
+    const p = await createTasks(deps(fake, { policy: () => redacting })).prepareContent({
+      contents,
+      sourceList,
+      ...ctx,
+    });
+    expect(p.mode).toBe('raw');
+    expect(counted).toHaveLength(1);
+    expect(counted[0]?.system.startsWith('ORG PREAMBLE')).toBe(true);
+    expect(counted[0]?.messages[0]?.text).toContain('[redacted]');
+    expect(counted[0]?.messages[0]?.text).not.toContain('SECRET-MARKER');
+
+    const blocking: PromptPolicy = {
+      ...redacting,
+      preSendFilter: () => {
+        throw new LLMError('bad_request', 'blocked');
+      },
+    };
+    const blockedFake = new CountingFake(defaultScript());
+    counted.length = 0;
+    const q = await createTasks(deps(blockedFake, { policy: () => blocking })).prepareContent({
+      contents,
+      sourceList,
+      ...ctx,
+    });
+    expect(q.mode).toBe('raw');
+    expect(counted).toHaveLength(0);
+  });
+
   it('matchMerge keeps at most 8 candidates, drops unknown ids and sorts by score', async () => {
     const fake = new FakeProvider({
       responses: {

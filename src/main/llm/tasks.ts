@@ -27,7 +27,7 @@ import type {
   SectionDraft,
   SummaryDraft,
 } from './schemas/draft';
-import { FALLBACK_SKILL_TEXT, type SkillLibrary, type SkillSlot } from './skills';
+import { FALLBACK_SKILL_TEXT, type SkillLibrary, type SkillSlot, type SkillTask } from './skills';
 import { addUsage, generateStructured, OutputTruncated, ZERO_USAGE, type DraftOf } from './structured';
 import type { GenerationRequest, ImageInput, LLMProvider, PromptId, PromptPolicy, TokenUsage } from './types';
 
@@ -115,6 +115,13 @@ const CONTENT_MODE = {
   notes:
     'condensed notes taken from sources too long to read in one pass. You are reading notes, not the sources: do not invent detail the notes lack',
 } as const;
+
+/** Task kind for a skill's `appliesTo` front matter (02 §11). */
+function skillTask(id: PromptId): SkillTask | undefined {
+  if (id === 'in-depth') return 'indepth';
+  if (id === 'eli5') return 'eli5';
+  return id.startsWith('section-') ? 'section' : undefined;
+}
 
 // ---- text helpers ----
 
@@ -209,9 +216,9 @@ interface RunOpts {
 export function createTasks(deps: TaskDeps): LlmTasks {
   const policy = (): PromptPolicy => deps.policy?.() ?? defaultPromptPolicy;
 
-  function skillsText(def: { skills: string[] }, contextTokens: number): string {
+  function skillsText(def: { id: PromptId; skills: string[] }, contextTokens: number): string {
     if (!def.skills.length) return '';
-    if (deps.skills) return deps.skills.render(def.skills, contextTokens).text;
+    if (deps.skills) return deps.skills.render(def.skills, contextTokens, skillTask(def.id)).text;
     return def.skills.map((s) => `## Style guide: ${s}\n\n${FALLBACK_SKILL_TEXT[s as SkillSlot] ?? ''}`).join('\n\n');
   }
 
@@ -257,6 +264,7 @@ export function createTasks(deps: TaskDeps): LlmTasks {
       request: filtered,
       schema: built.schema,
       validation: { imageLabels: labels },
+      filter: (req) => policy().preSendFilter(req),
     });
     return { data: r.data as DraftOf<DraftSchemaName> as T, usage: r.usage, tag: built.tag };
   }
@@ -312,18 +320,46 @@ export function createTasks(deps: TaskDeps): LlmTasks {
     const warnings: string[] = [];
     const base = { sourceList: input.sourceList, skipped, warnings };
 
-    const def = deps.prompts.get('in-depth');
-    const systemTokens = estimateTokens(def.system) + estimateTokens(skillsText(def, limits.contextTokens));
+    // The in-depth call's system prompt as it will be sent (preamble + rendered template + skills).
+    const preamble = policy().preamble;
+    const vars = {
+      skills: skillsText(deps.prompts.get('in-depth'), limits.contextTokens),
+      glossaryInstructions: '',
+      contentMode: CONTENT_MODE.raw,
+      visibleOutputTokens: String(visibleOutput(limits, setting)),
+      imageLabels: imgs.ordered.map((i) => `- ${i.label}`).join('\n'),
+      clarifyingInput: input.clarifyingInput,
+      sourceList: sourceListText(input.sourceList),
+      overflowAddendum: '',
+    };
+    const rendered = deps.prompts.render('in-depth', { ...vars, content: '' });
+    const system = preamble ? `${preamble}\n\n${rendered.system}` : rendered.system;
+    const systemTokens = estimateTokens(system);
     const budget = inputBudget(limits, systemTokens, setting);
     const rawText = contentToPromptText(input.contents, labelOf);
     const imageTokenSum = imgs.ordered.reduce((n, i) => n + i.tokens, 0);
     let fits = estimateTokens(rawText) + imageTokenSum <= budget && imgs.ordered.length <= limits.maxImagesPerRequest;
     if (fits && provider.countTokens) {
-      // 02 §8.1: one exact count for the final single-call check, when the provider has it.
+      // 02 §8.1: one exact count for the final single-call check, when the provider has it. The
+      // count request carries source content, so it goes through preSendFilter like a send
+      // (HOOK-LLM-02); if the filter blocks it, the estimate stands.
       try {
-        const n = await provider.countTokens({ system: def.system, messages: [{ role: 'user', text: rawText }] });
+        const filtered = await policy().preSendFilter({
+          taskId: 'in-depth',
+          system,
+          messages: [{ role: 'user', text: deps.prompts.render('in-depth', { ...vars, content: rawText }).user }],
+          maxOutputTokens: setting,
+          signal: input.signal,
+        });
+        const n = await provider.countTokens({
+          system: filtered.system,
+          messages: filtered.messages,
+          signal: input.signal,
+        });
+        // n covers system + user text; the budget already excludes the system prompt.
         fits = n + imageTokenSum <= budget + systemTokens;
       } catch {
+        if (input.signal.aborted) throw cancelled();
         /* keep the estimate */
       }
     }

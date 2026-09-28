@@ -108,7 +108,8 @@ export interface LLMProvider {
   generate(req: GenerationRequest): Promise<GenerationResult>;
   generateWithImages(req: GenerationRequest): Promise<GenerationResult>;
   stream?(req: GenerationRequest): AsyncIterable<StreamChunk>;
-  countTokens?(req: Pick<GenerationRequest, 'system' | 'messages'>): Promise<number>;
+  /** Callers pass the request through PromptPolicy.preSendFilter first (HOOK-LLM-02). */
+  countTokens?(req: Pick<GenerationRequest, 'system' | 'messages' | 'signal'>): Promise<number>;
   testConnection(): Promise<ConnectionCheck>;
 }
 

@@ -19,6 +19,7 @@ import {
   type ImageReencoder,
 } from '../../../../src/main/llm/images';
 import { fallbackLimits, limitsFor, suggestedModels } from '../../../../src/main/llm/models';
+import type { ImageInput } from '../../../../src/main/llm/types';
 
 const asset = (
   id: string,
@@ -151,6 +152,26 @@ describe('serialization and chunk planning (02 §8.4)', () => {
       '<source ref="a.pdf">',
     );
   });
+
+  it('splits a unit that holds more images than one request allows instead of dropping any', () => {
+    const img = (label: string): ImageInput & { tokens: number } => ({
+      mediaType: 'image/png',
+      data: Buffer.from([1]),
+      label,
+      sourceRef: 'deck.pptx',
+      tokens: 100,
+    });
+    const unit = {
+      sourceRef: 'deck.pptx',
+      text: 'Slide text [Image: s1] [Image: s2] [Image: s3]',
+      tokens: 310,
+      images: [img('s1'), img('s2'), img('s3')],
+    };
+    const chunks = planChunks([unit], 10_000, 2);
+    expect(chunks.every((ch) => ch.images.length <= 2)).toBe(true);
+    expect(chunks.flatMap((ch) => ch.images.map((i) => i.label))).toEqual(['s1', 's2', 's3']);
+    expect(chunks.map(renderChunk).join('\n')).toContain('[Image: s3]');
+  });
 });
 
 describe('image preparation (02 §8.3)', () => {
@@ -177,7 +198,12 @@ describe('image preparation (02 §8.3)', () => {
     const ok = await prepareImages([doc('p.png', [], [big])], limits, reencode);
     expect(ok.ordered[0]).toMatchObject({ mediaType: 'image/jpeg', width: 1568, height: 1176 });
     const skipped = await prepareImages([doc('p.png', [], [big])], limits);
-    expect(skipped.skipped[0]).toMatchObject({ reason: SKIP_IMAGE_TOO_LARGE, code: 'image-too-large' });
+    // ref is the source ref (04 §8), the image detail goes in the reason.
+    expect(skipped.skipped[0]).toEqual({
+      ref: 'p.png',
+      reason: `${SKIP_IMAGE_TOO_LARGE} (image 1)`,
+      code: 'image-too-large',
+    });
     expect(skipped.ordered).toEqual([]);
   });
 });

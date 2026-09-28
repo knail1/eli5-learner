@@ -160,14 +160,20 @@ export class ClaudeProvider extends BaseProvider implements LLMProvider {
     };
   }
 
-  async countTokens(req: Pick<GenerationRequest, 'system' | 'messages'>): Promise<number> {
+  async countTokens(req: Pick<GenerationRequest, 'system' | 'messages' | 'signal'>): Promise<number> {
     const apiKey = await this.apiKey();
-    const r = await this.client({ apiKey, fetch: this.resolveFetch(), sdkTimeoutMs: 30_000 }).messages.countTokens({
-      model: this.model,
-      messages: req.messages.map(toClaudeMessage),
-      ...(req.system ? { system: req.system } : {}),
-    });
-    return r.input_tokens;
+    const fetchImpl = this.resolveFetch();
+    return this.limited(async () => {
+      const r = await this.client({ apiKey, fetch: fetchImpl, sdkTimeoutMs: 30_000 }).messages.countTokens(
+        {
+          model: this.model,
+          messages: req.messages.map(toClaudeMessage),
+          ...(req.system ? { system: req.system } : {}),
+        },
+        req.signal ? { signal: req.signal } : {},
+      );
+      return r.input_tokens;
+    }, req.signal);
   }
 }
 

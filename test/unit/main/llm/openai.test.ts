@@ -5,6 +5,8 @@ import { OpenAIProvider } from '../../../../src/main/llm/openai';
 import { draftJsonSchema } from '../../../../src/main/llm/schemas/draft';
 import { generateStructured } from '../../../../src/main/llm/structured';
 import type { GenerationRequest } from '../../../../src/main/llm/types';
+import { Limiter } from '../../../../src/main/llm/limiter';
+import { DEFAULT_RETRY } from '../../../../src/main/llm/retry';
 import { cassette, fastDeps, settingsFor, TEST_KEY } from './helpers';
 
 const req = (extra: Partial<GenerationRequest> = {}): GenerationRequest => ({
@@ -121,5 +123,18 @@ describe('OpenAIProvider (02 §6) against cassettes', () => {
     expect((e as LLMError).kind).toBe('rate_limited');
     expect(deps.sleeps).toEqual([]);
     expect(t.requests).toHaveLength(1);
+  });
+
+  it('the provider-wide pause after a 429 is capped at maxRetryAfterMs (02 §7.3)', async () => {
+    const t = cassette('openai/retry-after-cap.json');
+    const pauses: number[] = [];
+    const deps = fastDeps(t, {
+      limiter: new Limiter(2, (ms) => {
+        pauses.push(ms);
+        return Promise.resolve();
+      }),
+    });
+    await new OpenAIProvider(settingsFor('openai'), deps).generate(req()).catch(() => undefined);
+    expect(pauses).toEqual([DEFAULT_RETRY.maxRetryAfterMs]);
   });
 });

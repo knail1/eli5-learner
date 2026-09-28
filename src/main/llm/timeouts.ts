@@ -55,3 +55,33 @@ export async function withTimeouts<T>(
     outer?.removeEventListener('abort', onOuter);
   }
 }
+
+const NULL_BODY_STATUS = new Set([101, 103, 204, 205, 304]);
+
+/**
+ * Wraps a fetch so every received body chunk counts as liveness (02 §7.2 "no bytes, including ...
+ * keep-alive events"). The SDKs drop SSE pings and comment lines before any event reaches us, so the
+ * idle timer is reset at the byte level. `onResponse` sees the response headers (02 §7.3 debug log).
+ */
+export function touchingFetch(
+  f: typeof fetch,
+  touch: () => void,
+  onResponse?: (headers: Headers) => void,
+): typeof fetch {
+  const wrapped = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const res = await f(input, init);
+    touch();
+    onResponse?.(res.headers);
+    if (!res.body || NULL_BODY_STATUS.has(res.status)) return res;
+    const body = res.body.pipeThrough(
+      new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, ctrl) {
+          touch();
+          ctrl.enqueue(chunk);
+        },
+      }),
+    );
+    return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+  };
+  return wrapped as typeof fetch;
+}

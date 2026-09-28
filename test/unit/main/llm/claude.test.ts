@@ -5,6 +5,7 @@ import { fallbackLimits, limitsFor } from '../../../../src/main/llm/models';
 import { draftJsonSchema } from '../../../../src/main/llm/schemas/draft';
 import { generateStructured } from '../../../../src/main/llm/structured';
 import type { GenerationRequest, StreamChunk } from '../../../../src/main/llm/types';
+import { cassetteFetch, claudeSse } from '../../../../src/main/llm/testing/cassette';
 import { cassette, fastDeps, settingsFor, TEST_KEY } from './helpers';
 
 const req = (extra: Partial<GenerationRequest> = {}): GenerationRequest => ({
@@ -180,5 +181,62 @@ describe('ClaudeProvider (02 §5) against cassettes', () => {
     const ok = await new ClaudeProvider(settingsFor('claude'), fastDeps(t)).testConnection();
     expect(ok).toEqual({ ok: true, model: 'claude-opus-5-5' });
     expect((t.requests[0]?.body as Body).max_tokens).toBe(16);
+  });
+
+  it('SSE keep-alive pings reset the idle timer even though the SDK drops them (02 §7.2)', async () => {
+    const enc = new TextEncoder();
+    const events = claudeSse({
+      model: 'claude-opus-5-5',
+      content: [{ type: 'text', text: 'Still here.' }],
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 5, output_tokens: 3 },
+    }).map((e) => `event: ${e.event ?? ''}\ndata: ${JSON.stringify(e.data)}\n\n`);
+    const fetchImpl = (() => {
+      let pings = 0;
+      const body = new ReadableStream<Uint8Array>({
+        async pull(ctrl) {
+          if (pings < 8) {
+            pings++;
+            await new Promise((r) => setTimeout(r, 15));
+            return ctrl.enqueue(enc.encode('event: ping\ndata: {"type": "ping"}\n\n'));
+          }
+          const next = events.shift();
+          if (next === undefined) return ctrl.close();
+          ctrl.enqueue(enc.encode(next));
+        },
+      });
+      return Promise.resolve(new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } }));
+    }) as typeof fetch;
+    const p = new ClaudeProvider(
+      settingsFor('claude'),
+      fastDeps(cassette('claude/text.json'), { fetch: fetchImpl, timeouts: { idleMs: 60, totalMs: 5_000 } }),
+    );
+    const r = await p.generate(req()); // 8 pings x 15 ms = 120 ms of only pings, idle limit 60 ms
+    expect(r.text).toBe('Still here.');
+    expect(r.attempts).toBe(1);
+  });
+
+  it('stopping a stream() early aborts the upstream request', async () => {
+    const sse = claudeSse({
+      model: 'claude-opus-5-5',
+      content: [{ type: 'text', text: 'First words' }],
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 5, output_tokens: 3 },
+    }).slice(0, 3); // message_start, block start, first delta; then the stream stalls
+    const t = cassetteFetch({
+      name: 'claude/early-close',
+      interactions: [{ request: { path: '/v1/messages' }, response: { status: 200, sse, stall: true } }],
+    });
+    let upstream: AbortSignal | undefined;
+    const fetchImpl = ((input: string | URL | Request, init?: RequestInit) => {
+      upstream = init?.signal ?? undefined;
+      return t.fetch(input, init);
+    }) as typeof fetch;
+    const p = new ClaudeProvider(settingsFor('claude'), fastDeps(t, { fetch: fetchImpl }));
+    for await (const c of p.stream(req())) {
+      expect(c.type).toBe('text');
+      break;
+    }
+    await expect.poll(() => upstream?.aborted).toBe(true);
   });
 });
