@@ -338,9 +338,13 @@ async function bootstrap(): Promise<void> {
   // 11 §14: "Document ready" notifications; clicks are main-originated, so they share one fixed
   // rate-limit sender id (11 §14.6).
   const navigate = (route: UiRoute): void => sendToApp(IPC.app.navigate, { route });
+  // 13 §8.2 E16: fake-LLM test runs post through a spy that e2e reads from main, never natively.
+  const notifySpy =
+    __ELI5_TEST__ && fakeLlm ? (await import('./shell/notification-spy')).createNotificationSpy() : undefined;
+  if (notifySpy) (globalThis as { __eli5NotificationSpy?: unknown }).__eli5NotificationSpy = notifySpy;
   m3.notifier = createNotifier({
-    Notification,
-    isSupported: () => Notification.isSupported(),
+    Notification: notifySpy?.Notification ?? Notification,
+    isSupported: notifySpy ? () => true : () => Notification.isSupported(),
     now: Date.now,
     showMainWindow,
     openInApp: (slug) => {

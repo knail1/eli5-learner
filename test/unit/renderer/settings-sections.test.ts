@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EditionInfo } from '../../../src/preload/contract';
-import { PUBLIC_EDITION, installFakeApi, loadRenderer, render, settings, type Component } from './harness';
+import { PUBLIC_EDITION, click, installFakeApi, loadRenderer, render, settings, type Component } from './harness';
 
 /**
  * Settings route skeleton (11 §7): one component file per section under settings/sections/, so
@@ -66,5 +66,21 @@ describe('settings sections (11 §7)', () => {
   it('About shows the app version from EditionInfo (HOOK-UI-02)', async () => {
     const host = await mount();
     expect(host.querySelector('#settings-about')?.textContent).toContain('0.1.0');
+  });
+
+  // 11 §7: settings save on change; a switch shows the new state at once, before the debounced
+  // save's eli5:settings:changed echo arrives (as the provider picker already does).
+  it.each([
+    ['#settings-documents', 'Explain domain specific terms by default', true],
+    ['#settings-publishing', 'Reveal in Finder after export', true],
+    ['#settings-notifications', 'Notify me when a document is ready', true],
+  ])('the %s switch "%s" flips immediately on click', async (section, label, initial) => {
+    const host = await mount();
+    const input = Array.from(host.querySelectorAll<HTMLInputElement>(`${section} input[role="switch"]`)).find((i) =>
+      i.parentElement?.textContent?.includes(label),
+    );
+    expect(input?.checked).toBe(initial);
+    await click(input);
+    expect(input?.checked).toBe(!initial);
   });
 });

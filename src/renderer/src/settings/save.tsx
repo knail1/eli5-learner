@@ -110,6 +110,16 @@ export function useSettingSaver(): SettingSaver {
   return { state, save };
 }
 
+/**
+ * The value a control shows: the user's choice at once on change (saves are debounced), then each
+ * new settings snapshot, or the stored value again when that save failed (11 §7).
+ */
+export function useShownValue<T>(value: T, error: string | undefined): [T, (v: T) => void] {
+  const [shown, setShown] = useState(value);
+  useEffect(() => setShown(value), [value, error]);
+  return [shown, setShown];
+}
+
 export function SaveNote(p: { s: { saved: boolean; error?: string } | undefined }) {
   if (p.s?.error) return <span className="inline-error">{p.s.error}</span>;
   return p.s?.saved ? <span className="saved">Saved</span> : null;

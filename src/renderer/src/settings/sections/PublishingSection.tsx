@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { LockedNote, SaveNote, SettingsSectionFrame, useAction, type SectionProps } from '../save';
+import { LockedNote, SaveNote, SettingsSectionFrame, useAction, useShownValue, type SectionProps } from '../save';
 
 /**
  * Settings > Publishing (11 §7, 10 §5.1): the export folder (read-only path + Choose…, the app's
@@ -11,6 +11,7 @@ export function PublishingSection(p: SectionProps) {
   const s = p.settings;
   const dirLocked = p.isLocked('publish.local.dir');
   const revealLocked = p.isLocked('publish.local.revealAfter');
+  const [reveal, setReveal] = useShownValue(s.publish.local.revealAfter, state['publish.local.revealAfter']?.error);
   const choose = useAction();
   const help = useAction();
   // The chosen path shows at once; the next settings snapshot then takes over.
@@ -41,9 +42,12 @@ export function PublishingSection(p: SectionProps) {
         <input
           type="checkbox"
           role="switch"
-          checked={s.publish.local.revealAfter}
+          checked={reveal}
           disabled={revealLocked}
-          onChange={(e) => save('publish.local.revealAfter', { publish: { local: { revealAfter: e.target.checked } } })}
+          onChange={(e) => {
+            setReveal(e.target.checked);
+            save('publish.local.revealAfter', { publish: { local: { revealAfter: e.target.checked } } });
+          }}
         />
         Reveal in Finder after export
       </label>

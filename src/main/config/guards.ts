@@ -26,10 +26,22 @@ export function shannonEntropy(s: string): number {
   return h;
 }
 
-/** True when a string value looks like a credential. */
-export function looksLikeSecret(value: string): boolean {
+function tokenLooksLikeSecret(value: string): boolean {
   if (SECRET_VALUE_SHAPES.some((re) => re.test(value))) return true;
   return value.length >= 32 && !/\s/.test(value) && shannonEntropy(value) > 4.5;
+}
+
+/** An absolute or home-relative folder path, as `publish.local.dir` holds (10 §5.1). */
+const FOLDER_PATH = /^(\/|~\/)/;
+
+/**
+ * True when a string value looks like a credential. A folder path is judged segment by segment:
+ * a long path with a hashed directory name passes 4.5 bits per character as a whole, yet no part
+ * of it is a key, while a token placed inside a path is still caught.
+ */
+export function looksLikeSecret(value: string): boolean {
+  if (!FOLDER_PATH.test(value)) return tokenLooksLikeSecret(value);
+  return SECRET_VALUE_SHAPES.some((re) => re.test(value)) || value.split('/').some(tokenLooksLikeSecret);
 }
 
 /** Returns dotted paths of leaves that look like secrets. Never returns values. */

@@ -1,9 +1,22 @@
-import { access, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { validateDocument } from '../helpers/doc-validity';
 import type { FixtureServer } from '../helpers/fixture-server';
+import {
+  Harness,
+  TITLE,
+  addUrl,
+  dropFiles,
+  jobLine,
+  jobText,
+  libraryEntries,
+  statusLines,
+  viewerUrl,
+  writeScript,
+  type Dirs,
+  type Launched,
+} from './harness';
 
 /**
  * M2 end-to-end (13 §8.2): create jobs through the real input zone with the FakeProvider, watch the
@@ -19,145 +32,27 @@ const { startFixtureServer } = await import('../helpers/fixture-server');
 
 test.describe.configure({ mode: 'serial' });
 
-const SOURCES = path.resolve('test/fixtures/sources');
-const DEFAULT_SCRIPT = path.resolve('test/fixtures/llm/default.json');
-const TITLE = 'How Example Widgets Inc. Plans Its Widget Supply';
-// Assembled at runtime: the repo never holds a secret-shaped literal (13 §3).
-const TEST_KEY = ['sk', 'test', 'e2e'.repeat(8)].join('-');
-
-interface Dirs {
-  root: string;
-  userData: string;
-  library: string;
-}
-
-interface Launched {
-  app: ElectronApplication;
-  win: Page;
-}
-
 let server: FixtureServer;
-const cleanup: string[] = [];
-const running: ElectronApplication[] = [];
+const h = new Harness();
 
 test.beforeAll(async () => {
   server = await startFixtureServer();
+  h.fixtureOrigin = server.origin;
 });
 
 test.afterAll(async () => {
-  for (const a of running.splice(0)) await a.close().catch(() => {});
+  await h.cleanup();
   await server?.close();
-  for (const d of cleanup.splice(0)) await rm(d, { recursive: true, force: true });
 });
 
-test.afterEach(async () => {
-  // PRD: no modals during ingest and generation (13 §8.1 modal guard).
-  for (const a of running) {
-    const modals = await a
-      .evaluate(() => (globalThis as { __modalCalls?: string[] }).__modalCalls ?? [])
-      .catch(() => [] as string[]);
-    expect(modals).toEqual([]);
-  }
-  for (const a of running.splice(0)) await a.close().catch(() => {});
-});
+// PRD: no modals during ingest and generation (13 §8.1 modal guard).
+test.afterEach(() => h.closeAll());
 
-async function tempDirs(): Promise<Dirs> {
-  // realpath: the app reports resolved paths (macOS tmpdir is a /var -> /private/var symlink).
-  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'eli5-e2e-gen-')));
-  cleanup.push(root);
-  return { root, userData: path.join(root, 'userData'), library: path.join(root, 'docs') };
-}
-
+const tempDirs = (): Promise<Dirs> => h.tempDirs('eli5-e2e-gen-');
+const launch = (dirs: Dirs, opts: { fake?: boolean; script?: string } = {}): Promise<Launched> => h.launch(dirs, opts);
 /** A copy of the default fake script with added latency, so a job stays in flight long enough. */
-async function slowScript(dirs: Dirs, latencyMs: number): Promise<string> {
-  const script = JSON.parse(await readFile(DEFAULT_SCRIPT, 'utf8')) as Record<string, unknown>;
-  const file = path.join(dirs.root, `slow-${String(latencyMs)}.json`);
-  await writeFile(file, JSON.stringify({ ...script, latencyMs }));
-  return file;
-}
-
-async function launch(dirs: Dirs, opts: { fake?: boolean; script?: string } = {}): Promise<Launched> {
-  const fake = opts.fake ?? true;
-  const env: Record<string, string> = {
-    ...(process.env as Record<string, string>),
-    ELI5_USER_DATA_DIR: dirs.userData,
-    ELI5_LIBRARY_DIR: dirs.library,
-    ELI5_KEYSTORE: 'memory',
-    ELI5_FIXTURE_ORIGIN: server.origin,
-    TZ: 'UTC',
-  };
-  delete env.ELI5_LLM_FAKE;
-  delete env.ELI5_LLM_FAKE_SCRIPT;
-  delete env.ELI5_TEST_API_KEY_CLAUDE;
-  if (fake) {
-    env.ELI5_LLM_FAKE = '1';
-    env.ELI5_LLM_FAKE_SCRIPT = opts.script ?? DEFAULT_SCRIPT;
-    env.ELI5_TEST_API_KEY_CLAUDE = TEST_KEY;
-  }
-  const app = await electron.launch({ args: [path.resolve('.')], env });
-  running.push(app);
-  const win = await app.firstWindow();
-  // The input zone listens for test drops once it has mounted.
-  await expect(win.getByRole('form', { name: 'New explainer' })).toBeVisible();
-  const testBuild = await app.evaluate(({ ipcMain }) => ipcMain.listenerCount('eli5:test:tray-click') > 0);
-  expect(testBuild, 'needs an ELI5_TEST_BUILD=1 build (npm run test:e2e)').toBe(true);
-
-  // Harness assertion (13 §8.1): the resolved library root is inside this spec's temp dir.
-  const info = await win.evaluate(() => window.eli5.library.info());
-  expect(info).toMatchObject({ ok: true, value: { root: expect.stringContaining(dirs.root + path.sep) } });
-
-  // Modal guard (13 §8.1): record any dialog instead of showing it.
-  await app.evaluate(({ dialog }) => {
-    const calls: string[] = [];
-    (globalThis as { __modalCalls?: string[] }).__modalCalls = calls;
-    const d = dialog as unknown as Record<string, unknown>;
-    for (const name of ['showMessageBox', 'showMessageBoxSync', 'showErrorBox']) {
-      d[name] = () => {
-        calls.push(name);
-        return name === 'showMessageBox' ? Promise.resolve({ response: 0, checkboxChecked: false }) : 0;
-      };
-    }
-  });
-  await win.evaluate(() => {
-    const w = window as unknown as { __statusLines: string[] };
-    w.__statusLines = [];
-    window.eli5.jobs.onChanged((s) => w.__statusLines.push(s.statusLine));
-  });
-  return { app, win };
-}
-
-async function dropFiles(win: Page, rel: string[]): Promise<void> {
-  const paths = rel.map((r) => path.join(SOURCES, r));
-  const chips = win.getByRole('list', { name: 'Added sources' });
-  await win.evaluate((p) => window.__eli5Test?.dropPaths(p), paths);
-  for (const p of paths) await expect(chips.getByText(path.basename(p))).toBeVisible();
-}
-
-async function addUrl(win: Page, url: string): Promise<void> {
-  const field = win.getByLabel('URL', { exact: true });
-  await field.fill(url);
-  await field.press('Enter');
-}
-
-const statusLines = (win: Page): Promise<string[]> =>
-  win.evaluate(() => (window as unknown as { __statusLines: string[] }).__statusLines);
-
-const jobLine = (win: Page) => win.locator('.job-line').last();
-/** The pipeline-supplied status text of the newest job line (06 §6), without glyph or buttons. */
-const jobText = (win: Page) => jobLine(win).locator('.job-text');
-
-async function libraryEntries(win: Page): Promise<{ topicSlug: string; title: string }[]> {
-  const r = await win.evaluate(() => window.eli5.library.list());
-  return r.ok ? r.value : [];
-}
-
-async function viewerUrl(app: ElectronApplication): Promise<string> {
-  return app.evaluate(({ BrowserWindow }) => {
-    const w = BrowserWindow.getAllWindows()[0];
-    const child = w?.contentView.children[0] as unknown as { webContents?: Electron.WebContents } | undefined;
-    return child?.webContents?.getURL() ?? '';
-  });
-}
+const slowScript = (dirs: Dirs, latencyMs: number): Promise<string> =>
+  writeScript(dirs, `slow-${String(latencyMs)}`, { latencyMs });
 
 /** The finished document: in the Library, opens in the viewer, and the saved file is valid (07, 13 §7). */
 async function expectDocument(l: Launched, dirs: Dirs): Promise<string> {
@@ -287,7 +182,7 @@ test('crash-resume: a job killed mid-generation resumes on relaunch and finishes
   const exited = first.app.waitForEvent('close');
   first.app.process().kill('SIGKILL');
   await exited;
-  running.splice(running.indexOf(first.app), 1);
+  h.running.splice(h.running.indexOf(first.app), 1);
 
   const second = await launch(dirs);
   await expect(jobText(second.win)).toHaveText(new RegExp(`Done: ${TITLE}`), { timeout: 30_000 });

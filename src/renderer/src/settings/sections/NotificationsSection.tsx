@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { EditionInfo, Settings, TestNotificationResult } from '../../../../preload/contract';
 import { useEdition } from '../../edition/FeatureGate';
-import { SaveNote, SettingsSectionFrame, type SectionProps } from '../save';
+import { SaveNote, SettingsSectionFrame, useShownValue, type SectionProps } from '../save';
 
 type ClickAction = Settings['notifications']['clickAction'];
 type PreferredLink = Settings['notifications']['preferredLink'];
@@ -34,6 +34,7 @@ export function NotificationsSection(p: SectionProps) {
   const remote = hasRemotePublisher(useEdition());
   const [test, setTest] = useState<{ text: string; error: boolean } | null>(null);
   const [unsupported, setUnsupported] = useState(false);
+  const [enabled, setEnabled] = useShownValue(n.enabled, state['notifications.enabled']?.error);
 
   const sendTest = async () => {
     const r = await window.eli5.app.testNotification();
@@ -50,9 +51,12 @@ export function NotificationsSection(p: SectionProps) {
         <input
           type="checkbox"
           role="switch"
-          checked={n.enabled}
+          checked={enabled}
           disabled={unsupported}
-          onChange={(e) => save('notifications.enabled', { notifications: { enabled: e.target.checked } })}
+          onChange={(e) => {
+            setEnabled(e.target.checked);
+            save('notifications.enabled', { notifications: { enabled: e.target.checked } });
+          }}
         />
         Notify me when a document is ready
       </label>

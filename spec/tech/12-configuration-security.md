@@ -246,6 +246,8 @@ The Settings UI (11) uses `<input type="password" autocomplete="off" spellcheck=
 - its key name matches `/(api[-_]?key|secret|token|password|passwd|credential|private[-_]?key|client[-_]?secret|bearer)/i`, or
 - its string value matches a known credential shape: `^sk-(ant-)?[A-Za-z0-9_-]{20,}`, `^gh[pousr]_[A-Za-z0-9]{30,}`, `^github_pat_`, `^AKIA[0-9A-Z]{16}$`, `^xox[abpr]-`, `-----BEGIN [A-Z ]*PRIVATE KEY-----`, a JWT (`^eyJ[\w-]+\.[\w-]+\.[\w-]+$`), or any string of 32 or more characters with Shannon entropy above 4.5 bits per character.
 
+A value that is a folder path (it starts with `/` or `~/`, as `publish.local.dir` does) is judged segment by segment: it counts as a secret when the whole value matches a credential shape or any `/`-separated segment matches one of the rules above. A long path through a hashed directory name (for example the macOS temporary folder) can exceed 4.5 bits per character as a whole without containing a key.
+
 The guard runs on load, on `set`, and on every `SettingsExtension` layer. An overlay that tries to ship a secret in `defaults` or `managed` fails bootstrap in the enterprise build.
 
 ## 6. API keys in the Keychain

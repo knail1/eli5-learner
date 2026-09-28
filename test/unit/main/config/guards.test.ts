@@ -31,6 +31,28 @@ describe('findSecrets (12 §5.4)', () => {
   });
 });
 
+describe('findSecrets on folder paths (12 §5.4)', () => {
+  // A chosen folder is a path, not a token: its whole string can pass 4.5 bits per character
+  // (a hashed macOS temp dir, a synced-storage folder), but no single segment looks like a key.
+  const tempLike = `/private/var/folders/z9/${'jt4cn2td0gn40p7sh34cbzg8'}0000gn/T/eli5-e2e-m3-publish-Qx7Rk2/exports`;
+
+  it('accepts an absolute or home path whose segments are ordinary', () => {
+    expect(findSecrets({ publish: { local: { dir: tempLike } } })).toEqual([]);
+    expect(findSecrets({ publish: { local: { dir: '~/Library/CloudStorage/Drive-Qx7Rk2/Exports/2026' } } })).toEqual(
+      [],
+    );
+  });
+
+  it('still flags a path that carries a high-entropy segment or a known shape', () => {
+    expect(findSecrets({ publish: { local: { dir: `/Users/x/${shapes.entropy}` } } })).toEqual(['publish.local.dir']);
+    expect(findSecrets({ publish: { local: { dir: `/${shapes.anthropic}` } } })).toEqual(['publish.local.dir']);
+  });
+
+  it('keeps the whole-string entropy rule for values that are not paths', () => {
+    expect(findSecrets({ a: tempLike.replaceAll('/', '') })).toEqual(['a']);
+  });
+});
+
 describe('redact', () => {
   it('replaces credential shapes inside text', () => {
     const out = redact(`key=${shapes.anthropic} and ${shapes.codeHost}`);
