@@ -217,7 +217,7 @@ describe('validateDocument rules (13 §7.1)', () => {
     expect(rules(noSkipped, meta)).toEqual(['references']);
   });
 
-  it('reports each error once even when both check layers see it', () => {
+  it('reports each error once', () => {
     const r = validateDocument(withCsp((c) => c.replace("default-src 'none'", 'default-src *'))(good));
     const keys = r.errors.map((e) => `${e.rule}:${e.detail}`);
     expect(keys.length).toBeGreaterThan(0);

@@ -26,16 +26,6 @@ function expectClean(probe: Probe): void {
   expect(probe.requests).toEqual([]);
 }
 
-/**
- * Known product defect, tolerated here only until the renderer is fixed: the runtime un-hides
- * `button.theme-toggle` inside `nav.tabbar[role=tablist]` (07 §6.1), and a tablist may own only
- * tabs. Fix: move the toggle out of the tablist (or put the tabs in an inner role=tablist element),
- * then delete this entry. Each match is recorded as a test annotation so it stays visible.
- */
-const KNOWN_A11Y: readonly { id: string; target: string; summary: RegExp }[] = [
-  { id: 'aria-required-children', target: 'nav', summary: /not allowed: button\[aria-label\]$/ },
-];
-
 async function seriousViolations(page: Page): Promise<string[]> {
   const { violations } = await new AxeBuilder({ page }).analyze();
   const out: string[] = [];
@@ -44,10 +34,7 @@ async function seriousViolations(page: Page): Promise<string[]> {
     for (const n of v.nodes) {
       const target = n.target.join(' ');
       const summary = (n.failureSummary ?? '').trim();
-      const line = `${v.id} (${v.impact}): ${target}: ${summary.replace(/\s+/g, ' ')}`;
-      if (KNOWN_A11Y.some((k) => k.id === v.id && k.target === target && k.summary.test(summary))) {
-        test.info().annotations.push({ type: 'known-a11y-issue', description: line });
-      } else out.push(line);
+      out.push(`${v.id} (${v.impact}): ${target}: ${summary.replace(/\s+/g, ' ')}`);
     }
   }
   return out;

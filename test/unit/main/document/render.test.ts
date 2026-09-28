@@ -82,6 +82,14 @@ describe('renderDocument (07 §6)', () => {
     expect(html).toContain('>ELI5: Why ad spend is judged by ROAS</button>');
   });
 
+  it('keeps the theme toggle out of the tablist, which may own only tabs (13 §13 accessibility)', () => {
+    const bar = /<nav class="tabbar"[^>]*>([\s\S]*?)<\/nav>/.exec(html)?.[1] ?? '';
+    expect(bar).toContain('role="tab"');
+    expect(bar).not.toContain('theme-toggle');
+    const head = /<header class="doc-head">([\s\S]*?)<\/header>/.exec(html)?.[1] ?? '';
+    expect(head).toContain('<button type="button" class="theme-toggle" aria-label="Switch theme" hidden></button>');
+  });
+
   it('truncates long section ELI5 labels to 48 characters with the full label in title', () => {
     const m: DocumentModel = structuredClone(doc.model);
     const sx = m.tabs[2];

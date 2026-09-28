@@ -70,6 +70,21 @@ export default defineConfig({
           setupFiles: ['test/helpers/net-guard.ts'],
         },
       },
+      {
+        ...shared,
+        test: {
+          // 13 §13 memory budget: one fork with --expose-gc, so RSS is measured without other
+          // suites in the same process.
+          name: 'perf',
+          environment: 'node',
+          include: ['test/perf/**/*.test.ts'],
+          setupFiles: ['test/helpers/net-guard.ts'],
+          pool: 'forks',
+          execArgv: ['--expose-gc'],
+          fileParallelism: false,
+          testTimeout: 120_000,
+        },
+      },
       ...(hasOverlay
         ? [
             {

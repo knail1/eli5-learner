@@ -245,8 +245,13 @@ html:not(.js) .tabbar {
   margin: 8px 0;
   font-size: 12px;
 }
-.theme-toggle {
-  margin-left: auto;
+.doc-head > .theme-toggle {
+  float: right;
+  margin: 0 0 8px 16px;
+  padding: 6px 12px;
+  font-size: 12px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
 }
 .theme-toggle::before {
   content: 'Auto';

@@ -140,6 +140,8 @@ function headerHtml(model: DocumentModel, theme: DocTheme): string {
   const logo = theme.logoSvg ? `<span class="doc-logo">${theme.logoSvg}</span>` : '';
   return [
     '<header class="doc-head">',
+    // Outside nav.tabbar: a tablist may own only tabs (13 §13 accessibility, axe aria-required-children).
+    '<button type="button" class="theme-toggle" aria-label="Switch theme" hidden></button>',
     `<p class="kicker">${logo}Explainer</p>`,
     `<h1>${esc(model.title)}</h1>`,
     ...(model.dek ? [`<p class="dek">${esc(model.dek)}</p>`] : []),
@@ -199,7 +201,6 @@ export function renderWithRuntime(
     headerHtml(model, theme),
     '<nav class="tabbar" role="tablist" aria-label="Document views">',
     ...tabs.map((t, i) => tabButton(t, i === 0)),
-    '<button type="button" class="theme-toggle" aria-label="Switch theme" hidden></button>',
     '</nav>',
     '<main>',
     ...tabs.map((t) => panelHtml(c, t)),

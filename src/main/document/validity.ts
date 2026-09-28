@@ -1,5 +1,6 @@
 // Static document validity checks (13 §7, §7.1). Used by test/helpers/doc-validity.ts and by the
 // writers before every save, so an invalid document is never written.
+import { createHash } from 'node:crypto';
 import { attr, findAll, parseTree, textOf, walk, type P5Element } from './html-tree';
 import { SECTION_ID_RE } from './section-id';
 
@@ -73,15 +74,37 @@ function hostPath(ref: string): string | undefined {
   }
 }
 
-/** Parses the CSP into directive -> sources. */
+/**
+ * 07 §6.2 policy. `script-src` is not listed: its allowed set is exactly the hashes of the
+ * document's own executable inline scripts. Any directive not listed here must be 'none'.
+ */
+const REFERENCE_CSP: ReadonlyMap<string, readonly string[]> = new Map([
+  ['default-src', ["'none'"]],
+  ['img-src', ['data:']],
+  ['style-src', ["'unsafe-inline'"]],
+  ['font-src', ['data:']],
+  ['connect-src', ["'none'"]],
+  ['media-src', ["'none'"]],
+  ['object-src', ["'none'"]],
+  ['frame-src', ["'none'"]],
+  ['form-action', ["'none'"]],
+  ['base-uri', ["'none'"]],
+]);
+/** Directives that do not fall back to default-src, so they must be present. */
+const NO_FALLBACK = ['form-action', 'base-uri'];
+const JS_TYPES = /^(|module|(text|application)\/(x-)?(java|ecma)script)$/i;
+
+/** Parses the CSP into directive -> sources; browsers ignore a repeated directive after the first. */
 function parseCsp(csp: string): Map<string, string[]> {
   const out = new Map<string, string[]>();
   for (const part of csp.split(';')) {
     const [name, ...vals] = part.trim().split(/\s+/);
-    if (name) out.set(name.toLowerCase(), vals);
+    if (name && !out.has(name.toLowerCase())) out.set(name.toLowerCase(), vals);
   }
   return out;
 }
+
+const sha256B64 = (s: string): string => createHash('sha256').update(s, 'utf8').digest('base64');
 
 export function checkDocumentHtml(html: string, meta?: ValidityMeta): ValidityReport {
   const errors: ValidityError[] = [];
@@ -141,19 +164,36 @@ export function checkDocumentHtml(html: string, meta?: ValidityMeta): ValidityRe
     }
   }
 
-  // csp
-  const cspMeta = all.find(
+  // csp (07 §6.2): one meta, in <head>, before any script (a meta policy only covers what follows
+  // it), directive by directive no looser than the reference, script-src = the inline script hashes.
+  const head = all.find((el) => el.tagName === 'head');
+  const cspMetas = all.filter(
     (el) => el.tagName === 'meta' && attr(el, 'http-equiv')?.toLowerCase() === 'content-security-policy',
   );
+  const cspMeta = cspMetas[0];
   if (!cspMeta) err('csp', 'missing CSP meta');
   else {
+    if (cspMetas.length > 1) err('csp', `${cspMetas.length} CSP metas`);
+    if (cspMeta.parentNode !== head) err('csp', 'CSP meta is not in <head>');
+    const scripts = all.filter((el) => el.tagName === 'script');
+    const firstScript = scripts[0];
+    if (firstScript && all.indexOf(firstScript) < all.indexOf(cspMeta)) err('csp', 'a <script> precedes the CSP meta');
+
     const csp = parseCsp(attr(cspMeta, 'content') ?? '');
+    const hashes = scripts
+      .filter((el) => attr(el, 'src') === undefined && JS_TYPES.test(attr(el, 'type') ?? ''))
+      .map((el) => `'sha256-${sha256B64(textOf(el))}'`);
     if ((csp.get('default-src') ?? []).join(' ') !== "'none'") err('csp', "default-src is not 'none'");
-    const connect = csp.get('connect-src');
-    if (connect && connect.join(' ') !== "'none'") err('csp', "connect-src other than 'none'");
-    const script = csp.get('script-src') ?? [];
-    if (script.some((s) => s === "'unsafe-inline'" || s === "'unsafe-eval'" || /^https?:|^\*$/.test(s)))
-      err('csp', 'script-src too loose');
+    for (const [name, sources] of csp) {
+      if (name === 'default-src') continue;
+      const allowed = name === 'script-src' ? hashes : (REFERENCE_CSP.get(name) ?? ["'none'"]);
+      const extra = sources.filter((s) => !allowed.includes(s) && !(s === "'none'" && sources.length === 1));
+      if (extra.length > 0) err('csp', `${name} looser than 07 §6.2: ${extra.join(' ')}`);
+    }
+    for (const name of NO_FALLBACK)
+      if ((csp.get(name) ?? []).join(' ') !== "'none'") err('csp', `${name} is not 'none'`);
+    const scriptSrc = csp.get('script-src') ?? [];
+    for (const h of hashes) if (!scriptSrc.includes(h)) err('csp', `inline script ${h} not allowed by script-src`);
   }
 
   // sections and tabs
@@ -185,6 +225,17 @@ export function checkDocumentHtml(html: string, meta?: ValidityMeta): ValidityRe
       err('section-id-mirror', `data-section-id on <${el.tagName}>`);
   }
 
+  // tabs present: one role=tab button per panel, wired both ways (08 §2).
+  const tabButtons = all.filter((el) => attr(el, 'role') === 'tab');
+  for (const p of panels) {
+    const key = attr(p, 'data-tab-key') ?? '';
+    const id = attr(p, 'id') ?? '';
+    if (id !== `tab-${key}`) err('tabs-match-meta', `panel "${key}" has id "${id}"`);
+    if (!tabButtons.some((b) => attr(b, 'aria-controls') === id))
+      err('tabs-match-meta', `no tab button for panel "${key}"`);
+  }
+  if (tabButtons.length !== panels.length)
+    err('tabs-match-meta', `${tabButtons.length} tab buttons for ${panels.length} panels`);
   const keys = panels.map((p) => attr(p, 'data-tab-key') ?? '');
   if (!keys.includes('indepth') || !keys.includes('eli5')) err('tabs-match-meta', 'indepth and eli5 tabs are required');
   if (meta) {

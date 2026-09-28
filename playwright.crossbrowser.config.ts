@@ -1,22 +1,27 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, type PlaywrightTestProject } from '@playwright/test';
 
 /**
  * Cross-browser smoke and runtime zero-network probe over the golden documents (13 §7.2, §7.3):
  * Chromium covers the Chrome and Edge engines, WebKit the Safari engine. No app build needed.
- * Run with `npx playwright test -c playwright.crossbrowser.config.ts`.
+ * The default `playwright test` (playwright.config.ts, the 13 §12 e2e job) includes these
+ * projects; this config runs them alone: `npx playwright test -c playwright.crossbrowser.config.ts`.
+ * Needs `npx playwright install chromium webkit`.
  */
-export default defineConfig({
+// 13 §3.2: deterministic locale and time zone.
+const use = { locale: 'en-US', timezoneId: 'UTC', trace: 'retain-on-failure' } as const;
+
+export const crossbrowserProjects: PlaywrightTestProject[] = (['chromium', 'webkit'] as const).map((browserName) => ({
+  name: `crossbrowser-${browserName}`,
   testDir: 'test/crossbrowser',
   testMatch: '**/*.spec.ts',
-  outputDir: 'test-results/crossbrowser',
   timeout: 30_000,
   fullyParallel: true,
+  use: { ...use, browserName },
+}));
+
+export default defineConfig({
+  outputDir: 'test-results/crossbrowser',
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? 'github' : 'list',
-  // 13 §3.2: deterministic locale and time zone.
-  use: { locale: 'en-US', timezoneId: 'UTC', trace: 'retain-on-failure' },
-  projects: [
-    { name: 'chromium', use: { browserName: 'chromium' } },
-    { name: 'webkit', use: { browserName: 'webkit' } },
-  ],
+  projects: crossbrowserProjects,
 });
