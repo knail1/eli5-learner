@@ -175,9 +175,25 @@ describe('App layout and routes (11 §5, §6)', () => {
     expect(host.querySelector('#settings-enterprise')).toBeNull();
     expect(host.querySelector('.sign-in')).toBeNull();
     // Unavailable providers are not shown: bedrock never appears.
-    const radios = Array.from(host.querySelectorAll('input[type="radio"]')).map((r) => r.parentElement?.textContent);
+    const radios = Array.from(host.querySelectorAll('#settings-ai input[type="radio"]')).map(
+      (r) => r.parentElement?.textContent,
+    );
     expect(radios).toEqual(['Claude', 'OpenAI']);
-    // Dormant keys have no controls.
+    // Dormant keys have no controls. Settings > Notifications may name the remote link kinds only in
+    // its preferred-link select and the explanation of the disabled published-link option (11 §7);
+    // just those elements are removed before the scan, so the rest of the section is still checked.
+    const notifications = host.querySelector('#settings-notifications');
+    expect(notifications?.querySelector<HTMLInputElement>('input[type="radio"]:disabled')).not.toBeNull();
+    const help = notifications?.querySelector('#notifications-link-help');
+    const select = notifications?.querySelector('select[aria-label="Which published link"]');
+    expect(help?.textContent).toBe('Available when documents can be published to a cloud drive or GitHub Pages');
+    expect(Array.from(select?.querySelectorAll('option') ?? []).map((o) => o.value)).toEqual([
+      'most-recent',
+      'drive',
+      'site',
+    ]);
+    help?.remove();
+    select?.remove();
     expect(host.innerHTML).not.toMatch(/mcp|drive|github/i);
   });
 
