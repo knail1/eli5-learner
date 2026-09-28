@@ -1,0 +1,8 @@
+<source ref="screenshot-tall.png" format="png" truncated="false">
+[image #416a6a83-img-1: "part 1 of 6"]
+[image #416a6a83-img-2: "part 2 of 6"]
+[image #416a6a83-img-3: "part 3 of 6"]
+[image #416a6a83-img-4: "part 4 of 6"]
+[image #416a6a83-img-5: "part 5 of 6"]
+[image #416a6a83-img-6: "part 6 of 6"]
+</source>

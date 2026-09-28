@@ -1,0 +1,19 @@
+<source ref="article.html" format="html" truncated="false">
+# Field guide: sensor installs
+Mount each sensor at least two metres from a motor. See the specs.
+## Checklist
+1. Check the bracket
+2. Run the self-test
+  1. Green light means pass
+| Model | Range |
+| --- | --- |
+| S-100 | 5 m |
+| Contact support for longer ranges |  |
+> Measure twice, drill once.
+```
+install --site north --count 4
+```
+[image: Installed sensor]
+A sensor on the north line.
+Docs live at https://example.com/docs.
+</source>

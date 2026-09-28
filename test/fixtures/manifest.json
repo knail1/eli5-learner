@@ -1,0 +1,321 @@
+{
+  "version": 1,
+  "fixtures": [
+    {
+      "path": "sources/docx/bold-headings.docx",
+      "format": "docx",
+      "generator": "test/fixtures/build/docx.ts",
+      "sha256": "24c8ddf9ccec464fe7bf512d5df2ef2e52cefdeceb25b78cb0b50452b91f3cb6",
+      "expect": {
+        "kind": "extract",
+        "golden": "sources/docx/bold-headings.expected.txt",
+        "imageCount": 0
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/docx/localized-headings.docx",
+      "format": "docx",
+      "generator": "test/fixtures/build/docx.ts",
+      "sha256": "6e5ad81f4f701cffd2ca99a1981c277ece13fe8c488ab649deb78acbe5277ccd",
+      "expect": {
+        "kind": "extract",
+        "golden": "sources/docx/localized-headings.expected.txt",
+        "imageCount": 0
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/docx/policy-memo.docx",
+      "format": "docx",
+      "generator": "test/fixtures/build/docx.ts",
+      "sha256": "d7804607871a64bb703ff86ccf18e8d0be3dfc22ab428d2c85cd822d5dd9c8ec",
+      "expect": {
+        "kind": "extract",
+        "golden": "sources/docx/policy-memo.expected.txt",
+        "imageCount": 1
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/docx/table-image.docx",
+      "format": "docx",
+      "generator": "test/fixtures/build/docx.ts",
+      "sha256": "25a14f35e93534e1c2173b242a88ba8e9e3522a8c2e5d4c045f3f5c739c3adcb",
+      "expect": {
+        "kind": "extract",
+        "golden": "sources/docx/table-image.expected.txt",
+        "imageCount": 2
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/hostile/declared-total-size.docx",
+      "format": "hostile",
+      "generator": "test/fixtures/build/hostile.ts",
+      "sha256": "4e97ba3330ad5c59b85314c148aa916d6b1c507531d1f85992eef933e5dc9207",
+      "expect": {
+        "kind": "skip",
+        "skipCode": "zip-bomb"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/hostile/declared-xml-size.pptx",
+      "format": "hostile",
+      "generator": "test/fixtures/build/hostile.ts",
+      "sha256": "32b2749eccfa367a081259d1f0c74b76d8a76c3fef561f65f6a89f4d17b15c67",
+      "expect": {
+        "kind": "skip",
+        "skipCode": "zip-bomb"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/hostile/huge-dimensions.png",
+      "format": "hostile",
+      "generator": "test/fixtures/build/images.ts",
+      "sha256": "3700a64c1131b3b2d752616288c90b8b697230ccad13f0dee5d64b081e7f23fe",
+      "expect": {
+        "kind": "skip",
+        "skipCode": "image-too-large"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/hostile/lying-sizes.docx",
+      "format": "hostile",
+      "generator": "test/fixtures/build/hostile.ts",
+      "sha256": "b2049b09e5b6f679144794978f1a1fd885647be536b0987f3fa8cd070dcbdedb",
+      "expect": {
+        "kind": "skip",
+        "skipCode": "zip-bomb"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/hostile/xml-entity.pptx",
+      "format": "hostile",
+      "generator": "test/fixtures/build/hostile.ts",
+      "sha256": "b643dbbb22b2cd722aeb57a81f62cc9681fe7741be7a5d75e9e07adbdfdfdc93",
+      "expect": {
+        "kind": "skip",
+        "skipCode": "corrupt"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/hostile/xml-entity.xlsx",
+      "format": "hostile",
+      "generator": "test/fixtures/build/hostile.ts",
+      "sha256": "597343dd4bc316858918cbdb9c4c984f1ed9ad4da9eb1d98d3b18ce0deb6d90f",
+      "expect": {
+        "kind": "skip",
+        "skipCode": "corrupt"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/hostile/zip-bomb-entries.pptx",
+      "format": "hostile",
+      "generator": "test/fixtures/build/hostile.ts",
+      "sha256": "6e2fe33cb3e257db407eb372bd9dfebc9596010547292b311a83e1e206ea87fc",
+      "expect": {
+        "kind": "skip",
+        "skipCode": "zip-bomb"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/images/diagram.png",
+      "format": "image",
+      "generator": "test/fixtures/build/images.ts",
+      "sha256": "2cd6ca49f0966302de538e5f3eeb0642b171106c46f1ee8fa5c091aca64466cf",
+      "expect": {
+        "kind": "extract",
+        "golden": "sources/images/diagram.expected.txt",
+        "imageCount": 1
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/images/photo.jpg",
+      "format": "image",
+      "generator": "test/fixtures/build/images.ts",
+      "sha256": "979d8e9707f67cd040382df7b1ea5ccf6ab0dbac99b2a97098faba23672f99e2",
+      "expect": {
+        "kind": "extract",
+        "golden": "sources/images/photo.expected.txt",
+        "imageCount": 1
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/images/screenshot-tall.png",
+      "format": "image",
+      "generator": "test/fixtures/build/images.ts",
+      "sha256": "416a6a836495ac0893674c101596614ac5bbdabf2ee69ae106be103c56b80bc1",
+      "expect": {
+        "kind": "extract",
+        "golden": "sources/images/screenshot-tall.expected.txt",
+        "imageCount": 6
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/pdf/encrypted.pdf",
+      "format": "pdf",
+      "generator": "test/fixtures/build/pdf.ts",
+      "sha256": "f2379137122f8796a24767e81e274678e11dbaaa2f574be707339cd568b4eb32",
+      "expect": {
+        "kind": "skip",
+        "skipCode": "encrypted"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/pdf/mixed.pdf",
+      "format": "pdf",
+      "generator": "test/fixtures/build/pdf.ts",
+      "sha256": "e4e57a3748a0f094ec022235fd69bb6d4d6179e698f28b4f3cb170be24dcf632",
+      "expect": {
+        "kind": "extract",
+        "golden": "sources/pdf/mixed.expected.txt",
+        "imageCount": 1
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/pdf/scanned-3p.pdf",
+      "format": "pdf-scanned",
+      "generator": "test/fixtures/build/pdf.ts",
+      "sha256": "870e102e30278860fba43cf8df9061f1dd6b5b89a6c0d6a903cb0ac0fda62536",
+      "expect": {
+        "kind": "extract",
+        "golden": "sources/pdf/scanned-3p.expected.txt",
+        "imageCount": 3
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/pdf/two-column.pdf",
+      "format": "pdf",
+      "generator": "test/fixtures/build/pdf.ts",
+      "sha256": "6fb618944065039cef39e2fe3d34e2bbab47cc830f14c5a3ef13c2ed16149eb7",
+      "expect": {
+        "kind": "extract",
+        "golden": "sources/pdf/two-column.expected.txt",
+        "imageCount": 0
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/pptx/out-of-order.pptx",
+      "format": "pptx",
+      "generator": "test/fixtures/build/pptx.ts",
+      "sha256": "cc0acc422b8f67250e53946924b62afb558f468d1856be53bc4f867ed132a910",
+      "expect": {
+        "kind": "extract",
+        "golden": "sources/pptx/out-of-order.expected.txt",
+        "imageCount": 0
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/pptx/quarterly-review.pptx",
+      "format": "pptx",
+      "generator": "test/fixtures/build/pptx.ts",
+      "sha256": "94c7a03be062cdfff2713b46b4752a067a4edd44ce80a3efc7b1cea355e0850a",
+      "expect": {
+        "kind": "extract",
+        "golden": "sources/pptx/quarterly-review.expected.txt",
+        "imageCount": 1
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/text/article.html",
+      "format": "html",
+      "sha256": "beea6a481cfe2d5b9233ac01a700bbdc0a6d156deb44047b58689051ac7b7c01",
+      "expect": {
+        "kind": "extract",
+        "golden": "sources/text/article.expected.txt"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/text/bom-utf16.txt",
+      "format": "txt",
+      "generator": "test/fixtures/build/text.ts",
+      "sha256": "3457713c47138952a97f7c19ec15422a3d98e7658e32e137256431db6bcf475b",
+      "expect": {
+        "kind": "extract",
+        "golden": "sources/text/bom-utf16.expected.txt"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/text/cp1252.txt",
+      "format": "txt",
+      "generator": "test/fixtures/build/text.ts",
+      "sha256": "ebd411f4a2c5ae04b168c1be999dbf22f1a8a7fa6fccc61eb8947f60e42fe5bf",
+      "expect": {
+        "kind": "extract",
+        "golden": "sources/text/cp1252.expected.txt"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/text/empty.txt",
+      "format": "txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "expect": {
+        "kind": "skip",
+        "skipCode": "empty"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/text/notes.md",
+      "format": "md",
+      "sha256": "04753333a51451d24af11884bae2e20ea81651e08a7abfa8846e0a83a07acb83",
+      "expect": {
+        "kind": "extract",
+        "golden": "sources/text/notes.expected.txt"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/text/plain.txt",
+      "format": "txt",
+      "sha256": "75d431b2783e30f0a8157ee13e78beb40f9d6151dca3cd48f059e0fb786790ac",
+      "expect": {
+        "kind": "extract",
+        "golden": "sources/text/plain.expected.txt"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/text/sales.csv",
+      "format": "txt",
+      "sha256": "93288597c04c7bd9a1bbb47f81530ba1c423625ecf6705472165ce6470cd1355",
+      "expect": {
+        "kind": "extract",
+        "golden": "sources/text/sales.expected.txt"
+      },
+      "provenance": "synthetic"
+    },
+    {
+      "path": "sources/xlsx/budget.xlsx",
+      "format": "xlsx",
+      "generator": "test/fixtures/build/xlsx.ts",
+      "sha256": "3f99b8bbff751872c8603679ea229c760917a569a99b0b89b92a99666a3998c4",
+      "expect": {
+        "kind": "extract",
+        "golden": "sources/xlsx/budget.expected.txt",
+        "imageCount": 0
+      },
+      "provenance": "synthetic"
+    }
+  ]
+}

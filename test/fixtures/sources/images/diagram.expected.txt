@@ -1,0 +1,3 @@
+<source ref="diagram.png" format="png" truncated="false">
+[image #2cd6ca49-img-1]
+</source>

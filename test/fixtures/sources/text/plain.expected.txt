@@ -1,0 +1,10 @@
+<source ref="plain.txt" format="text" truncated="false">
+Weekly operations note
+The loading dock at the north site reopened on Monday after repairs. Deliveries are back to normal.
+Open items:
+- Replace two pallet jacks
+- Repaint the lane markings
+  - Lanes 3 and 4 first
+- Order spare parts
+Contact the site lead with questions.
+</source>

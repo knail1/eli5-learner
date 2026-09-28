@@ -1,0 +1,9 @@
+<source ref="bold-headings.docx" format="docx" truncated="false">
+## Background
+Example Widgets Inc. opened a second warehouse in March.
+## Findings
+Pick rates rose 9% after the layout change.
+Shipping errors fell to 0.4% of orders.
+## Next steps
+Roll the layout out to the first warehouse by June.
+</source>

@@ -1,0 +1,22 @@
+<source ref="two-column.pdf" format="pdf" pages="3" truncated="false">
+--- Page 1 ---
+# Operations Review 2026
+Example Widgets Inc. runs two plants that assemble sensors for industrial customers. This review covers the year to date.
+The north plant expanded its manufacturing floor by a third and hired forty new technicians.
+The south plant focused on quality. Defect rates fell from 1.2% to 0.7% after the new inspection line went live in April.
+Shipping volumes grew in every region except one, where a customs delay held orders for two weeks.
+
+--- Page 2 ---
+## Plant metrics
+- Output: 48,000 units
+- Overtime: down 15%
+  - Weekend shifts cut to two
+Staffing held steady at 310 people across both sites.
+Energy use per unit dropped by a tenth after the compressor upgrade in the north plant.
+Water use was flat.
+
+--- Page 3 ---
+## Outlook
+The second half plan adds a third shift at the south plant and a new supplier for housings.
+Capital spending stays within the approved budget of 4.2 million dollars for the year.
+</source>

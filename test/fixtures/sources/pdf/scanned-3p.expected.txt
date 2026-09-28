@@ -1,0 +1,10 @@
+<source ref="scanned-3p.pdf" format="pdf-scanned" pages="3" scanned-pages="3" truncated="false">
+--- Page 1 ---
+[image #870e102e-img-1: "Scanned page 1"]
+
+--- Page 2 ---
+[image #870e102e-img-2: "Scanned page 2"]
+
+--- Page 3 ---
+[image #870e102e-img-3: "Scanned page 3"]
+</source>

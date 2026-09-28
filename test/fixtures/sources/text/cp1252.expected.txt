@@ -1,0 +1,4 @@
+<source ref="cp1252.txt" format="text" truncated="false">
+Résumé of the naïve café plan — €1,200 budget
+“Smart quotes” survive the round trip.
+</source>
