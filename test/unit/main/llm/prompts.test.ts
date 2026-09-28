@@ -216,10 +216,13 @@ describe('HTML skills (02 §11)', () => {
     lib.watch();
     try {
       expect(lib.forSlot('eli5')?.body).not.toContain('HOT RELOADED');
+      // macOS FSEvents can drop a change made the instant the watcher is created, and delivery slows
+      // under a loaded full-suite run; let the watcher register and allow a realistic latency.
+      await new Promise((r) => setTimeout(r, 200));
       write(user, 'eli5', 'HOT RELOADED');
-      await expect.poll(() => lib.forSlot('eli5')?.body, { timeout: 3000, interval: 25 }).toContain('HOT RELOADED');
+      await expect.poll(() => lib.forSlot('eli5')?.body, { timeout: 10_000, interval: 25 }).toContain('HOT RELOADED');
     } finally {
       lib.close();
     }
-  });
+  }, 15_000);
 });
