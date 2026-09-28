@@ -379,6 +379,8 @@ export interface ScrollToEvent {
 
 export interface SectionBusyEvent {
   busy: { sectionId: SectionId; action: MenuAction }[];
+  /** Inline notices for section jobs that just failed (08 §9); shown once under the section heading. */
+  notices?: { sectionId: SectionId; message: string }[];
 }
 
 export interface DocUpdatedEvent {

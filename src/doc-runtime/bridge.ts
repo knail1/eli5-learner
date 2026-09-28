@@ -23,7 +23,12 @@ export interface DocBridge {
   closeTab(tabKey: string): Promise<BridgeResult>;
   openExternal(url: string): Promise<BridgeResult>;
   onScrollTo(cb: (e: { sectionId?: string; tabKey?: string; flash: boolean; loadSeq: number }) => void): () => void;
-  onSectionBusy(cb: (e: { busy: { sectionId: string; action: string }[] }) => void): () => void;
+  onSectionBusy(
+    cb: (e: {
+      busy: { sectionId: string; action: string }[];
+      notices?: { sectionId: string; message: string }[];
+    }) => void,
+  ): () => void;
 }
 
 /** 07 §6.3: the app is detected with `typeof window.eli5Doc === 'object'`. */

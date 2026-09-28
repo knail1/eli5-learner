@@ -35,7 +35,12 @@ export interface RuntimeHandle {
     tabOfSection(id: string): string | undefined;
   };
   glossary?: { isWide(): boolean; layout(): void };
-  selection?: { root: ShadowRoot; current(): Snapshot | null; submit(action: string, note?: string): Promise<void> };
+  selection?: {
+    root: ShadowRoot;
+    current(): Snapshot | null;
+    close(): void;
+    submit(action: string, note?: string): Promise<void>;
+  };
 }
 export interface Runtime {
   boot(win: Window, doc: Document): RuntimeHandle;

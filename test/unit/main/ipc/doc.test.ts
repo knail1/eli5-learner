@@ -125,6 +125,26 @@ describe('eli5:doc:regenerate-section / create-section-eli5 (08 §3, §6.1)', ()
     });
   });
 
+  it('maps SectionActionError to its code and notice text (08 §9)', async () => {
+    const { SectionActionError } = await import('../../../../src/main/document');
+    const { svc } = fakeActions();
+    svc.regenerateSection.mockRejectedValueOnce(
+      new SectionActionError('E_RATE_LIMITED', 'Too many requests; wait a moment'),
+    );
+    svc.closeTab.mockRejectedValueOnce(
+      new SectionActionError('E_CONFLICT', 'Wait for the update in this tab to finish'),
+    );
+    const h = await setup({ services: { sectionActions: svc } });
+    expect(await h.call(IPC.doc.regenerateSection, req(), 'viewer')).toEqual({
+      ok: false,
+      error: { code: 'E_RATE_LIMITED', message: 'Too many requests; wait a moment' },
+    });
+    expect(await h.call(IPC.doc.closeTab, { slug: 'solar-power', tabKey: 'sx0a1b2c' }, 'viewer')).toEqual({
+      ok: false,
+      error: { code: 'E_CONFLICT', message: 'Wait for the update in this tab to finish' },
+    });
+  });
+
   it('answers "Not implemented yet" until a SectionActions service is plugged in', async () => {
     const h = await setup();
     expect(await h.call(IPC.doc.regenerateSection, req(), 'viewer')).toEqual({
@@ -135,7 +155,7 @@ describe('eli5:doc:regenerate-section / create-section-eli5 (08 §3, §6.1)', ()
 });
 
 describe('eli5:doc:close-tab (08 §7.2)', () => {
-  it('closes Section ELI5 tabs only', async () => {
+  it('passes any well-formed tab key to the service, which refuses non-section-ELI5 tabs', async () => {
     const { svc } = fakeActions();
     const h = await setup({ services: { sectionActions: svc } });
     expect(await h.call(IPC.doc.closeTab, { slug: 'solar-power', tabKey: 'sx0a1b2c' }, 'viewer')).toEqual({
@@ -143,13 +163,18 @@ describe('eli5:doc:close-tab (08 §7.2)', () => {
       value: undefined,
     });
     expect(svc.closeTab).toHaveBeenCalledWith({ slug: 'solar-power', tabKey: 'sx0a1b2c' });
-    for (const tabKey of ['indepth', 'eli5', 'sx0A1B2C', 'sx12']) {
+    // 08 §7.2: in-depth and ELI5 tabs reach the service, which answers E_FORBIDDEN.
+    for (const tabKey of ['indepth', 'eli5']) {
+      await h.call(IPC.doc.closeTab, { slug: 'solar-power', tabKey }, 'viewer');
+      expect(svc.closeTab).toHaveBeenLastCalledWith({ slug: 'solar-power', tabKey });
+    }
+    for (const tabKey of ['sx0A1B2C', 'sx12', 'notes']) {
       expect(await h.call(IPC.doc.closeTab, { slug: 'solar-power', tabKey }, 'viewer')).toMatchObject({
         ok: false,
         error: { code: 'E_BAD_REQUEST' },
       });
     }
-    expect(svc.closeTab).toHaveBeenCalledTimes(1);
+    expect(svc.closeTab).toHaveBeenCalledTimes(3);
   });
 });
 
