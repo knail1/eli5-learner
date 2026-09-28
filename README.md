@@ -31,9 +31,9 @@ Paste the link, press Start, and a few minutes later the explainer is in your Li
 
 <img src="images/main_screen.png" alt="The main window: the Library sidebar on the left, an In depth explainer in the viewer, and the input zone at the bottom with drop area, URL field, specifics and Start" width="820">
 
-The ELI5 tab rebuilds the same material in plain words, with analogies and pictures:
+The ELI5 tab rebuilds the same material in plain words, with analogies, simple diagrams and real open-licensed photos, each credited:
 
-<img src="images/eli5_version.png" alt="The ELI5 tab of the same document: short plain-language sections and a 'Think of it like' analogy" width="820">
+<img src="images/eli5_version_better.png" alt="The ELI5 tab: the section 'A break-in at the courthouse' opens with a stock photo of a courthouse, credited underneath as an illustrative stock photo (CC BY-SA 2.0, from Flickr via Openverse), followed by a plain-language explanation comparing a courthouse to the state's filing cabinet" width="820">
 
 ## Features
 
@@ -90,6 +90,13 @@ The ELI5 tab rebuilds the same material in plain words, with analogies and pictu
   marked in the references. One Undo reverses the merge; **Keep separate** dismisses the suggestion.
 
   <img src="images/merge_option_better.png" alt="Library with the new FOX 10 document on top and a Suggestions card: 'This looks related to Arizona Court System Breach Exposes Personal Data of Thousands. Merge it in or keep it separate?', New: 'Arizona's court system hit by cyberattack targeting personal records', with the reason and Merge in / Keep separate buttons" width="300">
+
+  After **Merge in**, the document is rewritten in place, not appended to. Everything the merge added
+  is highlighted in violet, and a legend under the title names the source it came from, with a
+  **Hide highlights** switch. Here the FOX 10 story added the 36-hour window and the "wide net" detail
+  to the opening section:
+
+  <img src="images/merged_docs_with_highlights.png" alt="The merged document 'Arizona court system hacked: what was stolen and who's at risk': a legend 'Enhanced on 28 Sep 2026 with material from Arizona Court System Hit by Cyberattack' with a Hide highlights button, and the opening paragraph with the added words and sentences highlighted in violet" width="820">
 - **Completion notifications.** A native macOS notification tells you when a document is ready. Clicking it opens the document in the app, or, if you choose, its published link in your browser.
 
 ## How it works
