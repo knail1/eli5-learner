@@ -98,6 +98,7 @@ describe('StatusArea (11 §5.5)', () => {
           createdAt: '2026-01-03T00:00:00Z',
           status: 'done',
           statusLine: 'Done: How DNS works',
+          finishedAt: new Date().toISOString(), // within its 10 minutes (06 §6)
           result: { docId: 'x', topicSlug: 'how-dns-works', title: 'How DNS works' },
           canCancel: false,
           canDismiss: true,

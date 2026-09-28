@@ -107,19 +107,52 @@ function Shell() {
     });
   }, [loadLibrary]);
 
+  // ---- opening a document in the viewer (11 §5.2, §8, §13) ----
+  // An ok:false answer is an IPC failure, reported inline with Retry while the viewer stays
+  // attached (11 §13). The "Could not display" state belongs to the viewer's did-fail-load.
+  const [openError, setOpenError] = useState<{ slug: string; message: string } | null>(null);
+  // Slugs main answered E_NOT_FOUND for: shown as missing whatever the catalog still lists (11 §8).
+  const [missing, setMissing] = useState<ReadonlySet<string>>(new Set());
+  const openSeq = useRef(0);
+  const openInViewer = useCallback(
+    (slug: string) => {
+      const seq = ++openSeq.current;
+      setOpenError(null);
+      void window.eli5.library.open(slug).then((r) => {
+        // Only the latest open decides what the viewer area shows.
+        if (seq !== openSeq.current) return;
+        setMissing((m) => {
+          if (r.ok ? !m.has(slug) : r.error.code !== 'E_NOT_FOUND' || m.has(slug)) return m;
+          const next = new Set(m);
+          if (r.ok) next.delete(slug);
+          else next.add(slug);
+          return next;
+        });
+        if (r.ok) return;
+        // Gone from main: also reload the Library so the sidebar drops it.
+        if (r.error.code === 'E_NOT_FOUND') void loadLibrary();
+        else setOpenError({ slug, message: r.error.message });
+      });
+    },
+    [loadLibrary],
+  );
+
   // ---- routes (11 §6) ----
-  const go = useCallback((next: UiRoute) => {
-    startupDone.current = true;
-    setRouteState((cur) => {
-      if (sameRoute(cur, next)) return cur;
-      if (next.view === 'settings' && cur.view !== 'settings') previous.current = cur;
-      return next;
-    });
-    if (next.view === 'doc') {
-      rememberDoc(next.slug);
-      void window.eli5.library.open(next.slug);
-    }
-  }, []);
+  const go = useCallback(
+    (next: UiRoute) => {
+      startupDone.current = true;
+      setRouteState((cur) => {
+        if (sameRoute(cur, next)) return cur;
+        if (next.view === 'settings' && cur.view !== 'settings') previous.current = cur;
+        return next;
+      });
+      if (next.view === 'doc') {
+        rememberDoc(next.slug);
+        openInViewer(next.slug);
+      }
+    },
+    [openInViewer],
+  );
 
   // Startup: the last opened document if it still exists, else welcome.
   useEffect(() => {
@@ -135,7 +168,9 @@ function Shell() {
   const leaveSettings = useCallback(() => go(previous.current), [go]);
   const openDoc = useCallback((slug: string) => go({ view: 'doc', slug }), [go]);
 
-  const shown = resolveRoute(route, catalog);
+  const resolved = resolveRoute(route, catalog);
+  const shown: UiRoute =
+    resolved.view === 'doc' && missing.has(resolved.slug) ? { view: 'not-found', slug: resolved.slug } : resolved;
   const selectedSlug = shown.view === 'doc' ? shown.slug : null;
 
   // ---- sidebar: collapse (Cmd+\), resize, auto-collapse below 1000 px (11 §5.2, §12) ----
@@ -267,6 +302,14 @@ function Shell() {
           {shown.view === 'doc' && (
             <>
               <DocHeader slug={shown.slug} entry={entry} />
+              {openError?.slug === shown.slug && (
+                <p className="inline-error open-error" role="alert">
+                  {openError.message}{' '}
+                  <button type="button" onClick={() => openInViewer(shown.slug)}>
+                    Retry
+                  </button>
+                </p>
+              )}
               <ViewerSlot slug={shown.slug} layoutKey={layoutKey} />
             </>
           )}
