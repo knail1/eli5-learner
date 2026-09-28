@@ -92,6 +92,28 @@ export default tseslint.config(
     },
   },
   {
+    // Overlays import public code only as `@eli5/public/<module>` (01 §6.5 step 4.3); `llm/testing`
+    // is the one documented test entry. enterprise/ is linted by the private repo with the same rule.
+    files: ['test/fixtures/overlay-fake/**/*.ts', 'enterprise/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@eli5/public/*/**', '!@eli5/public/llm/testing'],
+              message: 'Import public code only through @eli5/public/<module> (no deep imports).',
+            },
+            {
+              group: ['**/src/main/**', '**/src/main'],
+              message: 'Overlays reach public code only through the @eli5/public/* alias.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // No co-located tests under src/ (13 §2).
     files: ['src/**/*.test.{ts,tsx}', 'src/**/*.spec.{ts,tsx}'],
     rules: { 'no-restricted-syntax': ['error', { selector: 'Program', message: 'Tests live under test/, not src/.' }] },

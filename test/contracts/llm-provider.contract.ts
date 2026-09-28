@@ -56,6 +56,20 @@ export function contractImage(): ImageInput {
   };
 }
 
+/** Delegating wrapper that counts provider sends, so the repair path can be pinned to one retry. */
+function counting(p: LLMProvider): { provider: LLMProvider; sends: () => number } {
+  let n = 0;
+  const provider: LLMProvider = {
+    id: p.id,
+    model: p.model,
+    limits: p.limits,
+    generate: (r) => (n++, p.generate(r)),
+    generateWithImages: (r) => (n++, p.generateWithImages(r)),
+    testConnection: () => p.testConnection(),
+  };
+  return { provider, sends: () => n };
+}
+
 function expectResult(p: LLMProvider, r: Awaited<ReturnType<LLMProvider['generate']>>): void {
   expect(typeof r.text).toBe('string');
   expect(r.text.length).toBeGreaterThan(0);
@@ -106,20 +120,27 @@ export function describeLLMProviderContract(
     });
 
     it('structured output validates without repair', async () => {
-      const p = await make('structured');
+      const c = counting(await make('structured'));
       const r = await generateStructured({
-        provider: p,
+        provider: c.provider,
         schema: 'SummaryDraft',
         request: contractRequest('structured'),
       });
       expect(r.repaired).toBe(false);
+      expect(c.sends()).toBe(1);
       expect(r.data.topicSlugHint.length).toBeGreaterThan(0);
     });
 
     it('invalid structured output runs the repair path exactly once', async () => {
-      const p = await make('repair');
-      const r = await generateStructured({ provider: p, schema: 'SummaryDraft', request: contractRequest('repair') });
+      const c = counting(await make('repair'));
+      const r = await generateStructured({
+        provider: c.provider,
+        schema: 'SummaryDraft',
+        request: contractRequest('repair'),
+      });
       expect(r.repaired).toBe(true);
+      expect(c.sends()).toBe(2);
+      expect(r.data.topicSlugHint.length).toBeGreaterThan(0);
     });
 
     for (const kind of kinds) {
@@ -134,6 +155,9 @@ export function describeLLMProviderContract(
 
     it('testConnection never throws', async () => {
       const ok = await (await make('text')).testConnection();
+      for (const kind of kinds) {
+        await expect((await make(`error:${kind}`)).testConnection()).resolves.toHaveProperty('ok');
+      }
       expect(ok.ok).toBe(true);
       if (kinds.includes('auth')) {
         const bad = await (await make('error:auth')).testConnection();

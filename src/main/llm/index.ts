@@ -1,5 +1,5 @@
-// Public API of the LLM module (02). FakeProvider and cassetteFetch are imported from './testing/*'
-// directly so package-mode bundles never contain them (13 §6.1).
+// Public API of the LLM module (02). FakeProvider and cassetteFetch live under './testing/' (test
+// entry `llm/testing`, 01 §6.5) so package-mode bundles never contain them (13 §6.1).
 export type {
   ProviderId,
   PromptId,
