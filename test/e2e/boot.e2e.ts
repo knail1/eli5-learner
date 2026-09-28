@@ -28,7 +28,9 @@ test.afterAll(async () => {
 
 test('boots the public edition with a secure main window', async () => {
   const win = await app.firstWindow();
-  await expect(win.getByRole('heading', { name: 'ELI5 Learner' })).toBeVisible();
+  await expect(win).toHaveTitle('ELI5 Learner');
+  await expect(win.getByRole('heading', { name: 'Turn anything into an explainer.' })).toBeVisible();
+  await win.getByRole('button', { name: 'Settings' }).click();
   await expect(win.getByText('Public edition')).toBeVisible();
 
   const prefs = await app.evaluate(({ BrowserWindow }) => {
@@ -57,6 +59,7 @@ test('window.eli5 answers IPC with IpcResult envelopes', async () => {
 
 test('API key goes to the key store, never to settings.json', async () => {
   const win = await app.firstWindow();
+  await expect(win.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
   const fakeKey = 'sk-ant-test-' + 'k'.repeat(24);
   await win.getByLabel('API key').fill(fakeKey);
   await win.getByRole('button', { name: 'Save key' }).click();

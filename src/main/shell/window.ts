@@ -1,0 +1,317 @@
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { BrowserWindow, Menu, WebContentsView, app, nativeTheme, screen, session } from 'electron';
+import { IPC, type UiRoute, type ViewerBounds } from '../../preload/contract';
+import { APP_CSP_DEV, APP_CSP_PROD, SECURE_WEB_PREFERENCES, log, registerSurface } from '../security';
+import { appMenuTemplate, libraryItemMenuTemplate, type LibraryItemMenuActions } from './app-menu';
+import { closeAction, crashTracker, shell } from './lifecycle';
+import {
+  WINDOW_DEFAULTS,
+  debounce,
+  fitToDisplays,
+  loadWindowState,
+  saveWindowState,
+  windowStatePath,
+  type WindowState,
+} from './window-state';
+
+/** Main window, viewer WebContentsView and application menu (11 §3, §5.1). */
+
+export const VIEWER_PARTITION = 'eli5-viewer';
+
+export interface ShellHooks {
+  /** Loads a document into the viewer (09/07 `viewer.open`); wired by bootstrap in M2. */
+  openDocument?(slug: string): void;
+}
+
+export interface ShellPaths {
+  preloadDir: string;
+  rendererDir: string;
+  /** Vite dev server URL in dev; undefined in builds. */
+  devServerUrl: string | undefined;
+  /** Optional collaborators; the shell degrades to navigation only without them. */
+  hooks?: ShellHooks;
+}
+
+let paths: ShellPaths | undefined;
+let mainWindow: BrowserWindow | undefined;
+let viewerView: WebContentsView | undefined;
+let viewerAttached = false;
+let lastBounds: ViewerBounds | undefined;
+let trayAvailable = true;
+let showingErrorPage = false;
+let cspInstalled = false;
+
+export function initShell(p: ShellPaths): void {
+  paths = p;
+}
+
+function need(): ShellPaths {
+  if (!paths) throw new Error('initShell() must run before the shell is used');
+  return paths;
+}
+
+export function shellHooks(): ShellHooks {
+  return paths?.hooks ?? {};
+}
+
+/** Called by tray.ts; without a Tray, closing the window quits (11 §13). */
+export function setTrayAvailable(v: boolean): void {
+  trayAvailable = v;
+}
+
+export function mainWebContents(): Electron.WebContents | undefined {
+  return mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : undefined;
+}
+
+export function viewerWebContents(): Electron.WebContents | undefined {
+  return viewerView && !viewerView.webContents.isDestroyed() ? viewerView.webContents : undefined;
+}
+
+/** App renderer origin check used by the IPC sender guard (12 §7.2 step 6). */
+export function isAppUrl(url: URL): boolean {
+  const p = need();
+  if (p.devServerUrl) return url.origin === new URL(p.devServerUrl).origin;
+  const index = pathToFileURL(path.join(p.rendererDir, 'index.html'));
+  return url.protocol === 'file:' && url.pathname === index.pathname;
+}
+
+function rendererEntry(): string {
+  const p = need();
+  return p.devServerUrl ?? pathToFileURL(path.join(p.rendererDir, 'index.html')).toString();
+}
+
+/** App renderer CSP as a response header for the dev server; builds use the meta tag in index.html. */
+function installAppCsp(): void {
+  if (cspInstalled) return;
+  cspInstalled = true;
+  const csp = app.isPackaged ? APP_CSP_PROD : APP_CSP_DEV;
+  session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
+    const headers = { ...details.responseHeaders };
+    if (details.resourceType === 'mainFrame' || details.resourceType === 'subFrame') {
+      headers['Content-Security-Policy'] = [csp];
+    }
+    cb({ responseHeaders: headers });
+  });
+}
+
+/** Sends `eli5:app:navigate` to the app renderer (11 §10). */
+export function navigate(route: UiRoute): void {
+  mainWebContents()?.send(IPC.app.navigate, { route });
+}
+
+export function installAppMenu(): void {
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate(
+      appMenuTemplate(
+        {
+          hideWindow: () => hideMainWindow(),
+          openSettings: () => {
+            showMainWindow();
+            navigate({ view: 'settings' });
+          },
+        },
+        { appName: 'ELI5 Learner', devTools: !app.isPackaged },
+      ),
+    ),
+  );
+}
+
+function initialState(): { file: string; state: WindowState } {
+  const file = windowStatePath(app.getPath('userData'));
+  const saved = loadWindowState(file);
+  const state = fitToDisplays(
+    saved,
+    screen.getAllDisplays().map((d) => d.workArea),
+    screen.getPrimaryDisplay().workArea,
+  );
+  return { file, state };
+}
+
+const ERROR_PAGE =
+  'data:text/html;charset=utf-8,' +
+  encodeURIComponent(
+    '<!doctype html><meta charset="utf-8"><title>ELI5 Learner</title>' +
+      '<body style="font:15px -apple-system,sans-serif;display:grid;place-items:center;height:100vh;margin:0">' +
+      '<p>Something went wrong. Press Return to reload.</p></body>',
+  );
+
+export function createMainWindow(): BrowserWindow {
+  installAppCsp();
+  installAppMenu();
+  const { file, state } = initialState();
+  const win = new BrowserWindow({
+    x: state.x,
+    y: state.y,
+    width: state.width,
+    height: state.height,
+    minWidth: WINDOW_DEFAULTS.minWidth,
+    minHeight: WINDOW_DEFAULTS.minHeight,
+    show: false,
+    title: 'ELI5 Learner',
+    titleBarStyle: 'hiddenInset',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#1b1b1a' : '#fbfaf7',
+    webPreferences: { ...SECURE_WEB_PREFERENCES, preload: path.join(need().preloadDir, 'app.cjs') },
+  });
+  mainWindow = win;
+  registerSurface(win.webContents, 'app', (url) => isAppUrl(url));
+  if (state.maximized) win.maximize();
+
+  // Bounds persistence, debounced 500 ms (11 §3.1). Sidebar fields are carried through unchanged.
+  const persist = debounce(() => {
+    if (win.isDestroyed()) return;
+    const b = win.getNormalBounds();
+    const next: WindowState = { ...state, ...b, maximized: win.isMaximized() };
+    try {
+      saveWindowState(file, next);
+    } catch (err) {
+      log.warn('shell.window-state-save-failed', { errorKind: err instanceof Error ? err.name : 'unknown' });
+    }
+  }, 500);
+  win.on('resize', () => persist());
+  win.on('move', () => persist());
+  win.on('maximize', () => persist());
+  win.on('unmaximize', () => persist());
+  win.on('resize', () => {
+    if (lastBounds) setViewerBounds(lastBounds);
+  });
+
+  win.on('close', (e) => {
+    persist.flush();
+    const action = closeAction({ isQuitting: shell.isQuitting, trayAvailable });
+    if (action === 'close') return;
+    if (action === 'quit') {
+      shell.isQuitting = true;
+      app.quit();
+      return;
+    }
+    e.preventDefault();
+    hideMainWindow();
+  });
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = undefined;
+    viewerView = undefined;
+    viewerAttached = false;
+  });
+  win.once('ready-to-show', () => win.show());
+
+  const crashes = crashTracker();
+  win.webContents.on('render-process-gone', (_e, d) => {
+    log.warn('renderer.gone', { kind: d.reason });
+    if (shell.isQuitting || win.isDestroyed()) return;
+    if (crashes.record(Date.now()) === 'reload') {
+      void win.loadURL(rendererEntry());
+    } else {
+      showingErrorPage = true;
+      setViewerVisible(false);
+      void win.loadURL(ERROR_PAGE);
+    }
+  });
+  win.webContents.on('before-input-event', (e, input) => {
+    if (!showingErrorPage || input.type !== 'keyDown' || input.key !== 'Enter') return;
+    e.preventDefault();
+    showingErrorPage = false;
+    void win.loadURL(rendererEntry());
+  });
+
+  viewerView = new WebContentsView({
+    webPreferences: {
+      ...SECURE_WEB_PREFERENCES,
+      partition: VIEWER_PARTITION,
+      preload: path.join(need().preloadDir, 'doc.cjs'),
+    },
+  });
+  const viewer = viewerView;
+  registerSurface(viewer.webContents, 'viewer', (url) => {
+    const current = viewer.webContents.getURL();
+    if (!current) return false;
+    const cur = new URL(current);
+    // Same document only; fragment changes allowed (12 §7.2 step 3).
+    return url.protocol === 'eli5doc:' && url.host === cur.host && url.pathname === cur.pathname;
+  });
+  // Detached until the renderer shows the doc route (11 §5.1).
+  viewer.setVisible(false);
+  viewerAttached = false;
+
+  void win.loadURL(rendererEntry());
+  return win;
+}
+
+/**
+ * Viewer rectangle from `ViewerSlot` in CSS px; scaled by the app renderer's zoom so the native
+ * view follows 200% zoom (11 §12).
+ */
+export function setViewerBounds(b: ViewerBounds): void {
+  lastBounds = b;
+  const zoom = mainWebContents()?.getZoomFactor() ?? 1;
+  viewerView?.setBounds({
+    x: Math.round(b.x * zoom),
+    y: Math.round(b.y * zoom),
+    width: Math.max(0, Math.round(b.width * zoom)),
+    height: Math.max(0, Math.round(b.height * zoom)),
+  });
+}
+
+/** Non-doc routes remove the view from the window; returning re-adds it (11 §5.1). */
+export function setViewerVisible(v: boolean): void {
+  const win = mainWindow;
+  const view = viewerView;
+  if (!win || win.isDestroyed() || !view) return;
+  if (v) {
+    if (!viewerAttached) {
+      win.contentView.addChildView(view);
+      viewerAttached = true;
+    }
+    if (lastBounds) setViewerBounds(lastBounds);
+    view.setVisible(true);
+  } else {
+    view.setVisible(false);
+    if (viewerAttached) {
+      win.contentView.removeChildView(view);
+      viewerAttached = false;
+    }
+  }
+}
+
+export function isViewerAttached(): boolean {
+  return viewerAttached;
+}
+
+/** Hide the window and the Dock icon; jobs keep running (11 §3.2 step 1). */
+export function hideMainWindow(): void {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
+  app.dock?.hide();
+  // Electron ignores dock.hide() within 1 s of dock.show() (a macOS multiple-icon workaround), so
+  // a quick show-then-hide re-asserts the hide once that window has passed.
+  clearTimeout(dockRecheck);
+  const wait = lastDockShow + DOCK_SHOW_GUARD_MS - Date.now();
+  if (wait > 0) {
+    dockRecheck = setTimeout(() => {
+      if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) app.dock?.hide();
+    }, wait);
+  }
+}
+
+const DOCK_SHOW_GUARD_MS = 1100;
+let lastDockShow = 0;
+let dockRecheck: ReturnType<typeof setTimeout> | undefined;
+
+/** Dock icon first, then show and focus (11 §3.2 step 6). */
+export function showMainWindow(): void {
+  clearTimeout(dockRecheck);
+  lastDockShow = Date.now();
+  void app.dock?.show();
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createMainWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+/** Native Library item menu for `eli5:app:context-menu` (11 §5.2, §10); the IPC handler calls this. */
+export function showLibraryItemMenu(slug: string, a: LibraryItemMenuActions): void {
+  const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+  Menu.buildFromTemplate(libraryItemMenuTemplate(slug, a)).popup(win ? { window: win } : {});
+}
