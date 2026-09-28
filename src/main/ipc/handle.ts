@@ -4,7 +4,11 @@ import type { IpcChannel, IpcError, IpcErrorCode, IpcResult, IpcSurface } from '
 import { NotAvailableInEdition } from '../editions';
 import { SettingsError } from '../config';
 import { KeychainUnavailable } from '../config';
+import { LibraryError, type LibraryErrorCode } from '../library';
+import { LLMError } from '../llm';
+import { PipelineRequestError } from '../pipeline';
 import { log } from '../security';
+import { InvalidDraftId } from '../sources';
 
 /** Identity of the two renderer surfaces allowed to invoke (12 §7.2 step 6). */
 export interface SenderIdentity {
@@ -63,7 +67,30 @@ export function toIpcError(err: unknown): IpcError {
   }
   if (err instanceof SettingsError) return { code: err.code, message: err.message, issues: err.issues };
   if (err instanceof KeychainUnavailable) return { code: 'E_KEYCHAIN_UNAVAILABLE', message: err.message };
+  if (err instanceof PipelineRequestError) return { code: err.code, message: err.message };
+  if (err instanceof LibraryError) return libraryError(err.code);
+  if (err instanceof InvalidDraftId) return { code: 'E_BAD_REQUEST', message: 'Invalid request' };
+  // 01 §6.2: a provider that finds no key at call time maps to E_NO_API_KEY.
+  if (err instanceof LLMError && err.kind === 'auth') return NO_API_KEY;
   return { code: 'E_INTERNAL', message: 'Something went wrong' };
+}
+
+export const NO_API_KEY: IpcError = { code: 'E_NO_API_KEY', message: 'Add an API key in Settings' };
+
+/** 01 §5.1: LibraryError codes at the boundary; the module's detail is never sent. */
+function libraryError(code: LibraryErrorCode): IpcError {
+  switch (code) {
+    case 'LIBRARY_READ_ONLY':
+      return { code: 'E_LIBRARY_READ_ONLY', message: 'The Library is read-only' };
+    case 'SUGGESTION_STALE':
+      return { code: 'E_SUGGESTION_STALE', message: 'That suggestion is out of date' };
+    case 'MERGE_FAILED':
+      return { code: 'E_MERGE_FAILED', message: 'The documents could not be merged' };
+    case 'NOT_FOUND':
+      return { code: 'E_NOT_FOUND', message: 'Document not found' };
+    default:
+      return { code: 'E_IO', message: 'Could not access the Library' };
+  }
 }
 
 export interface HandlerRegistrar {
@@ -116,3 +143,10 @@ export function makeHandle(ipc: HandlerRegistrar, ids: SenderIdentity) {
 
 /** Payload schema for channels that take no arguments. */
 export const NoPayload = z.undefined().or(z.null()).optional();
+
+/** Registers one channel on the surface 01 §5.2 assigns it; used by the per-area handler files. */
+export type Register = <S extends z.ZodType, R>(
+  channel: IpcChannel,
+  schema: S,
+  fn: (payload: z.infer<S>, event: IpcMainInvokeEvent) => Promise<R> | R,
+) => void;

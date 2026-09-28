@@ -66,6 +66,39 @@ describe('IPC envelope (01 §5.1, 12 §7.2)', () => {
     expect(await call(IPC.library.list, app)).toEqual({ ok: false, error: { code: 'E_NOT_FOUND', message: 'Gone' } });
   });
 
+  it('maps an LLM auth failure to E_NO_API_KEY and other LLM errors to E_INTERNAL (01 §6.2)', async () => {
+    const { LLMError } = await import('../../../../src/main/llm');
+    expect(toIpcError(new LLMError('auth', 'no key for provider'))).toEqual({
+      code: 'E_NO_API_KEY',
+      message: 'Add an API key in Settings',
+    });
+    expect(toIpcError(new LLMError('rate_limited', 'slow down'))).toEqual({
+      code: 'E_INTERNAL',
+      message: 'Something went wrong',
+    });
+  });
+
+  it('maps an invalid draft or input id to E_BAD_REQUEST without its detail (03 §13)', async () => {
+    const { InvalidDraftId } = await import('../../../../src/main/sources');
+    expect(toIpcError(new InvalidDraftId('draftId'))).toEqual({ code: 'E_BAD_REQUEST', message: 'Invalid request' });
+    expect(toIpcError(new InvalidDraftId('inputId'))).toEqual({ code: 'E_BAD_REQUEST', message: 'Invalid request' });
+  });
+
+  it('providerKeyPresent needs a Keychain key only for claude and openai (01 §6.2)', async () => {
+    const { providerKeyPresent } = await import('../../../../src/main/ipc');
+    const stored = new Set<string>();
+    const keys = { has: (acct: string) => Promise.resolve(stored.has(acct)) };
+    expect(await providerKeyPresent('claude', keys)).toBe(false);
+    expect(await providerKeyPresent('openai', keys)).toBe(false);
+    expect(await providerKeyPresent('bedrock', keys)).toBe(true);
+    const { account } = await import('../../../../src/main/config');
+    stored.add(account('claude'));
+    expect(await providerKeyPresent('claude', keys)).toBe(true);
+    expect(await providerKeyPresent('openai', keys)).toBe(false);
+    stored.add(account('openai'));
+    expect(await providerKeyPresent('openai', keys)).toBe(true);
+  });
+
   it('lists every invokable channel from the contract and no event channels', () => {
     const chans = invokableChannels();
     expect(chans).toContain(IPC.jobs.start);

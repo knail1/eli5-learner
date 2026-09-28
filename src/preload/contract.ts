@@ -69,6 +69,8 @@ export const IPC = {
     stageText: 'eli5:sources:stage-text',
     discard: 'eli5:sources:discard',
     discardDraft: 'eli5:sources:discard-draft',
+    /** Preload-only: paths of a trusted native drop, so jobs:start can refuse forged paths (06 §11). */
+    registerDrop: 'eli5:sources:register-drop',
   },
   auth: {
     status: 'eli5:auth:status',
@@ -204,6 +206,12 @@ export type SourceInput =
   | { id: string; kind: 'url'; origin: SourceOrigin; url: string }
   | { id: string; kind: 'text'; origin: 'paste'; stagedPath: string; markup: 'plain' | 'html'; preview: string }
   | { id: string; kind: 'image'; origin: 'paste'; stagedPath: string; mediaType: 'image/png'; preview: string };
+
+/** `eli5:sources:register-drop` result: main's opaque id for one dropped path (06 §11). */
+export interface DropRegistration {
+  inputId: string;
+  path: string;
+}
 
 export type AuthState = 'unavailable' | 'signed-out' | 'signing-in' | 'signed-in' | 'expired' | 'error';
 

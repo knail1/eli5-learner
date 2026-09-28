@@ -268,6 +268,7 @@ this table is corrected. Channel **names** are fixed here.
 | `eli5:sources:stage-text` | R→M | `{draftId; text; markup: 'plain'\|'html'}` | `SourceInput` | 03 §13 |
 | `eli5:sources:discard` | R→M | `{draftId; inputId}` | `void` | 03 §13 |
 | `eli5:sources:discard-draft` | R→M | `{draftId}` | `void` | 03 §13 |
+| `eli5:sources:register-drop` | R→M | `{paths: string[]}` (absolute; sent only by the app preload's capture-phase listener for a trusted `drop`) | `DropRegistration[]` (`{inputId, path}`). Main mints an opaque input id per path; file `SourceInput`s in `eli5:jobs:start` carry that id (the preload swaps it in), and main reads its own registered path, never the renderer's. An unknown id → `E_FORBIDDEN`; a successful start uses the ids up. File inputs from `eli5:sources:read-clipboard` get ids the same way | 06 §11 |
 | `eli5:auth:status` | R→M | — | `AuthStatus`; public: `{state:'unavailable'}` (HOOK-AUTH-01) | 03 §12 |
 | `eli5:auth:sign-in` | R→M | — | `AuthStatus`; public: `E_NOT_AVAILABLE_IN_EDITION` | 03 §12 |
 | `eli5:auth:sign-out` | R→M | — | `AuthStatus`; public: `E_NOT_AVAILABLE_IN_EDITION` | 03 §12 |

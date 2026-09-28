@@ -20,10 +20,32 @@ import { suggestedModels } from '../llm';
 import { ContextMenuRequest, handleContextMenu } from '../shell';
 import { log } from '../security';
 import { safeOpenExternal } from '../security';
-import { fail, makeHandle, NoPayload, WithWarnings, type HandlerRegistrar, type SenderIdentity } from './handle';
+import type { ClipboardPort } from '../sources';
+import { DropRegistry } from './drops';
+import {
+  fail,
+  makeHandle,
+  NoPayload,
+  WithWarnings,
+  type HandlerRegistrar,
+  type Register,
+  type SenderIdentity,
+} from './handle';
+import { registerJobsIpc, type JobsPort } from './jobs';
+import { registerLibraryIpc, type DocumentActions, type LibraryPort } from './library';
+import { registerSourcesIpc } from './sources';
 
-export { assertSender, toIpcError, IpcFailure, fail, makeHandle } from './handle';
+export { assertSender, toIpcError, IpcFailure, fail, makeHandle, NO_API_KEY } from './handle';
 export type { SenderIdentity, HandlerRegistrar } from './handle';
+export { DropRegistry } from './drops';
+export { authorizeInputs } from './jobs';
+export type { JobsPort } from './jobs';
+export { docUrl, openInViewer } from './library';
+export { snapshotClipboard } from './clipboard';
+export { createQuitHandler, QUIT_BOUND_MS } from './quit';
+export type { QuitStep } from './quit';
+export type { AsyncClipboard } from './clipboard';
+export type { LibraryPort, DocumentActions } from './library';
 
 export interface IpcDeps {
   ipc: HandlerRegistrar;
@@ -37,6 +59,22 @@ export interface IpcDeps {
   };
   /** Push an event to the app renderer. */
   sendToApp(channel: IpcChannel, payload: unknown): void;
+  /** 06 JobQueue (M2). */
+  jobs: JobsPort;
+  /** 09 FsLibrary. */
+  library: LibraryPort;
+  /** Viewer load and Finder reveal for `eli5:library:open` / `reveal`. */
+  documents: DocumentActions;
+  /** 03 §13 draft staging root and the clipboard; `drops` defaults to a fresh registry. */
+  sources: { userData: string; clipboard: () => ClipboardPort | Promise<ClipboardPort>; drops?: DropRegistry };
+  /** 01 §6.2 pre-check for `eli5:jobs:start`: false yields E_NO_API_KEY. */
+  apiKeyReady(): Promise<boolean>;
+}
+
+/** 01 §6.2: the Keychain holds a key for `provider`; providers without a Keychain key need none. */
+export async function providerKeyPresent(provider: string, keyStore: Pick<KeyStore, 'has'>): Promise<boolean> {
+  if (provider !== 'claude' && provider !== 'openai') return true;
+  return keyStore.has(account(provider));
 }
 
 const Bounds = z.object({
@@ -47,18 +85,23 @@ const Bounds = z.object({
 });
 const KeyProvider = z.enum(['claude', 'openai']);
 
-/** Registers every channel in 01 §5.2. Channels owned by later milestones answer "not implemented". */
-export function registerIpc(d: IpcDeps): void {
+/**
+ * Registers every channel in 01 §5.2 and the M→R pushes. Channels owned by later milestones answer
+ * "not implemented". Returns a function that detaches the event subscriptions.
+ */
+export function registerIpc(d: IpcDeps): () => void {
   const handle = makeHandle(d.ipc, d.ids);
   const implemented = new Set<string>();
-  const on = <S extends z.ZodType, R>(
-    channel: IpcChannel,
-    schema: S,
-    fn: (p: z.infer<S>, e: Electron.IpcMainInvokeEvent) => Promise<R> | R,
-  ): void => {
+  const on: Register = (channel, schema, fn) => {
     implemented.add(channel);
     handle(channel, VIEWER_CHANNELS.includes(channel) ? 'viewer' : 'app', schema, fn);
   };
+  const drops = d.sources.drops ?? new DropRegistry();
+
+  // ---- jobs (06 §11), sources (03 §13), library (09 §11) ----
+  registerJobsIpc(on, { jobs: d.jobs, drops, userData: d.sources.userData, apiKeyReady: d.apiKeyReady });
+  registerSourcesIpc(on, { userData: d.sources.userData, clipboard: d.sources.clipboard, drops });
+  registerLibraryIpc(on, { library: d.library, documents: d.documents });
 
   // ---- settings (12 §5) ----
   on(IPC.settings.get, NoPayload, (): Settings => d.settings.get());
@@ -127,7 +170,15 @@ export function registerIpc(d: IpcDeps): void {
     );
   }
 
-  d.settings.onChanged((settings, changed) => d.sendToApp(IPC.settings.changed, { changed, settings }));
+  // ---- M→R pushes: only ever sent to the app renderer (sendToApp) ----
+  const subs = [
+    d.jobs.on('changed', (s) => d.sendToApp(IPC.jobs.changed, s)),
+    d.library.on('changed', () => d.sendToApp(IPC.library.changed, { entries: d.library.list() })),
+    d.settings.onChanged((settings, changed) => d.sendToApp(IPC.settings.changed, { changed, settings })),
+  ];
+  return () => {
+    for (const off of subs.splice(0)) off();
+  };
 }
 
 /** Event channels (M→R, M→D) are not invokable. */
