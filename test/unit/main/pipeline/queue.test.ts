@@ -189,7 +189,7 @@ describe('a create job end to end (06 §3.2, §5, §6)', () => {
       warnings: [],
     });
     expect(meta.generation.prompts).toEqual(
-      expect.arrayContaining(['in-depth@1', 'eli5@1', 'glossary@2', 'summary@1']),
+      expect.arrayContaining(['in-depth@1', 'eli5@2', 'glossary@2', 'summary@1']),
     );
     const html = await readFile(h.lib.docPath(slug), 'utf8');
     expect(validateDocument(html, meta).errors).toEqual([]);

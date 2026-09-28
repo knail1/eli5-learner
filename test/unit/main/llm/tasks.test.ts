@@ -73,6 +73,10 @@ describe('task functions (02 §12) with FakeProvider and the default script', ()
     expect(indepth.prompt).toBe('in-depth@1');
     const eli5 = await tasks.generateEli5(p, ctx);
     expect(eli5.draft.kind).toBe('eli5');
+    expect(eli5.prompt).toBe('eli5@2');
+    // The ELI5 view is picture-first: one illustrated diagram per section (user request).
+    const eli5System = fake.calls.find((c) => c.taskId === 'eli5')?.system ?? '';
+    expect(eli5System).toMatch(/every section gets one illustrated `diagram`/i);
     const glossary = await tasks.generateGlossary(indepth.draft, ctx);
     expect(glossary.draft.entries.length).toBeGreaterThan(0);
     expect(glossary.prompt).toBe('glossary@2');

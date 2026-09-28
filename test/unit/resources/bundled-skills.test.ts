@@ -29,6 +29,12 @@ describe('bundled skills', () => {
 
   it('carry the vendored upstream guidance', () => {
     expect(lib.forSlot('eli5')?.body).toMatch(/big pictures, few words/i);
+    // The user wants real pictures in ELI5 tabs, the way young children like them: an illustrated
+    // `diagram` (inline SVG) in every section, not only charts or steppers.
+    const eli5 = lib.forSlot('eli5')?.body ?? '';
+    expect(eli5).toMatch(/every section/i);
+    expect(eli5).toMatch(/`diagram`/);
+    expect(eli5).toMatch(/picture book/i);
     expect(lib.forSlot('beautiful-doc')?.body).toMatch(/html-effectiveness/);
   });
 
