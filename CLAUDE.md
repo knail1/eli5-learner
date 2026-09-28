@@ -75,7 +75,8 @@ Node 22.12+ (Electron 44's installer needs it; `postinstall` downloads the Elect
 - `npm run typecheck`, `npm run lint`, `npm test` (Vitest, offline), `npm run test:e2e` (test build,
   then Playwright: e2e, startup, cross-browser), `npm run test:crossbrowser`, `npm run check:spec`
 - `npm run check:hygiene -- --out out --package`, `npm run check:licenses`, `npm run check:editions`
-- `npm run package:arm64` (unsigned dmg in `release/`), then `npm run test:package`
+- `scripts/build.sh [--check] [--clean] [--open]` builds the unsigned app and dmg in `release/`
+  (wraps `npm run package:arm64`); then `npm run test:package`
 - `npm run eval` spends real money (real providers); never run it without being asked
 - Enterprise mechanism check: `ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=test/fixtures/overlay-fake npx electron-vite build --config config/electron.vite.config.ts` (or `npm run check:editions`)
 

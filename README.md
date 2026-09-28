@@ -112,6 +112,16 @@ interactive reading, the library, local publishing, and the test, CI and packagi
 
 ### Packaging (macOS)
 
+The quickest way to build the app for your Mac:
+
+```sh
+scripts/build.sh            # installs dependencies if needed, then builds the unsigned .app and .dmg
+scripts/build.sh --check    # run typecheck, lint and unit tests first
+scripts/build.sh --clean --open   # clean build, then open the app
+```
+
+The same steps by hand:
+
 ```sh
 npm run package:arm64      # clean build, then an unsigned arm64 dmg
 npm run test:package       # optional: check the packaged app
