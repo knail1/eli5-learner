@@ -14,6 +14,21 @@ Drop in source material, optionally type a few clarifying specifics, hit Enter, 
 
 The document opens in the app's viewer and in any browser.
 
+### From a web page to an explainer
+
+Start from a link. This article on cybernews.com blocks automated downloads: a plain HTTP request,
+such as `curl` or any scripted fetcher, gets **403 Forbidden**, even when it pretends to be a
+browser.
+
+<img src="images/website_that_blocks_bots.png" alt="The source article on cybernews.com, 'Hackers breach Arizona court system, steal data on many Arizonans', as it appears in a normal browser" width="820">
+
+ELI5 Learner still gets it. When a plain fetch is refused or comes back empty, the app loads the page
+in a **hidden Chromium window**, the browser engine that already ships inside the Electron app. The page renders
+exactly as it would in your browser, and the app reads the article from the rendered page. There's
+no extra browser to install, and no login.
+
+Paste the link, press Start, and a few minutes later the explainer is in your Library:
+
 <img src="images/main_screen.png" alt="The main window: the Library sidebar on the left, an In depth explainer in the viewer, and the input zone at the bottom with drop area, URL field, specifics and Start" width="820">
 
 The ELI5 tab rebuilds the same material in plain words, with analogies and pictures:
@@ -61,7 +76,7 @@ sources ──▶ resolve & extract ──▶ LLM generation ──▶ docs/<top
                                                   merge-suggestion check
 ```
 
-- **URL fetching:** first a plain HTTP fetch with Readability-style extraction. If that comes back empty, the app renders the page in a hidden Electron window. There's no Puppeteer and no extra Chromium download.
+- **URL fetching:** first a plain HTTP fetch with Readability-style extraction. If that comes back empty, looks like a bot challenge, or is refused (403 or 429), the app renders the page in a hidden Electron window. There's no Puppeteer and no extra Chromium download.
 - **Stable section IDs:** every section of every tab has a stable ID, so one section can be regenerated without touching the rest of the file.
 - **Local storage:** documents live in the app's `docs/` folder. That folder is git-ignored because it's built from your own source material.
 
