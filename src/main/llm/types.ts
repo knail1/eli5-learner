@@ -19,7 +19,8 @@ export type PromptId =
   | 'section-eli5-tab'
   | 'summary'
   | 'merge-match'
-  | 'photo-pick';
+  | 'photo-pick'
+  | 'merge-weave';
 
 export const PROMPT_IDS: readonly PromptId[] = [
   'in-depth',
@@ -34,6 +35,7 @@ export const PROMPT_IDS: readonly PromptId[] = [
   'summary',
   'merge-match',
   'photo-pick',
+  'merge-weave',
 ];
 
 /** Image content part of a user message (02 §3). */

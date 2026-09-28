@@ -8,7 +8,7 @@ export { LexicalScorer, STOPWORDS, stem, tokenize } from './similarity';
 export type { SimilarityScorer } from './similarity';
 export { createMergeSuggestions, SUGGESTIONS_FILE } from './engine';
 export type {
-  AppendMerged,
+  WeaveMerged,
   MergeJudge,
   MergeSuggestionsHandle,
   MergeSuggestionsOptions,

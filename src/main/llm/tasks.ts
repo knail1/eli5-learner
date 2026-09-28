@@ -25,6 +25,7 @@ import type {
   GlossaryDraft,
   MergeMatchDraft,
   PhotoPickDraft,
+  MergePlanDraft,
   SectionDraft,
   SummaryDraft,
 } from './schemas/draft';
@@ -98,6 +99,19 @@ export interface MergeCandidate {
   summary: string;
 }
 
+/** Input to `weaveMerge` (09 §10.3): both documents serialized by 07 §8.1 `prepareMergeWeave`. */
+export interface MergeWeaveInput {
+  targetTitle: string;
+  incomingTitle: string;
+  /** The existing document: aliased sections (I1…, E1…) with numbered blocks, glossary, sources. */
+  target: string;
+  /** The incoming document: aliased sections (X1…, Y1…) with numbered blocks and its sources. */
+  incoming: string;
+  /** Figure labels a written `figure` block may use. */
+  imageLabels: string[];
+  signal?: AbortSignal;
+}
+
 export interface TaskDeps {
   /** The active provider (registry.llm()); resolved per call so settings changes apply. */
   provider: () => LLMProvider;
@@ -160,7 +174,7 @@ const CONTENT_MODE = {
 function skillTask(id: PromptId): SkillTask | undefined {
   if (id === 'in-depth') return 'indepth';
   if (id === 'eli5') return 'eli5';
-  return id.startsWith('section-') ? 'section' : undefined;
+  return id.startsWith('section-') || id === 'merge-weave' ? 'section' : undefined;
 }
 
 // ---- text helpers ----
@@ -257,10 +271,14 @@ export interface LlmTasks {
     images: ImageInput[];
     signal: AbortSignal;
   }): Promise<StepResult<PhotoPickDraft>>;
+  /** 09 §10.3: the edit plan that weaves an incoming document into an existing one. */
+  weaveMerge(input: MergeWeaveInput): Promise<StepResult<MergePlanDraft>>;
 }
 
 interface RunOpts {
   images?: ImageInput[];
+  /** Figure labels valid without sending the image (merge plans reuse embedded images). */
+  labels?: readonly string[];
   signal?: AbortSignal;
   onRetry?: StepCtx['onRetry'];
 }
@@ -310,7 +328,7 @@ export function createTasks(deps: TaskDeps): LlmTasks {
       GenerationRequest,
       'jsonSchema'
     >;
-    const labels = new Set((opts.images ?? []).map((i) => i.label));
+    const labels = new Set([...(opts.images ?? []).map((i) => i.label), ...(opts.labels ?? [])]);
     const r = await generateStructured({
       provider,
       request: filtered,
@@ -673,6 +691,21 @@ export function createTasks(deps: TaskDeps): LlmTasks {
       const known = new Set(top.map((c) => c.catalogId));
       const matches = r.data.matches.filter((m) => known.has(m.catalogId)).sort((a, b) => b.score - a.score);
       return { matches };
+    },
+
+    async weaveMerge(input) {
+      const r = await run<MergePlanDraft>(
+        'merge-weave',
+        {
+          targetTitle: input.targetTitle,
+          incomingTitle: input.incomingTitle,
+          target: wrapSource('existing explainer', input.target),
+          incoming: wrapSource('incoming document', input.incoming),
+          imageLabels: input.imageLabels.map((l) => `- ${l}`).join('\n'),
+        },
+        { labels: input.imageLabels, ...(input.signal ? { signal: input.signal } : {}) },
+      );
+      return { draft: r.data, usage: r.usage, prompt: r.tag };
     },
   };
 }

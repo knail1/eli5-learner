@@ -915,7 +915,6 @@ work plugs into:
 | Google Drive publishing | Not built | A new `Publisher` implementation registered with `registerPublisher` (10 §3.1) |
 | NotebookLM linking | Not built | A new `Publisher` implementation (10 §3.1) |
 | Git style version history per section (view, diff, roll back) | Not built | `SectionId` stability plus the per-document actions log (08 §10) |
-| Intelligent merge that weaves new material into existing sections | Append-only merge | `appendMergedDocument` (09 §10.3) is the replacement point |
 | Moving documents into other monorepo projects / choosing a destination project per document | Single library root | `resolveLibraryRoot` (09 §3) |
 | Any authentication or login flows | Permanent in v1 (public build) | Enterprise only, through the MCP server (HOOK-AUTH-01) |
 | Speech to text and audio input | Removed in all editions | None |

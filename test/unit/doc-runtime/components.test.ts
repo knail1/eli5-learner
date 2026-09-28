@@ -33,6 +33,53 @@ describe('theme toggle (07 §11.2)', () => {
   });
 });
 
+describe('merge highlights toggle (07 §6.4)', () => {
+  const KEY = 'eli5.enh.11111111-1111-4111-8111-111111111111';
+
+  it('shows highlights by default, hides them on click and remembers it per document', () => {
+    const { win, doc } = loadGolden('merged');
+    const btn = doc.querySelector<HTMLButtonElement>('.enh-toggle');
+    expect(btn?.hidden).toBe(true); // no JS: highlights visible, no toggle
+    expect(doc.querySelectorAll('ins.enh[data-merge="m1"]').length).toBeGreaterThan(0);
+    boot(win, doc);
+    expect(btn?.hidden).toBe(false);
+    expect(doc.documentElement.hasAttribute('data-hide-enh')).toBe(false);
+    btn?.click();
+    expect(doc.documentElement.hasAttribute('data-hide-enh')).toBe(true);
+    expect(btn?.textContent).toBe('Show highlights');
+    expect(btn?.getAttribute('aria-pressed')).toBe('true');
+    expect(win.localStorage.getItem(KEY)).toBe('hidden');
+    btn?.click();
+    expect(doc.documentElement.hasAttribute('data-hide-enh')).toBe(false);
+    expect(win.localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it('applies a stored choice on boot and survives blocked storage', () => {
+    const a = loadGolden('merged');
+    a.win.localStorage.setItem(KEY, 'hidden');
+    boot(a.win, a.doc);
+    expect(a.doc.documentElement.hasAttribute('data-hide-enh')).toBe(true);
+    const b = loadGolden('merged');
+    Object.defineProperty(b.win, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new Error('blocked');
+      },
+    });
+    boot(b.win, b.doc);
+    const btn = b.doc.querySelector<HTMLButtonElement>('.enh-toggle');
+    btn?.click();
+    expect(b.doc.documentElement.hasAttribute('data-hide-enh')).toBe(true);
+  });
+
+  it('is absent from documents without merges', () => {
+    const { win, doc } = loadGolden('full');
+    boot(win, doc);
+    expect(doc.querySelector('.enh-legend')).toBeNull();
+    expect(doc.documentElement.hasAttribute('data-hide-enh')).toBe(false);
+  });
+});
+
 describe('stepper (07 §7.1)', () => {
   it('numbers each step from its own data-step, not a CSS counter', () => {
     // Hidden steps are display:none and skip counter-increment, so a counter shows "1" on every

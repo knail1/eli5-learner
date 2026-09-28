@@ -69,6 +69,7 @@ export const PROMPT_VARS: Readonly<Record<PromptId, readonly string[]>> = {
   summary: ['title', 'outline', 'indepthExcerpt'],
   'merge-match': ['summary', 'candidates'],
   'photo-pick': ['slots'],
+  'merge-weave': ['skills', 'targetTitle', 'incomingTitle', 'target', 'incoming', 'imageLabels'],
 };
 
 export class PromptError extends Error {

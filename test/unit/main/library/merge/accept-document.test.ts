@@ -1,88 +1,125 @@
 import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  appendMergedDocument,
-  buildDocumentModel,
   parseDocument,
-  renderDocument,
+  weaveMergedDocument,
   type DocumentModel,
+  type MergePlanner,
 } from '../../../../../src/main/document';
-import { createMergeSuggestions, type DocumentMeta, type MergeJudge } from '../../../../../src/main/library';
-import { INDEPTH_DRAFT, RESOLVED, SKIPPED, fixtureInput } from '../../../../fixtures/documents/drafts';
+import {
+  createMergeSuggestions,
+  quoteLabel,
+  type DocumentMeta,
+  type MergeJudge,
+} from '../../../../../src/main/library';
+import {
+  MERGED_AT,
+  MERGE_SOURCE_ID,
+  MERGE_SOURCE_TITLE,
+  MERGE_TARGET_ID,
+  WEAVE_PLAN,
+  mergeSource,
+  mergeTarget,
+} from '../../../../fixtures/documents/merge';
 import { STUB_RUNTIME } from '../../../../fixtures/documents/runtime';
 import { validateDocument } from '../../../../helpers/doc-validity';
 import { SeededIdSource } from '../../../../helpers/ids';
 import { makeMeta, testLibrary, writeDocFolder } from '../fixtures';
 
-/** Accept end to end with the real 07 §8.1 merge (09 §10.3, §10.6). Synthetic documents only. */
-
-const TARGET_ID = '11111111-1111-4111-8111-111111111111';
-const SOURCE_ID = '22222222-2222-4222-8222-222222222222';
-const TS = '2026-01-01T00:00:00.000Z';
-
-function doc(id: string, slug: string, title: string, seed: number): { html: string; meta: DocumentMeta } {
-  const { model, assets } = buildDocumentModel({
-    ...fixtureInput('full', seed),
-    docId: id,
-    slug,
-    indepth: { ...INDEPTH_DRAFT, title },
-  });
-  const html = renderDocument(model, assets, { runtime: STUB_RUNTIME });
-  const meta = makeMeta({
-    id,
-    topicSlug: slug,
-    title,
-    summary: `${title} at Example Widgets Inc.: return on ad spend for widget campaigns.`,
-    createdAt: id === TARGET_ID ? TS : '2026-01-02T00:00:00.000Z',
-    tabs: tabsOf(model),
-    sourcesUsed: RESOLVED.map((r) => ({
-      ref: r.resolverId === 'file' ? path.basename(r.location) : r.ref,
-      kind: r.resolverId === 'clipboard' ? 'clipboard' : r.resolverId === 'url' ? 'url' : 'file',
-    })),
-    sourcesSkipped: SKIPPED,
-  });
-  return { html, meta };
-}
+/** Accept end to end with the real woven merge and a mocked planner (09 §10.3, §10.6, §4.1). */
 
 const tabsOf = (m: DocumentModel): DocumentMeta['tabs'] =>
-  m.tabs.map((t) => ({ key: t.key, kind: t.kind, label: t.label, sectionCount: t.sections.length, createdAt: TS }));
+  m.tabs.map((t) => ({
+    key: t.key,
+    kind: t.kind,
+    label: t.label,
+    sectionCount: t.sections.length,
+    createdAt: MERGED_AT,
+  }));
 
-describe('accept with appendMergedDocument (09 §10.6)', () => {
-  it('writes a valid merged target whose meta matches the document, and opens it at the marker', async () => {
-    const { lib } = await testLibrary();
-    const target = doc(TARGET_ID, 'widget-ad-spend', 'Widget ad spend', 7);
-    const source = doc(SOURCE_ID, 'widget-roas', 'Widget ROAS', 7);
-    await writeDocFolder(lib.root, target.meta, target.html);
-    await writeDocFolder(lib.root, source.meta, source.html);
-    await lib.reconcile();
+async function setup() {
+  const { lib, clock } = await testLibrary();
+  const target = mergeTarget();
+  const source = mergeSource();
+  const targetMeta = makeMeta({
+    id: MERGE_TARGET_ID,
+    topicSlug: 'widget-ad-spend',
+    title: 'Widget ad spend',
+    summary: 'Widget ad spend at Example Widgets Inc.: return on ad spend for widget campaigns.',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    tabs: tabsOf(target.model),
+    sourcesUsed: [{ ref: 'widget-sales-q3.pptx', kind: 'file' }],
+  });
+  const sourceMeta = makeMeta({
+    id: MERGE_SOURCE_ID,
+    topicSlug: 'widget-returns',
+    title: MERGE_SOURCE_TITLE,
+    summary: 'Widget returns at Example Widgets Inc.: return on ad spend net of refunds.',
+    createdAt: '2026-01-02T00:00:00.000Z',
+    tabs: tabsOf(source.model),
+    sourcesUsed: [{ ref: 'https://www.example.org/widgets/returns', kind: 'url' }],
+  });
+  await writeDocFolder(lib.root, targetMeta, target.html);
+  await writeDocFolder(lib.root, sourceMeta, source.html);
+  await lib.reconcile();
+  const judge = vi.fn(async (_s: string, c: { catalogId: string }[]) => ({
+    matches: c.map((x) => ({ catalogId: x.catalogId, score: 0.92, reason: 'Both explain widget ROAS.' })),
+  })) as unknown as MergeJudge;
+  const planner = vi.fn(async () => ({ draft: WEAVE_PLAN, prompt: 'merge-weave@1' })) as MergePlanner &
+    ReturnType<typeof vi.fn>;
+  const h = createMergeSuggestions({
+    library: lib,
+    judge,
+    clock,
+    weaveMerged: (input) =>
+      weaveMergedDocument(input, planner, { runtime: STUB_RUNTIME, idSource: new SeededIdSource(3) }),
+  });
+  return { lib, h, target, planner };
+}
 
-    const judge = vi.fn(async (_s: string, c: { catalogId: string }[]) => ({
-      matches: c.map((x) => ({ catalogId: x.catalogId, score: 0.92, reason: 'Both explain widget ROAS.' })),
-    })) as unknown as MergeJudge;
-    const h = createMergeSuggestions({
-      library: lib,
-      judge,
-      appendMerged: (input) => appendMergedDocument(input, { runtime: STUB_RUNTIME, idSource: new SeededIdSource(3) }),
-    });
-    const sug = await h.runMergeCheck(SOURCE_ID);
-    expect(sug?.target.id).toBe(TARGET_ID);
+describe('accept with the woven merge (09 §10.6)', () => {
+  it('writes a valid enhanced target whose meta matches, and opens it at the first enhanced section', async () => {
+    const { lib, h, planner } = await setup();
+    const sug = await h.runMergeCheck(MERGE_SOURCE_ID);
+    expect(sug?.target.id).toBe(MERGE_TARGET_ID);
     const updated = vi.fn();
     h.service.onDocUpdated(updated);
 
     expect(await h.service.accept(sug?.id ?? '')).toEqual({ targetSlug: 'widget-ad-spend' });
+    expect(planner).toHaveBeenCalledTimes(1);
 
     const html = await readFile(lib.docPath('widget-ad-spend'), 'utf8');
     const meta = await lib.getMeta('widget-ad-spend');
     expect(validateDocument(html, meta).errors).toEqual([]);
     const model = parseDocument(html).model;
-    expect(model.docId).toBe(TARGET_ID);
+    expect(model.docId).toBe(MERGE_TARGET_ID);
     expect(meta.tabs.map((t) => t.key)).toEqual(model.tabs.map((t) => t.key));
-    const marker = meta.merges[0]?.anchorSectionIds[0];
-    const markerSection = model.tabs[0]?.sections.find((x) => x.id === marker);
-    expect(markerSection?.heading).toBe('Added from: Widget ROAS');
-    expect(markerSection?.mergeMarker?.suggestionId).toBe(sug?.id);
-    expect(updated).toHaveBeenCalledWith({ slug: 'widget-ad-spend', sectionId: marker, tabKey: 'indepth' });
-    expect(lib.list().map((e) => e.id)).toEqual([TARGET_ID]);
+    expect(meta.tabs.map((t) => t.sectionCount)).toEqual(model.tabs.map((t) => t.sections.length));
+    // Both tabs changed, with marks; no appended "Added from" block.
+    expect(html).toContain('<ins class="enh" data-merge="m1"');
+    expect(html).not.toContain('Added from:');
+    expect(model.tabs[1]?.sections.some((s) => s.enh)).toBe(true);
+    const first = meta.merges[0]?.anchorSectionIds[0];
+    expect(first).toBe(model.tabs[0]?.sections[0]?.id);
+    expect(meta.merges[0]).toMatchObject({ sourceDocId: MERGE_SOURCE_ID, sourceTitle: MERGE_SOURCE_TITLE });
+    expect(meta.generation.prompts).toContain('merge-weave@1');
+    expect(updated).toHaveBeenCalledWith({ slug: 'widget-ad-spend', sectionId: first, tabKey: 'indepth' });
+    // The merged-away document went to the library's trash.
+    expect(lib.list().map((e) => e.id)).toEqual([MERGE_TARGET_ID]);
+  });
+
+  it('one Undo restores the pre-merge document (09 §4.1)', async () => {
+    const { lib, h, target } = await setup();
+    const sug = await h.runMergeCheck(MERGE_SOURCE_ID);
+    await h.service.accept(sug?.id ?? '');
+    expect(await lib.history('widget-ad-spend')).toEqual({
+      canUndo: true,
+      canRedo: false,
+      undoLabel: `merged '${quoteLabel(MERGE_SOURCE_TITLE)}' in`,
+    });
+    await lib.undo('widget-ad-spend');
+    expect(await readFile(lib.docPath('widget-ad-spend'), 'utf8')).toBe(target.html);
+    expect((await lib.getMeta('widget-ad-spend')).merges).toEqual([]);
+    expect(await lib.history('widget-ad-spend')).toMatchObject({ canUndo: false, canRedo: true });
   });
 });

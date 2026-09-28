@@ -217,6 +217,80 @@
     },
     "photo-pick": {
       "picks": []
+    },
+    "merge-weave": {
+      "indepth": {
+        "revise": [
+          {
+            "section": "I1",
+            "heading": "Why the plan matters",
+            "blocks": [
+              {
+                "type": "paragraph",
+                "md": "Example Widgets Inc. sells **widgets** through three channels, and online is now the fastest-growing one. Its supply plan decides how many to build each quarter, and a bad plan either strands cash in inventory or leaves shelves empty."
+              },
+              {
+                "type": "keep",
+                "block": 1
+              }
+            ]
+          }
+        ],
+        "insert": [
+          {
+            "after": "I2",
+            "heading": "Returns change the math",
+            "blocks": [
+              {
+                "type": "paragraph",
+                "md": "About 6% of online orders come back, so the plan now tracks the **sell-through rate**: widgets kept by buyers, not just widgets shipped."
+              },
+              {
+                "type": "incoming",
+                "section": "X2",
+                "block": 1
+              }
+            ]
+          }
+        ]
+      },
+      "eli5": {
+        "revise": [
+          {
+            "section": "E1",
+            "heading": "Guessing how many to make",
+            "blocks": [
+              {
+                "type": "keep",
+                "block": 0
+              },
+              {
+                "type": "paragraph",
+                "md": "Example Widgets Inc. has to guess how many widgets people will buy before they buy them, and more people now shop online."
+              }
+            ]
+          }
+        ],
+        "insert": [
+          {
+            "after": "E2",
+            "heading": "When widgets come back",
+            "blocks": [
+              {
+                "type": "paragraph",
+                "md": "Sometimes people send a widget back. The company counts those too, so it does not make too many."
+              }
+            ]
+          }
+        ]
+      },
+      "glossary": [
+        {
+          "term": "Sell-through rate",
+          "explanation": "The share of shipped widgets that buyers keep.",
+          "anchorText": "sell-through rate"
+        }
+      ]
     }
   }
 }

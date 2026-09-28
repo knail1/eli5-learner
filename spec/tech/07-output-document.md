@@ -22,7 +22,7 @@ Related: [01-architecture.md](01-architecture.md) · [02-llm-provider.md](02-llm
 | `DocumentModel`, `Tab`, `Section`, `SectionId`, `DocBlock`, `GlossaryNote`, `ReferenceEntry` | `DocumentDraftTab`, `SectionDraft`, `DraftBlock`, `ChartSpec`, `GlossaryDraft` JSON schemas ([02](02-llm-provider.md) §10) |
 | Draft → model conversion, semantic validation, sanitization of SVG and inline markdown | Prompt text, schema validation and repair loop ([02](02-llm-provider.md)) |
 | Deterministic rendering model → `index.html`; parsing `index.html` → model | Writing files, locks, staging, atomic rename ([06](06-generation-pipeline.md) §5.7, [09](09-library-storage.md)) |
-| Section ID minting, tab add/remove, section replace, merge append primitives | Deciding when to regenerate, merge, or delete a tab ([08](08-interactive-reading.md), [09](09-library-storage.md)) |
+| Section ID minting, tab add/remove, section replace, woven merge (apply a merge plan, enhancement marks) | Deciding when to regenerate, merge, or delete a tab ([08](08-interactive-reading.md), [09](09-library-storage.md)) |
 | `src/doc-runtime/` tabs, glossary layout, chart enhancement, stepper, theme, print | Selection bridge and action menu inside doc-runtime ([08](08-interactive-reading.md)); `window.eli5Doc` preload ([01](01-architecture.md) §5) |
 
 The model never returns HTML. All markup in `index.html` is produced by the renderer in this module,
@@ -80,7 +80,10 @@ export interface DocumentModel {
   references: ReferenceEntry[];   // rendered as the last in-depth section
   assets: AssetRef[];             // images used by figure blocks (bytes live in the HTML, 5.6)
   theme: DocThemeRef;             // which theme tokens were applied (section 11)
+  merges?: MergeLegendEntry[];    // woven merges, oldest first: one legend line each (6.4)
 }
+
+export interface MergeLegendEntry { id: string; fromTitle: string; mergedAt: string }  // id 'm1', 'm2', …
 
 export interface Tab {
   key: string;                    // 'indepth' | 'eli5' | 'sx' + 6 hex (section ELI5)
@@ -100,10 +103,18 @@ export interface Section {
   origin: 'generated' | 'regenerated' | 'merged' | 'merge-marker' | 'placeholder';
   updatedAt: string;
   lastAction?: 'expand' | 'reexplain' | 'analogy' | 'deeper';
-  merge?: { fromDocId: string; fromTitle: string; mergedAt: string };   // moved sections -> data-merged-from
+  merge?: { fromDocId: string; fromTitle: string; mergedAt: string };   // sections a merge inserted -> data-merged-from
+  enh?: SectionEnhancement;       // woven-merge highlights (6.4); dropped when the section is regenerated
   mergeMarker?: { suggestionId: string; fromDocId: string; fromTitle: string; mergedAt: string;
-                  sourceRefs: string[] };   // marker sections only -> data-merge-marker (8.1)
+                  sourceRefs: string[] };   // legacy appended merges only (rendered, never created)
 }
+
+// 6.4: inserted text as [start, end) offsets into the plain text (inlineText) of one inline string.
+export interface EnhRange { merge: string; start: number; end: number }
+export type BlockEnhancement =
+  | { block: number; kind: 'new' | 'updated'; merge: string }      // whole block added / visual changed
+  | { block: number; kind: 'text'; parts: EnhRange[][] };           // per inline string of the block
+export interface SectionEnhancement { added?: string; blocks: BlockEnhancement[] }  // added: whole section new
 
 // DraftBlock (02 §10) with figures resolved to assets; every other variant is identical.
 export type DocBlock =
@@ -132,7 +143,7 @@ export interface ReferenceEntry {
   href?: string;                  // http(s) only
   detail?: string;                // e.g. "PowerPoint, 24 slides", "fetched via hidden window"
   reason?: string;                // skipped only: human-readable, from SkippedSource.reason
-  addedBy?: { mergeFromTitle: string; mergedAt: string };
+  addedBy?: { mergeFromTitle: string; mergedAt: string; mergeId?: string };
 }
 
 export interface DocThemeRef { id: string; version: string; source: 'default' | 'skill' | 'overlay' }
@@ -174,7 +185,7 @@ contain a bare number as the whole name (PRD "Section ELI5 tabs").
 | Regenerate section in place ([08](08-interactive-reading.md)) | ID unchanged; `origin='regenerated'`, `updatedAt` bumped |
 | Add Section ELI5 tab | New tab key, new IDs for its sections; no existing ID changes |
 | Close Section ELI5 tab | Its IDs are removed and never reused in this document (kept in `retiredIds` of `meta.json`, [09](09-library-storage.md)) |
-| Merge append ([09](09-library-storage.md) §10.3) | Target IDs unchanged. Every incoming section gets a freshly minted SectionId under the target tab key (`sec-<tabkey>-<8 hex>`), with a collision check against the whole target document. `appendMergedDocument` returns `idMap` (old → new), which is used only to re-anchor glossary notes. Moved sections carry `data-merged-from="<sourceDocId>"`. Each marker section gets its own fresh ID |
+| Woven merge ([09](09-library-storage.md) §10.3) | Target IDs unchanged: a revised section keeps its ID. Every inserted section gets a freshly minted SectionId under the target tab key (`sec-<tabkey>-<8 hex>`), checked against the whole target document and its `retiredIds`, and carries `data-merged-from="<sourceDocId>"`. Source SectionIds never enter the target |
 | Re-render with a newer runtime | IDs unchanged |
 | Glossary re-anchor | IDs unchanged |
 
@@ -324,11 +335,10 @@ Rules:
   enclosing section from a selection (`closest('section[data-section-id]')`).
 - `data-eli5-actionable="false"` on the references section and absent on header/footer: the
   selection menu ([08](08-interactive-reading.md)) does not open there.
-- Moved (merged) sections carry `data-merged-from="{fromDocId}"` on their `<section>` and no
-  banner. The visible "Added from" banner is a separate **marker section** (8.1):
-  `<section id=… data-section-id=… data-merge-marker="{suggestionId}" class="merge-marker">` with
-  heading "Added from: {fromTitle}" and a line "Merged on {date}. Originally generated from:
-  {source refs}". It is an ordinary actionable section.
+- Sections a merge inserted carry `data-merged-from="{fromDocId}"` on their `<section>`.
+  Enhancement marks and the legend follow 6.4. Documents written before woven merges may contain
+  legacy marker sections (`data-merge-marker`, class `merge-marker`, heading "Added from: …"); they
+  still render, and no new ones are created.
 
 ### 6.2 Content Security Policy
 
@@ -360,6 +370,49 @@ The same file must work in the app viewer and when double-clicked in Chrome, Saf
 - External links: `target="_blank" rel="noopener noreferrer"`. In the app, the runtime intercepts
   clicks and calls `window.eli5Doc.openExternal(url)`.
 
+### 6.4 Merge enhancements: highlights, legend, references
+
+A woven merge ([09](09-library-storage.md) §10.3) marks what it changed. The model never marks
+spans; `enhance.ts` computes the marks when the plan is applied (8.1):
+
+- **Diff granularity.** A revised section's blocks are paired with the blocks they replace: `keep`
+  blocks by index, written blocks by text similarity (Dice over the word LCS, at least 0.35) with
+  an identical block counting as unchanged. Text blocks are diffed word by word over their plain
+  text (`inlineText`, so markup changes never count) per inline string: paragraph, callout and
+  analogy (one string), list (one per item, items aligned by similarity), stepper (one per step
+  body). Inserted runs become `EnhRange`s; runs of only punctuation are dropped and edge
+  punctuation is trimmed. A diff larger than 250,000 cells marks the middle as wholly new.
+- **Block and section marks.** An `incoming` block or a written block with no counterpart is
+  `kind: 'new'`; a changed non-text block (table, chart, figure, diagram, pullquote) is
+  `'updated'`; an inserted section has `enh.added`.
+- **Several merges.** Each merge has a legend id (`m1`, `m2`, … in `DocumentModel.merges`). The
+  ranges of earlier merges are carried through the words a later merge left unchanged, so every
+  mark keeps its own merge id. Regenerating a section (08) drops its marks; that is accepted.
+
+Markup (all attributes in fixed order; everything passes 13 §7 validity, the CSP and axe):
+
+- Inserted text: `<ins class="enh" data-merge="m1" title="Enhanced on 28 Sep 2026 with material
+  from {title}">…</ins>`, split at `<dfn>`, bold and italic boundaries; a code span or link that
+  overlaps a range is wrapped whole.
+- Whole block: `data-enh="new"|"updated" data-merge="m1" title="…"` on the block's root element.
+- Inserted section: `data-enh="new" data-merge="m1"` on the `<section>`.
+- Legend, in the header after the meta line (so it shows above every tab), only when `merges` is
+  not empty: `<div class="enh-legend" data-doc-id="{docId}">`, one `<p class="enh-legend-line"
+  data-merge="m1">` per merge with a swatch `<span class="enh-swatch" aria-hidden="true">` and the
+  text "Enhanced on {date} with material from <cite>{title}</cite>", then
+  `<button type="button" class="enh-toggle" aria-pressed="false" hidden>Hide highlights</button>`.
+- References: merged sources (7.1 "Added by merge") carry `data-merge` and a swatch with
+  "Added in merge on {date} from {title}" (10).
+
+Style (`index.css`, runtime-only tokens, not themeable): `--enh` violet (`#5e2596` light,
+`#d7b6ff` dark) and `--enh-bg` (`#e9dbfa` / `#35274c`); text on the tint is at least 7:1 in both
+themes. The hue is distinct from the accent and link (blue), glossary (gold), highlight (yellow)
+and callout colors. Color is never the only cue: inserted text is also underlined and tinted, and
+block and section marks add a left rule plus a "New" / "Updated" text tag (CSS generated). Print
+keeps the marks (`print-color-adjust: exact`) and hides the toggle. Highlights are visible without
+JS; the runtime shows the toggle, which sets `data-hide-enh` on `<html>` and remembers the choice
+per document in `localStorage` (`eli5.enh.<docId>`, access wrapped in try/catch).
+
 ## 7. Visual components catalogue
 
 The quality bar is WSJ explanatory journalism (PRD "In depth tab: visual quality bar"). The model
@@ -384,8 +437,8 @@ translated into those choices by the prompt, never into raw HTML. Adding a compo
 | `stepper` | `<div class="stepper">` with ordered steps | A process with 3–8 stages | Prev/next buttons and step dots; all steps visible without JS and in print |
 | `analogy` | `<aside class="analogy">` with a "Think of it like" label | Mainly ELI5 and "Give me an analogy" actions | None |
 
-Page-level elements the renderer adds (not model blocks): kicker, `h1`, dek, meta line, tab bar,
-merge marker sections (8.1), references section, footer.
+Page-level elements the renderer adds (not model blocks): kicker, `h1`, dek, meta line, merge
+legend (6.4), tab bar, references section, footer.
 
 ### 7.2 Charts (`src/main/document/charts/`)
 
@@ -541,11 +594,18 @@ export function addSectionEli5Tab(model: DocumentModel, from: SectionId, selecti
   draft: DocumentDraftTab, now: string): { model: DocumentModel; tabKey: string };
 export function removeTab(model: DocumentModel, tabKey: string, now: string): DocumentModel;
 // src/main/document/merge.ts (contract required by 09 §10.3; TabRecord and DocumentMeta from 09)
-export function appendMergedDocument(input: {
+export function prepareMergeWeave(input: { targetHtml; targetMeta; sourceHtml; sourceMeta }): MergeWeavePrep;
+export function applyMergePlan(prep: MergeWeavePrep, plan: MergePlanDraft, opts: {
+  fromDocId: string; fromTitle: string; mergedAt: string; retiredIds?: readonly string[]; idSource?: IdSource;
+}): { model: DocumentModel; assets: Map<string, Uint8Array>; mergeId: string;
+      enhancedSectionIds: SectionId[]; warnings: string[] };
+export function weaveMergedDocument(input: {
   targetHtml: string; targetMeta: DocumentMeta;
   sourceHtml: string; sourceMeta: DocumentMeta;
-  suggestionId: string; mergedAt: string;
-}): { html: string; tabs: TabRecord[]; markerSectionIds: SectionId[]; idMap: Record<SectionId, SectionId> };
+  mergedAt: string; signal?: AbortSignal;
+}, planner: MergePlanner, opts?: { idSource?: IdSource; runtime?: DocRuntime }): Promise<{
+  html: string; tabs: TabRecord[]; markerSectionIds: SectionId[]; mergeId: string; prompt: string;
+  warnings: string[] }>;
 export class DocumentFormatError extends Error { code: 'no_model' | 'bad_version' | 'invalid_model' }
 export class DocumentBuildError extends Error { code: 'empty_indepth' | 'empty_tab' | 'empty_section' | 'invalid_merge' }  // empty_section: replaceSection got a draft with no valid blocks
 ```
@@ -562,44 +622,45 @@ All mutators are pure (return a new model); the caller renders and writes under
 - `replaceSection` throws on `kind === 'references'` and on unknown IDs. After replacing, it
   re-anchors glossary notes of that section (9.3).
 - `removeTab` accepts only `section-eli5` tabs; `indepth` and `eli5` cannot be removed.
-- `appendMergedDocument` (called by [09](09-library-storage.md) §10.6 on accept) is not pure over
-  models: it takes and returns HTML, and internally uses `parseDocument` and `renderDocument`. See 8.1.
+- `weaveMergedDocument` (called by [09](09-library-storage.md) §10.6 on accept) takes and returns
+  HTML and makes the one `merge-weave` call through the injected planner. `prepareMergeWeave` and
+  `applyMergePlan` are its pure halves (golden documents use them directly). See 8.1.
 
-### 8.1 Merge append algorithm (`merge.ts`)
+### 8.1 Woven merge algorithm (`merge.ts`)
 
-1. `parseDocument(targetHtml)` and `parseDocument(sourceHtml)`. A `DocumentFormatError` on either
-   propagates (09 maps it to `MERGE_FAILED`). Assets of both are combined (dedupe by `sha256`).
-2. Collect `used` = every SectionId in the target, plus the target's `retiredIds` from
-   `targetMeta` (4.3: closed IDs are never reused).
-3. For each tab key `k` in (`indepth`, `eli5`): mint a **marker section** ID `sec-<k>-<8 hex>`
-   with the 4.1 allocator, checked against `used` (add it to `used`). The marker section has
-   `kind='content'`, `origin='merge-marker'`, heading `Added from: {sourceMeta.title}`, one
-   paragraph block "Merged on {date}. Originally generated from: {source refs}" (labels from the
-   source's used references), and `mergeMarker = {suggestionId, fromDocId, fromTitle, mergedAt,
-   sourceRefs}`. It renders with `data-merge-marker="{suggestionId}"` and the runtime's banner style.
-4. For each source content section in that tab, in order: mint a **new** ID under the target tab
-   key `k` (collision-checked against `used`), record `idMap[oldId] = newId`, set
-   `origin='merged'`, `merge = {fromDocId: sourceMeta.id, fromTitle, mergedAt}` (renders
-   `data-merged-from`), and keep blocks unchanged.
-5. In-depth: insert the marker then the moved sections at the end of the target's in-depth tab,
-   **before** its references section. ELI5: append the marker then the moved sections to the target
-   ELI5 tab (if the target ELI5 tab is a placeholder, the placeholder section stays; the moved ones
-   follow it). If the source ELI5 tab is a placeholder, no ELI5 marker is added.
-6. Source section ELI5 tabs are carried over with fresh tab keys (`sx` + 6 hex) and fresh section
-   IDs (also recorded in `idMap`); `origin.sectionId` is rewritten through `idMap`; labels get a
-   ` (2)` suffix on collision. Tab limit applies (oldest carried tab dropped first, with a warning).
-7. Glossary: source notes anchored in moved in-depth sections are rewritten through `idMap`
-   (`sectionId`), then re-anchored (9.3). A term already defined in the target
-   (case-insensitive) is dropped from the moved copy.
-8. References: source used and skipped references are appended with `addedBy`; the references
-   section itself keeps its target ID.
-9. Set `updatedAt = mergedAt`, `renderDocument(merged, assets)`, and return `{html, tabs:
-   TabRecord[] in display order, markerSectionIds: [indepthMarker, eli5Marker?], idMap}`.
-   `markerSectionIds[0]` is always the in-depth marker (09 scrolls the viewer to it).
+1. `prepareMergeWeave`: `parseDocument` both files (a `DocumentFormatError` propagates; 09 maps it
+   to `MERGE_FAILED`); the same `docId` throws `DocumentBuildError('invalid_merge')`. Serialize
+   both documents for [02](02-llm-provider.md) `merge-weave`: target sections as `I1…` (in depth)
+   and `E1…` (ELI5), source sections as `X1…` and `Y1…`, each block as a numbered line (`b0`,
+   `b1`, …; charts with their data, tables with their rows, figures with their label), plus the
+   target's glossary terms and both documents' used sources. Section IDs never reach the prompt. A
+   placeholder ELI5 tab is marked "not available". Figure labels of the source that collide with
+   target labels are renamed; all labels are passed as the valid `figure` labels.
+2. The planner returns a `MergePlanDraft` (02 §10).
+3. `applyMergePlan`, per tab: each `revise` entry resolves its alias to a target content section
+   (unknown or duplicate → skipped, warning `merge-unknown-section`), turns its blocks into
+   `DocBlock`s (`keep` → the section's own block, `incoming` → the source block moved in with
+   figures re-pointed to the combined assets and colliding diagram id prefixes re-minted, written
+   blocks → 5.2 conversion), and replaces the section under the **same ID** with `updatedAt =
+   mergedAt` and the marks of 6.4. A revised ELI5 placeholder stops being one.
+4. Each `insert` entry gets a new ID under the tab key, checked against every target ID and
+   `retiredIds`, `origin='merged'`, `merge = {fromDocId, fromTitle, mergedAt}` and `enh.added`. It
+   goes after its anchor (plan order kept for one anchor; an unknown anchor means after the last
+   content section), never after the references section; the 40-section limit applies.
+5. Glossary: notes of revised in-depth sections are re-anchored (9.3); new plan terms not already
+   defined are placed (9.1) in the revised and inserted in-depth sections only, skipping anchors
+   that overlap an existing note; the 40-note cap applies.
+6. References: every source reference not already listed (same status, label and link) is appended
+   with `addedBy {mergeFromTitle, mergedAt, mergeId}`; the references section keeps its ID.
+7. `merges` gains `{id, fromTitle, mergedAt}`; `updatedAt = mergedAt`. Section ELI5 tabs of the
+   source are not carried over.
+8. `weaveMergedDocument` renders with the current runtime and returns the tab records in display
+   order and `markerSectionIds` = the revised and inserted sections, in-depth first (09 scrolls the
+   viewer to the first).
 
-Edge cases: a source with zero content sections in a tab yields no marker for that tab; a source
-that is the same `docId` as the target throws `DocumentBuildError('invalid_merge')`; the function
-never mutates target section IDs, so deep links into the target survive (4.3).
+Edge cases: a plan that changes nothing still records the merge (legend, references); a failed
+planner call rejects and nothing is rendered; the function never mutates target section IDs, so
+deep links into the target survive (4.3).
 
 ## 9. Glossary (in-depth tab only)
 
@@ -670,7 +731,8 @@ not actionable.
 Layout: an ordered list "Used" in input order, then a list "Skipped" (only if any), each item as
 `label — reason`, e.g. "pricing.example.com/login — page required login". Reasons come from
 `SkippedSource.reason` codes mapped to human strings by [03](03-source-resolvers.md); unknown codes
-render as "could not be read". Merged references appear in a third group "Added by merge". URLs
+render as "could not be read". Merged references appear in a third group "Added by merge", each
+with the enhancement swatch and "Added in merge on {date} from {title}" (6.4). URLs
 are shown as text and as a link; label text is escaped. When the document shows stock photos, a
 last group "Image credits" lists each one's credit (7.4) in asset order.
 
@@ -757,7 +819,7 @@ anything else is dropped with a warning. The theme is written into `#eli5-theme`
 
 1. Add `js` class; read theme preference; apply `data-theme`.
 2. `tabs.init()` (resolves hash), `glossary.init()`, `charts.init()`, `stepper.init()`,
-   `figure.init()`, `print.init()`.
+   `figure.init()`, `print.init()`, theme toggle, `enhancements.init()` (6.4 Hide highlights).
 3. If `window.eli5Doc` exists: `selection.init()` ([08](08-interactive-reading.md)), un-hide close
    buttons, `scroll.init()`, link interception.
 4. Every module is wrapped in `try/catch`; a failing module logs to the console and leaves the
@@ -824,11 +886,12 @@ anything else is dropped with a warning. The theme is written into `#eli5-theme`
 - [ ] Public build output contains no organization branding and no `kind:'org'` references; theme
       and reference rendering for the enterprise edition come only through HOOK-DOC-01 and
       HOOK-DOC-02.
-- [ ] `appendMergedDocument` fixture test: target IDs are byte-identical before and after; every
-      moved section has a new ID matching the 4.2 pattern with `data-merged-from`; `idMap` covers
-      every moved section; one marker section with `data-merge-marker` and heading "Added from:
-      {title}" precedes the moved sections in the in-depth tab (before references) and in the ELI5
-      tab; `markerSectionIds[0]` is the in-depth marker.
+- [ ] Woven merge fixture test: every target ID survives; revised sections keep their IDs and
+      inserted ones get new IDs matching 4.2 with `data-merged-from`, before the references
+      section; both tabs change; inserted words (and only those) are wrapped in `<ins class="enh">`,
+      new blocks and sections carry `data-enh`; the legend and merged references render; a second
+      merge gets `m2` and keeps the `m1` marks; the result validates and round-trips. A `merged`
+      golden covers the markup in the cross-browser and axe runs.
 - [ ] Chart and diagram marks in WebKit and Chromium (Playwright, `file://`, both themes) have a
       computed `fill` or `stroke` that is not the default (`rgb(0, 0, 0)` / `none` where a color was
       intended); no output SVG contains `var(` inside an attribute or a model-supplied `class`.

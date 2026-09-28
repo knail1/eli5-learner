@@ -38,6 +38,12 @@ export const DocBlockSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('analogy'), md: z.string() }),
 ]);
 
+const EnhRangeSchema = z.object({ merge: z.string(), start: z.number().int().min(0), end: z.number().int().min(0) });
+const BlockEnhancementSchema = z.discriminatedUnion('kind', [
+  z.object({ block: z.number().int().min(0), kind: z.enum(['new', 'updated']), merge: z.string() }),
+  z.object({ block: z.number().int().min(0), kind: z.literal('text'), parts: z.array(z.array(EnhRangeSchema)) }),
+]);
+
 const SectionSchema = z.object({
   id: SectionIdSchema,
   kind: z.enum(['content', 'references']),
@@ -47,6 +53,7 @@ const SectionSchema = z.object({
   updatedAt: z.string(),
   lastAction: z.enum(['expand', 'reexplain', 'analogy', 'deeper']).optional(),
   merge: z.object({ fromDocId: z.string(), fromTitle: z.string(), mergedAt: z.string() }).optional(),
+  enh: z.object({ added: z.string().optional(), blocks: z.array(BlockEnhancementSchema) }).optional(),
   mergeMarker: z
     .object({
       suggestionId: z.string(),
@@ -103,7 +110,9 @@ export const DocumentModelSchema = z.object({
       href: z.string().optional(),
       detail: z.string().optional(),
       reason: z.string().optional(),
-      addedBy: z.object({ mergeFromTitle: z.string(), mergedAt: z.string() }).optional(),
+      addedBy: z
+        .object({ mergeFromTitle: z.string(), mergedAt: z.string(), mergeId: z.string().optional() })
+        .optional(),
     }),
   ),
   assets: z.array(
@@ -130,6 +139,7 @@ export const DocumentModelSchema = z.object({
     }),
   ),
   theme: z.object({ id: z.string(), version: z.string(), source: z.enum(['default', 'skill', 'overlay']) }),
+  merges: z.array(z.object({ id: z.string(), fromTitle: z.string(), mergedAt: z.string() })).optional(),
 });
 
 // Compile-time checks that the schema and the 07 §3 types agree.

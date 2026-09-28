@@ -29,6 +29,10 @@
   --gl-bg: #f7f2e3;
   --gl-rule: #c49a1c;
   --pull-rule: #1b1b1b;
+  /* Merge enhancements (07 §6.4): runtime-only, not a theme token. Distinct from accent, link,
+     glossary and highlight; text on --enh-bg is >= 7:1 in both themes. */
+  --enh: #5e2596;
+  --enh-bg: #e9dbfa;
   --font-serif: Charter, 'Iowan Old Style', Georgia, serif;
   --font-sans: -apple-system, 'Helvetica Neue', Arial, sans-serif;
   --eli5-tabbar-h: 44px;
@@ -61,6 +65,8 @@
     --gl-bg: #28251b;
     --gl-rule: #c9a227;
     --pull-rule: #ece9e4;
+    --enh: #d7b6ff;
+    --enh-bg: #35274c;
   }
 }
 :root[data-theme='dark'] {
@@ -90,6 +96,8 @@
   --gl-bg: #28251b;
   --gl-rule: #c9a227;
   --pull-rule: #ece9e4;
+  --enh: #d7b6ff;
+  --enh-bg: #35274c;
 }
 :root[data-theme='light'] {
   color-scheme: light;
@@ -314,7 +322,7 @@ section > ol {
 li {
   margin: 0 0 6px;
 }
-.tabpanel[data-tab-key='indepth'] > section:first-of-type > p:first-of-type::first-letter {
+.tabpanel[data-tab-key='indepth'] > section:first-of-type > p:first-of-type:not([data-enh])::first-letter {
   float: left;
   font: 700 3.6em/0.82 var(--font-serif);
   padding: 0.06em 0.08em 0 0;
@@ -328,6 +336,108 @@ section.merge-marker > h2 {
   border-top: 3px solid var(--accent);
   padding-top: 12px;
 }
+/* ---- Merge enhancements (07 §6.4): colour plus underline, tinted rule and a text tag ---- */
+ins.enh {
+  color: var(--enh);
+  background: var(--enh-bg);
+  text-decoration: underline 1px solid var(--enh);
+  text-underline-offset: 3px;
+  border-radius: 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+/* A 4px rule with a gap: a paper-coloured shadow covers the inner part of the violet one. */
+.tabpanel > section > [data-enh] {
+  box-shadow:
+    -6px 0 0 var(--paper),
+    -10px 0 0 var(--enh);
+}
+.tabpanel > section[data-enh] {
+  box-shadow:
+    -8px 0 0 var(--paper),
+    -12px 0 0 var(--enh);
+}
+.tabpanel > section > [data-enh]::before,
+.tabpanel > section[data-enh] > h2::after {
+  content: 'New';
+  display: block;
+  width: max-content;
+  font: 700 11px/1.3 var(--font-sans);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--enh);
+  background: var(--enh-bg);
+  border-radius: 3px;
+  padding: 1px 6px;
+  margin: 0 0 6px;
+}
+.tabpanel > section > [data-enh='updated']::before {
+  content: 'Updated';
+}
+.tabpanel > section[data-enh] > h2::after {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0 0 0 10px;
+}
+.enh-legend {
+  font: 13px/1.5 var(--font-sans);
+  color: var(--ink-2);
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--enh);
+  background: var(--paper-2);
+  border-radius: 0 6px 6px 0;
+}
+.enh-legend-line {
+  margin: 0;
+}
+.enh-legend cite {
+  font-style: italic;
+}
+.enh-swatch {
+  display: inline-block;
+  width: 1.8em;
+  height: 1em;
+  margin-right: 8px;
+  vertical-align: -0.15em;
+  background: var(--enh-bg);
+  border: 1px solid var(--enh);
+  border-bottom-width: 2px;
+  border-radius: 2px;
+}
+.enh-toggle {
+  font: 600 12px/1 var(--font-sans);
+  color: var(--enh);
+  background: none;
+  border: 1px solid var(--enh);
+  border-radius: 999px;
+  padding: 5px 10px;
+  margin-top: 6px;
+  cursor: pointer;
+}
+.enh-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+:root[data-hide-enh] ins.enh {
+  color: inherit;
+  background: none;
+  text-decoration: none;
+}
+:root[data-hide-enh] .tabpanel > section > [data-enh],
+:root[data-hide-enh] .tabpanel > section[data-enh] {
+  box-shadow: none;
+}
+:root[data-hide-enh] .tabpanel > section > [data-enh]::before,
+:root[data-hide-enh] .tabpanel > section[data-enh] > h2::after {
+  content: none;
+}
+.ref-added .enh-swatch {
+  width: 1.2em;
+  height: 0.8em;
+  margin-right: 6px;
+}
+
 /* 08 §5.5 step 2: thin animated left rule plus "Updating…" / "Creating ELI5 tab…". */
 section[data-eli5-busy] {
   box-shadow: -4px 0 0 var(--accent);
@@ -943,6 +1053,8 @@ dfn.gl-term.gl-hot {
     --gl-bg: #f7f2e3;
     --gl-rule: #c49a1c;
     --pull-rule: #000000;
+    --enh: #5e2596;
+    --enh-bg: #e9dbfa;
   }
   body {
     font-size: 11pt;
@@ -950,6 +1062,7 @@ dfn.gl-term.gl-hot {
   }
   .tabbar,
   .theme-toggle,
+  .enh-toggle,
   .tab-close,
   .viz-tip,
   .stepper-nav,
@@ -988,7 +1101,11 @@ dfn.gl-term.gl-hot {
   figure.chart,
   .callout,
   .analogy,
-  .gl-note {
+  .gl-note,
+  ins.enh,
+  .enh-swatch,
+  .tabpanel > section > [data-enh]::before,
+  .tabpanel > section[data-enh] > h2::after {
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }

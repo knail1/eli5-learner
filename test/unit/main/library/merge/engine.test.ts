@@ -8,7 +8,6 @@ import {
   SuggestionsFileSchema,
   createMergeSuggestions,
   quoteLabel,
-  type AppendMerged,
   type CatalogEntry,
   type DocumentMeta,
   type FsLibrary,
@@ -18,27 +17,28 @@ import {
   type MergeSuggestionsOptions,
   type SectionId,
   type SuggestionsFile,
+  type WeaveMerged,
 } from '../../../../../src/main/library';
 import type { MergeSuggestions } from '../../../../../src/main/ipc';
 import { SeededIdSource } from '../../../../helpers/ids';
 import { HTML, createDoc, testLibrary, uuid } from '../fixtures';
 
 /**
- * Merge suggestions engine (09 §10.2-10.8, §13): state machine with a fake appendMergedDocument
+ * Merge suggestions engine (09 §10.2-10.8, §13): state machine with a fake weaveMergedDocument
  * and a fake matchMerge. Synthetic "Example Widgets Inc." documents only.
  */
 
 const MARKER = 'sec-indepth-0000abcd' as SectionId;
 const MERGED_HTML = '<!doctype html><html><body>merged Example Widgets Inc.</body></html>\n';
 
-const fakeAppend: AppendMerged = (input) => ({
+const fakeWeave: WeaveMerged = async (input) => ({
   html: MERGED_HTML,
   tabs: [
     ...input.targetMeta.tabs,
     { key: 'sx0a0b0c', kind: 'section-eli5', label: 'ELI5: Returns', sectionCount: 2, createdAt: input.mergedAt },
   ],
   markerSectionIds: [MARKER],
-  idMap: {},
+  prompt: 'merge-weave@1',
 });
 
 type Judge = MergeJudge & ReturnType<typeof vi.fn>;
@@ -113,7 +113,7 @@ function engine(s: Setup, over: Partial<MergeSuggestionsOptions> = {}) {
   const h = createMergeSuggestions({
     library: s.lib,
     judge,
-    appendMerged: fakeAppend,
+    weaveMerged: fakeWeave,
     clock: s.clock,
     ids: new SeededIdSource(11),
     judgeTimeoutMs: 50,
@@ -188,7 +188,7 @@ describe('runMergeCheck (09 §10.2)', () => {
     const t = await testLibrary();
     const only = await createDoc(t.lib, 'Widget pricing');
     const judge = judgeReturning(() => []);
-    const h = createMergeSuggestions({ library: t.lib, judge, appendMerged: fakeAppend });
+    const h = createMergeSuggestions({ library: t.lib, judge, weaveMerged: fakeWeave });
     expect(await h.runMergeCheck(only.id)).toBeNull();
     await createDoc(t.lib, 'Office plants', { summary: 'Plants in a dim office.' });
     expect(await h.runMergeCheck(only.id)).toBeNull();
@@ -231,7 +231,7 @@ describe('runMergeCheck (09 §10.2)', () => {
     const h = createMergeSuggestions({
       library: t.lib,
       judge: judgeReturning((c) => c.map((x) => ({ ...x, score: 0.8, reason: 'r' }))),
-      appendMerged: fakeAppend,
+      weaveMerged: fakeWeave,
     });
     expect((await h.runMergeCheck(fresh.id))?.target.id).toBe(newer.id);
     expect(older.id).not.toBe(newer.id);
@@ -341,7 +341,7 @@ describe('accept (09 §10.6)', () => {
     const r = createMergeSuggestions({
       library: reopened,
       judge: vi.fn() as unknown as MergeJudge,
-      appendMerged: fakeAppend,
+      weaveMerged: fakeWeave,
       clock: s.clock,
     });
     await r.ready;
@@ -418,7 +418,7 @@ describe('accept (09 §10.6)', () => {
     const s = await setup();
     const eli5Marker = 'sec-eli5-0000abcd' as SectionId;
     const { h, sug } = await suggested(s, {
-      appendMerged: (input) => ({ ...fakeAppend(input), markerSectionIds: [eli5Marker] }),
+      weaveMerged: async (input) => ({ ...(await fakeWeave(input)), markerSectionIds: [eli5Marker] }),
     });
     const docUpdated = vi.fn();
     h.service.onDocUpdated(docUpdated);
@@ -482,21 +482,57 @@ describe('accept (09 §10.6)', () => {
     await expectCode(h.service.accept(sug.id), 'SUGGESTION_STALE');
   });
 
-  it('leaves both documents unchanged and the suggestion pending with lastError on a merge failure', async () => {
+  it.each([
+    ['the model fails', Object.assign(new Error('bad model'), { kind: 'invalid_output' })],
+    ['the budget is exhausted', Object.assign(new Error('budget exhausted'), { kind: 'cancelled' })],
+  ])('leaves both documents unchanged and the suggestion pending with lastError when %s', async (_why, error) => {
     const s = await setup();
-    const { h, sug } = await suggested(s, {
-      appendMerged: () => {
-        throw new Error('bad model');
-      },
-    });
+    const { h, sug } = await suggested(s, { weaveMerged: () => Promise.reject(error) });
+    const sourceBefore = await readFile(path.join(s.lib.root, s.source.topicSlug, 'index.html'), 'utf8');
     const beforeMeta = await readFile(path.join(s.lib.root, s.target.topicSlug, 'meta.json'), 'utf8');
     await expectCode(h.service.accept(sug.id), 'MERGE_FAILED');
     expect(await readFile(path.join(s.lib.root, s.target.topicSlug, 'meta.json'), 'utf8')).toBe(beforeMeta);
     expect(await readFile(path.join(s.lib.root, s.target.topicSlug, 'index.html'), 'utf8')).toBe(HTML);
-    expect(await exists(path.join(s.lib.root, s.source.topicSlug, 'index.html'))).toBe(true);
+    expect(await readFile(path.join(s.lib.root, s.source.topicSlug, 'index.html'), 'utf8')).toBe(sourceBefore);
     expect(s.lib.getEntry(s.source.id)).toBeDefined();
+    // Never a fallback: no backup, no prior version, no merge record.
+    const trash = await readdir(path.join(s.lib.root, '.trash')).catch(() => [] as string[]);
+    expect(trash.filter((n) => n.endsWith('-premerge'))).toEqual([]);
+    expect(await s.lib.history(s.target.topicSlug)).toEqual({ canUndo: false, canRedo: false });
     const [open] = await h.service.list();
     expect(open).toMatchObject({ id: sug.id, status: 'pending', lastError: MERGE_FAILED_MESSAGE });
+    // Try again succeeds and clears the error.
+    const retry = createMergeSuggestions({
+      library: s.lib,
+      judge: vi.fn() as unknown as MergeJudge,
+      weaveMerged: fakeWeave,
+      clock: s.clock,
+    });
+    await retry.ready;
+    h.dispose();
+    await expect(retry.service.accept(sug.id)).resolves.toEqual({ targetSlug: s.target.topicSlug });
+    expect((await readSuggestions(s.lib)).suggestions[0]).toMatchObject({ status: 'accepted' });
+    expect((await readSuggestions(s.lib)).suggestions[0]?.lastError).toBeUndefined();
+  });
+
+  it('fails without a planner rather than appending', async () => {
+    const s = await setup();
+    const { h, sug } = await suggested(s, { weaveMerged: undefined });
+    await expectCode(h.service.accept(sug.id), 'MERGE_FAILED');
+    expect(await readFile(path.join(s.lib.root, s.target.topicSlug, 'index.html'), 'utf8')).toBe(HTML);
+  });
+
+  it('passes both documents to the weave and records its prompt in generation.prompts', async () => {
+    const s = await setup();
+    const weave = vi.fn(fakeWeave);
+    const { h, sug } = await suggested(s, { weaveMerged: weave });
+    await h.service.accept(sug.id);
+    const arg = weave.mock.calls[0]?.[0];
+    expect(arg).toMatchObject({ targetHtml: HTML, suggestionId: sug.id, mergedAt: s.clock.now().toISOString() });
+    expect(arg?.targetMeta.id).toBe(s.target.id);
+    expect(arg?.sourceMeta.id).toBe(s.source.id);
+    expect(arg?.signal).toBeInstanceOf(AbortSignal);
+    expect((await s.lib.getMeta(s.target.topicSlug)).generation.prompts).toContain('merge-weave@1');
   });
 
   it('keeps the suggestion pending with the ineligible message when HOOK-LIB-02 refuses at accept', async () => {

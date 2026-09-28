@@ -1,6 +1,7 @@
 // Inline markdown subset -> escaped HTML (07 §5.2): **bold**, *italic*, `code`, [text](url).
 // Everything else is escaped text. Glossary anchors (07 §9.2) are wrapped in <dfn> here.
 import { attrs, esc } from './html';
+import type { EnhRange } from './types';
 
 export type InlineNode =
   | { t: 'text'; s: string }
@@ -141,48 +142,97 @@ function placeAnchors(runs: { s: string }[], anchors: readonly DfnAnchor[], spli
   return missing;
 }
 
-function renderRun(run: { s: string }, splits: Split[]): string {
+/**
+ * Enhancement marks for one inline string (07 §6.4): ranges over its plain text and the opening
+ * `<ins>` tag for a merge id.
+ */
+export interface InlineMarks {
+  ranges: readonly EnhRange[];
+  open(merge: string): string;
+}
+
+/** Walk state: plain-text offset of the next node and the string's marks. */
+interface Cursor {
+  pos: number;
+  marks?: InlineMarks | undefined;
+}
+
+/** `text` (at plain-text offset `at`) with the marked parts wrapped in `<ins>`. */
+function markText(text: string, at: number, marks: InlineMarks | undefined): string {
+  if (!marks || marks.ranges.length === 0) return esc(text);
+  let out = '';
+  let pos = 0;
+  const end = at + text.length;
+  for (const r of [...marks.ranges].sort((a, b) => a.start - b.start)) {
+    const from = Math.max(r.start, at) - at;
+    const to = Math.min(r.end, end) - at;
+    if (to <= from || from < pos) continue;
+    out += esc(text.slice(pos, from)) + marks.open(r.merge) + esc(text.slice(from, to)) + '</ins>';
+    pos = to;
+  }
+  return out + esc(text.slice(pos));
+}
+
+/** The merge whose range overlaps [start, end), for atomic nodes (code, links). */
+function markOf(start: number, end: number, marks: InlineMarks | undefined): string | undefined {
+  return marks?.ranges.find((r) => r.start < end && r.end > start)?.merge;
+}
+
+function renderRun(run: { s: string }, splits: Split[], cur: Cursor): string {
+  const at = cur.pos;
+  cur.pos += run.s.length;
   const mine = splits.filter((s) => s.run === run).sort((a, b) => a.start - b.start);
-  if (mine.length === 0) return esc(run.s);
+  if (mine.length === 0) return markText(run.s, at, cur.marks);
   let out = '';
   let pos = 0;
   for (const sp of mine) {
-    out += esc(run.s.slice(pos, sp.start));
+    out += markText(run.s.slice(pos, sp.start), at + pos, cur.marks);
     out += `<dfn${attrs([
       ['class', 'gl-term'],
       ['id', `${sp.noteId}-ref`],
       ['aria-describedby', sp.noteId],
-    ])}>${esc(run.s.slice(sp.start, sp.end))}</dfn>`;
+    ])}>${markText(run.s.slice(sp.start, sp.end), at + sp.start, cur.marks)}</dfn>`;
     pos = sp.end;
   }
-  return out + esc(run.s.slice(pos));
+  return out + markText(run.s.slice(pos), at + pos, cur.marks);
 }
 
-function renderNodes(nodes: InlineNode[], splits: Split[]): string {
+/** Wraps an atomic node's HTML in `<ins>` when a mark overlaps it; advances the cursor. */
+function atomic(html: string, length: number, cur: Cursor): string {
+  const merge = markOf(cur.pos, cur.pos + length, cur.marks);
+  cur.pos += length;
+  return merge && cur.marks ? `${cur.marks.open(merge)}${html}</ins>` : html;
+}
+
+function renderNodes(nodes: InlineNode[], splits: Split[], cur: Cursor = { pos: 0 }): string {
   let out = '';
   for (const n of nodes) {
     switch (n.t) {
       case 'text':
-        out += renderRun(n, splits);
+        out += renderRun(n, splits, cur);
         break;
       case 'strong':
-        out += `<strong>${renderNodes(n.c, splits)}</strong>`;
+        out += `<strong>${renderNodes(n.c, splits, cur)}</strong>`;
         break;
       case 'em':
-        out += `<em>${renderNodes(n.c, splits)}</em>`;
+        out += `<em>${renderNodes(n.c, splits, cur)}</em>`;
         break;
       case 'code':
-        out += `<code>${esc(n.s)}</code>`;
+        out += atomic(`<code>${esc(n.s)}</code>`, n.s.length, cur);
         break;
       case 'link': {
         const href = safeHref(n.href);
-        out += href
-          ? `<a${attrs([
-              ['href', href],
-              ['target', '_blank'],
-              ['rel', 'noopener noreferrer'],
-            ])}>${esc(n.s)}</a>`
-          : esc(n.s);
+        out += atomic(
+          href
+            ? `<a${attrs([
+                ['href', href],
+                ['target', '_blank'],
+                ['rel', 'noopener noreferrer'],
+              ])}>${esc(n.s)}</a>`
+            : esc(n.s),
+          n.s.length,
+          cur,
+        );
         break;
       }
     }
@@ -197,6 +247,7 @@ function renderNodes(nodes: InlineNode[], splits: Split[]): string {
 export function renderInlineMany(
   mds: readonly string[],
   anchors: readonly DfnAnchor[] = [],
+  marks: readonly (InlineMarks | undefined)[] = [],
 ): { html: string[]; missing: DfnAnchor[] } {
   const parsed = mds.map((md) => parseInline(md));
   const splits: Split[] = [];
@@ -205,10 +256,10 @@ export function renderInlineMany(
     if (pending.length === 0) break;
     pending = placeAnchors(textRuns(nodes), pending, splits);
   }
-  return { html: parsed.map((nodes) => renderNodes(nodes, splits)), missing: pending };
+  return { html: parsed.map((nodes, i) => renderNodes(nodes, splits, { pos: 0, marks: marks[i] })), missing: pending };
 }
 
 /** Renders one inline string. */
-export function renderInline(md: string, anchors: readonly DfnAnchor[] = []): string {
-  return renderInlineMany([md], anchors).html[0] ?? '';
+export function renderInline(md: string, anchors: readonly DfnAnchor[] = [], marks?: InlineMarks): string {
+  return renderInlineMany([md], anchors, [marks]).html[0] ?? '';
 }

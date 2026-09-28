@@ -285,7 +285,7 @@ interface DocumentMetaInteractive {
 
 ### 6.7 Undo and redo (one prior version)
 
-Every section action (§6.4, §7.1), tab close (§7.2) and merge append (09 §10.6) records the document's previous `index.html` and `meta.json` as its single prior version (09 §4.1). Undo and redo swap the live files with that version. There is exactly one level: a new change after an undo replaces the slot, so redo is lost, as in a word processor.
+Every section action (§6.4, §7.1), tab close (§7.2) and woven merge (09 §10.6) records the document's previous `index.html` and `meta.json` as its single prior version (09 §4.1). Undo and redo swap the live files with that version. There is exactly one level: a new change after an undo replaces the slot, so redo is lost, as in a word processor.
 
 - **Labels.** Each write passes `label` to `updateDocument`: `expanded '<heading>'`, `re-explained '<heading>'`, `added an analogy to '<heading>'`, `went deeper on '<heading>'` (heading of the target section before the change), `added ELI5 tab '<label>'`, `closed tab '<label>'`, and 09's `merged '<source title>' in`. Names are one line and cut to 32 characters with `…`. A change without a label shows `last change`.
 - **Service** (`IpcServices.docHistory`, app window only, 01 §5.2): `eli5:doc:history {slug}` returns `DocHistoryState {canUndo, canRedo, undoLabel?, redoLabel?, busy}`; `eli5:doc:undo` and `eli5:doc:redo {slug}` swap and return the new state. An unknown slug returns `E_NOT_FOUND`.
@@ -343,7 +343,7 @@ Scroll position elsewhere in the document is not preserved across a reload. The 
 | --- | --- |
 | At most one in-flight action per section, of any kind (the four in-place actions and `eli5-tab`) | `inflight: Set<"<slug>#<sectionId>">` in main, checked at request time (§6.1 step 4) |
 | Different sections of the same document may have actions queued at the same time | Allowed; they run in Section-lane FIFO order ([06](06-generation-pipeline.md) §4.1) |
-| Writes to one document never interleave | `withDocLock(slug)` around every section replace, tab add, tab close, merge append, and create-job save |
+| Writes to one document never interleave | `withDocLock(slug)` around every section replace, tab add, tab close, woven merge, and create-job save |
 | A stale view of the file is never written back | Re-read and `parseDocument` inside the lock, find the section by ID in the model, `baseHash` precondition (§6.3, §6.4) |
 | Section jobs never wait behind create jobs | Separate Section lane |
 

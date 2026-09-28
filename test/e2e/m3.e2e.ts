@@ -291,7 +291,7 @@ test.describe('reading a finished document', () => {
   });
 });
 
-test('E11: a related document is suggested; one suggestion is dismissed, another merged in', async () => {
+test('E11: a related document is suggested; one is dismissed, another woven in with highlights, then undone', async () => {
   const dirs = await h.tempDirs('eli5-e2e-m3-merge-');
   const first = await h.launch(dirs);
   const a = await generate(first);
@@ -300,8 +300,10 @@ test('E11: a related document is suggested; one suggestion is dismissed, another
   await h.close(first.app);
 
   // The fake judge now matches the first document (09 §10.2 step 7: score ≥ 0.75).
+  // The first weave call fails (09 §10.6 step 11: nothing changes, the card offers Try again).
   const script = await writeScript(dirs, 'merge', {
     responses: { 'merge-match': { matches: [{ catalogId: a.id, score: 0.9, reason: 'Same widget supply plan' }] } },
+    errors: { 'merge-weave': ['bad_request'] },
   });
   const l = await h.launch(dirs, { script });
   const panel = l.win.getByRole('region', { name: /Suggestions/ });
@@ -322,26 +324,59 @@ test('E11: a related document is suggested; one suggestion is dismissed, another
   list = await l.win.evaluate(() => window.eli5.suggestions.list());
   const pending = list.ok ? list.value.filter((s) => s.status === 'pending') : [];
   expect(pending.map((s) => [s.source.id, s.target.id])).toEqual([[c.id, a.id]]);
-  const targetBefore = await readFile(path.join(dirs.library, a.topicSlug, 'index.html'), 'utf8');
+  const targetFile = path.join(dirs.library, a.topicSlug, 'index.html');
+  const targetBefore = await readFile(targetFile, 'utf8');
+  const sourceBefore = await readFile(path.join(dirs.library, c.topicSlug, 'index.html'), 'utf8');
 
   await panel.getByRole('button', { name: 'Merge in' }).click();
+  await expect(panel.getByText('Merge failed. Both documents were left unchanged.')).toBeVisible({ timeout: 30_000 });
+  expect(await readFile(targetFile, 'utf8')).toBe(targetBefore);
+  expect(await readFile(path.join(dirs.library, c.topicSlug, 'index.html'), 'utf8')).toBe(sourceBefore);
+
+  await panel.getByRole('button', { name: 'Try again' }).click();
   await expect(panel).toHaveCount(0, { timeout: 30_000 });
-  // The standalone leaves the Library; the target gains a marked section (09 §10.3, §10.6).
+  // The standalone leaves the Library; the target is rewritten with marked enhancements (09 §10.3, §10.6).
   await expect.poll(async () => (await libraryEntries(l.win)).map((e) => e.id).sort()).toEqual([a.id, b.id].sort());
   await expect(l.win.getByRole('navigation', { name: 'Library' }).getByRole('button', { name: /Widget/ })).toHaveCount(
     2,
   );
-  const html = await readFile(path.join(dirs.library, a.topicSlug, 'index.html'), 'utf8');
+  const html = await readFile(targetFile, 'utf8');
   expect(html).not.toBe(targetBefore);
-  expect(html).toMatch(/data-merge-marker="[^"]+"/);
-  expect(html).toContain('Added from:');
+  expect(html).not.toContain('Added from:');
+  expect(html).toContain('<ins class="enh" data-merge="m1"');
+  expect(html).toContain('class="enh-legend"');
   expect(validateDocument(html).errors).toEqual([]);
-  await probeDocument(l.app, path.join(dirs.library, a.topicSlug, 'index.html'));
+  await probeDocument(l.app, targetFile);
   await expect(stat(path.join(dirs.library, c.topicSlug))).rejects.toThrow();
-  const meta = await readJson<{ merges?: unknown[]; mergedFromCount?: number }>(
-    path.join(dirs.library, a.topicSlug, 'meta.json'),
-  );
+  const metaFile = path.join(dirs.library, a.topicSlug, 'meta.json');
+  const meta = await readJson<{ merges?: unknown[]; generation?: { prompts?: string[] } }>(metaFile);
   expect(meta.merges).toHaveLength(1);
+  expect(meta.generation?.prompts).toContain('merge-weave@1');
+
+  // Both tabs changed; the legend and highlights show in the viewer, and one Undo restores the target.
+  // Both remaining documents share the fixture title: open the one whose slug is the target's.
+  const want = `eli5doc://doc/${a.topicSlug}/index.html`;
+  const items = l.win.getByRole('navigation', { name: 'Library' }).getByRole('button', { name: new RegExp(a.title) });
+  for (let i = 0; i < (await items.count()) && (await viewerUrl(l.app)) !== want; i++) {
+    await items.nth(i).click();
+    await expect.poll(() => viewerUrl(l.app)).toMatch(/^eli5doc:/);
+    await l.win.waitForTimeout(300);
+  }
+  const viewer = await viewerPage(l.app, a.topicSlug);
+  await expect(viewer.locator('.enh-legend')).toContainText('with material from');
+  await expect(viewer.locator('#tab-indepth ins.enh').first()).toBeVisible();
+  await expect(viewer.locator('#tab-indepth section[data-enh="new"] > h2')).toHaveText('Returns change the math');
+  await viewer.getByRole('tab', { name: 'ELI5' }).click();
+  await expect(viewer.locator('#tab-eli5 ins.enh').first()).toBeVisible();
+  await expect(viewer.locator('#tab-eli5 section[data-enh="new"] > h2')).toHaveText('When widgets come back');
+  await viewer.getByRole('button', { name: 'Hide highlights' }).click();
+  await expect(viewer.locator('html')).toHaveAttribute('data-hide-enh', '');
+  const undo = l.win.getByRole('button', { name: 'Undo', exact: true });
+  await expect(undo).toHaveAttribute('title', /^Undo: merged '.+' in/);
+  await undo.click();
+  await expect.poll(() => readFile(targetFile, 'utf8'), { timeout: 30_000 }).toBe(targetBefore);
+  const after = await readJson<{ merges?: unknown[] }>(metaFile);
+  expect(after.merges).toHaveLength(0);
   await h.closeAll();
 });
 

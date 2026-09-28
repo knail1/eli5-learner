@@ -1,6 +1,7 @@
 // References section body (07 §10): "Used" in input order, "Skipped" with reasons, "Added by merge".
 import { attrs, esc } from '../html';
 import { SKIPPED_REASON_FALLBACK } from '../references';
+import { formatDate } from './date';
 import type { AssetCredit, ReferenceEntry } from '../types';
 import { creditHtml } from './credit';
 
@@ -31,8 +32,14 @@ function item(e: ReferenceEntry): string {
   if (e.status === 'skipped')
     out += ` — <span class="ref-reason">${esc(e.reason?.trim() || SKIPPED_REASON_FALLBACK)}</span>`;
   else if (e.detail) out += ` <span class="ref-detail">${esc(e.detail)}</span>`;
-  if (e.addedBy) out += ` <span class="ref-added">Added from ${esc(e.addedBy.mergeFromTitle)}</span>`;
-  return `<li${attrs([['data-ref-status', e.status]])}>${out}</li>`;
+  if (e.addedBy)
+    out +=
+      ` <span class="ref-added"><span class="enh-swatch" aria-hidden="true"></span>` +
+      `Added in merge on ${esc(formatDate(e.addedBy.mergedAt))} from ${esc(e.addedBy.mergeFromTitle)}</span>`;
+  return `<li${attrs([
+    ['data-ref-status', e.status],
+    ['data-merge', e.addedBy?.mergeId],
+  ])}>${out}</li>`;
 }
 
 /** `credits`: the stock photos the document shows (07 §7.4), listed after the sources. */

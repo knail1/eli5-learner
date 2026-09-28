@@ -53,6 +53,7 @@ export type {
   LlmTasks,
   MergeCandidate,
   PhotoPickSlot,
+  MergeWeaveInput,
   PreparedContent,
   PreparedContentJson,
   SectionAction,

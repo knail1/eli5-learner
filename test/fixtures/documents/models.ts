@@ -9,9 +9,10 @@ import {
 import type { DocumentDraftTab } from '../../../src/main/llm';
 import { SeededIdSource } from '../../helpers/ids';
 import { THEMED, fixtureInput, type FixtureName } from './drafts';
+import { wovenFixture } from './merge';
 
-export type GoldenName = FixtureName | 'with-tab';
-export const GOLDEN_NAMES: readonly GoldenName[] = ['full', 'placeholder', 'themed', 'with-tab'];
+export type GoldenName = FixtureName | 'with-tab' | 'merged';
+export const GOLDEN_NAMES: readonly GoldenName[] = ['full', 'placeholder', 'themed', 'with-tab', 'merged'];
 
 export const SECTION_ELI5_DRAFT: DocumentDraftTab = {
   kind: 'section-eli5',
@@ -32,6 +33,11 @@ export interface FixtureDocument {
 }
 
 export function fixtureDocument(name: GoldenName): FixtureDocument {
+  if (name === 'merged') {
+    // 09 §10.3: the 'full' fixture with a second document woven in (marks, legend, merged sources).
+    const w = wovenFixture();
+    return { model: w.model, assets: w.assets, theme: fixtureInput('full').theme, warnings: w.warnings };
+  }
   const base = name === 'with-tab' ? 'full' : name;
   const input = fixtureInput(base);
   const theme = base === 'themed' ? resolveDocTheme({ overlay: THEMED }).theme : input.theme;
