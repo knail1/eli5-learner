@@ -114,8 +114,17 @@ export class BudgetGuardProvider implements LLMProvider {
     const input = await this.inputTokens(req);
     const attempts = maxAttempts(this.retry());
 
-    // From here to reserve() is synchronous, so concurrent calls are serialized on the ledger.
     const inputCost = input * inRate * (req.cacheSystemPrompt ? CACHE_WRITE_MULTIPLIER : 1);
+    // While other calls are in flight, wait for them to settle rather than clamping or refusing:
+    // their reservations are worst cases and settle far lower, so a concurrent step (in-depth and
+    // ELI5 run together) is not starved by its sibling's reservation. Clamp only when alone.
+    while (
+      (inputCost + req.maxOutputTokens * outRate) * attempts > this.ledger.remainingUsd + 1e-12 &&
+      this.ledger.openCount > 0
+    ) {
+      await abortable(this.ledger.whenSettled(), req.signal);
+    }
+    // From here to reserve() is synchronous, so concurrent calls are serialized on the ledger.
     // Output tokens one attempt may use so that every allowed attempt fits the remaining budget.
     const fits = Math.floor((this.ledger.remainingUsd / attempts - inputCost) / outRate + 1e-9);
     // Refuse only when the budget (not the request's own smaller maxOutputTokens) is the limit.
@@ -171,3 +180,17 @@ export class BudgetGuardProvider implements LLMProvider {
 }
 
 const ZERO = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+
+/** Waits for `p`, but rejects with a cancelled LLMError as soon as `signal` aborts. */
+function abortable(p: Promise<void>, signal: AbortSignal | undefined): Promise<void> {
+  if (!signal) return p;
+  if (signal.aborted) return Promise.reject(new LLMError('cancelled', 'Request cancelled'));
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => reject(new LLMError('cancelled', 'Request cancelled'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    p.then(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, reject);
+  });
+}

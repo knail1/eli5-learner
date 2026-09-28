@@ -75,6 +75,10 @@ describe('task functions (02 §12) with FakeProvider and the default script', ()
     expect(eli5.draft.kind).toBe('eli5');
     const glossary = await tasks.generateGlossary(indepth.draft, ctx);
     expect(glossary.draft.entries.length).toBeGreaterThan(0);
+    expect(glossary.prompt).toBe('glossary@2');
+    // Found by the first real eval: acronyms the audience assumed (CAC, CTR) were left out.
+    const glossarySystem = fake.calls.find((c) => c.taskId === 'glossary')?.system ?? '';
+    expect(glossarySystem).toMatch(/every acronym or initialism/i);
     const summary = await tasks.summarize(indepth.draft, ctx);
     expect(summary.draft.topicSlugHint).toBe('widget-supply-planning');
 

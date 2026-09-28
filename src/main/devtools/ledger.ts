@@ -99,6 +99,7 @@ export class BudgetLedger {
   private readonly newId: () => string;
   private spent = 0;
   private readonly open = new Map<string, Reservation>();
+  private settleWaiters: (() => void)[] = [];
   private lockPath: string | undefined;
   private readonly onExit = (): void => this.release();
 
@@ -137,6 +138,16 @@ export class BudgetLedger {
     return n;
   }
 
+  /** Reservations in flight in this process. */
+  get openCount(): number {
+    return this.open.size;
+  }
+
+  /** Resolves at the next settle, so a call can wait for in-flight worst cases to shrink. */
+  whenSettled(): Promise<void> {
+    return new Promise((resolve) => this.settleWaiters.push(resolve));
+  }
+
   get remainingUsd(): number {
     return Math.max(0, this.capUsd - this.spent - this.reservedUsd);
   }
@@ -156,6 +167,9 @@ export class BudgetLedger {
     this.append({ v: 1, type: 'charge', id: res.id, at: this.at(), model: res.model, taskId: res.taskId, ...c });
     this.open.delete(res.id);
     this.spent += c.costUsd;
+    const waiters = this.settleWaiters;
+    this.settleWaiters = [];
+    for (const w of waiters) w();
   }
 
   private at(): string {

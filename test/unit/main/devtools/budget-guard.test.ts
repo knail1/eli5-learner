@@ -306,19 +306,73 @@ describe('BudgetGuardProvider', () => {
     expect(ledger(cap).spentUsd).toBeCloseTo(0.155, 12);
   });
 
-  it('serializes reservations so concurrent calls cannot overshoot the cap', async () => {
+  it('concurrent calls wait for in-flight reservations instead of being refused, and never overshoot', async () => {
     const inner = fake({ latencyMs: 20 });
-    // Each call reserves 100*5e-6 + 4000*25e-6 = 0.1005; two fit in 0.25, the third would not.
+    // Each call's worst case is 100*5e-6 + 4000*25e-6 = 0.1005: only two fit in 0.25 at once. The
+    // others wait for a settle (each actually costs 0.003) instead of being refused.
     const l = ledger(0.25);
     const g = guard(inner, l);
+    let peak = 0;
+    const origReserve = l.reserve.bind(l);
+    vi.spyOn(l, 'reserve').mockImplementation((r) => {
+      const res = origReserve(r);
+      peak = Math.max(peak, l.reservedUsd);
+      return res;
+    });
     const results = await Promise.allSettled(
       Array.from({ length: 5 }, () => g.generate(req({ maxOutputTokens: 4_000 }))),
     );
-    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(2);
-    expect(results.filter((r) => r.status === 'rejected')).toHaveLength(3);
-    expect(inner.calls).toHaveLength(2);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(5);
+    expect(inner.calls).toHaveLength(5);
+    for (const c of inner.calls) expect(c).toBeTruthy();
+    expect(peak).toBeLessThanOrEqual(0.25 + 1e-12);
     expect(l.spentUsd).toBeLessThanOrEqual(0.25);
     expect(l.reservedUsd).toBe(0);
+  });
+
+  it("a second concurrent step is not starved by the first one's worst case (eval regression)", async () => {
+    // Found by the first real eval: in-depth and ELI5 run concurrently; in-depth's clamped worst
+    // case took nearly the whole cap and ELI5 was refused before reaching the API.
+    const inner = fake({
+      latencyMs: 20,
+      responses: { 'in-depth': JSON.stringify('x'.repeat(398)), eli5: JSON.stringify('y'.repeat(398)) },
+    });
+    const l = ledger(0.5); // one full 16k-token worst case (0.4005) fits, two do not
+    const g = guard(inner, l);
+    const spy = vi.spyOn(inner, 'generate');
+    const [a, b] = await Promise.allSettled([
+      g.generate(req({ taskId: 'in-depth', maxOutputTokens: 16_000 })),
+      g.generate(req({ taskId: 'eli5', maxOutputTokens: 16_000 })),
+    ]);
+    expect(a.status).toBe('fulfilled');
+    expect(b.status).toBe('fulfilled');
+    // Both got their full output allowance: nobody was clamped while a settle was pending.
+    expect(spy.mock.calls.map((c) => c[0].maxOutputTokens)).toEqual([16_000, 16_000]);
+    expect(l.spentUsd).toBeLessThanOrEqual(0.5);
+  });
+
+  it('with nothing in flight it still clamps, then refuses at the cap', async () => {
+    const l = ledger(0.2);
+    const inner = fake();
+    const seen = spyReq(inner);
+    await guard(inner, l).generate(req({ maxOutputTokens: 16_000 })); // 0.4005 worst case > 0.2
+    expect(seen()?.maxOutputTokens).toBeLessThan(16_000);
+    expect(seen()?.maxOutputTokens).toBeGreaterThanOrEqual(2_048);
+  });
+
+  it('a waiting call gives up promptly when its signal aborts', async () => {
+    const inner = fake({ latencyMs: 50 });
+    const l = ledger(0.45);
+    const g = guard(inner, l);
+    const first = g.generate(req({ maxOutputTokens: 16_000 }));
+    const ctl = new AbortController();
+    const second = g.generate(req({ maxOutputTokens: 16_000, signal: ctl.signal }));
+    const t0 = Date.now();
+    ctl.abort();
+    await expect(second).rejects.toMatchObject({ kind: 'cancelled' });
+    expect(Date.now() - t0).toBeLessThan(40); // before the first call (50 ms) settles
+    await first;
+    expect(inner.calls).toHaveLength(1);
   });
 
   it('rejects immediately when the signal is already aborted', async () => {
