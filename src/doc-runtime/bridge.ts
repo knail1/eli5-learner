@@ -14,11 +14,14 @@ export interface DocBridge {
     selectionText: string;
     note?: string;
   }): Promise<BridgeResult>;
+  /** `scope: 'selection'` is "ELI5 this selection" (08 §7.5): `sectionIds` = covered sections, first = sectionId. */
   createSectionEli5(r: {
     tabKey: string;
     sectionId: string;
     selectionText: string;
     note?: string;
+    scope?: 'selection';
+    sectionIds?: string[];
   }): Promise<BridgeResult>;
   closeTab(tabKey: string): Promise<BridgeResult>;
   openExternal(url: string): Promise<BridgeResult>;

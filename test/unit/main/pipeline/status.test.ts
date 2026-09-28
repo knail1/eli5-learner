@@ -111,6 +111,13 @@ describe('statusLine (06 §6)', () => {
     expect(statusLine(s({ status: 'done', section: eli5 }), { tabLabel: 'ELI5: Resolvers' })).toBe(
       'Added tab: ELI5: Resolvers',
     );
+    const focused = { ...section, action: 'eli5-selection' as const };
+    expect(statusLine(s({ status: 'generating', section: focused }))).toBe(
+      'Adding ELI5 tab for a selection: Resolvers',
+    );
+    expect(statusLine(s({ status: 'done', section: focused }), { tabLabel: 'ELI5: Caching' })).toBe(
+      'Added tab: ELI5: Caching',
+    );
     expect(statusLine(s({ status: 'failed', failure: { code: 'SECTION_GONE', message: '' } }))).toBe(
       'Failed: section no longer exists',
     );

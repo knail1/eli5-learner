@@ -31,23 +31,41 @@ function activated(): boolean {
   return (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation?.isActive === true;
 }
 
+/** 08 §7.5: "ELI5 this selection" bounds. */
+const MAX_SELECTION_ELI5_CHARS = 12000;
+const MAX_COVERED_SECTIONS = 40;
+
 interface ActFields {
   tabKey?: unknown;
   sectionId?: unknown;
   selectionText?: unknown;
   note?: unknown;
   action?: unknown;
+  scope?: unknown;
+  sectionIds?: unknown;
+}
+
+/** Selection scope: 1..40 unique ids of this tab, first = sectionId; section scope: none. */
+function validScope(r: ActFields): boolean {
+  if (r.scope === undefined || r.scope === 'section') return r.sectionIds === undefined;
+  if (r.scope !== 'selection' || !Array.isArray(r.sectionIds)) return false;
+  const ids: unknown[] = r.sectionIds;
+  if (ids.length < 1 || ids.length > MAX_COVERED_SECTIONS || ids[0] !== r.sectionId) return false;
+  if (new Set(ids).size !== ids.length) return false;
+  return ids.every((id) => typeof id === 'string' && SECTION_ID_RE.exec(id)?.[1] === r.tabKey);
 }
 
 function validAct(r: ActFields, needsAction: boolean): boolean {
   if (typeof r.tabKey !== 'string' || !TAB_KEY_RE.test(r.tabKey)) return false;
   const m = typeof r.sectionId === 'string' ? SECTION_ID_RE.exec(r.sectionId) : null;
   if (!m || m[1] !== r.tabKey) return false;
-  if (typeof r.selectionText !== 'string' || r.selectionText.length > 4000 || r.selectionText.trim().length < 3)
+  const max = !needsAction && r.scope === 'selection' ? MAX_SELECTION_ELI5_CHARS : 4000;
+  if (typeof r.selectionText !== 'string' || r.selectionText.length > max || r.selectionText.trim().length < 3)
     return false;
   if (r.note !== undefined && (typeof r.note !== 'string' || r.note.length > 200 || /[\r\n]/.test(r.note)))
     return false;
-  return !needsAction || (typeof r.action === 'string' && ACTIONS.includes(r.action));
+  if (!needsAction) return validScope(r);
+  return typeof r.action === 'string' && ACTIONS.includes(r.action);
 }
 
 const invoke = (ch: IpcChannel, payload?: unknown) => ipcRenderer.invoke(ch, payload);
@@ -76,6 +94,8 @@ function actPayload(r: ActFields, withAction: boolean): Record<string, unknown> 
     ...(withAction ? { action: r.action } : {}),
     selectionText: r.selectionText,
     ...(r.note !== undefined ? { note: r.note } : {}),
+    ...(!withAction && r.scope !== undefined ? { scope: r.scope } : {}),
+    ...(!withAction && Array.isArray(r.sectionIds) ? { sectionIds: [...(r.sectionIds as unknown[])] } : {}),
     slug: currentSlug(),
   };
 }

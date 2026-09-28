@@ -54,10 +54,12 @@ export interface ActionRecord {
   at: string;
   action: MenuAction;
   sectionId: SectionId;
+  /** 'eli5-selection': every section the selection covered, first = sectionId (08 §7.5). */
+  sectionIds?: SectionId[];
   tabKey: string;
   note?: string;
   jobId: string;
-  /** Set for 'eli5-tab'. */
+  /** Set for 'eli5-tab' and 'eli5-selection'. */
   resultTabKey?: string;
 }
 

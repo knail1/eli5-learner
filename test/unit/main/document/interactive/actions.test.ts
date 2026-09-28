@@ -166,6 +166,40 @@ describe('createSectionEli5 (08 §6.1 step 7)', () => {
     expect(s.events.busy.at(-1)).toEqual({ busy: [{ sectionId: r.sectionId, action: 'eli5-tab' }] });
   });
 
+  it('enqueues an eli5-selection job for the selection scope, anchored to the first covered section', async () => {
+    const s = await setup();
+    const { action: _a, ...r } = req(s);
+    const ids = [sec(s.model, 0, 0), sec(s.model, 0, 1)];
+    await s.ir.actions.createSectionEli5({
+      ...r,
+      selectionText: 'judges every channel',
+      scope: 'selection',
+      sectionIds: ids,
+    });
+    expect(s.jobs.enqueueSection.mock.calls[0]?.[0]).toMatchObject({
+      action: 'eli5-selection',
+      sectionId: ids[0],
+      sectionIds: ids,
+      heading: s.model.tabs[0]?.sections[0]?.heading,
+    });
+    expect(s.events.busy.at(-1)).toEqual({ busy: [{ sectionId: ids[0], action: 'eli5-selection' }] });
+  });
+
+  it('refuses a selection covering a missing or references section', async () => {
+    const s = await setup();
+    const { action: _a, ...r } = req(s);
+    const first = sec(s.model, 0, 0);
+    const refs = s.model.tabs[0]?.sections.find((x) => x.kind === 'references')?.id;
+    const gone = `sec-indepth-0000dead` as typeof first;
+    expect(
+      await rejection(s.ir.actions.createSectionEli5({ ...r, scope: 'selection', sectionIds: [first, gone] })),
+    ).toMatchObject({ code: 'E_NOT_FOUND', message: 'This section changed. Reload and try again' });
+    expect(
+      await rejection(s.ir.actions.createSectionEli5({ ...r, scope: 'selection', sectionIds: [first, refs ?? first] })),
+    ).toMatchObject({ code: 'E_BAD_REQUEST' });
+    expect(s.jobs.enqueueSection).not.toHaveBeenCalled();
+  });
+
   it(`refuses when ${String(MAX_SECTION_ELI5_TABS)} section ELI5 tabs exist`, async () => {
     const s = await setup({ model: withSxTabs(MAX_SECTION_ELI5_TABS) });
     const { action: _a, ...r } = req(s);

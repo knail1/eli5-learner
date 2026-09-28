@@ -85,7 +85,38 @@ const Eli5Fields = {
 export const SectionActionPayload = z
   .object({ ...Eli5Fields, action: z.enum(['expand', 'reexplain', 'analogy', 'deeper']) })
   .refine(sectionInTab, 'Section is not in that tab');
-export const CreateSectionEli5Payload = z.object(Eli5Fields).refine(sectionInTab, 'Section is not in that tab');
+/** 08 §7.5: "ELI5 this selection" takes up to 12,000 characters and names up to 40 covered sections. */
+export const MAX_SELECTION_ELI5_CHARS = 12_000;
+const MAX_COVERED_SECTIONS = 40;
+
+/** Section scope keeps §5.3's 4000; selection scope: covered ids unique, one tab, first = sectionId. */
+function validScope(r: {
+  scope?: string;
+  sectionId: SectionId;
+  tabKey: string;
+  selectionText: string;
+  sectionIds?: SectionId[];
+}): boolean {
+  if (r.scope !== 'selection') return r.sectionIds === undefined && r.selectionText.length <= 4000;
+  const ids = r.sectionIds;
+  if (!ids) return false;
+  return (
+    ids[0] === r.sectionId && new Set(ids).size === ids.length && ids.every((id) => tabKeyOfSectionId(id) === r.tabKey)
+  );
+}
+
+export const CreateSectionEli5Payload = z
+  .object({
+    ...Eli5Fields,
+    selectionText: z
+      .string()
+      .max(MAX_SELECTION_ELI5_CHARS)
+      .refine((t) => t.trim().length >= 3, 'Selection too short'),
+    scope: z.enum(['section', 'selection']).optional(),
+    sectionIds: z.array(SectionIdSchema).min(1).max(MAX_COVERED_SECTIONS).optional(),
+  })
+  .refine(sectionInTab, 'Section is not in that tab')
+  .refine(validScope, 'Invalid selection scope');
 /** Any tab key; the service answers E_FORBIDDEN for the in-depth and ELI5 tabs (08 §7.2). */
 export const CloseTabPayload = z.object({ slug: Slug, tabKey: TabKey });
 

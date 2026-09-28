@@ -115,11 +115,24 @@ export function displayLabel(tab: Tab): string {
   return tab.kind === 'section-eli5' ? capText(tab.label, TAB_LABEL_MAX) : tab.label;
 }
 
+/** 08 §7.5: the quote at the top of an "ELI5 this selection" tab is cut to this many characters. */
+export const ASKED_QUOTE_MAX = 240;
+
 function tabFrom(c: Ctx, tab: Tab): string {
-  if (tab.kind !== 'section-eli5' || !tab.origin) return '';
+  const origin = tab.origin;
+  if (tab.kind !== 'section-eli5' || !origin) return '';
+  const source = c.model.tabs.flatMap((t) => t.sections).find((s) => s.id === origin.sectionId);
+  if (origin.scope === 'selection') {
+    // Labelled by topic, so "From" names the source section's heading instead of the label.
+    const heading = source?.heading ?? '';
+    const from = source
+      ? `<p class="tab-from">From: <a href="#${esc(origin.sectionId)}">${esc(heading)}</a></p>\n`
+      : '';
+    const quote = capText(origin.selection.replace(/\s+/g, ' ').trim(), ASKED_QUOTE_MAX);
+    return `${from}<blockquote class="tab-asked"><p><span class="tab-asked-label">You asked about:</span> “${esc(quote)}”</p></blockquote>\n`;
+  }
   const text = tab.label.replace(/^ELI5: /, '').replace(/ \(\d+\)$/, '');
-  const exists = c.model.tabs.some((t) => t.sections.some((s) => s.id === tab.origin?.sectionId));
-  const target = exists ? `<a href="#${esc(tab.origin.sectionId)}">${esc(text)}</a>` : esc(text);
+  const target = source ? `<a href="#${esc(origin.sectionId)}">${esc(text)}</a>` : esc(text);
   return `<p class="tab-from">From: ${target}</p>\n`;
 }
 

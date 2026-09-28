@@ -102,13 +102,13 @@ describe('menu interaction (08 §5.2, §5.4)', () => {
     const h = rt.boot(win, doc);
     open(win, doc);
     const bs = buttons(h.selection?.root);
-    expect(bs.map((b) => b.tabIndex)).toEqual([0, -1, -1, -1, -1]);
+    expect(bs.map((b) => b.tabIndex)).toEqual([0, -1, -1, -1, -1, -1]);
     bs[0]?.focus();
     bs[0]?.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
-    expect(bs.map((b) => b.tabIndex)).toEqual([-1, 0, -1, -1, -1]);
+    expect(bs.map((b) => b.tabIndex)).toEqual([-1, 0, -1, -1, -1, -1]);
     bs[1]?.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
     bs[0]?.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
-    expect(bs.map((b) => b.tabIndex)).toEqual([-1, -1, -1, -1, 0]);
+    expect(bs.map((b) => b.tabIndex)).toEqual([-1, -1, -1, -1, -1, 0]);
     expect(h.selection?.root.querySelector('input')?.getAttribute('aria-label')).toBe('Note for this action');
   });
 

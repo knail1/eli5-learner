@@ -85,12 +85,15 @@ export interface DocumentModel {
 
 export interface MergeLegendEntry { id: string; fromTitle: string; mergedAt: string }  // id 'm1', 'm2', …
 
+/** 'selection': an "ELI5 this selection" tab (08 §7.5); sectionIds = covered sections, first = sectionId. */
+export interface TabOrigin { sectionId: SectionId; selection: string; scope?: 'selection'; sectionIds?: SectionId[] }
+
 export interface Tab {
   key: string;                    // 'indepth' | 'eli5' | 'sx' + 6 hex (section ELI5)
   kind: TabKind;
   label: string;                  // 'In depth' | 'ELI5' | 'ELI5: <heading>'
   createdAt: string;
-  origin?: { sectionId: SectionId; selection: string };   // section-eli5 only
+  origin?: TabOrigin;             // section-eli5 only
   placeholder?: true;             // ELI5 placeholder after eli5 step failure (06 §7.1)
   sections: Section[];            // 1..40 content sections (+ references section on indepth)
 }
@@ -591,7 +594,10 @@ export function getSectionContext(model: DocumentModel, id: SectionId): {
 export function replaceSection(model: DocumentModel, id: SectionId, draft: SectionDraft,
   action: Section['lastAction'], now: string): { model: DocumentModel; warnings: string[] };
 export function addSectionEli5Tab(model: DocumentModel, from: SectionId, selection: string,
-  draft: DocumentDraftTab, now: string): { model: DocumentModel; tabKey: string };
+  draft: DocumentDraftTab, now: string,
+  opts?: MutationOptions & { selectionOf?: SectionId[] }): { model: DocumentModel; tabKey: string };
+  // selectionOf: an "ELI5 this selection" tab (08 §7.5): labelled "ELI5: " + draft.title (first 6
+  // words of the selection when empty), origin gets scope 'selection' and sectionIds.
 export function removeTab(model: DocumentModel, tabKey: string, now: string): DocumentModel;
 // src/main/document/merge.ts (contract required by 09 §10.3; TabRecord and DocumentMeta from 09)
 export function prepareMergeWeave(input: { targetHtml; targetMeta; sourceHtml; sourceMeta }): MergeWeavePrep;
@@ -703,6 +709,8 @@ The note is rendered immediately after the block that contains the anchor:
   lightbulb chip. Clicking the `dfn` term toggles and focuses its note. The runtime listens to
   `matchMedia('(min-width: 1100px)')` and switches state on change without reload.
 - **No JS:** notes are inline `details`, collapsed, still expandable.
+- **Selection:** with JS, a selection that starts in the body never includes a note, and one that
+  starts in a note stays inside it ([08](08-interactive-reading.md) §5.6).
 - Hovering or focusing a margin note highlights its `dfn` (and vice versa) via a shared class.
 - Glossary is never rendered as a list at the end (PRD). ELI5 and section ELI5 tabs never get notes.
 
@@ -800,7 +808,15 @@ anything else is dropped with a warning. The theme is written into `#eli5-theme`
    `--eli5-tabbar-h`, kept equal to the sticky tab bar's rendered height (updated by a
    `ResizeObserver`), which sections use as `scroll-margin-top`.
 7. Each section ELI5 tab begins with a small "From: <source heading>" link that jumps to the
-   originating section (if it still exists).
+   originating section (if it still exists). An "ELI5 this selection" tab (`origin.scope ===
+   'selection'`, [08](08-interactive-reading.md) §7.5) follows it with the quote
+   `<blockquote class="tab-asked"><p><span class="tab-asked-label">You asked about:</span> “…”</p></blockquote>`,
+   the selection on one line cut to 240 characters on a word boundary with `…`.
+8. Selection zones ([08](08-interactive-reading.md) §5.6, `selection/zones.ts`, in-app and in a
+   plain browser): with `html.js`, glossary notes are `user-select: none` unless the selection
+   started inside one (`html.eli5-sel-note`, the active note carries `data-eli5-sel` and everything
+   else is `user-select: none`). A copy of a body selection leaves the notes out. No print rules
+   change.
 
 ## 13. Print (`@media print` + `print.ts`)
 

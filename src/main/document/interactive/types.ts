@@ -106,15 +106,18 @@ const ACTION_VERBS: Record<MenuAction, string> = {
   analogy: 'added an analogy to',
   deeper: 'went deeper on',
   'eli5-tab': 'added ELI5 tab',
+  'eli5-selection': 'added ELI5 tab',
 };
 
 /**
  * 08 §6.7: the Undo/Redo label of a change, e.g. "re-explained 'The particular…'" for a section
- * action on that heading, "added ELI5 tab 'ELI5: Pricing'", "closed tab 'ELI5: Pricing'".
+ * action on that heading, "added ELI5 tab 'ELI5: Pricing'", "added ELI5 tab 'ELI5: Churn' for a
+ * selection", "closed tab 'ELI5: Pricing'".
  */
 export function changeLabel(kind: MenuAction | 'close-tab', name: string): string {
   const verb = kind === 'close-tab' ? 'closed tab' : ACTION_VERBS[kind];
-  return `${verb} '${quoteLabel(name)}'`;
+  const label = `${verb} '${quoteLabel(name)}'`;
+  return kind === 'eli5-selection' ? `${label} for a selection` : label;
 }
 
 /** 08 §6.4 step 7: `mirrorTabs` maps each Tab to its meta.json record. */

@@ -12,6 +12,7 @@ import { parseDocument } from '../parse';
 import { renderDocument } from '../render';
 import type { DocumentModel, ParsedDocument, Section, SectionContext, SectionJobPayload, Tab } from '../types';
 import { sectionHash } from './hash';
+import { selectionContext } from './selection-context';
 import { changeLabel, mirrorTabs, type ResolvedDeps } from './types';
 
 /** 08 §6.2 step 5: target plus neighbours may use 60% of the input budget. */
@@ -103,7 +104,11 @@ async function generate(
     if (err instanceof DocumentMutationError) throw new PipelineFailure('SECTION_GONE');
     throw err;
   }
-  const around = fitBudget(ctx, d.inputBudgetTokens?.());
+  const focused = p.action === 'eli5-selection';
+  // 08 §7.5: a selection ELI5 sends the selection plus brief context, never the neighbours.
+  const around = focused
+    ? { context: selectionContext(model, p.sectionIds ?? [p.sectionId], p.selectionText) }
+    : fitBudget(ctx, d.inputBudgetTokens?.());
   // sourceExcerpt (08 §6.2 step 4) is omitted: 09 retains no extracted source text in v1.
   const out: unknown = await d.tasks.runSectionAction({
     action: p.action,
@@ -115,7 +120,7 @@ async function generate(
     ...(p.note ? { note: p.note } : {}),
     signal,
   });
-  const ok = p.action === 'eli5-tab' ? isTabDraft(out) : isSectionDraft(out) && !isTabDraft(out);
+  const ok = p.action === 'eli5-tab' || focused ? isTabDraft(out) : isSectionDraft(out) && !isTabDraft(out);
   if (!ok) throw new PipelineFailure('INTERNAL', 'invalid_output');
   return { draft: out as SectionDraft | DocumentDraftTab, currentHash: sectionHash(ctx.section) };
 }
@@ -182,14 +187,16 @@ async function plan(
     ...(p.note ? { note: p.note } : {}),
     jobId,
   };
-  if (p.action === 'eli5-tab') {
+  if (p.action === 'eli5-tab' || p.action === 'eli5-selection') {
     const retiredIds = (await d.library.getMeta(p.slug)).retiredIds ?? [];
+    const covered = p.action === 'eli5-selection' ? (p.sectionIds ?? [p.sectionId]) : undefined;
     let added: { model: DocumentModel; tabKey: string; warnings: string[] };
     try {
       added = addSectionEli5Tab(model, p.sectionId, p.selectionText, draft as DocumentDraftTab, now, {
         idSource: d.sectionIds,
         retiredIds,
         assets,
+        ...(covered ? { selectionOf: covered } : {}),
       });
     } catch (err) {
       mutationFailure(err);
@@ -203,11 +210,14 @@ async function plan(
       meta: (m) => ({
         ...m,
         tabs: mirrorTabs(next.tabs),
-        actions: [...(m.actions ?? []), { ...entry, resultTabKey: added.tabKey }],
+        actions: [
+          ...(m.actions ?? []),
+          { ...entry, ...(covered ? { sectionIds: covered } : {}), resultTabKey: added.tabKey },
+        ],
       }),
       event: { slug: p.slug, tabKey: added.tabKey },
       tabLabel: next.tabs.at(-1)?.label ?? '',
-      label: changeLabel('eli5-tab', next.tabs.at(-1)?.label ?? ''),
+      label: changeLabel(p.action, next.tabs.at(-1)?.label ?? ''),
     };
   }
   // 08 §6.4 step 3: a mismatch means something outside this feature changed it; the newer wins.

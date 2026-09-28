@@ -320,6 +320,45 @@ describe('section ELI5 tabs (08 §7.1)', () => {
     expect(s.runSectionAction.mock.calls[0]?.[0]).toMatchObject({ action: 'eli5-tab', tabKind: 'indepth' });
   });
 
+  it('ELI5 this selection: a topic-labelled tab quoting the selection, with context for grounding', async () => {
+    const s = await setup();
+    const ids = [sec(s.model, 0, 0), sec(s.model, 0, 1)];
+    const selection = 'judges every channel by ROAS\n\n2. How the budget moved\n\nBudget shifted toward search';
+    const { jobId } = await s.ir.actions.createSectionEli5({
+      slug: s.slug,
+      tabKey: 'indepth',
+      sectionId: ids[0] as SectionId,
+      selectionText: selection,
+      scope: 'selection',
+      sectionIds: ids,
+    });
+    const out = await s.ir.runner(s.ctx(jobId).ctx);
+    const input = s.runSectionAction.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
+    expect(input).toMatchObject({ action: 'eli5-selection', tabKind: 'indepth', selection });
+    const context = String(input.context);
+    expect(context).toContain('Why ad spend is judged by ROAS');
+    expect(context).toContain('How the budget moved');
+    const { model } = parseDocument(await s.read());
+    const tab = model.tabs.at(-1);
+    expect(tab).toMatchObject({
+      kind: 'section-eli5',
+      label: 'ELI5: Budget, simply',
+      origin: { sectionId: ids[0], scope: 'selection', sectionIds: ids, selection },
+    });
+    const html = await s.read();
+    expect(html).toContain('<blockquote class="tab-asked">');
+    expect(html).toContain('You asked about:');
+    const m = await meta(s);
+    expect(m.actions?.at(-1)).toMatchObject({
+      action: 'eli5-selection',
+      sectionId: ids[0],
+      sectionIds: ids,
+      resultTabKey: tab?.key,
+    });
+    expect(out).toMatchObject({ tabLabel: 'ELI5: Budget, simply' });
+    expect((await s.lib.history(s.slug)).undoLabel).toBe("added ELI5 tab 'ELI5: Budget, simply' for a selection");
+  });
+
   it('a resumed eli5-tab job that already committed adds no second tab and no second LLM call', async () => {
     const s = await setup();
     const jobId = await queued(s, { action: 'eli5-tab' });

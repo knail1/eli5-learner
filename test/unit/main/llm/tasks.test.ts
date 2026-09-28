@@ -128,6 +128,24 @@ describe('task functions (02 §12) with FakeProvider and the default script', ()
       signal: ctx.signal,
     });
     expect((tab as DocumentDraftTab).kind).toBe('section-eli5');
+    const focused = await tasks.runSectionAction({
+      action: 'eli5-selection',
+      tabKind: 'indepth',
+      section: indepth.draft.sections[0] ?? { heading: '', blocks: [] },
+      outline: ['Why the plan matters'],
+      selection: 'safety stock',
+      context: 'Section heading: How the forecast is built',
+      note: 'one paragraph',
+      signal: ctx.signal,
+    });
+    expect((focused as DocumentDraftTab).kind).toBe('section-eli5');
+    const sel = fake.calls.find((c) => c.taskId === 'selection-eli5-tab');
+    expect(sel?.system).toContain('## Style guide: eli5');
+    expect(sel?.system).toMatch(/explain exactly the selected text/i);
+    expect(sel?.system).toMatch(/do not use `photo`/i);
+    expect(sel?.messages[0]?.text).toContain('<source ref="selected text">');
+    expect(sel?.messages[0]?.text).toContain('<source ref="surrounding context">');
+    expect(sel?.messages[0]?.text).toContain('one paragraph');
     const merge = await tasks.matchMerge('widgets', [{ catalogId: 'c1', title: 't', summary: 's' }]);
     expect(merge.matches).toEqual([]);
 

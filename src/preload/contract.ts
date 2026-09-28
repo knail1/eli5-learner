@@ -441,7 +441,8 @@ export interface MergeSuggestion {
 export type SectionId = string & { readonly __brand: 'SectionId' };
 
 export type SectionAction = 'expand' | 'reexplain' | 'analogy' | 'deeper';
-export type MenuAction = SectionAction | 'eli5-tab';
+/** 'eli5-tab': a separate ELI5 of the section; 'eli5-selection': a focused ELI5 of the selected text (08 §7.5). */
+export type MenuAction = SectionAction | 'eli5-tab' | 'eli5-selection';
 
 export interface SectionActionRequest {
   /** Filled by the doc preload from the loaded URL, never by the page. */
@@ -453,7 +454,15 @@ export interface SectionActionRequest {
   note?: string;
 }
 
-export type CreateSectionEli5Request = Omit<SectionActionRequest, 'action'>;
+/**
+ * Channel eli5:doc:create-section-eli5. `scope: 'selection'` ("ELI5 this selection", 08 §7.5) explains
+ * exactly `selectionText` (up to 12,000 chars, paragraph breaks kept); `sectionIds` lists every section
+ * the selection covers, in document order, starting with `sectionId`. Absent scope: the section ELI5.
+ */
+export type CreateSectionEli5Request = Omit<SectionActionRequest, 'action'> & {
+  scope?: 'section' | 'selection';
+  sectionIds?: SectionId[];
+};
 
 /** `eli5:doc:close-tab` (08 §3): Section ELI5 tabs only. */
 export interface CloseTabRequest {

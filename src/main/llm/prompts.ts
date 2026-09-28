@@ -66,6 +66,7 @@ export const PROMPT_VARS: Readonly<Record<PromptId, readonly string[]>> = {
     'sourceExcerpt',
   ],
   'section-eli5-tab': ['skills', 'outline', 'section', 'selection', 'note'],
+  'selection-eli5-tab': ['skills', 'outline', 'context', 'selection', 'note'],
   summary: ['title', 'outline', 'indepthExcerpt'],
   'merge-match': ['summary', 'candidates'],
   'photo-pick': ['slots'],

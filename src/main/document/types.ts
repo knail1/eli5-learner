@@ -87,12 +87,24 @@ export interface SectionEnhancement {
   blocks: BlockEnhancement[];
 }
 
+/**
+ * Where a section ELI5 tab came from. `scope: 'selection'` marks an "ELI5 this selection" tab (08 §7.5):
+ * `selection` is the passage it explains (quoted at the top of the tab) and `sectionIds` every covered
+ * section, first one = `sectionId`.
+ */
+export interface TabOrigin {
+  sectionId: SectionId;
+  selection: string;
+  scope?: 'selection';
+  sectionIds?: SectionId[];
+}
+
 export interface Tab {
   key: string; // TabKey; kept as string per 07 §3
   kind: TabKind;
   label: string; // 'In depth' | 'ELI5' | 'ELI5: <heading>'
   createdAt: string;
-  origin?: { sectionId: SectionId; selection: string }; // section-eli5 only
+  origin?: TabOrigin; // section-eli5 only
   placeholder?: true; // ELI5 placeholder after eli5 step failure (06 §7.1)
   sections: Section[]; // 1..40 content sections (+ references section on indepth)
 }
@@ -296,6 +308,8 @@ export interface SectionJobPayload {
   action: MenuAction;
   selectionText: string;
   note?: string;
+  /** 'eli5-selection' only: every section the selection covers, first = sectionId (08 §7.5). */
+  sectionIds?: SectionId[];
   heading: string; // source section heading at request time
   baseHash: string; // sectionHash(section) at request time (08 §6.3)
 }
@@ -380,4 +394,9 @@ export interface MutationOptions {
    * images whose bytes are present (otherwise the block is dropped with 'figure-image-missing').
    */
   assets?: ReadonlyMap<string, Uint8Array>;
+  /**
+   * addSectionEli5Tab only: the sections an "ELI5 this selection" covers (08 §7.5). The tab is
+   * labelled by the draft's topic and its origin records the selection scope.
+   */
+  selectionOf?: readonly SectionId[];
 }

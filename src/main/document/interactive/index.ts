@@ -8,6 +8,7 @@ export { sectionHash } from './hash';
 export { RateLimiter, SECTION_ACTIONS_PER_MINUTE, RATE_WINDOW_MS } from './rate-limit';
 export { SECTION_BUDGET_SHARE, NEIGHBOUR_CHARS, createSectionRunner } from './regenerate';
 export type { RunnerEnv } from './regenerate';
+export { SELECTION_CONTEXT_CHARS, selectionContext } from './selection-context';
 export { NOTICES, createInteractiveReading } from './service';
 export type { InteractiveReading } from './service';
 export { SectionActionError, mirrorTabs, failureNotice } from './types';

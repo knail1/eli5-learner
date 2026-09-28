@@ -9,6 +9,7 @@ import { initCharts, initFigures, initPrint, initSteppers } from './components';
 import { initEnhancements } from './enhancements';
 import { initGlossary, type GlossaryApi } from './glossary';
 import { initSelection, type SelectionController } from './selection';
+import { initSelectionZones } from './selection/zones';
 import { initTabs, type TabsApi } from './tabs';
 import { applyStoredTheme, initThemeToggle } from './theme';
 
@@ -40,6 +41,7 @@ export function boot(win: Window = window, doc: Document = document): RuntimeHan
   safe('print', () => initPrint(win, doc));
   safe('theme-toggle', () => initThemeToggle(doc, win));
   safe('enhancements', () => initEnhancements(doc, win));
+  safe('selection-zones', () => initSelectionZones(doc));
   const bridge = getBridge(win);
   const handle: RuntimeHandle = { inApp: bridge !== undefined };
   if (tabs) handle.tabs = tabs;

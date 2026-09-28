@@ -207,6 +207,21 @@
         }
       ]
     },
+    "selection-eli5-tab": {
+      "kind": "section-eli5",
+      "title": "Two costs",
+      "sections": [
+        {
+          "heading": "Too much or too little",
+          "blocks": [
+            {
+              "type": "analogy",
+              "md": "Keeping stock is like packing snacks for a trip: pack too many and you carry them around, pack too few and someone goes hungry."
+            }
+          ]
+        }
+      ]
+    },
     "summary": {
       "title": "How Example Widgets Inc. Plans Its Widget Supply",
       "topicSlugHint": "widget-supply-planning",
