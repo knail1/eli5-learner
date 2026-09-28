@@ -9,12 +9,15 @@ self-contained interactive `index.html` with an in-depth (WSJ-style) tab and an 
 section by section.
 
 - **Status:** pre-code. The design is settled; the app has not been scaffolded yet.
-- **Source of truth:** `spec/ELI5 Learner Product Requirements Document.md`. Read it before
-  designing or building anything. `README.md` is the user-facing summary.
+- **Source of truth:** `spec/ELI5 Learner Product Requirements Document.md` (what) and
+  `spec/tech/` (how: one engineering spec per module; start at `spec/tech/README.md`, which also
+  has the build order). `README.md` is the user-facing summary.
 
 ## Repo layout
 
-- `spec/` — public product spec.
+- `spec/` — public product spec; `spec/tech/` — public engineering spec and `hooks.md` registry.
+- `scripts/check-spec-hooks.mjs` — validates private-hook markers; run `node scripts/check-spec-hooks.mjs`
+  after any spec edit.
 - `docs/` — generated learnings live here at runtime. Mostly git-ignored (see below).
 - `docs/index.html`, `docs/.nojekyll`, `docs/sample/` — the only committed `docs/` files; they form
   the public GitHub Pages site.
@@ -32,6 +35,9 @@ section by section.
 - Stage specific files only (no `git add .` / `git add -A`). Review `git diff --cached --stat` and
   scan the diff for secrets before every commit.
 - When adding a new public file under `docs/`, whitelist it in `.gitignore` explicitly.
+- Enterprise differences are named private hooks (`HOOK-<AREA>-<NN>`): a `<!-- hook:ID -->` marker plus
+  a generic callout in the public spec, registered in `spec/tech/hooks.md`. The real details go only in
+  the gitignored private spec; enterprise code goes only in the gitignored `enterprise/` overlay.
 
 ## Architecture rules (from the spec)
 

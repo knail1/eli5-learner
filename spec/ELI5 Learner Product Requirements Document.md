@@ -20,22 +20,22 @@ The user drops in files, screenshots, or URLs, optionally types a few clarifying
 
 ## Build editions and swap seams
 
-Build the public v1 now. Every enterprise capability sits behind an interface that exists in v1, configured but dormant, so the enterprise edition is a swap of implementations, not a redesign. Organization specific details are kept out of this public spec.
+Build the public v1 now. Every enterprise capability sits behind an interface that exists in v1, configured but dormant, so the enterprise edition is a swap of implementations, not a redesign. Organization specific details are kept out of this public spec. Engineering detail and the full list of private hooks: spec/tech/README.md and spec/tech/hooks.md.
 
 | Capability | Public v1 (build now) | Enterprise edition (later, not implemented now) |
 | --- | --- | --- |
-| Intelligence (LLM) | Claude API or OpenAI API, user supplied key, selectable in settings | AWS Bedrock |
-| Authentication | None. Only sources reachable without login | MCP server: one OAuth login with 2FA, then scoped access to the organization's document, observability, code, and ticketing systems |
-| Source access | Local files, clipboard, public URLs | Adds authenticated organization URLs and ticket links via MCP |
-| Publishing | Save to local directory only | Organization cloud drive (org wide share + link returned) and Git push with secret scanning |
+| Intelligence (LLM) | Claude API or OpenAI API, user supplied key, selectable in settings | AWS Bedrock (hook: HOOK-LLM-01) |
+| Authentication | None. Only sources reachable without login | MCP server: one OAuth login with 2FA, then scoped access to the organization's document, observability, code, and ticketing systems (hook: HOOK-AUTH-01) |
+| Source access | Local files, clipboard, public URLs | Adds authenticated organization URLs and ticket links via MCP (hooks: HOOK-SRC-01, HOOK-SRC-02) |
+| Publishing | Save to local directory only | Organization cloud drive (org wide share + link returned) and Git push with secret scanning (hooks: HOOK-PUB-01, HOOK-PUB-03) |
 | Document location | App project directory | App project directory (moving into sibling monorepo projects is future work) |
 
 **Seam requirements**
 
-- Define an `LLMProvider` interface (generate, generate with images, streaming optional). Ship Claude and OpenAI implementations. Leave a documented Bedrock stub and config key.
-- Define a `SourceResolver` interface. Ship file, clipboard, and public URL resolvers. Leave a documented MCP resolver stub.
-- Define a `Publisher` interface. Ship a local publisher. Leave documented cloud drive and Git publisher stubs.
-- Enterprise only UI (publish buttons) is hidden or disabled in the public build via a build or config flag.
+- Define an `LLMProvider` interface (generate, generate with images, streaming optional). Ship Claude and OpenAI implementations. Leave a documented Bedrock stub and config key (hook: HOOK-LLM-01).
+- Define a `SourceResolver` interface. Ship file, clipboard, and public URL resolvers. Leave a documented MCP resolver stub (hooks: HOOK-SRC-01, HOOK-SRC-05).
+- Define a `Publisher` interface. Ship a local publisher. Leave documented cloud drive and Git publisher stubs (hooks: HOOK-PUB-01, HOOK-PUB-03).
+- Enterprise only UI (publish buttons) is hidden or disabled in the public build via a build or config flag (hooks: HOOK-UI-01, HOOK-CFG-02).
 - Public build must run with nothing but an API key: no accounts, no credentials, no external services.
 
 ## App shell and layout
@@ -75,7 +75,7 @@ Three input methods feed one job: drag and drop files, paste from the clipboard,
 | Scanned PDFs | Render pages to images, send to vision | Medium |
 | Excel (.xlsx) | Simple text or table dump. Do not over engineer | Low |
 | Public URLs | See Fetching strategy | High |
-| Ticket links (issue trackers) | Enterprise edition only, via MCP | Enterprise |
+| Ticket links (issue trackers) | Enterprise edition only, via MCP (hook: HOOK-SRC-02) | Enterprise |
 
 **Clipboard paste**
 
@@ -96,8 +96,8 @@ Fetch first, render only as a fallback. No separate browser dependency (no Puppe
 
 **Enterprise edition (documented, not implemented):**
 
-- Authenticated organization sources (documents, dashboards, code, tickets) resolve through the MCP server, which holds credentials and applies the user's authorization scope. The app never handles credentials.
-- Rationale recorded for later: the MCP is the authenticated access lane; plain fetch plus hidden window rendering is the public web lane.
+- Authenticated organization sources (documents, dashboards, code, tickets) resolve through the MCP server, which holds credentials and applies the user's authorization scope. The app never handles credentials. (hooks: HOOK-SRC-01, HOOK-SRC-03, HOOK-AUTH-01)
+- Rationale recorded for later: the MCP is the authenticated access lane; plain fetch plus hidden window rendering is the public web lane. (hooks: HOOK-FETCH-01, HOOK-FETCH-02)
 
 ## Processing pipeline
 
@@ -201,14 +201,14 @@ The public build saves locally only and pushes nothing. The enterprise edition a
 
 **Organization cloud drive**
 
-- Upload the document's `index.html` (and its folder if needed) to a configured cloud drive location, brokered by the MCP.
-- Apply an organization wide sharing permission so everyone in the organization can open it, not just the owner.
+- Upload the document's `index.html` (and its folder if needed) to a configured cloud drive location, brokered by the MCP (hook: HOOK-PUB-01).
+- Apply an organization wide sharing permission so everyone in the organization can open it, not just the owner (hook: HOOK-PUB-02).
 - Return the shareable link in the app, one click to copy or open in the default browser.
 
 **Git push to GitHub Pages**
 
-- Push the document's files to a configured repo and docs directory, scanning for secrets first and committing only the specified files.
-- The repo renders pushed HTML to a GitHub Pages (github.io) link; the app surfaces that link.
+- Push the document's files to a configured repo and docs directory, scanning for secrets first and committing only the specified files (hooks: HOOK-PUB-03, HOOK-PUB-05).
+- The repo renders pushed HTML to a GitHub Pages (github.io) link; the app surfaces that link (hook: HOOK-PUB-04).
 - Include help documentation on setting up the GitHub Actions workflow that renders HTML to GitHub Pages.
 
 ## Configuration, scope, and open items
@@ -217,7 +217,7 @@ The public build saves locally only and pushes nothing. The enterprise edition a
 
 - LLM provider (Claude or OpenAI), API key stored in the macOS Keychain, model name.
 - Default for the "Explain domain specific terms" toggle.
-- Dormant, documented keys: `llm.provider = bedrock`, `sources.mcp.url`, `publish.drive.*`, `publish.github.*`.
+- Dormant, documented keys: `llm.provider = bedrock`, `sources.mcp.url`, `publish.drive.*`, `publish.github.*` (hooks: HOOK-CFG-01, HOOK-LLM-01, HOOK-SRC-05, HOOK-PUB-01, HOOK-PUB-04).
 
 **Out of scope for v1**
 

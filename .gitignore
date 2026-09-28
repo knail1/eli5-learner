@@ -167,3 +167,6 @@ config.local.json
 
 # Organization-specific spec details (private)
 spec/internal.md
+
+# Private enterprise overlay (see spec/tech/01-architecture.md, HOOK-CFG-02)
+enterprise/
