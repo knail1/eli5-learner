@@ -47,6 +47,9 @@ const overlay: EditionOverlay = {
     reg.registerPublisher('git', () => new RecordingPublisher('git', fixtureRecorder, () => reg.secretScanner()));
 
     reg.enableUiFeatures(['publish.drive', 'publish.git', 'auth.signIn']);
+
+    // Cell F e2e reads the recorded uploads from the main process (13 §10.1 "E14 inverted").
+    (globalThis as { __eli5FixtureRecorder?: PublishRecorder }).__eli5FixtureRecorder = fixtureRecorder;
   },
 };
 

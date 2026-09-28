@@ -181,6 +181,14 @@ describe('.github/workflows/ci.yml (13 §12)', () => {
     expect(r).toContain('requires an overlay');
   });
 
+  it('edition-fixture runs cell F e2e E14 inverted on a fixture-overlay test build (13 §10.1)', () => {
+    const r = runs('edition-fixture');
+    expect(r).toContain(
+      'ELI5_TEST_BUILD=1 ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=test/fixtures/overlay-fake npm run build',
+    );
+    expect(r).toContain('npx playwright test test/e2e/edition-fixture.e2e.ts --project=e2e');
+  });
+
   it('edition-fixture runs the edition build matrix check (F, F-missing, P-stub)', () => {
     expect(runs('edition-fixture')).toContain('npm run check:editions');
   });
@@ -212,6 +220,16 @@ describe('.github/workflows/ci.yml (13 §12)', () => {
     expect(obj(p.env).CSC_IDENTITY_AUTO_DISCOVERY).toBe('false');
   });
 
+  it('package builds only the runner architecture, so the dmg carries its own keyring binary (01 §8.3)', () => {
+    // electron-builder.yml lists arm64 and x64; without an arch flag an arm64 runner also emits an
+    // x64 dmg that lacks @napi-rs/keyring-darwin-x64. macos-latest is arm64 (13 §12).
+    const builds = runs('package')
+      .split('\n')
+      .filter((l) => l.includes('electron-builder'));
+    expect(builds.length).toBeGreaterThan(0);
+    for (const l of builds) expect(l).toMatch(/electron-builder --mac dmg --arm64(\s|$)/);
+  });
+
   it('evals run only on schedule or dispatch, with issues: write and the provider secrets', () => {
     const e = job('evals');
     expect(e.if).toBe("github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'");
@@ -239,5 +257,18 @@ describe('.github/workflows/ci.yml (13 §12)', () => {
   it('references only the deny-list and eval-key secrets', () => {
     const secrets = [...text.matchAll(/secrets\.([A-Z0-9_]+)/g)].map((m) => m[1]);
     expect(new Set(secrets)).toEqual(new Set(['ELI5_HYGIENE_DENYLIST', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY']));
+  });
+});
+
+describe('package.json packaging scripts (01 §8.3)', () => {
+  const scripts = (JSON.parse(read('package.json')) as { scripts: Record<string, string> }).scripts;
+
+  it('every dmg script builds exactly one architecture (per-arch keyring packages)', () => {
+    const dmg = Object.entries(scripts).filter(([, cmd]) => cmd.includes('electron-builder'));
+    expect(dmg.map(([name]) => name).sort()).toEqual(['package', 'package:arm64']);
+    for (const [name, cmd] of dmg)
+      expect(cmd, name).toMatch(/electron-builder --mac dmg --(arm64|x64|\$\(node -p process\.arch\))(\s|$)/);
+    expect(scripts['package:arm64']).toContain('--arm64');
+    expect(scripts.package).toContain('--$(node -p process.arch)');
   });
 });

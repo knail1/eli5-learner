@@ -436,7 +436,7 @@ Reviewed false positives are listed in `.hygiene-allow` as `secret <glob> <rule-
 | `e2e` | `macos-latest` | `build-public` (ordering only; `npm run test:e2e` rebuilds with `ELI5_TEST_BUILD=1`) | install Playwright WebKit+Chromium; `npm run test:e2e` (e2e, startup and cross-browser projects) | traces, screenshots, logs on failure |
 | `edition-fixture` | `macos-latest` | — | cell F and F-missing (§10.1), the §11 bundle check rejecting cell F, `npm run check:editions` | — |
 | `hygiene` | `macos-latest` | `build-public` | §11 | — |
-| `package` | `macos-latest` | all above | `main` only: `electron-builder --mac dmg`, unsigned | dmg (7-day retention) |
+| `package` | `macos-latest` | all above | `main` only: `electron-builder --mac dmg --arm64` (the runner's architecture; an x64 dmg needs its own Intel job, [01 §8.3](01-architecture.md)), unsigned | dmg (7-day retention) |
 | `evals` | `macos-latest` | — | `schedule`/`workflow_dispatch` only, never on `pull_request`; secrets `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` mapped to `ELI5_EVAL_API_KEY_*`; skips with a notice when unset; `npm run eval`, exit 2 opens an issue; §9 | eval results JSON |
 
 Rules:

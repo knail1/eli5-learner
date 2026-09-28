@@ -80,6 +80,8 @@ test('API key goes to the key store, never to settings.json', async () => {
 });
 
 test('closing the window hides it; the app keeps running', async () => {
+  // Self-sufficient after a worker restart: wait for the window instead of relying on earlier tests.
+  await expect((await app.firstWindow()).getByRole('heading', { level: 1 }).first()).toBeVisible();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.close());
   const state = await app.evaluate(({ BrowserWindow }) => {
     const w = BrowserWindow.getAllWindows()[0];
@@ -90,7 +92,18 @@ test('closing the window hides it; the app keeps running', async () => {
 
 test('bootstrap opens the Library and serves eli5doc:// on the viewer session only', async () => {
   const root = path.join(userData, 'library');
-  await access(path.join(root, 'catalog.json'));
+  await app.firstWindow();
+  // Bootstrap opens the Library asynchronously; poll rather than assume earlier tests waited for it.
+  await expect
+    .poll(
+      () =>
+        access(path.join(root, 'catalog.json')).then(
+          () => true,
+          () => false,
+        ),
+      { timeout: 15_000 },
+    )
+    .toBe(true);
   await access(path.join(root, '.eli5', 'library.lock'));
   const status = await app.evaluate(async ({ session }) => {
     const viewer = session.fromPartition('eli5-viewer');

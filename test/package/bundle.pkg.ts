@@ -180,5 +180,21 @@ test('the @napi-rs/keyring native module is unpacked from the asar', () => {
     expect(f.unpacked, f.path).toBe(true);
     expect(existsSync(path.join(UNPACKED, f.path)), f.path).toBe(true);
   }
-  expect(keyring.some((f) => f.path.includes('darwin-arm64'))).toBe(true);
+  // The keyring binary matches the executable's architecture (01 §8.3: per-arch dmgs), so an x64
+  // build pointed at by ELI5_PACKAGED_APP is checked the same way.
+  const archs = execFileSync('lipo', ['-archs', EXE], { encoding: 'utf8' }).trim().split(/\s+/);
+  for (const arch of archs)
+    expect(
+      keyring.some((f) => f.path.includes(`keyring-darwin-${arch}/`)),
+      arch,
+    ).toBe(true);
+  for (const f of keyring) {
+    const m = /keyring-darwin-([a-z0-9]+)\//.exec(f.path);
+    if (m) expect(archs, f.path).toContain(m[1]);
+    expect(
+      execFileSync('lipo', ['-archs', path.join(UNPACKED, f.path)], { encoding: 'utf8' })
+        .trim()
+        .split(/\s+/),
+    ).toEqual(archs);
+  }
 });

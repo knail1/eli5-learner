@@ -67,7 +67,8 @@ describe('httpFetch cancels the download when it stops reading early (§4.5)', (
     const t = endlessTransport({ 'content-type': 'application/pdf' }, new TextEncoder().encode('%PDF-1.7\n'));
     expect(await run(t)).toMatchObject({ kind: 'skip', code: 'too-large' });
     expect(t.probe.signal?.aborted).toBe(true);
-  });
+    // ~90 ms alone; the loop to the binary cap starves under a loaded full-suite run (no retries).
+  }, 20_000);
 
   it('a fully read body is not aborted', async () => {
     let signal: AbortSignal | null = null;

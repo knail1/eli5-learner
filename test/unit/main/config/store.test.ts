@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -94,6 +95,15 @@ describe('SettingsStore.set (12 §5.1)', () => {
     expect((await stat(file())).mode & 0o777).toBe(0o600);
     expect(await readJson()).toEqual({ schemaVersion: 1, glossary: { defaultOn: false } });
     expect(changes).toEqual([['glossary.defaultOn']]);
+  });
+
+  it('emits only after settings.json is on disk (12 §5.1 step 4: save, then emit)', async () => {
+    const s = new SettingsStore({ dir });
+    await s.load();
+    const seen: boolean[] = [];
+    s.onChanged(() => seen.push(existsSync(file()) && readFileSync(file(), 'utf8').includes('"defaultOn": false')));
+    await s.set({ glossary: { defaultOn: false } });
+    expect(seen).toEqual([true]);
   });
 
   it('rejects unknown keys, invalid values and secrets without applying', async () => {

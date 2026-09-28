@@ -216,8 +216,15 @@ export class SettingsStore {
     const before = this.snapshot;
     this.user = merged;
     this.readOnlyCompat = false;
-    this.rebuild(diffPaths(before, shape.data));
-    await this.save();
+    const changed = diffPaths(before, shape.data);
+    this.rebuild([]);
+    // 12 §5.1 step 4: save, then emit, so listeners (and the renderer) never see a value that is not
+    // on disk yet. A failed save still emits: the in-memory snapshot has changed either way.
+    try {
+      await this.save();
+    } finally {
+      this.emit(changed);
+    }
     return this.snapshot;
   }
 
@@ -283,6 +290,10 @@ export class SettingsStore {
   private rebuild(changed: string[]): void {
     const parsed = this.schema.parse(this.layered(this.user));
     this.snapshot = deepFreeze(parsed);
+    this.emit(changed);
+  }
+
+  private emit(changed: string[]): void {
     if (changed.length) for (const l of this.listeners) l(this.snapshot, changed);
   }
 

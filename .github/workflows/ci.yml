@@ -154,6 +154,10 @@ jobs:
             exit 1
           fi
           grep -q '@eli5/overlay resolved' f-bundle.log
+      - name: Cell F e2e E14 inverted (publish buttons visible and wired to the fixture publishers; 13 §10.1)
+        run: |
+          ELI5_TEST_BUILD=1 ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=test/fixtures/overlay-fake npm run build
+          npx playwright test test/e2e/edition-fixture.e2e.ts --project=e2e
       - name: Cell F-missing (enterprise build without an overlay fails with the 01 §6.5 message)
         run: |
           if ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=./no-such-overlay npx electron-vite build > f-missing.log 2>&1; then
@@ -215,8 +219,8 @@ jobs:
             ~/Library/Caches/electron-builder
           key: electron-builder-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
-      - name: Unsigned dmg
-        run: npm run build && npx electron-builder --mac dmg
+      - name: Unsigned arm64 dmg
+        run: npm run build && npx electron-builder --mac dmg --arm64
       - uses: actions/upload-artifact@v5
         with:
           name: dmg

@@ -2,7 +2,8 @@
  * Cross-browser smoke (13 §7.3, §13 accessibility): every golden opened via file:// in Chromium and
  * WebKit. The default tab renders, tab switching works, glossary notes collapse below the
  * breakpoint, the select-and-act bridge stays absent and silent outside the app (08), there are no
- * page or console errors, and axe finds zero serious or critical violations.
+ * page or console errors, and axe finds zero serious or critical violations in both themes. Chart
+ * and diagram marks get a real computed color in both themes (07 §16).
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
@@ -26,8 +27,10 @@ function expectClean(probe: Probe): void {
   expect(probe.requests).toEqual([]);
 }
 
-async function seriousViolations(page: Page): Promise<string[]> {
-  const { violations } = await new AxeBuilder({ page }).analyze();
+async function seriousViolations(page: Page, include?: string): Promise<string[]> {
+  const builder = new AxeBuilder({ page });
+  if (include) builder.include(include);
+  const { violations } = await builder.analyze();
   const out: string[] = [];
   for (const v of violations) {
     if (v.impact !== 'serious' && v.impact !== 'critical') continue;
@@ -38,6 +41,30 @@ async function seriousViolations(page: Page): Promise<string[]> {
     }
   }
   return out;
+}
+
+/** Chart and diagram marks colored through viz-fill-* / viz-stroke-* classes (07 §7.2 rule 11). */
+interface Mark {
+  cls: string;
+  prop: 'fill' | 'stroke';
+  value: string;
+}
+
+async function markColors(page: Page): Promise<Mark[]> {
+  return page.locator('figure.chart svg, figure.diagram svg').evaluateAll((svgs) => {
+    const out: { cls: string; prop: 'fill' | 'stroke'; value: string }[] = [];
+    for (const svg of svgs) {
+      for (const el of [svg, ...Array.from(svg.querySelectorAll('[class]'))]) {
+        for (const cls of Array.from(el.classList)) {
+          const m = /^viz-(fill|stroke)-/.exec(cls);
+          if (!m) continue;
+          const prop = m[1] as 'fill' | 'stroke';
+          out.push({ cls, prop, value: getComputedStyle(el).getPropertyValue(prop).trim() });
+        }
+      }
+    }
+    return out;
+  });
 }
 
 for (const g of GOLDENS) {
@@ -117,9 +144,39 @@ for (const g of GOLDENS) {
       expectClean(probe);
     });
 
-    test('axe: zero serious or critical violations', async ({ context, page }) => {
+    test('chart and diagram marks have a real computed color in both themes (07 §16)', async ({ context, page }) => {
       const probe = await instrument(context, page, g.url);
       await page.setViewportSize(WIDE);
+      const byTheme: Record<string, Mark[]> = {};
+      for (const colorScheme of ['light', 'dark'] as const) {
+        await page.emulateMedia({ colorScheme });
+        await open(page, g.url);
+        const marks = await markColors(page);
+        expect(marks.length, colorScheme).toBeGreaterThan(0);
+        const bad = marks.filter((m) => m.value === '' || m.value === 'none' || m.value === 'rgb(0, 0, 0)');
+        expect(bad, colorScheme).toEqual([]);
+        byTheme[colorScheme] = marks;
+      }
+      // The marks follow the theme without re-render: at least one class resolves differently.
+      const light = byTheme.light ?? [];
+      const dark = byTheme.dark ?? [];
+      expect(dark.map((m) => m.cls)).toEqual(light.map((m) => m.cls));
+      expect(dark.some((m, i) => m.value !== light[i]?.value)).toBe(true);
+      expectClean(probe);
+    });
+
+    test('axe: zero serious or critical violations, light and dark', async ({ context, page }) => {
+      const probe = await instrument(context, page, g.url);
+      await page.setViewportSize(WIDE);
+      // 07 §16: both themes pass WCAG AA for body text.
+      await page.emulateMedia({ colorScheme: 'dark' });
+      await open(page, g.url);
+      await expect(page.locator('body')).not.toHaveCSS('background-color', 'rgb(255, 255, 255)');
+      // A document with #eli5-theme token overrides applies them in both schemes (theme.ts
+      // themeCss), so its accent is only checked in light; dark covers the body text (07 §16).
+      const overridden = ((await page.locator('#eli5-theme').textContent()) ?? '').trim() !== '';
+      const dark = (await seriousViolations(page, overridden ? 'section p' : undefined)).map((v) => `[dark] ${v}`);
+      await page.emulateMedia({ colorScheme: 'light' });
       await open(page, g.url);
       const found: string[] = [];
       const keys = await page
@@ -135,7 +192,7 @@ for (const g of GOLDENS) {
       const summary = page.locator('details.gl-note > summary').first();
       if ((await summary.count()) > 0) await summary.click();
       found.push(...(await seriousViolations(page)).map((v) => `[narrow] ${v}`));
-      expect(found).toEqual([]);
+      expect([...dark, ...found]).toEqual([]);
       expectClean(probe);
     });
   });

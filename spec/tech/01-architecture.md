@@ -787,7 +787,7 @@ declare const __ELI5_TEST__: boolean;
 | `check:hygiene` | `jiti scripts/check-hygiene.ts` | Public-repo hygiene (13 §11); pass `-- --out out --package` after a build |
 | `check:licenses` | `node scripts/check-licenses.mjs` | Runtime dependency licenses; `--audit <file>` for the advisory gate (13 §13) |
 | `check:editions` | `node scripts/check-editions.mjs` | Edition cells F, F-missing, P-stub (13 §10) |
-| `package` | `rimraf out build/doc-runtime && npm run build && electron-builder --mac dmg` | Clean build without `ELI5_TEST_BUILD`, then dmg. The e2e output in `out/` is never packaged |
+| `package` | `rimraf out build/doc-runtime && npm run build && electron-builder --mac dmg --$(node -p process.arch)` | Clean build without `ELI5_TEST_BUILD`, then a dmg for the build machine's architecture only (per-arch keyring, below). The e2e output in `out/` is never packaged |
 | `package:arm64` | `rimraf out build/doc-runtime && npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg --arm64` | Unsigned arm64 dmg on an Apple silicon machine |
 | `test:package` | `ELI5_RUN_PACKAGE_TESTS=1 playwright test -c playwright.package.config.ts` | Packaged-app bundle checks and launch smoke (13 §11.1); run after `package:arm64` |
 
