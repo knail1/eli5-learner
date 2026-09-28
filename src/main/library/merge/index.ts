@@ -1,6 +1,16 @@
 /**
- * Merge suggestions (09 §10): matching, suggestions.json, accept and dismiss. Filled by the merge
- * slice; re-exported from src/main/library/index.ts by `export *`. Bootstrap plugs its
- * MergeSuggestions (src/main/ipc/suggestions.ts) in; FsLibrary.runMergeCheck feeds 06 §10.
+ * Merge suggestions (09 §10): matching, suggestions.json, accept and dismiss. Re-exported from
+ * src/main/library/index.ts by `export *`. Bootstrap plugs `createMergeSuggestions(...).service`
+ * into the IPC slot; FsLibrary.runMergeCheck (06 §10) delegates to the attached engine.
  */
-export {};
+export * from './constants';
+export { LexicalScorer, STOPWORDS, stem, tokenize } from './similarity';
+export type { SimilarityScorer } from './similarity';
+export { createMergeSuggestions, SUGGESTIONS_FILE } from './engine';
+export type {
+  AppendMerged,
+  MergeJudge,
+  MergeSuggestionsHandle,
+  MergeSuggestionsOptions,
+  MergeSuggestionsService,
+} from './engine';
