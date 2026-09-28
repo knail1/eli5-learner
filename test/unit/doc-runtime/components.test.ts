@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { loadGolden, loadRuntime, type Runtime } from './dom';
 
@@ -32,6 +34,17 @@ describe('theme toggle (07 §11.2)', () => {
 });
 
 describe('stepper (07 §7.1)', () => {
+  it('numbers each step from its own data-step, not a CSS counter', () => {
+    // Hidden steps are display:none and skip counter-increment, so a counter shows "1" on every
+    // step once the stepper is paged. The badge must come from data-step.
+    const css = readFileSync(join(process.cwd(), 'src/doc-runtime/index.css'), 'utf8');
+    const before = /\.step::before\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+    expect(before).toMatch(/content:\s*attr\(data-step\)/);
+    const { doc } = loadGolden('full');
+    const steps = Array.from(doc.querySelectorAll('.stepper .step'));
+    expect(steps.map((s) => s.getAttribute('data-step'))).toEqual(steps.map((_, i) => String(i + 1)));
+  });
+
   it('shows one step with prev/next; all steps remain in the markup', () => {
     const { win, doc } = loadGolden('full');
     boot(win, doc);

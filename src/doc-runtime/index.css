@@ -729,15 +729,14 @@ figure.annotated figcaption,
   list-style: none;
   padding: 0;
   margin: 8px 0 0;
-  counter-reset: step;
 }
 .step {
-  counter-increment: step;
   padding: 8px 0 0 40px;
   position: relative;
 }
+/* data-step, not a CSS counter: paged steps are display:none and would not increment one. */
 .step::before {
-  content: counter(step);
+  content: attr(data-step);
   position: absolute;
   left: 0;
   top: 8px;
