@@ -1,0 +1,4 @@
+{
+  "$comment": "High or critical `npm audit --omit=dev` advisories accepted temporarily (13 §13). Each entry: package, advisory (GHSA id), reason, expires (YYYY-MM-DD). Checked by scripts/check-licenses.mjs --audit.",
+  "allow": []
+}

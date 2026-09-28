@@ -1,0 +1,29 @@
+# Public-repo hygiene allow list, read by scripts/check-hygiene.ts (13 §11).
+#
+# Plain lines: tracked docs/ paths allowed (must match the un-ignored paths in .gitignore).
+# A trailing / allows a directory; docs/sample/ must be built from public sources only.
+docs/.gitkeep
+docs/.nojekyll
+docs/index.html
+docs/sample/
+
+# Secret-scan exceptions: "secret <glob> <rule-id> [<preview>]" (** spans directories, * one
+# segment). Each entry is a reviewed false positive, never a real credential. A glob that can match
+# files not yet written (hashed bundle chunks) must pin the scanner's masked preview of the value.
+
+# The scanner's own rule comment, and the URL parser that strips user:password@ from input.
+secret spec/tech/10-publishing.md url-credentials
+secret src/main/publish/scanner.ts url-credentials
+secret src/main/sources/url.ts url-credentials
+# Tests of credential stripping use fake user:password@example.com addresses.
+secret test/unit/main/fetch/fetch.test.ts url-credentials
+secret test/unit/main/fetch/url.test.ts url-credentials
+secret test/unit/main/publish/service.test.ts url-credentials
+secret test/unit/main/sources/chain.test.ts url-credentials
+secret test/unit/main/sources/url.test.ts url-credentials
+# The scanner's own tests exercise the generic rule with runtime-assembled fakes.
+secret test/unit/main/publish/scanner.test.ts generic-high-entropy
+# Bundle: scanner.ts's rule comment in main, and React's minified input-type table in the
+# renderer (`password:!0,range:!0,...`), pinned to that value's preview.
+secret out/main/index.js url-credentials
+secret out/renderer/assets/*.js generic-high-entropy !0,r****************

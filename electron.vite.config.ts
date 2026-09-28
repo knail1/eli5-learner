@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { relative, resolve, sep } from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'electron-vite';
 import type { Plugin } from 'vite';
@@ -46,9 +46,34 @@ function cspMeta(): Plugin {
   };
 }
 
+/**
+ * Records the resolved `@eli5/overlay` id and any bundled module from outside the public sources to
+ * out/main/build-info.json, read by scripts/check-hygiene.ts (13 §11 rule 4): the inlined overlay
+ * leaves no path in the bundle text.
+ */
+function buildInfo(): Plugin {
+  const rel = (id: string): string => relative(root, id).split(sep).join('/');
+  return {
+    name: 'eli5-build-info',
+    async generateBundle() {
+      const resolved = await this.resolve('@eli5/overlay', resolve(root, 'src/main/index.ts'));
+      const foreign = [...this.getModuleIds()]
+        .filter((id) => !id.startsWith('\0') && !id.includes('/node_modules/') && resolve(id) === id)
+        .map(rel)
+        .map((id) => id.replace(/\?.*$/, ''))
+        // src/ and the generated doc runtime (build/doc-runtime, from build:runtime) are public.
+        .filter((id) => !id.startsWith('src/') && !id.startsWith('build/doc-runtime/'))
+        .sort();
+      const info = { edition, overlay: resolved ? rel(resolved.id) : null, foreign };
+      this.emitFile({ type: 'asset', fileName: 'build-info.json', source: `${JSON.stringify(info, null, 2)}\n` });
+    },
+  };
+}
+
 export default defineConfig({
   main: {
     define,
+    plugins: [buildInfo()],
     resolve: {
       alias: {
         '@eli5/overlay': overlay,

@@ -30,6 +30,17 @@ export default defineConfig({
       provider: 'v8',
       include: ['src/main/**', 'src/doc-runtime/**'],
       exclude: ['**/*.stub.ts', '**/testing/**'],
+      // 13 §3.1 per-directory line floors; a glob's files are aggregated, and a drop fails CI.
+      thresholds: {
+        ...Object.fromEntries(
+          ['extract', 'document', 'library', 'pipeline', 'config', 'editions'].map((d) => [
+            `src/main/${d}/**`,
+            { lines: 85 },
+          ]),
+        ),
+        ...Object.fromEntries(['sources', 'fetch', 'publish', 'llm'].map((d) => [`src/main/${d}/**`, { lines: 75 }])),
+        'src/doc-runtime/**': { lines: 80 },
+      },
     },
     projects: [
       {
