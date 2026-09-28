@@ -25,6 +25,7 @@ mac:
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  # Signing and notarization run only when credentials are present (01 §8.3).
+  # Signing and notarization run only when credentials are present (01 §8.3). Without them
+  # (CSC_IDENTITY_AUTO_DISCOVERY=false) the app stays unsigned; after-pack re-signs arm64 ad hoc.
   notarize: false
 afterPack: scripts/after-pack.cjs
