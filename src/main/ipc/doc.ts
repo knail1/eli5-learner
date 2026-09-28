@@ -4,6 +4,8 @@ import {
   IPC,
   type CloseTabRequest,
   type CreateSectionEli5Request,
+  type DocHistoryChangedEvent,
+  type DocHistoryState,
   type DocUpdatedEvent,
   type ScrollToEvent,
   type SectionActionRequest,
@@ -34,6 +36,22 @@ export interface SectionActions {
   onScrollTo(cb: (e: ScrollToEvent) => void): Unsub;
   /** Pushed to the viewer as `eli5:doc:section-busy` (08 §4.1, §8.3). */
   onSectionBusy(cb: (e: SectionBusyEvent) => void): Unsub;
+}
+
+/**
+ * One-level undo/redo of a document (09 §4.1), implemented by the interactive-reading slice, which
+ * knows the busy sections (08 §6.7). App window only. Refusals: SectionActionError (E_CONFLICT
+ * while busy or when there is nothing to swap, E_NOT_FOUND) or LibraryError.
+ */
+export interface DocHistory {
+  /** `eli5:doc:history`. */
+  state(slug: string): Promise<DocHistoryState>;
+  /** `eli5:doc:undo`: swaps in the older version; returns the new state. */
+  undo(slug: string): Promise<DocHistoryState>;
+  /** `eli5:doc:redo`: swaps the newer version back. */
+  redo(slug: string): Promise<DocHistoryState>;
+  /** Pushed to the app renderer as `eli5:doc:history-changed`. */
+  onChanged(cb: (e: DocHistoryChangedEvent) => void): Unsub;
 }
 
 const Slug = SlugPayload.shape.slug;
@@ -96,8 +114,14 @@ async function mapped<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-/** `eli5:doc:*` invokes (08 §3); viewer-only via VIEWER_CHANNELS. Events are wired by registerIpc. */
-export function registerDocIpc(on: Register, d: { actions: SectionActions }): void {
+/**
+ * `eli5:doc:*` invokes (08 §3). The section channels are viewer-only via VIEWER_CHANNELS; history,
+ * undo and redo are app-only (09 §4.1). Events are wired by registerIpc.
+ */
+export function registerDocIpc(on: Register, d: { actions: SectionActions; history: DocHistory }): void {
+  on(IPC.doc.history, SlugPayload, (p) => mapped(() => d.history.state(p.slug)));
+  on(IPC.doc.undo, SlugPayload, (p) => mapped(() => d.history.undo(p.slug)));
+  on(IPC.doc.redo, SlugPayload, (p) => mapped(() => d.history.redo(p.slug)));
   on(IPC.doc.regenerateSection, SectionActionPayload, (p, e) => {
     sameDocument(p.slug, e);
     return mapped(() => d.actions.regenerateSection(p));

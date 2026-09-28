@@ -307,7 +307,7 @@ For every `webContents`:
 4. `will-frame-navigate`: apply the same allowlist to subframes. In the viewer, subframes are blocked outright.
 5. `devtools-opened` in a packaged build: close DevTools immediately. `webContents.openDevTools` is never called in production code.
 6. Every `ipcMain` handler runs `assertSender(event, surface)` before touching the payload, checking identity first and URL last:
-   1. `event.sender.id` must equal the expected `webContents.id`: `viewerView.webContents.id` for `eli5:doc:*` channels, the main window's `webContents.id` for all other channels.
+   1. `event.sender.id` must equal the expected `webContents.id`: `viewerView.webContents.id` for the `eli5:doc:*` section channels (`regenerate-section`, `create-section-eli5`, `close-tab`) and `eli5:viewer:open-external`, the main window's `webContents.id` for all other channels, including `eli5:doc:history`, `eli5:doc:undo` and `eli5:doc:redo` (a document page can never undo or redo itself).
    2. `event.senderFrame` must be non-null and `event.senderFrame === event.sender.mainFrame`. A null `senderFrame` (the frame navigated away or was destroyed) is rejected.
    3. The frame URL scheme must match the surface: `eli5doc:` with host `doc` for the viewer, the app URL for the app renderer (`eli5app:` with host `app` and path `/index.html` in builds, the dev server origin in dev).
    A failure at any step returns `E_FORBIDDEN`, drops the message, and logs `ipc.rejected-sender` with the channel name only.
@@ -552,7 +552,7 @@ CI gates (run on every push and PR):
 - [ ] The secret guard rejects credential-shaped keys or values in `set`, on load, and in extension layers.
 - [ ] Every window runs with `contextIsolation`, `sandbox`, `nodeIntegration: false`, `webSecurity`, and `webviewTag: false`. `app.enableSandbox()` is called.
 - [ ] All permission requests are denied on all sessions. `window.open` is denied everywhere. Navigation is limited by per-surface allowlists.
-- [ ] IPC handlers check sender `webContents.id`, require a non-null `senderFrame` equal to the sender's main frame, then check the URL scheme; failures return `E_FORBIDDEN`. `eli5:doc:*` is accepted only from the viewer.
+- [ ] IPC handlers check sender `webContents.id`, require a non-null `senderFrame` equal to the sender's main frame, then check the URL scheme; failures return `E_FORBIDDEN`. The `eli5:doc:*` section channels are accepted only from the viewer; `eli5:doc:history`, `undo` and `redo` only from the app window.
 - [ ] App and viewer response-header CSPs match §7.4. Generated documents carry the 07 §6.2 meta CSP; both are enforced in the viewer, and a document cannot make network requests in the viewer or in an external browser.
 - [ ] `eli5doc` privileges are registered before `ready`, and the handler is registered with `protocol.handle` on the `eli5-viewer` session. It serves only `<slug>/index.html` for catalogued slugs and `help/<file>.html` from `resources/help/`, and returns 404 for everything else, including `meta.json`, dot-paths, traversal, and symlink escapes.
 - [ ] The schema declares `pipeline.maxConcurrentJobs`, `publish.local.dir`, and `publish.local.revealAfter` with the defaults in §3.2.

@@ -1,6 +1,19 @@
 // Interactive reading (08 §3): collaborator interfaces, the request error, and meta.json mirroring.
-import type { IpcErrorCode, JobFailureCode, JobSnapshot, JobStatus } from '../../../preload/contract';
-import type { DocumentMeta, TabRecord } from '../../library';
+import type {
+  DocHistoryState,
+  IpcErrorCode,
+  JobFailureCode,
+  JobSnapshot,
+  JobStatus,
+  MenuAction,
+} from '../../../preload/contract';
+import {
+  quoteLabel,
+  type DocumentMeta,
+  type DocumentPatch,
+  type LibraryChangeReason,
+  type TabRecord,
+} from '../../library';
 import type { LlmTasks } from '../../llm';
 import type { Logger } from '../../security';
 import type { IdSource } from '../section-id';
@@ -29,11 +42,16 @@ export interface InteractiveLibrary {
   docPath(slug: string, file?: 'index.html' | 'meta.json'): string;
   getMeta(slug: string): Promise<DocumentMeta>;
   withDocLock<T>(slug: string, fn: () => Promise<T>): Promise<T>;
-  /** Atomic index.html + meta.json write and catalog bump; caller holds withDocLock (09 §9). */
-  updateDocument(
-    slug: string,
-    patch: { html?: string; meta: (m: DocumentMeta) => DocumentMeta },
-  ): Promise<{ id: string; topicSlug: string; title: string }>;
+  /**
+   * Atomic index.html + meta.json write and catalog bump; caller holds withDocLock (09 §9). With
+   * html, the previous files become the prior version labelled `label` (09 §4.1).
+   */
+  updateDocument(slug: string, patch: DocumentPatch): Promise<{ id: string; topicSlug: string; title: string }>;
+  /** 09 §4.1: what the single prior version offers, and the swaps (each takes the doc lock). */
+  history(slug: string): Promise<DocHistoryState>;
+  undo(slug: string): Promise<DocHistoryState>;
+  redo(slug: string): Promise<DocHistoryState>;
+  on(event: 'changed', cb: (e: { reason: LibraryChangeReason; slugs: string[] }) => void): () => void;
 }
 
 /** The queue calls 08 makes (06 §8.2). JobQueue satisfies it. */
@@ -81,6 +99,23 @@ export type ResolvedDeps = Omit<InteractiveDeps, 'clock' | 'readFile'> & {
   clock: { now(): Date };
   readFile: (path: string) => Promise<string>;
 };
+
+const ACTION_VERBS: Record<MenuAction, string> = {
+  expand: 'expanded',
+  reexplain: 're-explained',
+  analogy: 'added an analogy to',
+  deeper: 'went deeper on',
+  'eli5-tab': 'added ELI5 tab',
+};
+
+/**
+ * 08 §6.7: the Undo/Redo label of a change, e.g. "re-explained 'The particular…'" for a section
+ * action on that heading, "added ELI5 tab 'ELI5: Pricing'", "closed tab 'ELI5: Pricing'".
+ */
+export function changeLabel(kind: MenuAction | 'close-tab', name: string): string {
+  const verb = kind === 'close-tab' ? 'closed tab' : ACTION_VERBS[kind];
+  return `${verb} '${quoteLabel(name)}'`;
+}
 
 /** 08 §6.4 step 7: `mirrorTabs` maps each Tab to its meta.json record. */
 export function mirrorTabs(tabs: readonly Tab[]): TabRecord[] {

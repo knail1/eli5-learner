@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { SectionActions } from '../../../../src/main/ipc';
+import type { DocHistory, SectionActions } from '../../../../src/main/ipc';
 import type {
+  DocHistoryChangedEvent,
   DocUpdatedEvent as DocEvent,
   ScrollToEvent as ScrollTo,
   SectionBusyEvent as Busy,
@@ -11,6 +12,7 @@ vi.mock('electron', () => ({ shell: { openExternal: vi.fn() }, app: {}, session:
 const { IPC } = await import('../../../../src/preload/contract');
 const { PipelineRequestError } = await import('../../../../src/main/pipeline');
 const { LibraryError } = await import('../../../../src/main/library');
+const { SectionActionError } = await import('../../../../src/main/document');
 const { setup } = await import('./harness');
 
 /** `eli5:doc:*` (08 §3, 01 §5.2). The harness viewer shows eli5doc://doc/solar-power/index.html. */
@@ -126,7 +128,6 @@ describe('eli5:doc:regenerate-section / create-section-eli5 (08 §3, §6.1)', ()
   });
 
   it('maps SectionActionError to its code and notice text (08 §9)', async () => {
-    const { SectionActionError } = await import('../../../../src/main/document');
     const { svc } = fakeActions();
     svc.regenerateSection.mockRejectedValueOnce(
       new SectionActionError('E_RATE_LIMITED', 'Too many requests; wait a moment'),
@@ -197,5 +198,91 @@ describe('doc events (08 §4.1, §7.4)', () => {
     ]);
     h.dispose();
     expect(subs.updated.size + subs.scroll.size + busy.size).toBe(0);
+  });
+});
+
+describe('eli5:doc:history / undo / redo (09 §4.1, 01 §5.2)', () => {
+  function fakeHistory() {
+    const subs = new Set<(e: DocHistoryChangedEvent) => void>();
+    const state = { canUndo: true, canRedo: false, undoLabel: "expanded 'Panels'", busy: false };
+    const svc = {
+      state: vi.fn(async (_slug: string) => state),
+      undo: vi.fn(async (_slug: string) => ({
+        canUndo: false,
+        canRedo: true,
+        redoLabel: "expanded 'Panels'",
+        busy: false,
+      })),
+      redo: vi.fn(async (_slug: string) => state),
+      onChanged: (cb: (e: DocHistoryChangedEvent) => void) => (subs.add(cb), () => subs.delete(cb)),
+    } satisfies DocHistory;
+    return { svc, subs, state };
+  }
+
+  it('answers the app window with the service result for a validated slug', async () => {
+    const { svc, state } = fakeHistory();
+    const h = await setup({ services: { docHistory: svc } });
+    expect(await h.call(IPC.doc.history, { slug: 'solar-power' })).toEqual({ ok: true, value: state });
+    expect(await h.call(IPC.doc.undo, { slug: 'solar-power' })).toMatchObject({ ok: true, value: { canRedo: true } });
+    expect(await h.call(IPC.doc.redo, { slug: 'solar-power' })).toEqual({ ok: true, value: state });
+    expect(svc.state).toHaveBeenCalledWith('solar-power');
+    expect(svc.undo).toHaveBeenCalledWith('solar-power');
+    expect(svc.redo).toHaveBeenCalledWith('solar-power');
+  });
+
+  it('is app-only: the viewer is refused with E_FORBIDDEN', async () => {
+    const { svc } = fakeHistory();
+    const h = await setup({ services: { docHistory: svc } });
+    for (const ch of [IPC.doc.history, IPC.doc.undo, IPC.doc.redo]) {
+      expect(await h.call(ch, { slug: 'solar-power' }, 'viewer')).toEqual(forbidden);
+    }
+    expect(svc.undo).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed slugs with E_BAD_REQUEST before the service', async () => {
+    const { svc } = fakeHistory();
+    const h = await setup({ services: { docHistory: svc } });
+    for (const bad of [undefined, {}, { slug: '../x' }, { slug: 'Solar Power' }, { slug: '.prev' }, { slug: 1 }]) {
+      expect(await h.call(IPC.doc.undo, bad)).toMatchObject({ ok: false, error: { code: 'E_BAD_REQUEST' } });
+    }
+    expect(svc.undo).not.toHaveBeenCalled();
+  });
+
+  it('passes the service refusals through (E_CONFLICT while busy, E_NOT_FOUND)', async () => {
+    const { svc } = fakeHistory();
+    svc.undo.mockRejectedValueOnce(new SectionActionError('E_CONFLICT', 'Wait for the section update to finish'));
+    svc.redo.mockRejectedValueOnce(new LibraryError('NOT_FOUND'));
+    svc.state.mockRejectedValueOnce(new LibraryError('HISTORY_EMPTY'));
+    const h = await setup({ services: { docHistory: svc } });
+    expect(await h.call(IPC.doc.undo, { slug: 'solar-power' })).toEqual({
+      ok: false,
+      error: { code: 'E_CONFLICT', message: 'Wait for the section update to finish' },
+    });
+    expect(await h.call(IPC.doc.redo, { slug: 'solar-power' })).toMatchObject({
+      ok: false,
+      error: { code: 'E_NOT_FOUND' },
+    });
+    expect(await h.call(IPC.doc.history, { slug: 'solar-power' })).toMatchObject({
+      ok: false,
+      error: { code: 'E_CONFLICT' },
+    });
+  });
+
+  it('pushes eli5:doc:history-changed to the app renderer only', async () => {
+    const { svc, subs, state } = fakeHistory();
+    const h = await setup({ services: { docHistory: svc } });
+    subs.forEach((cb) => cb({ slug: 'solar-power', state }));
+    expect(h.sent).toContainEqual({ channel: IPC.doc.historyChanged, payload: { slug: 'solar-power', state } });
+    expect(h.viewerSent).toEqual([]);
+    h.dispose();
+    expect(subs.size).toBe(0);
+  });
+
+  it('answers "Not implemented yet" without a service', async () => {
+    const h = await setup();
+    expect(await h.call(IPC.doc.undo, { slug: 'solar-power' })).toEqual({
+      ok: false,
+      error: { code: 'E_INTERNAL', message: 'Not implemented yet' },
+    });
   });
 });

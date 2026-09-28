@@ -47,6 +47,8 @@ export interface ShellHooks {
   openDocument?(slug: string): void;
   /** Reveals a document folder in Finder (09 `library.reveal`); wired by bootstrap in M2. */
   revealDocument?(slug: string): void;
+  /** Edit > Undo/Redo Document Change for the document in the viewer (09 §4.1). */
+  docHistory?(dir: 'undo' | 'redo'): void;
 }
 
 export interface ShellPaths {
@@ -189,6 +191,7 @@ export function installAppMenu(): void {
           reloadViewer: () => {
             if (viewerAttached) viewerWebContents()?.reload();
           },
+          docHistory: (dir) => shellHooks().docHistory?.(dir),
           openHelp: (topic) => {
             void helpOpener()
               .open(topic)

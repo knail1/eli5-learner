@@ -108,6 +108,11 @@ export const IPC = {
     updated: 'eli5:doc:updated',
     scrollTo: 'eli5:doc:scroll-to',
     sectionBusy: 'eli5:doc:section-busy',
+    /** App-only (01 §5.2): the one-level undo/redo of a document (09 §4.1). */
+    history: 'eli5:doc:history',
+    undo: 'eli5:doc:undo',
+    redo: 'eli5:doc:redo',
+    historyChanged: 'eli5:doc:history-changed',
   },
   viewer: {
     setBounds: 'eli5:viewer:set-bounds',
@@ -397,6 +402,26 @@ export interface DocUpdatedEvent {
   slug: string;
   sectionId?: SectionId;
   tabKey?: string;
+}
+
+/**
+ * A document's one-level undo/redo (09 §4.1): the single prior version is either older (undo) or
+ * newer (redo) than the live one. Labels name the change the swap would undo or redo, e.g.
+ * "re-explained 'The particular…'". `busy`: a section job for the document is queued or running,
+ * so undo and redo are refused (08 §8.1).
+ */
+export interface DocHistoryState {
+  canUndo: boolean;
+  canRedo: boolean;
+  undoLabel?: string;
+  redoLabel?: string;
+  busy?: boolean;
+}
+
+/** `eli5:doc:history-changed` (M→R). */
+export interface DocHistoryChangedEvent {
+  slug: string;
+  state: DocHistoryState;
 }
 
 export interface ViewerBounds {

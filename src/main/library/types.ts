@@ -4,6 +4,7 @@
  */
 import type {
   CatalogEntry,
+  DocHistoryState,
   LibraryInfo,
   MenuAction,
   MergeSuggestion,
@@ -17,6 +18,7 @@ import type { JobWarning } from '../pipeline';
 
 export type {
   CatalogEntry,
+  DocHistoryState,
   LibraryInfo,
   MenuAction,
   MergeSuggestion,
@@ -148,6 +150,28 @@ export interface LibraryPolicy {
 /** HOOK-LIB-02 · Merge eligibility predicate (09 §10.2). Public build: `() => true`. */
 export type MergeEligibility = (a: DocumentMeta, b: DocumentMeta) => boolean;
 
+/**
+ * An in-place change to an existing document (09 §9). With `html`, the library first keeps the
+ * current files as the document's single prior version (09 §4.1); `label` names the change for
+ * the Undo tooltip, e.g. "re-explained 'Pricing'" (default "last change").
+ */
+export interface DocumentPatch {
+  html?: string;
+  meta: (m: DocumentMeta) => DocumentMeta;
+  label?: string;
+}
+
+/** `.prev/state.json` (09 §4.1). */
+export interface PriorVersionState {
+  schemaVersion: 1;
+  /** 'undo': the slot holds the older version; 'redo': it holds the newer one after an undo. */
+  slot: 'undo' | 'redo';
+  /** The change between the two versions. */
+  label: string;
+  /** `updatedAt` of the live meta.json this slot pairs with; any other live meta voids the slot. */
+  pairedUpdatedAt: string;
+}
+
 /** 09 §9. */
 export type LibraryChangeReason = 'created' | 'updated' | 'removed' | 'merged' | 'reconciled';
 
@@ -162,11 +186,12 @@ export interface Library {
   docPath(slug: string, file?: 'index.html' | 'meta.json'): string;
   allocateSlug(title: string, hint?: string): Promise<SlugReservation>;
   commitDocument(r: SlugReservation, stagingDir: string, meta: DocumentMeta): Promise<CatalogEntry>;
-  updateDocument(
-    slug: string,
-    patch: { html?: string; meta: (m: DocumentMeta) => DocumentMeta },
-  ): Promise<CatalogEntry>;
+  updateDocument(slug: string, patch: DocumentPatch): Promise<CatalogEntry>;
   touch(slug: string): Promise<CatalogEntry>;
+  /** One-level undo/redo (09 §4.1). `history` never includes `busy`; 08 adds it. */
+  history(slug: string): Promise<DocHistoryState>;
+  undo(slug: string): Promise<DocHistoryState>;
+  redo(slug: string): Promise<DocHistoryState>;
   withDocLock<T>(slug: string, fn: () => Promise<T>): Promise<T>;
   withDocLocks<T>(slugs: string[], fn: () => Promise<T>): Promise<T>;
   reconcile(): Promise<void>;
@@ -189,7 +214,8 @@ export type LibraryErrorCode =
   | 'LOCK_NOT_HELD'
   | 'SUGGESTION_STALE'
   | 'MERGE_FAILED'
-  | 'PATH_OUTSIDE_ROOT';
+  | 'PATH_OUTSIDE_ROOT'
+  | 'HISTORY_EMPTY';
 
 export class LibraryError extends Error {
   readonly code: LibraryErrorCode;

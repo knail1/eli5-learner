@@ -7,6 +7,7 @@ import {
   MERGE_INELIGIBLE_MESSAGE,
   SuggestionsFileSchema,
   createMergeSuggestions,
+  quoteLabel,
   type AppendMerged,
   type CatalogEntry,
   type DocumentMeta,
@@ -422,6 +423,21 @@ describe('accept (09 §10.6)', () => {
     h.service.onDocUpdated(docUpdated);
     await h.service.accept(sug.id);
     expect(docUpdated).toHaveBeenCalledWith({ slug: s.target.topicSlug, sectionId: eli5Marker, tabKey: 'eli5' });
+  });
+
+  it('keeps the pre-merge target as its prior version, labelled with the source title (09 §4.1)', async () => {
+    const s = await setup();
+    const before = await readFile(s.lib.docPath(s.target.topicSlug), 'utf8');
+    const { h, sug } = await suggested(s);
+    await h.service.accept(sug.id);
+    expect(await s.lib.history(s.target.topicSlug)).toEqual({
+      canUndo: true,
+      canRedo: false,
+      undoLabel: `merged '${quoteLabel(s.source.title)}' in`,
+    });
+    await s.lib.undo(s.target.topicSlug);
+    expect(await readFile(s.lib.docPath(s.target.topicSlug), 'utf8')).toBe(before);
+    expect((await s.lib.getMeta(s.target.topicSlug)).merges).toEqual([]);
   });
 
   it('finishes steps 8-10 in-session when they fail once after the commit point', async () => {

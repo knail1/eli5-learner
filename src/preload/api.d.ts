@@ -8,6 +8,8 @@ import type {
   ClassifyTextResult,
   CreateSectionEli5Request,
   DeepPartial,
+  DocHistoryChangedEvent,
+  DocHistoryState,
   DocUpdatedEvent,
   EditionInfo,
   FolderSettingKey,
@@ -70,7 +72,14 @@ export interface Eli5Api {
     dismiss(id: string): R<void>;
     onChanged(cb: (e: { suggestions: MergeSuggestion[] }) => void): Unsub;
   };
-  doc: { onUpdated(cb: (e: DocUpdatedEvent) => void): Unsub };
+  doc: {
+    onUpdated(cb: (e: DocUpdatedEvent) => void): Unsub;
+    /** One-level undo/redo of a document (09 §4.1): state, swaps, and state pushes. */
+    history(slug: string): R<DocHistoryState>;
+    undo(slug: string): R<DocHistoryState>;
+    redo(slug: string): R<DocHistoryState>;
+    onHistoryChanged(cb: (e: DocHistoryChangedEvent) => void): Unsub;
+  };
   viewer: {
     setBounds(r: ViewerBounds): R<void>;
     setVisible(v: boolean): R<void>;

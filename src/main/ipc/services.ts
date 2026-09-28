@@ -1,6 +1,6 @@
 import type { TestNotificationResult } from '../../preload/contract';
 import type { NotificationControls } from './app';
-import type { SectionActions } from './doc';
+import type { DocHistory, SectionActions } from './doc';
 import { fail } from './handle';
 import type { PublishService } from './publish';
 import type { FolderChooser, HelpLinks } from './settings';
@@ -14,6 +14,8 @@ import type { MergeSuggestions } from './suggestions';
 export interface IpcServices {
   /** 08: `eli5:doc:regenerate-section`, `create-section-eli5`, `close-tab`, doc events. */
   sectionActions: SectionActions;
+  /** 09 §4.1, 08 §6.7: `eli5:doc:history`, `undo`, `redo`, `history-changed`. */
+  docHistory: DocHistory;
   /** 09 §10: `eli5:suggestions:*`. */
   suggestions: MergeSuggestions;
   /** 10: `eli5:publish:*`. */
@@ -38,6 +40,12 @@ export function notImplementedServices(): IpcServices {
       onUpdated: noEvents,
       onScrollTo: noEvents,
       onSectionBusy: noEvents,
+    },
+    docHistory: {
+      state: async () => notImplemented(),
+      undo: async () => notImplemented(),
+      redo: async () => notImplemented(),
+      onChanged: noEvents,
     },
     suggestions: {
       list: async () => notImplemented(),

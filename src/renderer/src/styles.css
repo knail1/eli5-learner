@@ -263,7 +263,15 @@ body {
 }
 .doc-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
+}
+/* Undo / Redo (11 §5.3): square icon buttons in the same style as the text buttons. */
+button.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 7px;
 }
 .result-chip {
   display: flex;

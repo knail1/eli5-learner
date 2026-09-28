@@ -22,6 +22,7 @@ describe('appMenuTemplate (11 §3.2 step 5, §9)', () => {
     shortcut: vi.fn(),
     reloadViewer: vi.fn(),
     openHelp: vi.fn(),
+    docHistory: vi.fn(),
   };
   const all = flatten(appMenuTemplate(actions, { appName: 'ELI5 Learner', devTools: false }));
 
@@ -61,6 +62,22 @@ describe('appMenuTemplate (11 §3.2 step 5, §9)', () => {
     expect(all.map((i) => i.role)).toEqual(expect.arrayContaining(['copy', 'paste', 'cut', 'selectAll']));
   });
 
+  it('adds Undo/Redo Document Change without accelerators, keeping the text-field undo/redo roles (11 §9)', () => {
+    const edit = appMenuTemplate(actions, { appName: 'ELI5 Learner', devTools: false }).find((m) => m.label === 'Edit');
+    const sub = edit?.submenu as MenuItemConstructorOptions[];
+    expect(sub.slice(0, 2).map((i) => i.role)).toEqual(['undo', 'redo']);
+    const undo = sub.find((i) => i.id === MENU_IDS.undoDocument);
+    const redo = sub.find((i) => i.id === MENU_IDS.redoDocument);
+    expect(undo).toMatchObject({ label: 'Undo Document Change' });
+    expect(redo).toMatchObject({ label: 'Redo Document Change' });
+    // Cmd+Z / Shift+Cmd+Z stay with the undo/redo roles; the app renderer handles them outside text fields.
+    expect(undo?.accelerator).toBeUndefined();
+    expect(redo?.accelerator).toBeUndefined();
+    click(undo);
+    click(redo);
+    expect(actions.docHistory.mock.calls).toEqual([['undo'], ['redo']]);
+  });
+
   it('adds DevTools only in dev builds', () => {
     const dev = flatten(appMenuTemplate(actions, { appName: 'ELI5 Learner', devTools: true }));
     expect(dev.map((i) => i.role)).toContain('toggleDevTools');
@@ -74,6 +91,7 @@ describe('application menu mirrors the window shortcuts (11 §9)', () => {
     shortcut: vi.fn(),
     reloadViewer: vi.fn(),
     openHelp: vi.fn(),
+    docHistory: vi.fn(),
   };
   const all = flatten(appMenuTemplate(actions, { appName: 'ELI5 Learner', devTools: false }));
 

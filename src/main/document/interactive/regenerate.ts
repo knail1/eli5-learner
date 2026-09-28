@@ -12,7 +12,7 @@ import { parseDocument } from '../parse';
 import { renderDocument } from '../render';
 import type { DocumentModel, ParsedDocument, Section, SectionContext, SectionJobPayload, Tab } from '../types';
 import { sectionHash } from './hash';
-import { mirrorTabs, type ResolvedDeps } from './types';
+import { changeLabel, mirrorTabs, type ResolvedDeps } from './types';
 
 /** 08 §6.2 step 5: target plus neighbours may use 60% of the input budget. */
 export const SECTION_BUDGET_SHARE = 0.6;
@@ -155,6 +155,8 @@ interface Planned {
   meta: (m: DocumentMeta) => DocumentMeta;
   event: DocUpdatedEvent;
   tabLabel?: string;
+  /** Undo label for the prior version (08 §6.7). */
+  label: string;
 }
 
 /** Saving stage body, under withDocLock (08 §6.4 steps 1-6, §7.1 steps 1-4). */
@@ -205,6 +207,7 @@ async function plan(
       }),
       event: { slug: p.slug, tabKey: added.tabKey },
       tabLabel: next.tabs.at(-1)?.label ?? '',
+      label: changeLabel('eli5-tab', next.tabs.at(-1)?.label ?? ''),
     };
   }
   // 08 §6.4 step 3: a mismatch means something outside this feature changed it; the newer wins.
@@ -229,6 +232,7 @@ async function plan(
     html,
     meta: (m) => ({ ...m, tabs: mirrorTabs(next.tabs), actions: [...(m.actions ?? []), entry] }),
     event: { slug: p.slug, sectionId: p.sectionId, tabKey: p.tabKey },
+    label: changeLabel(p.action, hit.section.heading),
   };
 }
 
@@ -262,7 +266,7 @@ async function alreadyCommitted(d: ResolvedDeps, p: SectionJobPayload, jobId: st
 /** 08 §6.4 step 7: one updateDocument call; failures leave both files unchanged (09). */
 async function write(d: ResolvedDeps, slug: string, planned: Planned) {
   try {
-    return await d.library.updateDocument(slug, { html: planned.html, meta: planned.meta });
+    return await d.library.updateDocument(slug, { html: planned.html, meta: planned.meta, label: planned.label });
   } catch (err) {
     if (err instanceof LibraryError && err.code === 'NOT_FOUND') throw new PipelineFailure('DOC_GONE');
     const detail = err instanceof LibraryError ? `library:${err.code}` : 'write';

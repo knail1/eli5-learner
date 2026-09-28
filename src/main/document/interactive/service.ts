@@ -3,6 +3,8 @@
 import { readFile } from 'node:fs/promises';
 import type {
   CloseTabRequest,
+  DocHistoryChangedEvent,
+  DocHistoryState,
   DocUpdatedEvent,
   MenuAction,
   ScrollToEvent,
@@ -10,7 +12,8 @@ import type {
   SectionBusyEvent,
   SectionId,
 } from '../../../preload/contract';
-import type { SectionActions } from '../../ipc';
+import type { DocHistory, SectionActions } from '../../ipc';
+import { LibraryError } from '../../library';
 import type { SectionRunner } from '../../pipeline';
 import { DocumentFormatError } from '../errors';
 import { MAX_SECTION_ELI5_TABS, removeTab, sectionIdsOfTab } from '../mutate';
@@ -23,6 +26,7 @@ import { RateLimiter } from './rate-limit';
 import { createSectionRunner } from './regenerate';
 import {
   SectionActionError,
+  changeLabel,
   failureNotice,
   mirrorTabs,
   type InteractiveDeps,
@@ -42,6 +46,9 @@ export const NOTICES = {
   docGone: 'This document no longer exists',
   sectionGone: 'This section changed. Reload and try again',
   tabBusy: 'Wait for the update in this tab to finish',
+  historyBusy: 'Wait for the section update to finish',
+  nothingToUndo: 'Nothing to undo',
+  nothingToRedo: 'Nothing to redo',
 } as const;
 
 export interface InteractiveReading {
@@ -49,6 +56,8 @@ export interface InteractiveReading {
   readonly actions: SectionActions;
   /** PipelineDeps.sectionRunner (06 §8.2). */
   readonly runner: SectionRunner;
+  /** IpcServices.docHistory: one-level undo/redo, refused while a section is busy (08 §6.7). */
+  readonly history: DocHistory;
   /** Subscribes to the queue and rebuilds busy keys from non-terminal section jobs (08 §8.1). */
   attachJobs(jobs: InteractiveJobs): void;
   /** Emits `eli5:doc:updated` and refreshes the viewer when it shows that document (08 §7.4). */
@@ -91,6 +100,7 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
   const updated = new Emitter<DocUpdatedEvent>();
   const scroll = new Emitter<ScrollToEvent>();
   const busy = new Emitter<SectionBusyEvent>();
+  const historyChanged = new Emitter<DocHistoryChangedEvent>();
   const limiter = new RateLimiter({
     ...(d.rateLimit ?? {}),
     now: () => d.clock.now().getTime(),
@@ -103,8 +113,31 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
   let jobs: InteractiveJobs | undefined;
   let unsubJobs: Unsub | undefined;
 
+  // ---- one-level undo/redo (08 §6.7, 09 §4.1) ----
+  const busyFor = (slug: string): boolean => [...inflight.values()].some((f) => f.slug === slug);
+  const historyState = async (slug: string): Promise<DocHistoryState> => {
+    if (!d.library.hasSlug(slug)) refuse('E_NOT_FOUND', NOTICES.docGone);
+    return { ...(await d.library.history(slug)), busy: busyFor(slug) };
+  };
+  /** Serialized, so the last event for a slug always carries its latest state. */
+  let historyChain: Promise<void> = Promise.resolve();
+  const pushHistory = (slug: string): void => {
+    historyChain = historyChain.then(async () => {
+      if (!d.library.hasSlug(slug)) return;
+      try {
+        historyChanged.emit({ slug, state: await historyState(slug) });
+      } catch {
+        // A document that vanished or cannot be read has no history to show.
+      }
+    });
+  };
+  const unsubLibrary = d.library.on('changed', (e) => {
+    for (const slug of e.slugs) pushHistory(slug);
+  });
+
   /** 08 §8.3: the full busy list for the document in the viewer. */
   const broadcast = (slug: string, notices: SectionBusyEvent['notices'] = []): void => {
+    pushHistory(slug);
     if (d.viewer.currentSlug() !== slug) return;
     const list = [...inflight.values()]
       .filter((f) => f.slug === slug)
@@ -249,6 +282,7 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
       await d.library.updateDocument(r.slug, {
         html,
         meta: (m) => ({ ...m, tabs: mirrorTabs(next.tabs), retiredIds: [...(m.retiredIds ?? []), ...closedIds] }),
+        label: changeLabel('close-tab', tab.label),
       });
       return model.tabs[index - 1]?.key ?? model.tabs[0]?.key;
     });
@@ -271,6 +305,32 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
     consumeRetry: (jobId) => retried.delete(jobId),
   });
 
+  /** 08 §6.7: refused while any section of the document is busy; reloads the viewer like an update. */
+  const swap = async (slug: string, dir: 'undo' | 'redo'): Promise<DocHistoryState> => {
+    if (!d.library.hasSlug(slug)) refuse('E_NOT_FOUND', NOTICES.docGone);
+    if (busyFor(slug)) refuse('E_CONFLICT', NOTICES.historyBusy);
+    const empty = dir === 'undo' ? NOTICES.nothingToUndo : NOTICES.nothingToRedo;
+    const cur = await d.library.history(slug);
+    if (!(dir === 'undo' ? cur.canUndo : cur.canRedo)) refuse('E_CONFLICT', empty);
+    let next: DocHistoryState;
+    try {
+      next = await (dir === 'undo' ? d.library.undo(slug) : d.library.redo(slug));
+    } catch (err) {
+      if (err instanceof LibraryError && err.code === 'HISTORY_EMPTY') refuse('E_CONFLICT', empty);
+      throw err;
+    }
+    d.log?.info('document.history-swap', { slug, kind: dir });
+    notifyUpdated({ slug });
+    return { ...next, busy: busyFor(slug) };
+  };
+
+  const history: DocHistory = {
+    state: historyState,
+    undo: (slug) => swap(slug, 'undo'),
+    redo: (slug) => swap(slug, 'redo'),
+    onChanged: (cb) => historyChanged.on(cb),
+  };
+
   const actions: SectionActions = {
     regenerateSection: (r) => request(r, r.action),
     createSectionEli5: (r) => request(r, 'eli5-tab'),
@@ -283,6 +343,7 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
   return {
     actions,
     runner,
+    history,
     notifyUpdated,
     refreshViewer: (e) => refresh.updated(e),
     attachJobs(q) {
@@ -299,6 +360,7 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
     },
     dispose() {
       unsubJobs?.();
+      unsubLibrary();
       refresh.dispose();
     },
   };

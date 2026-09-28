@@ -242,13 +242,23 @@ so renderer DOM can never draw over the viewer rectangle. Therefore:
 
 ### 5.3 Viewer and document header
 
-- `DocHeader` shows the title, "Updated {relative}", a **Reveal in Finder** button, and the
-  publish slot. In the public build the publish slot contains only an **Export copy** button,
+- `DocHeader` shows the title, "Updated {relative}", **Undo** and **Redo** icon buttons, a
+  **Reveal in Finder** button, and the publish slot. In the public build the publish slot contains only an **Export copy** button,
   shown when `eli5:publish:targets {slug}` returns the `local` target (10). It calls
   `eli5:publish:run {slug, targetId:'local'}` with no picker: the destination is
   `publish.local.dir` and reveal-after-export is `publish.local.revealAfter` (10 §4). The button
   becomes a spinner, then 10's inline result chip (10 §7) appears under the header. The export
   folder is chosen in Settings > Publishing (§7).
+- **Undo / Redo** (`viewer/HistoryButtons.tsx`, 09 §4.1, 08 §6.7) sit left of Reveal in Finder and
+  Export copy. They are small inline SVG curved arrows (↶ and its mirror ↷) drawn in
+  `currentColor` in the normal button style, with `aria-label` "Undo" / "Redo". Tooltips:
+  `Undo: <label> (⌘Z)` / `Redo: <label> (⇧⌘Z)`, "Nothing to undo" / "Nothing to redo" when
+  unavailable, "Wait for the section update to finish" while busy. Each is disabled (greyed) when
+  unavailable, while the document has a busy section, and while a swap is in flight. State comes
+  from `eli5:doc:history {slug}` on open and follows `eli5:doc:history-changed`; a click calls
+  `eli5:doc:undo` / `eli5:doc:redo` and shows the returned state. Main reloads the viewer after a
+  swap (08 §7.4) and the Library sidebar updates from `eli5:library:changed`. A refusal shows its
+  message inline. Only one of the two is enabled at a time: the document keeps one prior version.
 - The document's own tabs (In depth, ELI5, section ELI5 tabs) render inside the viewer (07, 08).
   The shell adds no tab strip.
 - On `eli5:doc:updated {slug, sectionId?, tabKey?}` for the open document, main reloads the viewer
@@ -467,9 +477,19 @@ where a menu item exists, so they appear in the Help menu search.
 | `Cmd+W`, `Cmd+Q` | Close window (hide) | Window (§3.2) |
 | `Escape` | Clear filter / leave settings / close inline hint | Context |
 | `Cmd+R` | Reload viewer (not the app) | Viewer focused |
+| `Cmd+Z` / `Shift+Cmd+Z` | Undo / redo the open document's last change (09 §4.1) | Window, outside text fields |
 
 `Cmd+R` never reloads the React app in production builds; the default `reload` role is not in the
 application menu. Shortcuts inside the document (selection menu) are owned by 08.
+
+`Cmd+Z` / `Shift+Cmd+Z` keep the Edit menu's `undo` / `redo` roles, so text fields (URL field,
+specifics, filter, settings) undo their own typing. The app renderer handles the keys first: when
+focus is not in an `input` (text-like types), `textarea`, `select` or `contenteditable`, it
+prevents the default and undoes or redoes the document instead; inside a text field it does
+nothing and the role acts. The Edit menu also has **Undo Document Change** and **Redo Document
+Change** items with no accelerator (so they never take `Cmd+Z` from text fields); they act on the
+document in the viewer from anywhere. While the viewer itself has focus, `Cmd+Z` stays with the
+document page (no document change is undone); the header buttons and the Edit menu items work.
 
 ## 10. IPC added by this file
 
@@ -762,6 +782,9 @@ click shows the main window on Settings > Notifications.
       Pages setup help page.
 - [ ] **Export copy** calls `eli5:publish:run {slug, targetId:'local'}` without any picker and shows
       the 10 §7 result chip (**Copy link**, **Open**, **Show in Finder**).
+- [ ] **Undo** and **Redo** icon buttons sit left of Reveal in Finder, show the change label in their
+      tooltip, are disabled when unavailable or while a section of the document is busy, and
+      `Cmd+Z` / `Shift+Cmd+Z` undo and redo the document only when focus is outside text fields.
 - [ ] `eli5:jobs:start` is sent as `{inputs, options: {clarifyingInput, glossary}}`.
 - [ ] In the public build, non-URL text in the URL field classifies as `invalid` and shows the inline
       error; no job starts.

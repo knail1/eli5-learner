@@ -53,7 +53,17 @@ export interface FakeApi {
   api: Eli5Api;
   /** Emit a main → renderer event, e.g. emit('jobs', snapshot). */
   emit(
-    event: 'jobs' | 'library' | 'suggestions' | 'settings' | 'navigate' | 'cycle-region' | 'auth' | 'doc' | 'publish',
+    event:
+      | 'jobs'
+      | 'library'
+      | 'suggestions'
+      | 'settings'
+      | 'navigate'
+      | 'cycle-region'
+      | 'auth'
+      | 'doc'
+      | 'doc-history'
+      | 'publish',
     payload: unknown,
   ): void;
 }
@@ -100,7 +110,13 @@ export function installFakeApi(edition: EditionInfo = PUBLIC_EDITION): FakeApi {
       dismiss: resolved(notImplemented),
       onChanged: on('suggestions'),
     },
-    doc: { onUpdated: on('doc') },
+    doc: {
+      onUpdated: on('doc'),
+      history: resolved(ok({ canUndo: false, canRedo: false, busy: false })),
+      undo: resolved(notImplemented),
+      redo: resolved(notImplemented),
+      onHistoryChanged: on('doc-history'),
+    },
     viewer: {
       setBounds: resolved(ok(undefined)),
       setVisible: resolved(ok(undefined)),

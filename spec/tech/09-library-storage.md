@@ -24,6 +24,7 @@ Related: [01-architecture.md](01-architecture.md) · [02-llm-provider.md](02-llm
 | `src/main/library/slug.ts` | `slugify`, `allocateSlug`, reservations |
 | `src/main/library/catalog.ts` | Load, validate, upsert, remove, rebuild and reconcile |
 | `src/main/library/library.ts` | `Library` facade used by the pipeline, document, publish and tray modules |
+| `src/main/library/prior.ts` | The single prior version per document: stage, install, read, labels (§4.1) |
 | `src/main/library/merge/similarity.ts` | Lexical prefilter (`SimilarityScorer`) |
 | `src/main/library/merge/check.ts` | `runMergeCheck(docId)` |
 | `src/main/library/merge/suggestions.ts` | Suggestion store, lifecycle, accept and dismiss |
@@ -66,6 +67,7 @@ Everything the library writes there is covered by the existing `docs/*` rule in 
   <topic-slug>/                     # one folder per learning
     index.html                      # self-contained document (07)
     meta.json                       # DocumentMeta (§5.2)
+    .prev/                          # the single prior version: index.html, meta.json, state.json (§4.1)
   .staging/<jobId>/                 # save staging, owned by the pipeline (06 §5.7)
   .trash/<slug>--<yyyymmddThhmmss>/ # folders removed by merge, plus pre-merge backups (§10.6)
   .eli5/
@@ -79,6 +81,18 @@ Rules:
 - Names beginning with `.` are housekeeping. They are never listed, served by `eli5doc://`, or published.
 - `.staging/` and `.trash/` live under the root so the final `rename` stays on one volume and is atomic.
 - Temporary files use the suffix `.tmp-<pid>-<8 hex>` next to their target (§8.1). Reconciliation deletes leftover temp files that are older than 1 hour.
+
+### 4.1 One prior version per document (undo/redo)
+
+The PRD's full per-section history is future work. v1 keeps exactly **one** prior version of each document, which is enough for a word-processor-style Undo and Redo of the last change ([08](08-interactive-reading.md) §6.7, [11](11-app-shell-ui.md) §5.3). No git, no diffs, no version list.
+
+- **Where.** `<slug>/.prev/` holds `index.html`, `meta.json` and `state.json` `{schemaVersion: 1, slot: 'undo' | 'redo', label, pairedUpdatedAt}`. Like every dot-name it is never listed, served by `eli5doc://` (the handler serves only `/<slug>/` and `/<slug>/index.html` and rejects any segment starting with `.`), published (10 §3.3 takes only `index.html` and `assets/`), or read by reconcile. Trashing or merging a document away moves its folder, so `.prev/` goes with it.
+- **When it is written.** Whenever an existing document's `index.html` changes through `updateDocument` / `writeDocumentFiles` (section actions, section ELI5 tab add and close, the merge append into a target), the library first stages the current `index.html` and `meta.json` in a `.prev.tmp-<pid>-<8 hex>/` folder with `slot: 'undo'`, the change's `label`, and `pairedUpdatedAt` = the new meta's `updatedAt`. After the new `meta.json` is written (the commit point) it installs the staged folder: rename the old `.prev/` aside, rename the staged folder to `.prev/`, remove the old one. A failed write discards the staged folder and keeps the old slot. `commitDocument` (a new document) writes no prior version, nor does a meta-only write (`touch`, `appendPublication`).
+- **Labels.** `label` names the change between the two versions, for example `re-explained 'The particular…'`, `added ELI5 tab 'ELI5: Pricing'`, `merged 'Widget pricing' in` (08 §6.7 lists them). Without one it is `last change`. At most 200 characters, one line.
+- **Pairing.** A slot counts only while `pairedUpdatedAt` equals the live `meta.json` `updatedAt`. Any other rewrite of the live meta (a reconcile patch, an edit by hand, a crash between the commit point and the install) voids it: history reports nothing to undo.
+- **Swap** (`undo(slug)` / `redo(slug)`, under `withDocLock(slug)`): undo needs `slot: 'undo'`, redo `slot: 'redo'`, otherwise `HISTORY_EMPTY`. Stage the live `index.html` and `meta.json` as the new slot with the opposite `slot` and the same `label`; write the slot's `index.html`, then its `meta.json` with `id`, `topicSlug`, `createdAt` and `publications` taken from the live meta (they must not travel back in time) and `updatedAt` = now; install the staged slot; upsert the catalog entry (`title`, `updatedAt`, `tabCount`, `mergedFromCount`) and write `catalog.json`; emit `changed {reason:'updated'}`. Everything else in `meta.json` (`tabs`, `retiredIds`, `actions`, `merges`, sources) travels with the content. A new change after an undo overwrites the slot, so redo is lost.
+- **Crash safety.** Each file write is atomic (§8.1). A crash between the two renames leaves no `.prev/` (nothing to undo), never a mixed one; reconcile's housekeeping deletes `.prev.tmp-*` folders older than 1 hour (§7 step 8).
+- Undoing a merge restores the target's pre-merge content; the merged-away source stays in `.trash/` (§10.6) and is not restored.
 
 ## 5. Schemas
 
@@ -262,7 +276,7 @@ Reservations are in memory only. After a crash, pipeline recovery re-derives the
    - A folder with no entry is added. This covers the crash window between the folder rename and the catalog upsert ([06](06-generation-pipeline.md) §5.7 step 4).
    - Where both exist, meta wins for every field.
 7. If anything changed, write `catalog.json` atomically, then emit `changed`.
-8. Delete `.tmp-*` files older than 1 hour. Purge `.trash/` entries older than the retention period (§9). Run suggestion validation (§9.4).
+8. Delete `.tmp-*` files, and `.prev.tmp-*` folders inside document folders (§4.1), older than 1 hour. Purge `.trash/` entries older than the retention period (§9). Run suggestion validation (§9.4).
 
 Complexity is O(n) small JSON reads. It runs in under 200 ms for 1,000 documents on a local SSD, which is acceptable at startup. v1 has no file watcher. External edits are picked up on the next launch.
 
@@ -294,7 +308,7 @@ All writers run in the main process. [01](01-architecture.md) ensures a single a
 
 | Lock | Key | Held by |
 | --- | --- | --- |
-| `withDocLock(slug, fn)` | per slug, exclusive | commit, section regenerate/ELI5 tab/close tab ([08](08-interactive-reading.md)), `touch`, merge accept, publish ([10](10-publishing.md)) |
+| `withDocLock(slug, fn)` | per slug, exclusive | commit, section regenerate/ELI5 tab/close tab ([08](08-interactive-reading.md)), `touch`, merge accept, publish ([10](10-publishing.md)), undo/redo swap (§4.1) |
 | `withCatalogLock(fn)` | global | slug allocation, catalog upsert/remove, reconcile |
 | `withSuggestionsLock(fn)` | global | every `suggestions.json` read-modify-write |
 
@@ -341,10 +355,14 @@ export interface Library {
   allocateSlug(title: string, hint?: string): Promise<SlugReservation>;
   commitDocument(r: SlugReservation, stagingDir: string, meta: DocumentMeta): Promise<CatalogEntry>;
   updateDocument(slug: string, patch: {
-    html?: string;                                         // full new index.html
+    html?: string;                                         // full new index.html; keeps the old files as the prior version (§4.1)
     meta: (m: DocumentMeta) => DocumentMeta;               // pure patch; library sets updatedAt
+    label?: string;                                        // Undo label of this change (§4.1)
   }): Promise<CatalogEntry>;                               // caller must hold withDocLock(slug)
   touch(slug: string): Promise<CatalogEntry>;              // bump updatedAt in meta.json and the catalog; caller holds withDocLock(slug)
+  history(slug: string): Promise<DocHistoryState>;         // {canUndo, canRedo, undoLabel?, redoLabel?} (§4.1)
+  undo(slug: string): Promise<DocHistoryState>;            // swap with .prev/; takes withDocLock itself
+  redo(slug: string): Promise<DocHistoryState>;
   withDocLock<T>(slug: string, fn: () => Promise<T>): Promise<T>;
   withDocLocks<T>(slugs: string[], fn: () => Promise<T>): Promise<T>;
   reconcile(): Promise<void>;
@@ -361,7 +379,8 @@ export interface Library {
 
 export type LibraryErrorCode =
   | 'WRITE_FAILED' | 'SLUG_TAKEN' | 'NOT_FOUND' | 'META_INVALID' | 'LIBRARY_READ_ONLY'
-  | 'LOCK_REENTRY' | 'LOCK_NOT_HELD' | 'SUGGESTION_STALE' | 'MERGE_FAILED' | 'PATH_OUTSIDE_ROOT';
+  | 'LOCK_REENTRY' | 'LOCK_NOT_HELD' | 'SUGGESTION_STALE' | 'MERGE_FAILED' | 'PATH_OUTSIDE_ROOT'
+  | 'HISTORY_EMPTY';                                       // undo/redo with nothing in that direction (§4.1)
 export class LibraryError extends Error { constructor(public code: LibraryErrorCode, public detail?: object) { super(code); } }
 ```
 
@@ -510,7 +529,7 @@ export interface SuggestionsFile {
 2. `withDocLocks([target.slug, source.slug])` (sorted). This waits for any running section job on either document ([08](08-interactive-reading.md)).
 3. Check that both catalog entries exist, and that `mergeEligibility(targetMeta, sourceMeta)` holds (HOOK-LIB-02). On failure → `stale` (missing) or back to `pending` with `lastError` (ineligible). Release and emit.
 4. Read both `index.html` and both `meta.json` files.
-5. **Backup:** copy the target's `index.html` and `meta.json` to `.trash/<target.slug>--<ts>-premerge/`. This makes a bad merge recoverable by hand. Per-section history is future work.
+5. **Backup:** copy the target's `index.html` and `meta.json` to `.trash/<target.slug>--<ts>-premerge/`. This makes a bad merge recoverable by hand. The step 7 write also keeps the pre-merge target as its prior version (§4.1, label `merged '<source title>' in`), so Undo reverts the merge's content. Per-section history is future work.
 6. `appendMergedDocument(...)` (§10.3). A thrown error → `MERGE_FAILED`, go to step 11.
 7. Write the target `index.html` atomically, then the target `meta.json` atomically, with `tabs` from the result, `sourcesUsed` / `sourcesSkipped` unioned (source items tagged `origin: 'merge:<sourceId>'`, dedup by `ref` + `sha256`), and a new `MergeRecord` appended. **This `meta.json` write is the commit point.**
 8. `rename(root/source.slug, .trash/<source.slug>--<ts>)`.
@@ -547,6 +566,8 @@ Channels are registered in `src/main/ipc/library.ts`. Payloads are validated in 
 | `eli5:suggestions:dismiss` | R→M invoke | `{suggestionId}` → `void` |
 | `eli5:suggestions:changed` | M→R event | `{suggestions: MergeSuggestion[]}`. This is the event [06](06-generation-pipeline.md) §10 step 5 refers to as the library's suggestion event |
 
+Undo/redo of a document (§4.1) is exposed through 08's service as `eli5:doc:history`, `eli5:doc:undo`, `eli5:doc:redo` and `eli5:doc:history-changed` ([01](01-architecture.md) §5.2, [08](08-interactive-reading.md) §6.7), because only 08 knows which sections are busy.
+
 The renderer never sends file paths. It only sends slugs and IDs, and main resolves those through `docPath`.
 
 ## 12. Edge cases
@@ -568,6 +589,8 @@ The renderer never sends file paths. It only sends slugs and IDs, and main resol
 | Merge check finishes after the new doc was already merged elsewhere | Step 8 re-check discards it ([06](06-generation-pipeline.md) §10 step 6) |
 | New doc and target are the same topic re-run (user pressed Enter twice) | Usually a suggestion with a high score. Accept appends a near-duplicate block. The user can dismiss instead |
 | Library written by a newer app version | Read-only mode (§8.5) |
+| Undo requested while a section job for the document runs | Refused with `E_CONFLICT` by 08 §6.7; the files are untouched |
+| Crash during an undo, redo or update | Each file is old or new (§8.1); at worst the prior version is voided (§4.1 pairing) and Undo is unavailable |
 | Second process on the same root | Read-only mode (§8.4) |
 | Empty library | Merge check stops at step 2. Recents is empty and the tray shows only Open and Quit |
 | Very large library (5,000 docs) | Catalog about 2 MB, loaded into memory once. Prefilter under 50 ms. Reconcile under 1 s at startup |
@@ -584,6 +607,7 @@ Unit (Vitest, temp dir via `ELI5_LIBRARY_DIR`): slugify table tests; allocate un
 - [ ] Library sidebar, menu bar recents and merge matching never read `index.html`.
 - [ ] Slugs follow §6: ASCII, at most 60 chars, case-insensitive collision suffixes, reserved names avoided; concurrent saves never collide.
 - [ ] Every file write is temp + fsync + rename; killing the app at any point never leaves a truncated `index.html`, `meta.json`, `catalog.json` or `suggestions.json`.
+- [ ] Each in-place change of an existing document keeps exactly one prior version in `<slug>/.prev/` (none for a new document); undo and redo swap it under `withDocLock`, keep `id`, `createdAt`, `topicSlug` and `publications` from the live meta, update the catalog, and a new change after an undo drops the redo. `.prev/` is never served, listed, published or read by reconcile.
 - [ ] All document writes and publishes serialize through the exclusive `withDocLock`; lock order is doc(s) → catalog → suggestions.
 - [ ] `commitDocument` fails with `SLUG_TAKEN` when anything (including an empty directory) exists at the target path, checked with `lstat` under `withCatalogLock`.
 - [ ] A stale process lock whose PID was reused by an unrelated process is detected by start time and does not force read-only mode.

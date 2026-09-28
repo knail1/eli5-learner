@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CatalogEntry } from '../../../preload/contract';
 import { updatedLabel } from '../library/order';
+import { HistoryButtons } from './HistoryButtons';
 import { PublishControls } from './PublishControls';
 
 /**
- * Document header (11 §5.3): title, updated time, Reveal in Finder, and the publish slot
+ * Document header (11 §5.3): title, updated time, Undo / Redo, Reveal in Finder, and the publish slot
  * (PublishControls, owned by the publishing slice).
  */
 export function DocHeader(p: { slug: string; entry: CatalogEntry | undefined }) {
@@ -27,6 +28,7 @@ export function DocHeader(p: { slug: string; entry: CatalogEntry | undefined }) 
         {p.entry && <span className="muted">{updatedLabel(p.entry.updatedAt)}</span>}
       </div>
       <div className="doc-actions">
+        <HistoryButtons slug={p.slug} />
         <button type="button" onClick={() => void reveal()}>
           Reveal in Finder
         </button>

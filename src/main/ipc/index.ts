@@ -50,7 +50,7 @@ export type { AsyncClipboard } from './clipboard';
 export type { LibraryPort, DocumentActions } from './library';
 export { notImplementedServices } from './services';
 export type { IpcServices } from './services';
-export type { SectionActions } from './doc';
+export type { DocHistory, SectionActions } from './doc';
 export type { MergeSuggestions } from './suggestions';
 export type { PublishService, PublishServiceProgress } from './publish';
 export type { NotificationControls } from './app';
@@ -125,7 +125,7 @@ export function registerIpc(d: IpcDeps): () => void {
   registerLibraryIpc(on, { library: d.library, documents: d.documents });
 
   // ---- M3 feature areas (08, 09 §10, 10, 11 §14): validation here, behavior in the services ----
-  registerDocIpc(on, { actions: svc.sectionActions });
+  registerDocIpc(on, { actions: svc.sectionActions, history: svc.docHistory });
   registerSuggestionsIpc(on, { suggestions: svc.suggestions });
   registerPublishIpc(on, { publish: svc.publish });
   registerAppIpc(on, { notifications: svc.notifications });
@@ -191,6 +191,7 @@ export function registerIpc(d: IpcDeps): () => void {
     svc.sectionActions.onUpdated((e) => d.sendToApp(IPC.doc.updated, e)),
     svc.sectionActions.onScrollTo((e) => d.sendToViewer(IPC.doc.scrollTo, e)),
     svc.sectionActions.onSectionBusy((e) => d.sendToViewer(IPC.doc.sectionBusy, e)),
+    svc.docHistory.onChanged((e) => d.sendToApp(IPC.doc.historyChanged, e)),
     svc.suggestions.onChanged((suggestions) => d.sendToApp(IPC.suggestions.changed, { suggestions })),
     svc.suggestions.onDocUpdated((e) => d.sendToApp(IPC.doc.updated, e)),
     svc.publish.onProgress(({ error, ...e }) =>
@@ -211,6 +212,7 @@ const EVENT_CHANNELS = new Set<string>([
   IPC.doc.updated,
   IPC.doc.scrollTo,
   IPC.doc.sectionBusy,
+  IPC.doc.historyChanged,
   IPC.app.navigate,
   IPC.settings.changed,
   IPC.publish.progress,

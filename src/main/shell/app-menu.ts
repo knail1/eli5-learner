@@ -34,6 +34,12 @@ export interface AppMenuActions {
   /** Cmd+R: reload the viewer (not the app) when a document is shown. */
   reloadViewer(): void;
   openHelp(topic: HelpTopic): void;
+  /**
+   * Undo or redo the last change of the document in the viewer (09 §4.1). No accelerator: Cmd+Z
+   * and Shift+Cmd+Z belong to the undo/redo roles for text fields; outside text fields the app
+   * renderer handles them itself (11 §9).
+   */
+  docHistory(dir: 'undo' | 'redo'): void;
 }
 
 export const MENU_IDS = {
@@ -42,6 +48,8 @@ export const MENU_IDS = {
   quitHint: 'quit-hint',
   settings: 'settings',
   reloadViewer: 'reload-viewer',
+  undoDocument: 'undo-document',
+  redoDocument: 'redo-document',
 } as const;
 
 const shortcutItem = (
@@ -90,6 +98,9 @@ export function appMenuTemplate(
       submenu: [
         { role: 'undo' },
         { role: 'redo' },
+        { type: 'separator' },
+        { id: MENU_IDS.undoDocument, label: 'Undo Document Change', click: () => actions.docHistory('undo') },
+        { id: MENU_IDS.redoDocument, label: 'Redo Document Change', click: () => actions.docHistory('redo') },
         { type: 'separator' },
         { role: 'cut' },
         { role: 'copy' },

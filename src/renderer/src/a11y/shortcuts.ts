@@ -67,3 +67,24 @@ export function matchShortcut(e: KeyLike): ShortcutMatch | null {
   if (/^[1-9]$/.test(k)) return { id: 'nth-doc', index: Number(k) - 1 };
   return null;
 }
+
+/**
+ * Cmd+Z / Shift+Cmd+Z: undo or redo the open document's last change (09 §4.1, 11 §9). Handled only
+ * when focus is not in a text field, so text fields keep their own undo (the Edit menu's
+ * undo/redo roles).
+ */
+export function matchHistoryKey(e: KeyLike): 'undo' | 'redo' | null {
+  if (!e.metaKey || e.ctrlKey || e.altKey || e.key.toLowerCase() !== 'z') return null;
+  return e.shiftKey ? 'redo' : 'undo';
+}
+
+const NON_TEXT_INPUTS = new Set(['button', 'checkbox', 'color', 'file', 'image', 'radio', 'range', 'reset', 'submit']);
+
+/** True when keys typed at `el` edit text: text-like inputs, textareas, selects and contenteditable. */
+export function isTextEntry(el: Element | null): boolean {
+  if (!el) return false;
+  const tag = el.tagName;
+  if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (tag === 'INPUT') return !NON_TEXT_INPUTS.has((el as HTMLInputElement).type);
+  return el.closest('[contenteditable]:not([contenteditable="false"])') !== null;
+}

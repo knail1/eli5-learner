@@ -236,6 +236,59 @@ test.describe('reading a finished document', () => {
     expect(errors).toEqual([]);
     await plain.close();
   });
+
+  test('Undo and Redo swap the one prior version; a new change after an undo drops the redo (09 §4.1)', async () => {
+    const undo = l.win.getByRole('button', { name: 'Undo', exact: true });
+    const redo = l.win.getByRole('button', { name: 'Redo', exact: true });
+    const id = (await sectionsOf(viewer, 'indepth')).find((s) => s.heading === 'Why the plan matters')?.id ?? '';
+    expect(id).not.toBe('');
+    const heading = viewer.locator(`#${id} > h2`);
+    const expanded = 'How the forecast is built, step by step';
+    const expand = async () => {
+      await selectAndFocusMenu(viewer, id, 'The plan balances two costs: holding too much stock and running out.');
+      await viewer.keyboard.press('Enter');
+      await viewer.keyboard.press('Enter'); // "Expand this"
+      await expect(heading).toHaveText(expanded, { timeout: 30_000 });
+    };
+    // E9 left the ELI5 tab active (the tab to the left of the closed one).
+    await viewer.getByRole('tab', { name: 'In depth' }).click();
+    const original = await readFile(docFile(), 'utf8');
+
+    await expand();
+    const changed = await readFile(docFile(), 'utf8');
+    await expect(undo).toBeEnabled();
+    await expect(undo).toHaveAttribute('title', "Undo: expanded 'Why the plan matters' (⌘Z)");
+    await expect(redo).toBeDisabled();
+    await expect(redo).toHaveAttribute('title', 'Nothing to redo');
+
+    // Undo: the saved file and the viewer show the original section again.
+    await undo.click();
+    await expect(heading).toHaveText('Why the plan matters', { timeout: 30_000 });
+    expect(await readFile(docFile(), 'utf8')).toBe(original);
+    await expect(redo).toBeEnabled();
+    await expect(undo).toBeDisabled();
+    expect(await readdir(path.join(dirs.library, slug))).toContain('.prev');
+
+    // Redo: the new text is back.
+    await redo.click();
+    await expect(heading).toHaveText(expanded, { timeout: 30_000 });
+    expect(await readFile(docFile(), 'utf8')).toBe(changed);
+    await expect(undo).toBeEnabled();
+
+    // Cmd+Z in the app window (focus outside any text field) undoes too.
+    await l.win.locator('.doc-header h1').click();
+    await l.win.keyboard.press('Meta+z');
+    await expect(heading).toHaveText('Why the plan matters', { timeout: 30_000 });
+    expect(await readFile(docFile(), 'utf8')).toBe(original);
+    await expect(redo).toBeEnabled();
+
+    // A new section action after the undo replaces the slot: Redo is gone, Undo undoes the new action.
+    await expand();
+    await expect(redo).toBeDisabled();
+    await expect(undo).toBeEnabled();
+    const meta = await readJson<{ actions?: { action: string }[] }>(metaFile());
+    expect(meta.actions?.map((a) => a.action)).toEqual(['expand', 'eli5-tab', 'expand']);
+  });
 });
 
 test('E11: a related document is suggested; one suggestion is dismissed, another merged in', async () => {

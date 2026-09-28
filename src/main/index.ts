@@ -297,6 +297,15 @@ async function bootstrap(): Promise<void> {
   });
   m3.sectionRunner = interactive.runner;
   m3.services.sectionActions = interactive.actions;
+  // 09 §4.1, 08 §6.7: one-level undo/redo; the Edit menu items act on the document in the viewer.
+  m3.services.docHistory = interactive.history;
+  const docHistoryFromMenu = (dir: 'undo' | 'redo'): void => {
+    const slug = viewerPort.currentSlug();
+    if (!slug) return;
+    interactive.history[dir](slug).catch((err: unknown) =>
+      log.info('document.history-refused', { slug, kind: dir, code: (err as { code?: string }).code ?? 'unknown' }),
+    );
+  };
   // 09 §10: merge suggestions. Created after reconcile; attaching makes library.runMergeCheck live.
   const merge = createMergeSuggestions({
     library,
@@ -423,7 +432,7 @@ async function bootstrap(): Promise<void> {
     preloadDir: path.join(import.meta.dirname, '../preload'),
     rendererDir: path.join(import.meta.dirname, '../renderer'),
     devServerUrl: app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL,
-    hooks: { openDocument, revealDocument },
+    hooks: { openDocument, revealDocument, docHistory: docHistoryFromMenu },
   });
   createMainWindow();
   viewerPort.attach();

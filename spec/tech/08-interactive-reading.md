@@ -14,6 +14,7 @@ Related: [01-architecture.md](01-architecture.md) · [02-llm-provider.md](02-llm
 | Context assembly for section actions | Prompts, `runSectionAction`, `SectionDraft` schema ([02](02-llm-provider.md) §9, §10) |
 | Orchestration of parse → mutate → render → write for section actions | `parseDocument`, `getSectionContext`, `replaceSection`, `addSectionEli5Tab`, `removeTab`, `renderDocument`, `SectionId` minting, tab labels, glossary re-anchoring ([07](07-output-document.md) §4, §8, §9.3) |
 | `meta.json` tab list and action log fields written by this module | `withDocLock`, `Library.updateDocument` (atomic write, catalog `updatedAt`), `meta.json`/catalog schemas ([09](09-library-storage.md)) |
+| Undo/redo requests: busy refusal, change labels, viewer refresh (§6.7) | The prior-version slot and the swap ([09](09-library-storage.md) §4.1); the header buttons ([11](11-app-shell-ui.md) §5.3) |
 
 The feature has no edition-specific behavior and defines no private hooks. Enterprise-only UI in the app shell (publish buttons, sign-in state) is HOOK-UI-01 in [11](11-app-shell-ui.md); an enterprise LLM backend used by section actions is HOOK-LLM-01 in [02](02-llm-provider.md). Neither changes anything in this file.
 
@@ -254,7 +255,7 @@ All of this runs inside `library.withDocLock(slug, …)` ([09](09-library-storag
 4. `{model: next, warnings} = replaceSection(model, sectionId, draft, action, now)` ([07](07-output-document.md) §8). The ID is reused unchanged, `origin` becomes `'regenerated'`, `updatedAt` and `lastAction` are set, and glossary notes of that section are re-anchored (§6.5). Warnings are logged.
 5. `out = renderDocument(next, assets)`. By 07 §5.5, `out` differs from a re-render of `model` only in the target section's bytes, the embedded `#eli5-model` JSON, and `updatedAt`; everything outside that `<section>` is byte-identical.
 6. Post-check: `parseDocument(out)` succeeds, the set of `SectionId`s is unchanged, and the target section equals `next`'s. A failure fails the job with `INTERNAL` (detail `document_corrupt`) and nothing is written.
-7. Write back with one call: `library.updateDocument(slug, { html: out, meta: m => ({ ...m, tabs: mirrorTabs(next.tabs), actions: [...(m.actions ?? []), entry] }) })` ([09](09-library-storage.md)). 09 performs the atomic write of `index.html` and `meta.json` and bumps the catalog `updatedAt`. `entry` is the `actions` record from §6.6. `mirrorTabs` maps each `Tab` to `{key, kind, label, sourceSectionId: origin?.sectionId, createdAt}`.
+7. Write back with one call: `library.updateDocument(slug, { html: out, meta: m => ({ ...m, tabs: mirrorTabs(next.tabs), actions: [...(m.actions ?? []), entry] }), label })` ([09](09-library-storage.md)). 09 performs the atomic write of `index.html` and `meta.json` and bumps the catalog `updatedAt`, and first keeps the current files as the document's single prior version (09 §4.1). `label` names the change for Undo (§6.7). `entry` is the `actions` record from §6.6. `mirrorTabs` maps each `Tab` to `{key, kind, label, sourceSectionId: origin?.sectionId, createdAt}`.
 8. Release the lock, remove the busy key, broadcast busy state, and emit `eli5:doc:updated {slug, sectionId, tabKey}`.
 
 If any step before step 7 fails, nothing is written. If `updateDocument` throws, 09 guarantees `index.html` and `meta.json` are unchanged, and the job fails with `SAVE_FAILED`.
@@ -280,7 +281,18 @@ interface DocumentMetaInteractive {
 }
 ```
 
-`actions` is a log, not version history. It stores no previous content, so it cannot be used to undo.
+`actions` is a log, not version history. It stores no previous content, so it cannot be used to undo. Undo uses the single prior version that 09 §4.1 keeps beside the document (§6.7).
+
+### 6.7 Undo and redo (one prior version)
+
+Every section action (§6.4, §7.1), tab close (§7.2) and merge append (09 §10.6) records the document's previous `index.html` and `meta.json` as its single prior version (09 §4.1). Undo and redo swap the live files with that version. There is exactly one level: a new change after an undo replaces the slot, so redo is lost, as in a word processor.
+
+- **Labels.** Each write passes `label` to `updateDocument`: `expanded '<heading>'`, `re-explained '<heading>'`, `added an analogy to '<heading>'`, `went deeper on '<heading>'` (heading of the target section before the change), `added ELI5 tab '<label>'`, `closed tab '<label>'`, and 09's `merged '<source title>' in`. Names are one line and cut to 32 characters with `…`. A change without a label shows `last change`.
+- **Service** (`IpcServices.docHistory`, app window only, 01 §5.2): `eli5:doc:history {slug}` returns `DocHistoryState {canUndo, canRedo, undoLabel?, redoLabel?, busy}`; `eli5:doc:undo` and `eli5:doc:redo {slug}` swap and return the new state. An unknown slug returns `E_NOT_FOUND`.
+- **Refused while busy.** While any section job for the document is queued or running (any `inflight` key for the slug, §8.1), undo and redo return `E_CONFLICT` "Wait for the section update to finish" and `busy` is true. With nothing to swap they return `E_CONFLICT` "Nothing to undo" / "Nothing to redo".
+- **After a swap** main emits `eli5:doc:updated {slug}` (§7.4: the viewer reloads when it shows the document), and the library's `changed` event updates the Library sidebar and the Tray.
+- **`eli5:doc:history-changed {slug, state}`** (M→R) is pushed after every library `changed` event for the slug and after every change to its `inflight` keys, so the header buttons follow new changes, swaps and busy state without polling.
+- The Edit menu's "Undo Document Change" / "Redo Document Change" call the same service for the document in the viewer (11 §9).
 
 ## 7. Section ELI5 tabs
 
@@ -302,9 +314,9 @@ Under the document lock, with `now` read once:
 - **Main (`eli5:doc:close-tab`)**, under the lock, with `now` read once:
   1. Check the sender and slug as in §6.1. Re-read `index.html` and run `parseDocument`. Find the tab in `model.tabs` by `tabKey`; if it is missing, return `E_NOT_FOUND`. Require `kind === 'section-eli5'`, otherwise `E_FORBIDDEN`.
   2. If any in-flight action targets a section inside this tab, return `E_CONFLICT` "Wait for the update in this tab to finish".
-  3. `next = removeTab(model, tabKey, now)`, `out = renderDocument(next, assets)`, then `library.updateDocument(slug, { html: out, meta: m => ({ ...m, tabs: mirrorTabs(next.tabs), retiredIds: [...(m.retiredIds ?? []), ...closedIds] }) })`, where `closedIds` are the tab's section IDs (07 §4.3: never reused).
+  3. `next = removeTab(model, tabKey, now)`, `out = renderDocument(next, assets)`, then `library.updateDocument(slug, { html: out, meta: m => ({ ...m, tabs: mirrorTabs(next.tabs), retiredIds: [...(m.retiredIds ?? []), ...closedIds] }), label: "closed tab '<label>'" })`, where `closedIds` are the tab's section IDs (07 §4.3: never reused).
   4. Emit `eli5:doc:updated {slug, tabKey: <tab to the left>}`.
-- Deletion is permanent in v1. There is no undo (§10).
+- A closed tab can be brought back with Undo until the next change replaces the prior version (§6.7).
 
 ### 7.3 Actions inside ELI5 tabs
 
@@ -341,6 +353,7 @@ Scroll position elsewhere in the document is not preserved across a reload. The 
 
 - **Merge accept** ([09](09-library-storage.md)) that appends to this document takes the lock and adds a new section. It does not change existing sections, so pending actions still pass their precondition.
 - **Merge accept that removes this document** (it was the standalone one): pending section jobs fail with `DOC_GONE` at save. Main refuses new requests for it with `E_NOT_FOUND`. If the viewer is showing it, [11](11-app-shell-ui.md) navigates to the merge target.
+- **Undo / redo** (§6.7) swaps both files under `withDocLock` and is refused while any section of the document is busy, so no section job ever saves against a swapped-in version it did not read. A job requested after a swap re-reads the file and takes its `baseHash` from the swapped-in content.
 - **Crash or quit mid-job:** recovery follows [06](06-generation-pipeline.md) §9.4. A resumed section job re-runs `generating` from scratch, because it has no checkpoint. This is safe because the save re-validates `baseHash`.
 
 ### 8.3 Busy broadcast
@@ -375,7 +388,7 @@ Status strings for running section jobs come from [06](06-generation-pipeline.md
 
 ## 10. Out of scope (v1)
 
-- **Undo, redo, and version history.** v1 replaces section content outright and deletes closed tabs permanently (PRD "v1 replaces the original text outright"). The `actions` log in `meta.json` stores no content. Per-section history with diff and rollback is the PRD's "Future enhancements" item, and the `SectionId` scheme plus the model-based replace (07 §8) are chosen so it can be added later without format changes.
+- **Version history beyond one step.** v1 keeps exactly one prior version per document with undo/redo (§6.7, 09 §4.1). The `actions` log in `meta.json` stores no content. Per-section history with diff and rollback is the PRD's "Future enhancements" item, and the `SectionId` scheme plus the model-based replace (07 §8) are chosen so it can be added later without format changes.
 - Streaming partial section text into the viewer while the model is still writing.
 - Acting on several sections at once, or on a selection spanning sections (it is clipped, §5.3).
 - Re-glossing new jargon introduced by a regeneration (§6.5).
@@ -401,8 +414,8 @@ This feature depends on these guarantees from [07](07-output-document.md). They 
 
 Details are owned by [13](13-testing-quality.md). Minimum coverage for this module:
 
-- **Unit (Vitest):** the save path re-parses and replaces only the target (bytes outside the target `<section>` and `#eli5-model` identical before and after, per 07 §5.5); `sectionHash` is stable across a runtime-only re-render and changes on any section mutation; `baseHash` mismatch fails with `SECTION_CHANGED`; invalid `#eli5-model` is refused; rate limit (11th request in 60 s returns `E_RATE_LIMITED`); `TooManyTabsError` maps to `TOO_MANY_TABS`; `meta.json` patches (`tabs`, `actions`, `retiredIds`); §5.3 `enclosing` on cross-section and excluded-region selections against 07's markup (jsdom).
-- **E2E (Playwright `_electron`, fake `LLMProvider`):** select text, then Expand, then the section is replaced and scrolled into view while other sections are unchanged; a second action on a busy section is refused; section ELI5 tab creation, label, and close; an action inside an ELI5 tab; a failure leaves the file unchanged and shows the inline notice; a script in a document calling `eli5Doc.regenerateSection` without user activation is refused.
+- **Unit (Vitest):** the save path re-parses and replaces only the target (bytes outside the target `<section>` and `#eli5-model` identical before and after, per 07 §5.5); `sectionHash` is stable across a runtime-only re-render and changes on any section mutation; `baseHash` mismatch fails with `SECTION_CHANGED`; invalid `#eli5-model` is refused; rate limit (11th request in 60 s returns `E_RATE_LIMITED`); `TooManyTabsError` maps to `TOO_MANY_TABS`; `meta.json` patches (`tabs`, `actions`, `retiredIds`); change labels, the busy refusal of undo/redo and the viewer refresh after a swap (§6.7); §5.3 `enclosing` on cross-section and excluded-region selections against 07's markup (jsdom).
+- **E2E (Playwright `_electron`, fake `LLMProvider`):** select text, then Expand, then the section is replaced and scrolled into view while other sections are unchanged; a second action on a busy section is refused; section ELI5 tab creation, label, and close; an action inside an ELI5 tab; a failure leaves the file unchanged and shows the inline notice; a script in a document calling `eli5Doc.regenerateSection` without user activation is refused; Undo after a section action restores the original section in the saved file and the viewer, Redo brings the new text back, and a new action after an undo disables Redo.
 
 ## Acceptance criteria
 
@@ -423,4 +436,4 @@ Details are owned by [13](13-testing-quality.md). Minimum coverage for this modu
 - [ ] Glossary notes of a regenerated in-depth section are kept when their term still appears and dropped otherwise. No other section changes.
 - [ ] Busy indicators match main's state after a reload, a viewer crash reload, and an app restart.
 - [ ] Every failure in §9 produces the listed status line and inline notice. None of them block other jobs.
-- [ ] No undo UI exists, and `meta.json.actions` stores no section content.
+- [ ] Undo and Redo in the document header swap the single prior version (§6.7): they are disabled while a section of the document is busy (main refuses with `E_CONFLICT`), a new change after an undo drops the redo, and `meta.json.actions` stores no section content.

@@ -99,6 +99,8 @@ function libraryError(code: LibraryErrorCode): IpcError {
       return { code: 'E_MERGE_FAILED', message: 'The documents could not be merged' };
     case 'NOT_FOUND':
       return { code: 'E_NOT_FOUND', message: 'Document not found' };
+    case 'HISTORY_EMPTY':
+      return { code: 'E_CONFLICT', message: 'Nothing to undo or redo' };
     default:
       return { code: 'E_IO', message: 'Could not access the Library' };
   }

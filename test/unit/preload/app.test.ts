@@ -46,6 +46,19 @@ describe('app preload', () => {
     expect(invoke).toHaveBeenCalledWith(IPC.jobs.cancel, { jobId: 'job-1' });
   });
 
+  it('maps doc history, undo and redo to their app channels with the slug (09 §4.1)', async () => {
+    const api = exposed.eli5 as { doc: Record<'history' | 'undo' | 'redo', (slug: string) => Promise<unknown>> };
+    invoke.mockClear();
+    await api.doc.history('widget-pricing');
+    await api.doc.undo('widget-pricing');
+    await api.doc.redo('widget-pricing');
+    expect(invoke.mock.calls).toEqual([
+      [IPC.doc.history, { slug: 'widget-pricing' }],
+      [IPC.doc.undo, { slug: 'widget-pricing' }],
+      [IPC.doc.redo, { slug: 'widget-pricing' }],
+    ]);
+  });
+
   it('listens for drops in the capture phase', () => {
     expect(listeners.find((x) => x.type === 'drop')?.capture).toBe(true);
   });

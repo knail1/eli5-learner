@@ -17,6 +17,7 @@ import { uuidFrom } from '../catalog';
 import { DIR_MODE, errnoOf, writeFileAtomic, writeJsonAtomic } from '../fs-atomic';
 import { ELI5_DIR, INDEX_FILE, TRASH_DIR, type FsLibrary, type MergeDelegate } from '../library';
 import { LockSet } from '../locks';
+import { quoteLabel } from '../prior';
 import { compactTimestamp, readVersioned, suggestionsMigrations } from '../migrations';
 import { RESOLVED_SUGGESTION_RETENTION_DAYS, defaultMergeEligibility } from '../policy';
 import { MergeSuggestionSchema, SUGGESTIONS_SCHEMA_VERSION, SuggestionsFileSchema } from '../schema';
@@ -717,6 +718,8 @@ class MergeEngine implements MergeDelegate {
     try {
       committed = await this.lib.writeDocumentFiles(s.target.slug, {
         html: merged.html,
+        // 09 §4.1: the pre-merge target becomes the prior version; Undo names the merge.
+        label: `merged '${quoteLabel(sourceMeta.title)}' in`,
         meta: (m) => ({
           ...m,
           tabs: merged.tabs,

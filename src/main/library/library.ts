@@ -10,13 +10,25 @@ import { DIR_MODE, errnoOf, fsyncDir, isErrno, renameDirAtomic, writeFileAtomic,
 import { LockSet, acquireProcessLock, releaseProcessLock } from './locks';
 import { catalogMigrations, compactTimestamp, metaMigrations, readVersioned } from './migrations';
 import { defaultLibraryPolicy } from './policy';
+import {
+  PREV_DIR,
+  PREV_TMP_RE,
+  cleanChangeLabel,
+  discardStaged,
+  historyOf,
+  installPrior,
+  readPriorState,
+  stagePrior,
+} from './prior';
 import { CATALOG_SCHEMA_VERSION, CatalogFileSchema, DocumentMetaSchema, META_SCHEMA_VERSION } from './schema';
 import { chooseSlug, isValidSlug } from './slug';
 import {
   LibraryError,
   type CatalogEntry,
   type CatalogFile,
+  type DocHistoryState,
   type DocumentMeta,
+  type DocumentPatch,
   type Library,
   type LibraryChangeReason,
   type LibraryClock,
@@ -432,10 +444,7 @@ export class FsLibrary implements Library {
   }
 
   /** 09 §9. Caller holds `withDocLock(slug)` (LOCK_NOT_HELD in dev; taken implicitly otherwise). */
-  async updateDocument(
-    slug: string,
-    patch: { html?: string; meta: (m: DocumentMeta) => DocumentMeta },
-  ): Promise<CatalogEntry> {
+  async updateDocument(slug: string, patch: DocumentPatch): Promise<CatalogEntry> {
     this.assertWritable();
     this.docPath(slug);
     if (!this.holdsDocLock(slug)) {
@@ -457,11 +466,11 @@ export class FsLibrary implements Library {
    * The file half of `updateDocument`: validated meta, index.html then meta.json (the meta write is
    * the commit point, 09 §10.6 step 7). No catalog write, no event; the merge flow (09 §10.6) does
    * those itself in step 9. Caller holds `withDocLock(slug)`.
+   *
+   * With `html`, the current files become the single prior version (09 §4.1): staged before the
+   * writes and installed only after the commit point, so a failed write keeps the old slot.
    */
-  async writeDocumentFiles(
-    slug: string,
-    patch: { html?: string; meta: (m: DocumentMeta) => DocumentMeta },
-  ): Promise<DocumentMeta> {
+  async writeDocumentFiles(slug: string, patch: DocumentPatch): Promise<DocumentMeta> {
     this.assertWritable();
     this.docPath(slug);
     if (!this.holdsDocLock(slug)) throw new LibraryError('LOCK_NOT_HELD', { slug });
@@ -478,9 +487,128 @@ export class FsLibrary implements Library {
     });
     if (!parsed.success) throw new LibraryError('META_INVALID', { slug });
     const clean = sanitizeMeta(parsed.data, this.d.policy.sourceUrls);
-    if (patch.html !== undefined) await writeFileAtomic(this.docPath(slug, INDEX_FILE), patch.html);
-    await writeJsonAtomic(this.docPath(slug, META_FILE), clean);
+    const staged =
+      patch.html === undefined
+        ? undefined
+        : await this.stageCurrent(slug, current, {
+            schemaVersion: 1,
+            slot: 'undo',
+            label: cleanChangeLabel(patch.label),
+            pairedUpdatedAt: clean.updatedAt,
+          });
+    try {
+      if (patch.html !== undefined) await writeFileAtomic(this.docPath(slug, INDEX_FILE), patch.html);
+      await writeJsonAtomic(this.docPath(slug, META_FILE), clean);
+    } catch (err) {
+      if (staged) await discardStaged(staged);
+      throw err;
+    }
+    if (staged) await this.installStaged(slug, staged);
     return clean;
+  }
+
+  // ---- one prior version: undo / redo (09 §4.1) ----
+
+  /**
+   * Stages the live index.html and `live` meta as the next `.prev/`. Best effort: a failure is
+   * logged and yields no slot (the stale one no longer pairs with the new meta, so it offers nothing).
+   */
+  private async stageCurrent(
+    slug: string,
+    live: DocumentMeta,
+    state: { schemaVersion: 1; slot: 'undo' | 'redo'; label: string; pairedUpdatedAt: string },
+  ): Promise<string | undefined> {
+    try {
+      const html = await fsp.readFile(this.docPath(slug, INDEX_FILE));
+      return await stagePrior(path.dirname(this.docPath(slug)), { html, meta: live }, state);
+    } catch (err) {
+      this.d.logger.warn('library.prior-save-failed', { slug, errno: errnoOf(err) });
+      return undefined;
+    }
+  }
+
+  private async installStaged(slug: string, staged: string): Promise<void> {
+    try {
+      await installPrior(path.dirname(this.docPath(slug)), staged);
+    } catch (err) {
+      this.d.logger.warn('library.prior-save-failed', { slug, errno: errnoOf(err) });
+      await discardStaged(staged);
+    }
+  }
+
+  /** What the prior version offers for `slug` right now (no `busy`; 08 adds it). */
+  async history(slug: string): Promise<DocHistoryState> {
+    const dir = path.dirname(this.docPath(slug));
+    if (!this.hasSlug(slug)) throw new LibraryError('NOT_FOUND', { slug });
+    const live = await this.getMeta(slug);
+    return historyOf(await readPriorState(dir), live.updatedAt);
+  }
+
+  undo(slug: string): Promise<DocHistoryState> {
+    return this.swap(slug, 'undo');
+  }
+
+  redo(slug: string): Promise<DocHistoryState> {
+    return this.swap(slug, 'redo');
+  }
+
+  /**
+   * 09 §4.1: under the doc lock, exchange the live files with `.prev/` and flip the slot. The older
+   * meta comes back except for fields that must not travel in time (id, topicSlug, createdAt,
+   * publications); updatedAt is now. Then the catalog entry follows and `changed` is emitted.
+   */
+  private async swap(slug: string, want: 'undo' | 'redo'): Promise<DocHistoryState> {
+    this.assertWritable();
+    const dir = path.dirname(this.docPath(slug));
+    const out = await this.withDocLock(slug, async () => {
+      if (!this.hasSlug(slug)) throw new LibraryError('NOT_FOUND', { slug });
+      const live = await this.getMeta(slug);
+      this.assertWritable();
+      const state = await readPriorState(dir);
+      if (!state || state.slot !== want || state.pairedUpdatedAt !== live.updatedAt) {
+        throw new LibraryError('HISTORY_EMPTY', { slug });
+      }
+      const prevDir = path.join(dir, PREV_DIR);
+      const html = await fsp.readFile(path.join(prevDir, INDEX_FILE));
+      const r = await this.readMeta(path.join(prevDir, META_FILE), false).catch(() => undefined);
+      if (r?.status !== 'ok') throw new LibraryError('META_INVALID', { slug, kind: 'prior' });
+      const now = this.d.clock.now().toISOString();
+      const parsed = DocumentMetaSchema.safeParse({
+        ...r.data,
+        id: live.id,
+        topicSlug: slug,
+        createdAt: live.createdAt,
+        publications: live.publications,
+        updatedAt: now,
+      });
+      if (!parsed.success) throw new LibraryError('META_INVALID', { slug, kind: 'prior' });
+      const clean = sanitizeMeta(parsed.data, this.d.policy.sourceUrls);
+      const next = {
+        schemaVersion: 1 as const,
+        slot: want === 'undo' ? 'redo' : 'undo',
+        label: state.label,
+        pairedUpdatedAt: now,
+      } as const;
+      const staged = await this.stageCurrent(slug, live, next);
+      if (!staged) throw new LibraryError('WRITE_FAILED', { slug, kind: 'prior' });
+      try {
+        await writeFileAtomic(this.docPath(slug, INDEX_FILE), html);
+        await writeJsonAtomic(this.docPath(slug, META_FILE), clean);
+      } catch (err) {
+        await discardStaged(staged);
+        throw err;
+      }
+      await this.installStaged(slug, staged);
+      await this.withCatalogLock(async () => {
+        const e = entryFromMeta(clean);
+        this.entries.set(e.id, e);
+        await this.writeCatalog();
+      });
+      return historyOf(next, now);
+    });
+    this.d.logger.info('library.swapped', { slug, kind: want });
+    this.emitChanged('updated', [slug]);
+    return out;
   }
 
   /**
@@ -740,8 +868,13 @@ export class FsLibrary implements Library {
         if (!TMP_FILE_RE.test(n)) continue;
         const p = path.join(dir, n);
         const st = await fsp.lstat(p).catch(() => undefined);
-        if (st?.isFile() && now - st.mtimeMs > TMP_MAX_AGE_MS) {
+        if (!st || now - st.mtimeMs <= TMP_MAX_AGE_MS) continue;
+        if (st.isFile()) {
           await fsp.unlink(p).catch(() => {});
+          removed++;
+        } else if (st.isDirectory() && PREV_TMP_RE.test(n)) {
+          // A `.prev/` staging or retired folder left by a crash (09 §4.1).
+          await fsp.rm(p, { recursive: true, force: true }).catch(() => {});
           removed++;
         }
       }

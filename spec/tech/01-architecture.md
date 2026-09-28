@@ -206,15 +206,17 @@ HOOK-PUB-03). Publish UI visibility is HOOK-UI-01.
 - Main validates every payload with the schema in `src/main/ipc/schemas.ts` (zod). Invalid →
   `{ok:false, error:{code:'E_BAD_REQUEST'}}`.
 - Handlers check `event.senderFrame` origin: app channels accept only the app renderer; D→M
-  channels (`eli5:doc:*` invokes, `eli5:viewer:open-external`) accept only the viewer. Anything
-  else → `E_FORBIDDEN`.
+  channels (the `eli5:doc:*` section invokes, `eli5:viewer:open-external`) accept only the viewer.
+  `eli5:doc:history`, `eli5:doc:undo` and `eli5:doc:redo` are R→M: the app window only, never the
+  viewer. Anything else → `E_FORBIDDEN`.
 - The "Response" column in §5.2 is the `value` of `IpcResult<T>`. Where an owning spec writes a
   response as `{ok:boolean}` or `{ok:false, reason}` (06 §11), the wire form is still
   `IpcResult<T>`: success is `{ok:true, value}` and the reason travels as an `IpcError`.
 - Module-specific error codes are mapped to `IpcErrorCode` at the IPC boundary. The module's own
   code and detail are logged (IDs only), never sent. In particular `LibraryError` (09 §9) maps
   `LIBRARY_READ_ONLY` → `E_LIBRARY_READ_ONLY`, `SUGGESTION_STALE` → `E_SUGGESTION_STALE`,
-  `MERGE_FAILED` → `E_MERGE_FAILED`, `NOT_FOUND` → `E_NOT_FOUND`, everything else → `E_IO`.
+  `MERGE_FAILED` → `E_MERGE_FAILED`, `NOT_FOUND` → `E_NOT_FOUND`, `HISTORY_EMPTY` → `E_CONFLICT`,
+  everything else → `E_IO`.
   `PublishError` (10) maps to `E_PUBLISH_FAILED` with its `PublishErrorCode` in `detailCode` and,
   for `E_PUBLISH_SECRET_FOUND`, the masked `findings`; its `detail` is never sent.
   A module needing a new code adds it here; `detailCode` carries a finer module code where the
@@ -312,6 +314,10 @@ this table is corrected. Channel **names** are fixed here.
 | `eli5:doc:updated` | M→R | — | `{slug; sectionId?: SectionId; tabKey?: string}` | 08 |
 | `eli5:doc:scroll-to` | M→D | — | `ScrollToEvent {sectionId?; tabKey?; flash: boolean; loadSeq: number}` | 08 §3 |
 | `eli5:doc:section-busy` | M→D | — | `SectionBusyEvent` (full busy list for the loaded document; optional `notices` for failed jobs, 08 §9) | 08 §4.1 |
+| `eli5:doc:history` | R→M | `{slug}` | `DocHistoryState {canUndo; canRedo; undoLabel?; redoLabel?; busy?}` | 08 §6.7, 09 §4.1 |
+| `eli5:doc:undo` | R→M | `{slug}` | `DocHistoryState` after the swap; `E_CONFLICT` while a section of the document is busy or with nothing to undo | 08 §6.7, 09 §4.1 |
+| `eli5:doc:redo` | R→M | `{slug}` | `DocHistoryState` after the swap; `E_CONFLICT` as for undo | 08 §6.7, 09 §4.1 |
+| `eli5:doc:history-changed` | M→R | — | `DocHistoryChangedEvent {slug; state: DocHistoryState}` after any library change or busy change for that document | 08 §6.7 |
 | `eli5:viewer:set-bounds` | R→M | `{x; y; width; height}` | `void` | 11 |
 | `eli5:viewer:set-visible` | R→M | `{visible: boolean}` | `void` | 11 §10 |
 | `eli5:viewer:open-external` | D→M | `{url}` (`http`/`https` only) | `void` | 12 |

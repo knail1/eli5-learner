@@ -63,7 +63,13 @@ const api: Eli5Api = {
     dismiss: (suggestionId) => invoke(IPC.suggestions.dismiss, { suggestionId }),
     onChanged: on(IPC.suggestions.changed),
   },
-  doc: { onUpdated: on(IPC.doc.updated) },
+  doc: {
+    onUpdated: on(IPC.doc.updated),
+    history: (slug) => invoke(IPC.doc.history, { slug }),
+    undo: (slug) => invoke(IPC.doc.undo, { slug }),
+    redo: (slug) => invoke(IPC.doc.redo, { slug }),
+    onHistoryChanged: on(IPC.doc.historyChanged),
+  },
   viewer: {
     setBounds: (r) => invoke(IPC.viewer.setBounds, r),
     setVisible: (visible) => invoke(IPC.viewer.setVisible, { visible }),

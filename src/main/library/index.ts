@@ -34,6 +34,7 @@ export {
   INDEX_FILE,
 } from './library';
 export type { OpenLibraryOptions } from './library';
+export { PREV_DIR, PREV_STATE_FILE, DEFAULT_CHANGE_LABEL, cleanChangeLabel, quoteLabel } from './prior';
 export { writeFileAtomic, writeJsonAtomic, fsyncDir, renameDirAtomic } from './fs-atomic';
 export { AsyncMutex, acquireProcessLock, releaseProcessLock, defaultProcessProbe } from './locks';
 export type { ProcessLockRecord, ProcessLockResult } from './locks';

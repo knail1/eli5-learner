@@ -171,7 +171,7 @@ Any document in the Library, new or months old, can be refined in place from the
 **Regenerate in place**
 
 - The app identifies the enclosing section by its stable ID, regenerates only that section with the surrounding context, and writes it back into the same `index.html`.
-- v1 replaces the original text outright.
+- v1 replaces the original text outright, but keeps exactly one prior version of each document: Undo and Redo buttons (and Cmd+Z / Shift+Cmd+Z) in the document header swap back to the previous version and forward again, like a word processor. A new change after an undo replaces the saved version, so there is one level only. Full per-section history remains future work.
 - The viewer refreshes and scrolls to the updated section.
 
 **Section ELI5 tabs**
@@ -244,7 +244,7 @@ The public build saves locally only and pushes nothing. The enterprise edition a
 
 **Future enhancements**
 
-- Git style version history per section: view, diff, and roll back regenerations.
+- Git style version history per section: view, diff, and roll back regenerations. (v1 keeps exactly one prior version per document with undo/redo.)
 - Intelligent merge that weaves new material into existing sections.
 - Google Drive publishing and NotebookLM linking.
 - Choosing a destination project in the monorepo per document.
