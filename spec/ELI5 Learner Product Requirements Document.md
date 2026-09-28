@@ -48,7 +48,7 @@ The app runs as a normal window plus a persistent menu bar item. Closing the win
 - Shows the last 3 finished documents at the top. Clicking one opens that document in the app's viewer (reopening the main window if needed).
 - Entries are finished documents only, not sessions or source material.
 - Includes Open ELI5 Learner and Quit.
-- A newly finished document appears here automatically. No native macOS notifications.
+- A newly finished document appears here automatically, and a native macOS notification announces it (see Completion notifications).
 
 **Main window, modeled on the Claude app and VS Code**
 
@@ -111,7 +111,18 @@ A failed source is skipped and noted; the job still produces a document. The mer
 - **Status:** one simple line per job (Reading sources, Extracting content, Generating document, Saving, Done).
 - **Error handling:** carry on with whatever was ingested. The finished document lists skipped sources and why (for example, page required login, unsupported file, fetch timed out). Only a total failure (no usable content, LLM unavailable) ends the job, with a clear message in the status area.
 - **Concurrency:** the user can queue another job while one runs.
-- **Completion:** the document appears in the Library and the menu bar list. No system notification.
+- **Completion:** the document appears in the Library and the menu bar list, and a native macOS notification is posted (see Completion notifications).
+
+## Completion notifications
+
+When a new document finishes, the app posts a native macOS notification. Failures, section regenerations, section ELI5 tabs, merges, and publishes stay inline in the app, with no notification.
+
+- **Trigger:** one notification per finished document (a create job reaches Done and the document is saved to the Library). It is posted whenever notifications are enabled, even if the main window is focused.
+- **Content:** title "Document ready"; body is the document title (truncated to 120 characters). No source content. macOS Focus and Do Not Disturb apply as usual. An enterprise overlay may replace the body with a generic "Your document is ready" (hook: HOOK-UI-03).
+- **Click, default:** shows and focuses the main window (reopening it if needed) and opens the document in the viewer. If the document no longer exists, the app shows a not found view.
+- **Click, published link (setting):** opens the document's published link in the default browser instead: the organization cloud drive share link or the GitHub Pages link, per the preferred link setting (most recent, cloud drive, or GitHub Pages). The link is resolved at click time: the preferred kind first, then any other published link, newest first. If the document has no published link, the click falls back to opening it in the app. Local exports never count as published links. In the public build nothing can be published, so this option is shown disabled. The enterprise edition may set the organization default, for example preferring the cloud drive share link (hook: HOOK-UI-03).
+- **Permissions:** macOS asks the user the first time the app posts a notification. If the user declines, notifications silently do not appear; Settings explains how to allow them (System Settings > Notifications > ELI5 Learner > Allow notifications) and links there. If the system does not support notifications, Settings says so and the toggle is disabled.
+- **While running:** the app keeps running in the menu bar after the window is closed, so clicks work any time it runs. A notification clicked after the app has quit is ignored.
 
 ## Output document
 
@@ -217,6 +228,11 @@ The public build saves locally only and pushes nothing. The enterprise edition a
 
 - LLM provider (Claude or OpenAI), API key stored in the macOS Keychain, model name.
 - Default for the "Explain domain specific terms" toggle.
+- **Notifications** section:
+  - "Notify me when a document is ready" toggle (`notifications.enabled`, default on).
+  - "When I click a notification": "Open it in ELI5 Learner" (default) or "Open its published link in my browser" (`notifications.clickAction`), with a choice of which link: Most recent, Cloud drive, or GitHub Pages (`notifications.preferredLink`, default Most recent). The published link option is disabled in the public build with the note "Available when documents can be published to a cloud drive or GitHub Pages". Enterprise defaults and locking come from the overlay (hook: HOOK-UI-03).
+  - "Send test notification" button.
+  - A short explanation of the macOS permission and an "Open macOS notification settings" button.
 - Dormant, documented keys: `llm.provider = bedrock`, `sources.mcp.url`, `publish.drive.*`, `publish.github.*` (hooks: HOOK-CFG-01, HOOK-LLM-01, HOOK-SRC-05, HOOK-PUB-01, HOOK-PUB-04).
 
 **Out of scope for v1**
@@ -224,7 +240,6 @@ The public build saves locally only and pushes nothing. The enterprise edition a
 - Any authentication or login flows.
 - Speech to text and audio input (removed in all editions).
 - Cloud drive, GitHub, Google Drive, and NotebookLM integrations.
-- Native macOS notifications.
 - Moving documents into other monorepo projects.
 
 **Future enhancements**

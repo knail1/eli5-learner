@@ -180,3 +180,6 @@ playwright-report/
 
 # Dev library root: generated learnings, possibly from private sources (09 §3.1)
 /.library/
+
+# Claude Code agent worktrees
+.claude/worktrees/

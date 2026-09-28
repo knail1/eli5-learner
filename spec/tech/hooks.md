@@ -63,10 +63,11 @@ Four layers share one ID per hook:
 | HOOK-CFG-03 | Public-tree leak check (organization term denylist) | [12-configuration-security.md](./12-configuration-security.md) | none (`scripts/check-hygiene.ts`) | deny-list scan skipped with a notice | env `ELI5_HYGIENE_DENYLIST` |
 | HOOK-UI-01 | Enterprise-only UI (publish buttons, sign-in state) | [11-app-shell-ui.md](./11-app-shell-ui.md) | `enableUiFeatures` | no enterprise elements in the DOM | `enterprise.*` (Settings > Enterprise) |
 | HOOK-UI-02 | Edition branding and help links | [11-app-shell-ui.md](./11-app-shell-ui.md) | `EditionOverlay.name` + `registerSettingsExtension` | "ELI5 Learner", "Public edition", public help links | `enterprise.*` |
+| HOOK-UI-03 | Completion notification defaults | [11-app-shell-ui.md](./11-app-shell-ui.md) | `registerNotificationPolicy` + `registerSettingsExtension` | enabled; click opens the document in the app; `published-link` disabled in the UI; body shows the document title (`{hideTitle:false}`) | `notifications.enabled`, `notifications.clickAction`, `notifications.preferredLink` |
 | HOOK-TEST-01 | Private overlay contract test suite | [13-testing-quality.md](./13-testing-quality.md) | none (overlay `contracts/` entry) | `contracts:enterprise` skipped with a notice | env `ELI5_OVERLAY_DIR` |
 | HOOK-TEST-02 | Private fixture corpus and eval set | [13-testing-quality.md](./13-testing-quality.md) | none (private corpus) | synthetic fixtures and public evals only | none |
 
-There are 27 hooks. Their pre-assigned IDs are LLM-01, AUTH-01, SRC-01 to SRC-03, PUB-01 to PUB-04, CFG-01, CFG-02 and UI-01. The owning files added the rest in their own areas.
+There are 28 hooks. Their pre-assigned IDs are LLM-01, AUTH-01, SRC-01 to SRC-03, PUB-01 to PUB-04, CFG-01, CFG-02 and UI-01. The owning files added the rest in their own areas.
 
 ## 3. Hooks by area
 
@@ -334,6 +335,15 @@ The one-paragraph summaries below are not the contract. The callout in the defin
   - internal help and support URLs and their labels;
   - any extra About text.
 - *Related:* all values arrive through the settings extension (HOOK-CFG-01), never as renderer constants.
+
+**HOOK-UI-03 · Completion notification defaults.** Defined in [11-app-shell-ui.md](./11-app-shell-ui.md).
+- *Public:* a native macOS notification is posted when a create job finishes (`notifications.enabled` defaults to true). Clicking it opens the document in the app (`notifications.clickAction = 'app'`). The `published-link` option is shown disabled in Settings because no remote publisher is registered; a hand-set value falls back to `app`. The body shows the document title (`notificationPolicy()` returns `{hideTitle:false}`).
+- *Binding supplies:*
+  - the organization default for `notifications.clickAction` and `notifications.preferredLink` (for example preferring the organization cloud drive share link);
+  - whether these keys are managed or locked;
+  - whether the body must hide the document title and use a generic "Your document is ready";
+  - any organization rule about notifications for documents built from organization sources (HOOK-SRC-01).
+- *Related:* key defaults and managed state arrive through `registerSettingsExtension` (HOOK-CFG-01); the body policy arrives through the single-slot `registerNotificationPolicy(p: NotificationPolicy)`. Links resolve from the drive publisher (HOOK-PUB-01) and the git publisher's Pages link (HOOK-PUB-04).
 
 ### TEST
 

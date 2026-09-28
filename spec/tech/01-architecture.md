@@ -104,7 +104,7 @@ Each directory has one public entry (`index.ts`) that is the only import path ot
 | Path | Owns | Key exports | Spec |
 | --- | --- | --- | --- |
 | `src/main/index.ts` | App bootstrap, single-instance lock, window + tray creation, IPC registration | `bootstrap()` | this file, 11 |
-| `src/main/shell/` | Main window, Tray / menu bar item, viewer `WebContentsView`, app menu, `isQuitting` flag | `showMainWindow()`, `viewer`, `shell.isQuitting` | 11 |
+| `src/main/shell/` | Main window, Tray / menu bar item, viewer `WebContentsView`, app menu, `isQuitting` flag, completion notifications (`notifications.ts`) | `showMainWindow()`, `viewer`, `shell.isQuitting`, `createNotifier()` | 11 |
 | `src/main/security/` | Protocol handler hardening, CSP headers, URL allow-listing for `openExternal`, redacting logger | `safeOpenExternal()`, `log` | 12 |
 | `src/main/ipc/` | Channel registration, envelope wrapping, payload validation | `registerIpc()` | this file |
 | `src/main/llm/` | `LLMProvider`, `claude.ts`, `openai.ts`, `bedrock.stub.ts` | `LLMProvider`, `GenerationRequest`, `GenerationResult` | 02 |
@@ -130,7 +130,8 @@ Each directory has one public entry (`index.ts`) that is the only import path ot
   own files. Never `src/main`.
 - `src/main/*` modules import each other only through `index.ts`. `pipeline` may depend on
   `sources`, `extract`, `llm`, `document`, `library`; `document` may depend on `llm`; nothing depends
-  on `pipeline` except `ipc`.
+  on `pipeline` except `ipc`. `shell` does not depend on `pipeline` either: bootstrap
+  (`src/main/index.ts`) wires the job queue's `done` event to the shell's notifier.
 - Only `src/main/editions/` knows about the overlay. Callers ask the registry for a capability.
 
 ## 4. End-to-end data flow
@@ -162,7 +163,11 @@ Each directory has one public entry (`index.ts`) that is the only import path ot
 8. **saving**: `document/` renders `index.html` (runtime inlined), `library/` writes
    `<slug>/index.html`, `<slug>/meta.json`, and updates `catalog.json` atomically (09).
 9. **done**: main emits `eli5:library:changed`, rebuilds the Tray menu (last 3), then runs the merge
-   check (09); a hit emits `eli5:suggestions:changed`. No native notification.
+   check (09); a hit emits `eli5:suggestions:changed`. For a `create` job, bootstrap's completion
+   listener posts one native macOS notification "Document ready" (body: the document title) when
+   `notifications.enabled` is true; clicking it opens the document in the app, or its published
+   link when `notifications.clickAction` is `'published-link'` (11 §14). Failed jobs, section actions,
+   merges and publishes post no notification.
 
 ### 4.2 Section action (PRD *Interactive reading*)
 
@@ -309,6 +314,8 @@ this table is corrected. Channel **names** are fixed here.
 | --- | --- | --- | --- | --- |
 | `eli5:app:navigate` | M→R | — | `AppNavigateEvent {route: UiRoute}` | 11 §10 |
 | `eli5:app:context-menu` | R→M | `{kind: 'library-item'; slug}` | `void` (native menu shown by main) | 11 §10 |
+| `eli5:app:test-notification` | R→M | — | `{shown: boolean; reason?: 'disabled' \| 'unsupported'}` | 11 §14 |
+| `eli5:app:open-notification-settings` | R→M | — | `void` (main opens the fixed System Settings > Notifications URL; 12 §7.5 exception) | 11 §14 |
 | `eli5:test:tray-click` | R→M | test-defined | `void`; registered **only** when `__ELI5_TEST__` is true (§8.1) | 13 |
 
 **Settings and edition (12, this file)**
@@ -375,7 +382,10 @@ export interface Eli5Api {
     onProgress(cb): Unsub;
   };
   auth: { status(); signIn(); signOut(); onChanged(cb: (s: AuthStatus) => void): Unsub };
-  app: { onNavigate(cb: (e: AppNavigateEvent) => void): Unsub; contextMenu(r: { kind: 'library-item'; slug: string }) };
+  app: {
+    onNavigate(cb: (e: AppNavigateEvent) => void): Unsub; contextMenu(r: { kind: 'library-item'; slug: string });
+    testNotification(); openNotificationSettings();
+  };
   files: { pathFor(file: File): string };   // webUtils.getPathForFile; the single drop-path helper
 }
 
@@ -417,7 +427,7 @@ cannot be switched to enterprise by editing settings.
 | Library | default storage policy; every pair merge-eligible | storage policy (HOOK-LIB-01), merge eligibility (HOOK-LIB-02) |
 | Publishers | `local`; `drive`, `git` → stubs; baseline secret scanner; no pre-publish policy | `local` + overlay (HOOK-PUB-01..04), pre-publish policy (HOOK-PUB-05) |
 | Settings | public schema; dormant keys accepted but inert | schema extended by overlay (HOOK-CFG-01) |
-| UI features | publish buttons and sign-in state hidden; public branding | enabled per overlay flags (HOOK-UI-01), branding (HOOK-UI-02) |
+| UI features | publish buttons and sign-in state hidden; public branding; completion notifications open the document in the app | enabled per overlay flags (HOOK-UI-01), branding (HOOK-UI-02), completion notification defaults and body policy (HOOK-UI-03) |
 | Build, CI and tests | public build only; denylist and private suites skipped with a notice | HOOK-CFG-02, HOOK-CFG-03, HOOK-TEST-01, HOOK-TEST-02 |
 
 **Hook index (canonical).** This table lists every private hook in the tech spec, the registry slot
@@ -451,6 +461,7 @@ the private spec's checklist are built from it. A spec that adds a hook adds a r
 | HOOK-CFG-03 | 12 | none (CI script `scripts/check-hygiene.ts`, env `ELI5_HYGIENE_DENYLIST`) | deny-list scan skipped with a notice |
 | HOOK-UI-01 | 11 | `enableUiFeatures` | `[]` |
 | HOOK-UI-02 | 11 | `EditionOverlay.name` + `registerSettingsExtension` | "ELI5 Learner", "Public edition" |
+| HOOK-UI-03 | 11 | `registerNotificationPolicy` + `registerSettingsExtension` (`notifications.*` defaults / managed) | `{hideTitle:false}`; `notifications.clickAction` `'app'` |
 | HOOK-TEST-01 | 13 | none (overlay `contracts/` entry) | suite skipped with a notice |
 | HOOK-TEST-02 | 13 | none (private corpus) | synthetic fixtures only |
 
@@ -498,6 +509,7 @@ export interface CapabilityRegistry {
   registerPrePublishPolicy(fn: PrePublishPolicy): void;    // HOOK-PUB-05
   registerSettingsExtension(ext: SettingsExtension): void; // HOOK-CFG-01; shape defined in 12
   enableUiFeatures(f: UiFeature[]): void;                  // HOOK-UI-01
+  registerNotificationPolicy(p: NotificationPolicy): void; // HOOK-UI-03; {hideTitle: boolean}, 11
 
   // Lookups
   llm(): LLMProvider;                         // uses settings llm.provider
@@ -519,6 +531,7 @@ export interface CapabilityRegistry {
   mergeEligibility(): MergeEligibility;
   secretScanner(): SecretScanner;
   prePublishPolicy(): PrePublishPolicy;
+  notificationPolicy(): NotificationPolicy;   // public default {hideTitle:false}
   info(): EditionInfo;
   freeze(): void;                             // after bootstrap; later register* throws
 }
@@ -620,7 +633,7 @@ export class NotAvailableInEdition extends Error {
 > and how it is obtained (private repository, submodule or checkout step), the overlay entry file
 > and its `EditionOverlay.name`, the list of capabilities it registers, mapped to every hook in the
 > §6.1 hook index (HOOK-LLM-01/02, HOOK-AUTH-01, HOOK-SRC-01..05, HOOK-FETCH-01/02, HOOK-PIPE-01,
-> HOOK-DOC-01/02, HOOK-LIB-01/02, HOOK-PUB-01..05, HOOK-CFG-01/03, HOOK-UI-01/02 and
+> HOOK-DOC-01/02, HOOK-LIB-01/02, HOOK-PUB-01..05, HOOK-CFG-01/03, HOOK-UI-01..03 and
 > HOOK-TEST-01/02) with the registry slot used for each, extra runtime
 > dependencies the overlay needs, enterprise packaging identity (app ID, product name suffix,
 > signing identity, notarization credentials source, distribution channel), and the CI job that
@@ -844,7 +857,6 @@ work plugs into:
 | Git style version history per section (view, diff, roll back) | Not built | `SectionId` stability plus the per-document actions log (08 §10) |
 | Intelligent merge that weaves new material into existing sections | Append-only merge | `appendMergedDocument` (09 §10.3) is the replacement point |
 | Moving documents into other monorepo projects / choosing a destination project per document | Single library root | `resolveLibraryRoot` (09 §3) |
-| Native macOS notifications | Permanent in v1 | None; status stays in the app and Tray |
 | Any authentication or login flows | Permanent in v1 (public build) | Enterprise only, through the MCP server (HOOK-AUTH-01) |
 | Speech to text and audio input | Removed in all editions | None |
 
@@ -854,6 +866,7 @@ work plugs into:
 - [ ] Lint fails on any renderer or doc-runtime import from `src/main`, and on cross-module deep imports.
 - [ ] All windows use `contextIsolation`, `sandbox`, `nodeIntegration:false`; the viewer loads only `eli5doc://` URLs from the library root.
 - [ ] Closing the main window keeps the app running; Quit is only in the Tray menu.
+- [ ] Only main posts native notifications: one per finished `create` job when `notifications.enabled`, wired by bootstrap (`shell` never imports `pipeline`).
 - [ ] Every channel in §5.2 is declared in `src/preload/contract.ts`, validated in main, and returns `IpcResult<T>`; no other channels exist.
 - [ ] Doc channels reject calls from the app renderer and vice versa.
 - [ ] `npm run build` with no env produces a public build; the bundle contains no overlay code.

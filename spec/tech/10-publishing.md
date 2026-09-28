@@ -561,7 +561,17 @@ The PRD requires the returned link to be "one click to copy or open in the defau
 5. Failures show in the same chip area with the `message` and, where applicable, a single action:
    `E_PUBLISH_SIGN_IN_REQUIRED` → "Sign in" (HOOK-UI-01), `E_PUBLISH_NOT_CONFIGURED` → "Open
    settings", `E_PUBLISH_SECRET_FOUND` → an inline list of findings (file, line, rule, masked
-   preview). No modals, no native notifications.
+   preview). No modals. Publishing itself never posts a native notification; the app's only
+   native notification is document completion (11 §14).
+6. **Completion-notification click (11 §14).** When `notifications.clickAction` is
+   `'published-link'`, the shell resolves the link at click time from `DocumentMeta.publications`
+   (newest first): the preferred kind per `notifications.preferredLink` (`'drive'` → the
+   organization cloud drive share link, `PublishLink` kind `'share'`, the primary link of a `drive`
+   record; `'site'` → the GitHub Pages link, kind `'site'`, the primary link of a `git` record;
+   `'most-recent'` → either), then any remote published link, then it falls back to opening the
+   document in the app. Local exports (`file:` links, `local` records) never count. The URL is
+   opened through `safeOpenExternal` (12 §7.5, `https` only). Publishers need no change for this;
+   they only have to keep writing `PublicationRecord`s as in §3.2.
 
 ## 8. Help page: rendering HTML to GitHub Pages with GitHub Actions
 
@@ -711,7 +721,9 @@ clean up before exiting.
       `open-link` rejects non-`https` URLs other than exported `file:` paths.
 - [ ] Concurrent publish of the same slug and target is rejected; regenerate-in-place during a
       publish waits and then succeeds.
-- [ ] No publish path uses a modal or a native notification.
+- [ ] No publish path uses a modal or posts a native notification (the only one is document
+      completion, 11 §14); a completion-notification click with `'published-link'` resolves
+      `share`/`site` links from `publications` and never opens a `file:` link.
 - [ ] `resources/help/publish-github-pages.html` exists, follows the §8 outline, contains the
       generic workflow, makes no network requests, and names no organization.
 - [ ] HOOK-PUB-01..05 each appear exactly once with the machine marker and callout, and every

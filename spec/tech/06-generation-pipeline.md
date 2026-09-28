@@ -227,7 +227,7 @@ Inside `library.withDocLock(slug, ...)`:
 2. Render `index.html` and `meta.json` (a `DocumentMeta` containing sources used, sources skipped, clarifying input, tab list, `jobId`, `warnings`) into `<library-root>/.staging/<jobId>/`, on the same volume as the library root.
 3. Call `library.commitDocument(reservation, '<library-root>/.staging/<jobId>/', meta)` (doc 09 §8.2). Doc 09 fsyncs, atomically renames the directory to `<library-root>/<topic-slug>/`, and upserts the `CatalogEntry` (including the summary) into `catalog.json` with its atomic write. The pipeline does no rename or catalog write of its own.
 4. If saving fails or the job is cancelled before step 3 begins, call `reservation.release()` and remove `<library-root>/.staging/<jobId>/`.
-5. Set `result`, move to `done`, persist, and emit `eli5:jobs:changed` and `eli5:library:changed`. The Library sidebar and menu bar list update from the library event (doc 11). No native notification is shown.
+5. Set `result`, move to `done`, persist, and emit `eli5:jobs:changed` and `eli5:library:changed`. The Library sidebar and menu bar list update from the library event (doc 11). `JobQueue` also emits an in-process `done` event with the finished job (`kind`, `slug`, `docId`, `title`). Bootstrap's completion listener posts the completion notification (doc 11 §14): one per `create` job, never for failed jobs, section jobs or merges. The pipeline itself never imports `shell`; bootstrap (`src/main/index.ts`) wires the two (doc 01 §3).
 6. Delete `jobs/<jobId>/` staging for the job (§9.5).
 7. Fire the merge check (§10).
 
@@ -466,6 +466,7 @@ Renderer payloads are validated with a schema in the main process. Main cannot t
 - [ ] Every `eli5:jobs:*` invoke returns an `IpcResult<T>`; zero sources returns `E_BAD_REQUEST`, and a raw file path (not a registered drop id) is rejected.
 - [ ] A second job started while one is `generating` shows `Queued` and runs automatically when the first finishes (default concurrency 1).
 - [ ] No dialog, modal or prompt appears at any point between Enter and `done`/`failed`, including on crash resume and quit.
+- [ ] A `create` job reaching `done` fires the queue's `done` event exactly once; section jobs and failed jobs never lead to a completion notification.
 - [ ] Status lines match §6 exactly for every state. While generating, the line starts with `Generating document` and its suffix reflects the running steps (in-depth and ELI5 together, then glossary, then finishing up).
 - [ ] A job with 3 sources where 1 URL requires login finishes `done`, shows `· 1 source(s) skipped`, and the document's references list the skipped URL with its reason.
 - [ ] A job whose sources all fail ends `failed/NO_USABLE_CONTENT` and leaves no Library entry.

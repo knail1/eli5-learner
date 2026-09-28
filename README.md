@@ -36,6 +36,7 @@ The document opens in the app's viewer and in any browser.
 - **Section ELI5 tabs.** Focused ELI5 tabs, spun off from any passage and labeled by topic. You can close them.
 - **Library and menu bar.** Every document is listed in a sidebar. The menu bar shows the last three, and the app keeps running in the menu bar when the window is closed.
 - **Merge suggestions.** After a job finishes, the app suggests merging related documents. The suggestion never interrupts you.
+- **Completion notifications.** A native macOS notification tells you when a document is ready. Clicking it opens the document in the app, or, if you choose, its published link in your browser.
 
 ## How it works
 
@@ -69,13 +70,13 @@ The public build needs nothing but an API key: no accounts, no logins and no oth
 - LLM provider (Claude or OpenAI) and model name
 - API key, stored in the macOS Keychain
 - Default setting for "Explain domain-specific terms"
+- Notifications: on or off, what a click opens (the document in the app, or its published link in your browser), a test button, and a shortcut to the macOS notification settings
 
 ## Not in v1
 
 - Logins or authenticated sources
 - Audio input or speech to text
 - Cloud publishing (cloud drive, GitHub, Google Drive) and NotebookLM
-- Native macOS notifications
 
 ## Roadmap
 

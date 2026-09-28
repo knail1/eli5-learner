@@ -102,8 +102,9 @@ Each row lists the minimum required cases. Module specs add their own cases in t
 | `publish/` | Local publisher writes to target dir; stubs throw with `HOOK-PUB-01`/`HOOK-PUB-03`; baseline secret scanner finds each pattern in a synthetic fixture and has no false positives on golden documents. ([10](10-publishing.md)) |
 | `config/` | Schema defaults; dormant keys accepted but inert in public; API keys rejected if written to settings JSON; Keychain port read/write via fake. ([12](12-configuration-security.md)) |
 | `editions/` | Registry replace-on-register; `freeze()` blocks later registration; `EditionInfo` marks stubs `available:false`; overlay API version mismatch throws. ([01 §6](01-architecture.md)) |
+| `shell/` (notifier) | `createNotifier` with a fake `Notification` class and fake `openInApp`/`openExternal`/`getMeta`: posts exactly once per `create` job `done` (title "Document ready", body = title truncated to 120 chars); `notifications.enabled:false` → nothing posted; `isSupported()` false → nothing posted; click with `clickAction:'app'` opens the slug in the app (`{view:'doc'}`, or `{view:'not-found'}` when the document is gone); `'published-link'` resolution order per `preferredLink` (preferred kind newest first → any remote link → app) and each fallback: no publications, only a local export (`file:`), preferred kind missing, invalid or non-`https` URL; the live-reference `Map` caps at 20 (oldest closed first) and releases on click/close; `notificationPolicy().hideTitle` swaps the body for "Your document is ready"; `test()` returns `{shown:false, reason}` when disabled or unsupported. ([11 §14](11-app-shell-ui.md)) |
 | `doc-runtime/` | jsdom: tab switching and default tab; glossary margin notes collapse to inline below the breakpoint; selection bridge posts `{sectionId, text}` for a selection inside a section and nothing outside one; close button on Section ELI5 tabs only. ([08](08-interactive-reading.md)) |
-| `renderer/` | React Testing Library: input zone accepts files, paste, URL, clarifying text, Enter starts job; status list renders snapshots; suggestions area actions; settings hides enterprise-only controls when `EditionInfo.uiFeatures` is empty. ([11](11-app-shell-ui.md)) |
+| `renderer/` | React Testing Library: input zone accepts files, paste, URL, clarifying text, Enter starts job; status list renders snapshots; suggestions area actions; settings hides enterprise-only controls when `EditionInfo.uiFeatures` is empty; the Notifications section renders its toggle, click-action radios, test and "Open macOS notification settings" buttons, with "Open its published link in my browser" disabled (and its explanation shown) in the public edition and the toggle disabled when notifications are unsupported. ([11](11-app-shell-ui.md)) |
 
 ## 5. Fixture corpus
 
@@ -272,11 +273,13 @@ The PRD requires the file to open in Chrome, Safari, and Edge. Playwright opens 
 | E13 | Settings: switch provider, save API key | Key stored in `MemoryKeyStore`; settings JSON on disk contains no key |
 | E14 | Public build UI | No publish buttons or sign-in state visible; `EditionInfo.overlayLoaded === false` |
 | E15 | Menu bar and library after relaunch | State persists across restart using the same `ELI5_USER_DATA_DIR` and `ELI5_LIBRARY_DIR` |
+| E16 | Drop a source, let the `FakeProvider` job finish | Via `electronApp.evaluate`, the test-only notifier spy (`__ELI5_TEST__`) recorded exactly one notification "Document ready" with the document title; invoking its click handler shows and focuses the main window and navigates to `{view:'doc', slug}` with the viewer on that document; a section action (E8) records no further notification |
 
 ### 8.3 Edge cases
 
 - Specs must not depend on timing of the fake beyond `latencyMs`; they wait on status text or IPC events, never fixed sleeps.
 - Each spec uses its own `ELI5_USER_DATA_DIR` and `ELI5_LIBRARY_DIR`; specs run with one worker per file and files in parallel (Electron instances are independent).
+- Playwright cannot see or click macOS notifications; E16 reads the notifier spy that the `__ELI5_TEST__` build exposes and calls the recorded click handler from the main process. Whether macOS actually displays the notification (permission, Focus) is not tested.
 - The Tray cannot be clicked by Playwright; E12 drives it through the test-only `eli5:test:tray-click` IPC channel, registered only under `__ELI5_TEST__`.
 
 ## 9. Generation quality evals
@@ -465,7 +468,7 @@ Rules:
 - [ ] `validateDocument` enforces every rule in §7.1, runs before every save and regenerate-in-place write, and every golden passes it.
 - [ ] `probeDocument` records zero network requests and zero console errors for every golden and every e2e-generated document.
 - [ ] Golden documents render and switch tabs in Playwright Chromium and WebKit via `file://`.
-- [ ] e2e scenarios E1 to E15 pass against the built public app, with zero modal dialogs recorded.
+- [ ] e2e scenarios E1 to E16 pass against the built public app, with zero modal dialogs recorded.
 - [ ] `replaceSection` changes only the target section's bytes (E8 and unit test).
 - [ ] Eval suite runs nightly with a cost cap, stores results, compares to baselines, and never runs on pull requests.
 - [ ] Edition matrix cells P, P-stub, F, and F-missing pass in public CI; `contracts:enterprise` is skipped with one notice when no overlay is present.

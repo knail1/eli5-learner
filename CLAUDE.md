@@ -54,8 +54,7 @@ section by section.
   `BrowserWindow`. No Puppeteer or extra Chromium.
 - Images go straight to the model's vision input; no OCR engine.
 - Every section of every tab carries a stable, unique ID so one section can be regenerated in place.
-- Not in v1: logins/authenticated sources, audio/speech-to-text, cloud publishing, native
-  notifications.
+- Not in v1: logins/authenticated sources, audio/speech-to-text, cloud publishing.
 
 ## Build and run
 

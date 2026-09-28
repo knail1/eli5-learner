@@ -83,6 +83,11 @@ export const SettingsSchema = z.object({
   logging: z.object({
     level: z.enum(['info', 'debug']).default('info'),
   }).strict().default({}),
+  notifications: z.object({                              // 11 (completion notification)
+    enabled: z.boolean().default(true),
+    clickAction: z.enum(['app', 'published-link']).default('app'),
+    preferredLink: z.enum(['most-recent', 'drive', 'site']).default('most-recent'),
+  }).strict().prefault({}),                            // prefault: inner defaults apply when the key is absent (zod 4)
   enterprise: Dormant,                                   // reserved for SettingsExtension (HOOK-CFG-01)
 }).strict();
 
@@ -95,7 +100,7 @@ export const DORMANT_NAMESPACES = [
 ] as const;
 ```
 
-Sibling modules own the **meaning** of their keys (02 for `llm.*`, 05 for `fetch.*`, 06 for `pipeline.*`, 10 for `publish.*`), but declare them only here. A module that needs a new key adds it to `schema.ts` in the same change, with a default, and lists it in its own spec.
+Sibling modules own the **meaning** of their keys (02 for `llm.*`, 05 for `fetch.*`, 06 for `pipeline.*`, 10 for `publish.*`, 11 for `notifications.*`), but declare them only here. A module that needs a new key adds it to `schema.ts` in the same change, with a default, and lists it in its own spec.
 
 ### 3.2 Key reference
 
@@ -117,6 +122,9 @@ Sibling modules own the **meaning** of their keys (02 for `llm.*`, 05 for `fetch
 | `publish.drive.*` | record | `{}` | 10 | Dormant |
 | `publish.github.*` | record | `{}` | 10 | Dormant |
 | `logging.level` | `'info' \| 'debug'` | `'info'` | 12 | `debug` adds timing and IDs only, never content |
+| `notifications.enabled` | boolean | `true` | 11 | Post a native macOS notification when a create job reaches `done` (11). Not dormant |
+| `notifications.clickAction` | `'app' \| 'published-link'` | `'app'` | 11 | `'app'` opens the document in the viewer. `'published-link'` opens its published link in the default browser via §7.5, resolved at click time, and falls back to `'app'` when no remote published link exists. With no remote publisher in the public build, the UI disables `'published-link'`; `set` still accepts it and the fallback applies |
+| `notifications.preferredLink` | `'most-recent' \| 'drive' \| 'site'` | `'most-recent'` | 11 | Which link `'published-link'` opens: `'drive'` = organization cloud drive share link (PublishLink kind `share`), `'site'` = GitHub Pages link (kind `site`). Local exports (`file:` links) never count. An overlay may set defaults or lock these keys (HOOK-UI-03 via HOOK-CFG-01) |
 | `enterprise.*` | record | `{}` | overlay | Dormant; only a `SettingsExtension` may give it a schema |
 
 There is deliberately **no** settings key for the edition. The edition is a build-time constant (`__ELI5_EDITION__`, 01 §6.1, HOOK-CFG-02), so editing settings cannot enable enterprise code paths.
@@ -304,7 +312,7 @@ For every `webContents`:
 
 ### 7.3 Permissions
 
-`session.setPermissionRequestHandler` and `setPermissionCheckHandler` deny **everything** on the default session, the viewer session, and every fetch or render partition. That covers media, geolocation, notifications, clipboard-read, midi, hid, serial, usb, fullscreen, pointer-lock, openExternal, and idle-detection. Clipboard paste reaches the app through the renderer's native `paste` event and the clipboard resolver in main (03), so no clipboard permission is needed. `will-download` is cancelled on all sessions except when main starts a download itself.
+`session.setPermissionRequestHandler` and `setPermissionCheckHandler` deny **everything** on the default session, the viewer session, and every fetch or render partition. That covers media, geolocation, notifications, clipboard-read, midi, hid, serial, usb, fullscreen, pointer-lock, openExternal, and idle-detection. The web `notifications` permission stays denied for **every** renderer session, including the app renderer, so neither generated documents nor the app UI can post notifications through the Web Notifications API. Only main posts native macOS notifications, through Electron's main-process `Notification` class in `src/main/shell/notifications.ts` (11). The macOS permission for those is granted by the user in System Settings, not by these handlers. Clipboard paste reaches the app through the renderer's native `paste` event and the clipboard resolver in main (03), so no clipboard permission is needed. `will-download` is cancelled on all sessions except when main starts a download itself.
 
 ### 7.4 Content Security Policy
 
@@ -321,11 +329,13 @@ The viewer header policy is a stricter form of 01 §2.2's `default-src 'self' 'u
 
 ### 7.5 `shell.openExternal`
 
-This is used only for `eli5:viewer:open-external`, for `setWindowOpenHandler` in the viewer, and for published-link actions (10).
+This is used only for `eli5:viewer:open-external`, for `setWindowOpenHandler` in the viewer, for published-link actions (10), and for a completion-notification click when `notifications.clickAction = 'published-link'` (11). A notification click that fails the checks below falls back to opening the document in the app.
 
 1. Parse with `new URL()`. The scheme must be `http:` or `https:`, with no credentials in the URL, a host, and a length of 2048 characters or less.
 2. Rate limit to 2 per second and 20 per minute per sender. Excess calls are dropped and logged.
-3. Call `shell.openExternal(url, { activate: true })`. The app never opens `file:`, `smb:`, `x-apple.systempreferences:`, or other scheme handlers.
+3. Call `shell.openExternal(url, { activate: true })`. The app never opens `file:`, `smb:`, `x-apple.systempreferences:`, or other scheme handlers, with the one exception below.
+
+**Exception: notification settings deep link.** `eli5:app:open-notification-settings` (no payload) opens the fixed main-process constant `x-apple.systempreferences:com.apple.Notifications-Settings.extension`, with the app's bundle id appended as the `id` query when available. The URL is never renderer-supplied or built from renderer input, so this is the only `x-apple.systempreferences:` URL the app opens. The call is subject to the same sender checks (§7.2) and rate limit (step 2).
 
 ### 7.6 Hidden fetch window isolation
 
@@ -442,6 +452,7 @@ A document cannot read settings, keys, other documents, the library catalog, or 
 | Generated documents, catalog, meta | No | Local library (09). The public build has only the local publisher (10) |
 | API keys | Only as the auth header to their own provider | Provider API |
 | Settings, logs, job staging | No | `userData` |
+| Completion notification (document title only) | No | macOS Notification Center on this Mac (11). An overlay may hide the title (HOOK-UI-03) |
 | Telemetry, analytics, crash uploads | Never | None. `crashReporter` is not started, and there is no update checker in v1 |
 
 Enforcement:
@@ -458,7 +469,7 @@ Job staging under `<userData>/jobs/` is deleted when a job reaches `done`. A `fa
 
 ### 11.1 Logger
 
-`security/log.ts` writes JSON lines to `<userData>/logs/main.log`, rotates at 5 MB, and keeps 3 files. Each line is `{ts, level, event, ...fields}`. `event` is a dotted constant (`job.transition`, `llm.call`, `settings.reset`, `ipc.rejected-sender`).
+`security/log.ts` writes JSON lines to `<userData>/logs/main.log`, rotates at 5 MB, and keeps 3 files. Each line is `{ts, level, event, ...fields}`. `event` is a dotted constant (`job.transition`, `llm.call`, `settings.reset`, `ipc.rejected-sender`, `notification.shown`, `notification.clicked`, `notification.fallback`).
 
 ```ts
 export type LogFieldValue = string | number | boolean | null;
@@ -476,7 +487,7 @@ export interface Logger {
 2. **String caps and redaction.** String values are truncated to 200 characters and passed through `redact()`, which replaces any credential shape from §5.4 with `[REDACTED]`.
 3. **Source references.** `sourceRef` is a file **basename**, never a full path (full paths reveal the user name). For URLs it is `origin + pathname`, with query and fragment removed. Pasted items are logged as `clipboard:image` or `clipboard:text`.
 4. **Errors.** `error()` logs `err.name`, `err.code`, and a stack trace with absolute paths rewritten to be relative to the app. It never logs `err.message` from LLM SDKs or HTTP bodies, because provider errors can echo request content. Those are mapped to `LLMError.kind` (02).
-5. **Never logged:** source text, extracted content, images, prompts, model output, clarifying input, selection text, notes, document HTML, clipboard contents, API keys, settings values under dormant namespaces, or Keychain results.
+5. **Never logged:** source text, extracted content, images, prompts, model output, clarifying input, selection text, notes, document HTML, clipboard contents, API keys, settings values under dormant namespaces, or Keychain results. Document titles are model output and are never logged, including in notification events: `notification.shown`, `notification.clicked`, and `notification.fallback` carry only `slug` and `kind`.
 6. `logging.level = 'debug'` adds timings and per-stage counts only. The dev-only LLM transcript flag (02 §15, `ELI5_DEBUG_LLM`) is the single exception to rule 5, and packaged builds ignore it.
 7. Renderer `console-message` events are not forwarded to the log file.
 8. Logs are never uploaded. "Reveal logs in Finder" in Settings is the only way to get at them.
@@ -547,4 +558,8 @@ CI gates (run on every push and PR):
 - [ ] Source content is sent only to the configured LLM endpoint. There is no telemetry, no crash upload, and no update check. Network imports are lint-restricted to `llm/` and `fetch/`.
 - [ ] Logs use the field allowlist and redaction, record basenames and query-less URLs only, and never contain content, prompts, output, or keys.
 - [ ] `.gitignore` covers `docs/*` (with the public exceptions), `/enterprise/`, `.env*`, and the private spec. The CI secret scan, ignored-path check, overlay-isolation check, and the HOOK-CFG-03 term check run on every push.
+- [ ] The schema declares `notifications.enabled`, `notifications.clickAction`, and `notifications.preferredLink` with the defaults in §3.2; a `'published-link'` value with no remote published link behaves as `'app'`.
+- [ ] The web `notifications` permission is denied on every renderer session; only main posts native notifications (11).
+- [ ] The only `x-apple.systempreferences:` URL opened is the fixed notification-settings constant from `eli5:app:open-notification-settings` (§7.5); notification-click links go through the §7.5 `http(s)` checks.
+- [ ] `notification.*` log events carry only `slug` and `kind`, never the document title.
 - [ ] HOOK-CFG-01 (`SettingsExtension`) is implemented with the precedence, locking, and fail-closed rules in §8.2. The public build registers no extension.

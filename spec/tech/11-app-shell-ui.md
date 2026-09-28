@@ -3,9 +3,10 @@
 This file specifies everything the user sees and touches outside the generated document itself:
 the main window lifecycle (closing hides, quitting happens only from the menu bar item), the menu
 bar (Tray) item with the last three finished documents, the main window layout (Library sidebar,
-viewer slot, input zone, status area, suggestions area), the settings screen, keyboard shortcuts,
-empty states, and accessibility. It fixes the renderer component tree in `src/renderer/`, the
-window and Tray code in `src/main/shell/`, and the gating of enterprise-only UI (HOOK-UI-01). It
+viewer slot, input zone, status area, suggestions area), the settings screen, the native macOS
+completion notification (§14), keyboard shortcuts, empty states, and accessibility. It fixes the
+renderer component tree in `src/renderer/`, the window, Tray, and notification code in
+`src/main/shell/`, and the gating of enterprise-only UI (HOOK-UI-01). It
 does not cover the content or runtime of the document shown in the viewer (07, 08), how inputs are
 resolved (03), or how status strings are produced (06).
 
@@ -17,15 +18,18 @@ Related: [01-architecture.md](01-architecture.md) · [02-llm-provider.md](02-llm
 [12-configuration-security.md](12-configuration-security.md) · [13-testing-quality.md](13-testing-quality.md)
 
 PRD sections implemented: *App shell and layout* (all of it), *Processing pipeline* (status line
-presentation, "no modals", completion without notifications), *Library, storage, and merge
+presentation, "no modals", completion notification), *Library, storage, and merge
 suggestions* (sidebar and suggestions presentation), *Build editions and swap seams* (enterprise UI
 hidden in the public build), *Configuration, scope, and open items* (settings screen).
 
 ## 1. Principles
 
 1. **Fire and forget.** Nothing in the ingest and generation flow opens a modal, sheet, alert,
-   native notification, or secondary window. Every message is inline in the window (PRD *App shell
-   and layout*, *Processing pipeline*).
+   or secondary window. Every message is inline in the window (PRD *App shell and layout*,
+   *Processing pipeline*). The single exception outside the window is one native macOS notification
+   when a create job finishes and a new document is in the Library (§14). It never takes focus and
+   is off when the user disables it in Settings > Notifications. Failures, section regenerations,
+   merges, and publishes stay inline.
 2. **The app outlives its window.** The Tray item is the app's anchor. Jobs keep running while the
    window is hidden.
 3. **The renderer is a view.** It holds only view state (route, draft inputs, focus). Documents,
@@ -47,6 +51,7 @@ hidden in the public build), *Configuration, scope, and open items* (settings sc
 | `src/main/shell/app-menu.ts` | main | macOS application menu and accelerators |
 | `src/main/shell/lifecycle.ts` | main | Single-instance lock, `activate`, quit flag |
 | `src/main/shell/viewer.ts` | main | The `WebContentsView` viewer: bounds, visibility, load by slug |
+| `src/main/shell/notifications.ts` | main | Completion notification: `createNotifier`, click routing, reference retention (§14) |
 | `src/renderer/App.tsx` | renderer | Top-level layout grid and route switch |
 | `src/renderer/library/` | renderer | `LibrarySidebar`, `LibraryItem`, `LibraryFilter` |
 | `src/renderer/viewer/` | renderer | `ViewerSlot`, `DocHeader`, `ViewerEmpty` |
@@ -100,8 +105,9 @@ is a hide or a real close.
    Window* (hide), with the menu label "Close Window" and a secondary hint "Quit from the menu bar
    icon" shown as a disabled item beneath it. `Cmd+W` does the same.
 6. **Show.** `showMainWindow()` calls `app.dock.show()`, then `win.show()` and `win.focus()`. It is
-   called from Tray *Open ELI5 Learner*, a Tray document entry, a clicked Dock icon (`activate`), and
-   `second-instance`.
+   called from Tray *Open ELI5 Learner*, a Tray document entry, a clicked Dock icon (`activate`),
+   `second-instance`, and a clicked completion notification (§14.4). If the window was destroyed
+   (for example after a renderer crash recovery), it is recreated first.
 7. **Single instance.** `app.requestSingleInstanceLock()`. If the lock fails, exit immediately. The
    running instance receives `second-instance` and shows its window.
 8. **First launch.** The window is shown. Later launches also show the window, because launching
@@ -155,7 +161,8 @@ Menu, top to bottom:
   (PRD *Menu bar item*).
 - Icon: a monochrome template image (`trayTemplate.png`, `@2x`) so macOS tints it for light and dark
   menu bars. While `activeJobs > 0` the icon swaps to `trayBusyTemplate.png` (same glyph with a dot).
-  This is the only "busy" signal outside the window. There are no native notifications.
+  This is the only "busy" signal outside the window. The only native notification is the
+  completion notification for a finished document (§14); there is none for jobs starting or running.
 - Tooltip: "ELI5 Learner" or "ELI5 Learner — {n} job(s) running".
 - Clicking the icon opens the menu (`tray.setContextMenu`). There is no separate click action.
 
@@ -359,7 +366,7 @@ sidebar, input zone, and status area stay usable so a job can be started from se
 
 ```ts
 export type SettingsSection =
-  'ai' | 'documents' | 'library' | 'publishing' | 'about' | 'enterprise';
+  'ai' | 'documents' | 'library' | 'publishing' | 'notifications' | 'about' | 'enterprise';
 ```
 
 | Section | Controls | Backing |
@@ -370,6 +377,7 @@ export type SettingsSection =
 | Documents | "Explain domain specific terms by default" switch | `glossary.defaultOn` |
 | Library | Location (read only), document count, read-only reason if any, + **Reveal in Finder** | `eli5:library:info` (09), `eli5:library:reveal` |
 | Publishing | Export folder (read-only path + **Choose…**, which opens a native open panel for directories), "Reveal in Finder after export" switch, link "How to set up a Pages repository" (10 §8) | `publish.local.dir`, `publish.local.revealAfter` (10, 12) |
+| Notifications | See "Notifications section" below | `notifications.enabled`, `notifications.clickAction`, `notifications.preferredLink` (12 §3); `eli5:app:test-notification`, `eli5:app:open-notification-settings` |
 | About | Version, edition name, links to README and help docs (HOOK-UI-02) | `eli5:edition:info` |
 | Enterprise | Rendered only when HOOK-UI-01 enables it | HOOK-UI-01, HOOK-CFG-01 |
 
@@ -386,6 +394,36 @@ Rules:
 - Dormant keys (`sources.mcp.url`, `publish.drive.*`, `publish.github.*`) have no controls in the
   public build. They are documented in 12 and remain editable only in the settings file.
 - Changing provider or model affects jobs started afterwards; running jobs keep their provider (06).
+
+**Notifications section** (`section: 'notifications'`, backing detail in §14):
+
+- Switch "Notify me when a document is ready" (`notifications.enabled`, default on).
+- Radio group "When I click a notification" (`notifications.clickAction`):
+  - "Open it in ELI5 Learner" (`'app'`, default).
+  - "Open its published link in my browser" (`'published-link'`), with a select for which link:
+    "Most recent" / "Cloud drive" / "GitHub Pages" (`notifications.preferredLink`: `'most-recent'`
+    default, `'drive'`, `'site'`). The select is enabled only when this radio is chosen and a remote
+    publisher is available.
+  - A remote publisher is available when any `EditionInfo.publishers` entry (01 §6.2) other than
+    `local` reports `available:true`. Registered stubs report `available:false` and do not count
+    (10). In the public edition none is available, so the second radio and the select are
+    disabled with the explanation "Available when documents can be published to a cloud drive or
+    GitHub Pages". A hand-set `'published-link'` value is shown selected but disabled and behaves as
+    `'app'` through the fallback (§14.4).
+- Button **Send test notification** (`eli5:app:test-notification`). Result inline: "Sent. If
+  nothing appeared, check macOS notification settings." for `shown:true`,
+  "Notifications are turned off" for `reason:'disabled'`, the unsupported text below for
+  `reason:'unsupported'`.
+- Permission line: "macOS asks for permission the first time ELI5 Learner shows a notification. If
+  you don't see them, allow them in System Settings > Notifications > ELI5 Learner > Allow
+  notifications." with the button **Open macOS notification settings**
+  (`eli5:app:open-notification-settings`).
+- When `Notification.isSupported()` is false, the section shows "Notifications aren't supported on
+  this system" and the switch and radios are disabled. The renderer learns this from a
+  `reason:'unsupported'` result of `eli5:app:test-notification`, which in that case posts nothing.
+  On supported macOS versions this state is defensive only.
+- All three keys are hidden or locked like any other key when an overlay marks them managed
+  (HOOK-CFG-01, HOOK-UI-03).
 
 ## 8. Empty and error states
 
@@ -439,10 +477,14 @@ Additions to the 01 §5.2 baseline, same conventions (`IpcResult<T>`, zod valida
 | `eli5:viewer:set-visible` | R→M | shell/viewer | `{visible: boolean}` | `void` |
 | `eli5:sources:classify-text` | R→M | sources (03) | `{text: string}` (≤ 2048 chars) | `{kind: 'url' \| 'bare' \| 'invalid'; label: string}` |
 | `eli5:settings:choose-folder` | R→M | shell | `{key: 'publish.local.dir'}` | `{path: string} \| {cancelled: true}` (main shows the open panel, validates, and saves the key) |
+| `eli5:app:test-notification` | R→M | shell/notifications | — | `{shown: boolean; reason?: 'disabled' \| 'unsupported'}` (§14.7) |
+| `eli5:app:open-notification-settings` | R→M | shell/notifications | — | `void` (main opens the fixed System Settings URL, §14.6) |
 
-These two channels must also be added to the 01 §5.2 IPC table.
+These channels must also be added to the 01 §5.2 IPC table (the two notification channels in its
+App shell group); their constants go in `contract.ts` when implemented.
 
-`window.eli5` gains `app: { onNavigate(cb): Unsubscribe; contextMenu(p) }`,
+`window.eli5` gains `app: { onNavigate(cb): Unsubscribe; contextMenu(p); testNotification();
+openNotificationSettings() }`,
 `viewer.setVisible(v)`, `sources.classifyText(t)`, and `settings.chooseFolder(k)`. There is deliberately no renderer channel to quit the app (§3.2).
 
 ## 11. Enterprise-only UI
@@ -534,6 +576,146 @@ sign-in lifecycle itself is HOOK-AUTH-01; publishers are HOOK-PUB-01..04.
 | Viewer `did-fail-load` | Viewer load failure state (§8) |
 | Window state file unreadable | Defaults, overwrite on next save |
 | Tray creation fails | Log, keep running with the window; close then quits the app, because without a Tray there is no way back |
+| Notification unsupported or `show()` throws (a macOS denial is invisible to the app) | No notification; log `notification.fallback`; never a modal or inline error outside Settings (§14.6) |
+| Notification click finds no published link or `openExternal` fails | Fall back to opening the document in the app (§14.4) |
+
+## 14. Completion notifications
+
+When a create job finishes, main posts one native macOS notification. Clicking it brings the user
+back to the new document, either in the app (default) or, by setting, at the document's published
+link in the default browser. This is the only native notification the app posts (§1, §4.1).
+
+### 14.1 Module and API
+
+```ts
+// src/main/shell/notifications.ts
+export interface DocumentReadyEvent { slug: string; docId: string; title: string }
+
+export interface NotifierDeps {
+  isSupported: () => boolean;                       // Electron Notification.isSupported()
+  now: () => number;
+  openInApp: (slug: string) => void;                // §14.4 'app' route
+  openExternal: (url: string) => Promise<void>;     // safeOpenExternal (12 §7.5); rejects on refusal
+  getMeta: (slug: string) => Promise<DocumentMeta | null>;  // 09; null when the document is gone
+  settings: () => Settings['notifications'];        // read live, never cached
+}
+
+export interface Notifier {
+  documentReady(e: DocumentReadyEvent): void;
+  test(): { shown: boolean; reason?: 'disabled' | 'unsupported' };
+}
+
+export function createNotifier(deps: NotifierDeps): Notifier;
+```
+
+The module uses Electron's main-process `Notification` class. It never imports the pipeline (01
+dependency rule: nothing depends on the pipeline except ipc, and shell does not depend on it
+either). Bootstrap (`src/main/index.ts`) wires the two together (§14.2). The body policy comes from
+`registry.notificationPolicy()` (HOOK-UI-03, 01 §6.2).
+
+### 14.2 Trigger and wiring
+
+- Bootstrap subscribes to the job queue's `done` event and, for jobs of kind `'create'` only, calls
+  `notifier.documentReady({slug, docId, title})` with the new document's catalog values (06 §5.7
+  step 5).
+- One notification per finished document. None for `failed` or cancelled jobs, section
+  regenerations (08), section ELI5 tabs, merges (09), or publishes (10); those stay inline in the
+  window as before.
+- The notification is posted whenever `notifications.enabled` is true, even if the main window is
+  visible and focused (the user may be reading another document). There is no focus check.
+- `documentReady` does nothing when `notifications.enabled` is false or `isSupported()` is false.
+
+### 14.3 Content
+
+| Field | Value |
+| --- | --- |
+| `title` | "Document ready" |
+| `body` | The document title, control and bidi characters stripped (as in §4.1), truncated to 120 chars + "…". When `notificationPolicy().hideTitle` is true: "Your document is ready" |
+| `silent` | `true`. macOS Focus and Do Not Disturb are applied by the OS |
+| other | No actions, reply field, image, or source content |
+
+### 14.4 Click routing
+
+The click is resolved **at click time**, not at post time, so a document published after it
+finished (or auto-published) can be opened at its link.
+
+- **`notifications.clickAction: 'app'`** (default): `showMainWindow()` (§3.2 step 6, recreating the
+  window if needed), then `getMeta(slug)`. If the document exists: `viewer.open(slug)` (the same
+  path as `eli5:library:open`) and emit `eli5:app:navigate {route: {view:'doc', slug}}`. If not
+  (deleted or merged away): emit `eli5:app:navigate {route: {view:'not-found', slug}}` (§8).
+- **`notifications.clickAction: 'published-link'`**: resolve a link from
+  `DocumentMeta.publications` (10 §3.2), then `openExternal(url)`:
+  1. Candidates are records whose `primaryUrl` is `https:`. Local exports (`kind:'local'`,
+     `file:` links) never count.
+  2. Preferred kind by `notifications.preferredLink`: `'drive'` = records of publisher kind
+     `'drive'` (primary link is the organization cloud drive share link, `PublishLink` kind
+     `share`); `'site'` = records of publisher kind `'git'` (primary link is the GitHub Pages link,
+     `PublishLink` kind `site`); `'most-recent'` = any candidate. Pick the newest by `publishedAt`.
+  3. If the preferred kind has no record, take the newest candidate of any kind.
+  4. If there is no candidate, the document is gone, or `openExternal` rejects (invalid URL, rate
+     limit, refused scheme), fall back to the `'app'` behavior and log `notification.fallback`.
+- A just-finished document is usually unpublished, so the fallback is the common case. In the public
+  edition no remote publisher exists, so a hand-set `'published-link'` always behaves as `'app'`.
+- A click on a stale notification delivered after the app quit and relaunched is not delivered by
+  Electron and needs no handling. While the app runs (it is a menu bar app that outlives its
+  window, §3.2), clicks always arrive.
+
+### 14.5 Reference retention
+
+An unreferenced `Notification` can be garbage collected and lose its `click` handler. The notifier
+keeps each live notification in a `Map<string, Notification>` (key: `slug` + post time) until its
+`click` or `close` event, then deletes the entry. The map holds at most 20 entries; posting a 21st
+calls `close()` on the oldest and removes it first.
+
+### 14.6 Permissions and unsupported systems
+
+- macOS asks the user for permission the first time the app posts a notification. Electron cannot
+  read the authorization state, so if the user denied it, notifications silently do not appear.
+  This is not an error. Settings > Notifications (§7) explains how to allow them: System Settings >
+  Notifications > ELI5 Learner > Allow notifications.
+- **Open macOS notification settings** (`eli5:app:open-notification-settings`) calls
+  `shell.openExternal` with the fixed constant
+  `x-apple.systempreferences:com.apple.Notifications-Settings.extension`, with the app's bundle id
+  appended as the `id` query when available. This is the documented, narrow exception to the scheme
+  rule in 12 §7.5: the URL is a main-process constant and never renderer-supplied.
+- Unsigned or ad-hoc signed dev builds may not be allowed to post notifications. This is documented
+  for developers, not an error.
+- `Notification.isSupported()` false: no notification is ever created, and Settings shows
+  "Notifications aren't supported on this system" with the controls disabled (§7).
+- The web Notifications API stays denied in every renderer session (12 §7.3). Neither documents nor
+  the app renderer can post notifications; only main does.
+
+### 14.7 Test notification
+
+`eli5:app:test-notification` calls `notifier.test()`: `{shown:false, reason:'unsupported'}` when
+unsupported, `{shown:false, reason:'disabled'}` when `notifications.enabled` is false, otherwise it
+posts "Document ready" with body "This is a test notification" and returns `{shown:true}`.
+`shown:true` means the app asked macOS to show it; a denial by macOS is invisible to the app. A test
+click shows the main window on Settings > Notifications.
+
+### 14.8 Logging and privacy
+
+- Log events `notification.shown`, `notification.clicked`, and `notification.fallback` with the
+  fields `slug` and `kind` only. `kind` is defined per event: `notification.shown` is `'ready'` or
+  `'test'`; `notification.clicked` is the resolved action, `'app'` or `'published-link'`;
+  `notification.fallback` is always `'app'`. The title is never logged, because it is derived from source
+  content.
+- The body contains only the document title. The title comes from the model and can reflect private
+  source material, so an overlay may replace it with a generic body (HOOK-UI-03).
+
+<!-- hook:HOOK-UI-03 -->
+> **Private hook · HOOK-UI-03 · Completion notification defaults.** Public behavior: notifications
+> are enabled by default (`notifications.enabled: true`), a click opens the document in the app
+> (`notifications.clickAction: 'app'`), the "Open its published link in my browser" option is
+> disabled in Settings because no remote publisher is registered, and the body shows the document
+> title (`notificationPolicy()` returns `{hideTitle:false}`). Private binding supplies: the
+> organization default for `notifications.clickAction` and `notifications.preferredLink` (for
+> example preferring the organization cloud drive share link), whether these keys are managed or
+> locked, whether the notification body must hide the document title (generic "Your document is
+> ready"), and any organization rule about notifications for documents built from organization
+> sources. Key values arrive through `registerSettingsExtension` (HOOK-CFG-01) defaults and managed
+> keys; the body policy arrives through the single-slot `registerNotificationPolicy(p:
+> NotificationPolicy)`. Binding lives in the private spec under "HOOK-UI-03".
 
 ## Acceptance criteria
 
@@ -551,7 +733,8 @@ sign-in lifecycle itself is HOOK-AUTH-01; publishers are HOOK-PUB-01..04.
 - [ ] Files can be dropped, clipboard content pasted with `Cmd+V`, and URLs entered, all combined
       into one job; Enter starts it; the draft clears and a new job can be composed immediately.
 - [ ] Enter with no sources, an invalid URL, or no API key does not start a job and shows an inline
-      hint; no modal, alert, sheet, or notification appears anywhere in ingest and generation.
+      hint; no modal, alert, or sheet appears anywhere in ingest and generation, and the only native
+      notification is the completion notification (§14).
 - [ ] Status area sits in the lower right, shows one pipeline-supplied line per job, and offers
       Cancel, Retry, and Dismiss inline.
 - [ ] Merge suggestions appear in the sidebar Suggestions area with **Merge in** and **Keep
@@ -574,3 +757,20 @@ sign-in lifecycle itself is HOOK-AUTH-01; publishers are HOOK-PUB-01..04.
 - [ ] Every shortcut in §9 works; all regions are reachable with F6; axe-core reports no serious or
       critical violations on each route in light and dark themes (13).
 - [ ] Reduced motion, increased contrast, and 200% zoom are honored without layout breakage.
+- [ ] When a create job reaches `done` with notifications enabled, exactly one native notification
+      "Document ready" with the document title (≤ 120 chars) as body is posted, even if the window
+      is focused; none is posted for failed jobs, section regenerations, section ELI5 tabs, merges,
+      or publishes, or when `notifications.enabled` is false or notifications are unsupported.
+- [ ] Clicking the notification with `clickAction: 'app'` shows the main window (recreating it if
+      needed) and opens the document in the viewer; a deleted document shows the `not-found` route.
+- [ ] With `clickAction: 'published-link'`, the click opens the newest `https` link of the preferred
+      kind, else the newest remote link, else falls back to the app; local exports never count, and
+      an invalid or refused URL falls back to the app.
+- [ ] Live notifications are retained in a map of at most 20 (oldest closed first) and released on
+      click or close.
+- [ ] Settings > Notifications shows the enable switch, the click-action radios with the link
+      select, **Send test notification**, the permission explanation, and **Open macOS notification
+      settings**; in the public build the published-link option is disabled with the explanation text.
+- [ ] Renderer sessions cannot post web notifications; logs for notification events carry only
+      `slug` and `kind`, never the title; with HOOK-UI-03 `hideTitle:true` the body is "Your document
+      is ready".
