@@ -20,6 +20,27 @@ export function upsertJob(jobs: readonly JobSnapshot[], s: JobSnapshot): JobSnap
   return next;
 }
 
+/**
+ * A done line stays for 10 minutes (06 §6). Main applies the rule only when it answers
+ * `jobs:list` and sends no event when a line expires, so the renderer mirrors it.
+ */
+export const DONE_LINE_MS = 10 * 60_000;
+
+/** When a done line hides (ms since epoch), or null for other lines. */
+export function doneExpiry(j: JobSnapshot): number | null {
+  if (j.status !== 'done') return null;
+  const at = Date.parse(j.finishedAt ?? j.createdAt);
+  return Number.isNaN(at) ? null : at + DONE_LINE_MS;
+}
+
+/** Drops done lines whose 10 minutes have passed. */
+export function dropExpired(jobs: readonly JobSnapshot[], now: number): JobSnapshot[] {
+  return jobs.filter((j) => {
+    const exp = doneExpiry(j);
+    return exp === null || exp > now;
+  });
+}
+
 /** Leading glyph; aria-hidden, the status is in the text. */
 export function jobGlyph(s: JobStatus): 'spinner' | 'check' | 'cross' {
   if (s === 'done') return 'check';

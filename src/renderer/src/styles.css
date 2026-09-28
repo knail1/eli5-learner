@@ -376,6 +376,11 @@ body {
 .inline-error {
   color: var(--danger);
 }
+/* A failed library.open, above the still-attached viewer slot (11 §13). */
+.open-error {
+  flex: none;
+  padding: 6px 16px;
+}
 .saved {
   color: var(--ok);
   font-size: 12px;

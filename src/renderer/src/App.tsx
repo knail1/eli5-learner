@@ -11,7 +11,7 @@ import { SettingsScreen, SignInIndicator } from './settings/SettingsScreen';
 import { StatusArea } from './status/StatusArea';
 import { SuggestionsPanel } from './suggestions/SuggestionsPanel';
 import { DocHeader } from './viewer/DocHeader';
-import { NotFound, ViewerFailed, Welcome } from './viewer/ViewerEmpty';
+import { NotFound, Welcome } from './viewer/ViewerEmpty';
 import { ViewerSlot } from './viewer/ViewerSlot';
 
 export type { UiRoute, SettingsSection };
@@ -108,18 +108,30 @@ function Shell() {
   }, [loadLibrary]);
 
   // ---- opening a document in the viewer (11 §5.2, §8, §13) ----
-  const [docError, setDocError] = useState<{ slug: string; message: string } | null>(null);
+  // An ok:false answer is an IPC failure, reported inline with Retry while the viewer stays
+  // attached (11 §13). The "Could not display" state belongs to the viewer's did-fail-load.
+  const [openError, setOpenError] = useState<{ slug: string; message: string } | null>(null);
+  // Slugs main answered E_NOT_FOUND for: shown as missing whatever the catalog still lists (11 §8).
+  const [missing, setMissing] = useState<ReadonlySet<string>>(new Set());
   const openSeq = useRef(0);
   const openInViewer = useCallback(
     (slug: string) => {
       const seq = ++openSeq.current;
-      setDocError(null);
+      setOpenError(null);
       void window.eli5.library.open(slug).then((r) => {
         // Only the latest open decides what the viewer area shows.
-        if (r.ok || seq !== openSeq.current) return;
-        // Gone from the Library: reload it so the route resolves to the missing-files state.
+        if (seq !== openSeq.current) return;
+        setMissing((m) => {
+          if (r.ok ? !m.has(slug) : r.error.code !== 'E_NOT_FOUND' || m.has(slug)) return m;
+          const next = new Set(m);
+          if (r.ok) next.delete(slug);
+          else next.add(slug);
+          return next;
+        });
+        if (r.ok) return;
+        // Gone from main: also reload the Library so the sidebar drops it.
         if (r.error.code === 'E_NOT_FOUND') void loadLibrary();
-        else setDocError({ slug, message: r.error.message });
+        else setOpenError({ slug, message: r.error.message });
       });
     },
     [loadLibrary],
@@ -156,7 +168,9 @@ function Shell() {
   const leaveSettings = useCallback(() => go(previous.current), [go]);
   const openDoc = useCallback((slug: string) => go({ view: 'doc', slug }), [go]);
 
-  const shown = resolveRoute(route, catalog);
+  const resolved = resolveRoute(route, catalog);
+  const shown: UiRoute =
+    resolved.view === 'doc' && missing.has(resolved.slug) ? { view: 'not-found', slug: resolved.slug } : resolved;
   const selectedSlug = shown.view === 'doc' ? shown.slug : null;
 
   // ---- sidebar: collapse (Cmd+\), resize, auto-collapse below 1000 px (11 §5.2, §12) ----
@@ -288,11 +302,15 @@ function Shell() {
           {shown.view === 'doc' && (
             <>
               <DocHeader slug={shown.slug} entry={entry} />
-              {docError?.slug === shown.slug ? (
-                <ViewerFailed onRetry={() => openInViewer(shown.slug)} />
-              ) : (
-                <ViewerSlot slug={shown.slug} layoutKey={layoutKey} />
+              {openError?.slug === shown.slug && (
+                <p className="inline-error open-error" role="alert">
+                  {openError.message}{' '}
+                  <button type="button" onClick={() => openInViewer(shown.slug)}>
+                    Retry
+                  </button>
+                </p>
               )}
+              <ViewerSlot slug={shown.slug} layoutKey={layoutKey} />
             </>
           )}
           {shown.view === 'welcome' && (

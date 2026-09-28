@@ -279,6 +279,44 @@ describe('StatusArea against live handlers (11 §5.5, §13)', () => {
     expect(host.querySelector('.job-line .inline-error')?.textContent).toBe('This job is already saving');
   });
 
+  it('a done line hides 10 minutes after it finished, with no event from main (06 §6)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: Date.parse('2026-01-01T00:05:00.000Z') });
+    try {
+      const done = job({
+        id: 'd',
+        status: 'done',
+        statusLine: 'Done: Topic A',
+        finishedAt: '2026-01-01T00:04:00.000Z',
+        result: { docId: 'x', topicSlug: 'topic-a', title: 'Topic A' },
+        canCancel: false,
+        canDismiss: true,
+      });
+      // A main whose list still reports the line must not bring it back after it expired.
+      fake.api.jobs.list = vi.fn(async () => ok([done, job({ id: 'r', createdAt: '2026-01-02T00:00:00Z' })]));
+      const host = await render(withAnnouncer(StatusArea), props);
+      expect(lines(host)).toEqual(['Done: Topic A', 'Reading sources']);
+      await act(async () => vi.advanceTimersByTime(8 * 60_000));
+      expect(lines(host)).toEqual(['Done: Topic A', 'Reading sources']);
+      await act(async () => vi.advanceTimersByTime(60_000 + 1));
+      await flush();
+      expect(lines(host)).toEqual(['Reading sources']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a done line that finished more than 10 minutes ago is not shown (06 §6)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: Date.parse('2026-01-01T01:00:00.000Z') });
+    try {
+      fake.api.jobs.list = async () =>
+        ok([job({ id: 'd', status: 'done', statusLine: 'Done: Old', finishedAt: '2026-01-01T00:00:00.000Z' })]);
+      const host = await render(withAnnouncer(StatusArea), props);
+      expect(lines(host)).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('a successful retry clears the previous inline error', async () => {
     fake.api.jobs.list = async () =>
       ok([job({ status: 'failed', canCancel: false, canRetry: true, canDismiss: true })]);
@@ -306,22 +344,49 @@ describe('App against live data (11 §5.2, §8, §13)', () => {
     expect(host.querySelector('.doc-header h1')?.textContent).toBe('Topic A');
   });
 
-  it('a failed library.open shows the viewer failure state, detaches the viewer, and Retry reopens', async () => {
+  it('a failed library.open is reported inline with Retry; the viewer stays attached (11 §13)', async () => {
     fake.api.library.list = async () => ok([entry('Topic A', '2026-01-01T00:00:00Z')]);
     const open = vi.fn(async (): Promise<IpcResult<void>> => fail('E_IO', 'Could not read the document'));
     fake.api.library.open = open;
     const host = await render(App);
     await click(host.querySelector('.library-item'));
-    expect(host.textContent).toContain('Could not display this document.');
-    expect(host.querySelector('[data-testid="viewer-slot"]')).toBeNull();
-    expect(fake.api.viewer.setVisible).toHaveBeenLastCalledWith(false);
+    expect(host.querySelector('.open-error')?.textContent).toContain('Could not read the document');
+    expect(host.querySelector('[data-testid="viewer-slot"]')).not.toBeNull();
+    expect(fake.api.viewer.setVisible).toHaveBeenLastCalledWith(true);
 
     open.mockResolvedValueOnce(ok(undefined));
     await click(button(host, 'Retry'));
     expect(open).toHaveBeenCalledTimes(2);
-    expect(host.textContent).not.toContain('Could not display this document.');
+    expect(host.querySelector('.open-error')).toBeNull();
     expect(host.querySelector('[data-testid="viewer-slot"]')).not.toBeNull();
-    expect(fake.api.viewer.setVisible).toHaveBeenLastCalledWith(true);
+  });
+
+  it('against the M1b-style main (open not implemented) a document click keeps the viewer attached', async () => {
+    fake.api.library.list = async () => ok([entry('Topic A', '2026-01-01T00:00:00Z')]);
+    const host = await render(App);
+    await click(host.querySelector('.library-item'));
+    expect(fake.api.library.open).toHaveBeenCalledWith('topic-a');
+    expect(host.querySelector('[data-testid="viewer-slot"]')).not.toBeNull();
+    expect(fake.api.viewer.setVisible).not.toHaveBeenCalledWith(false);
+    expect(host.textContent).not.toContain('Could not display this document.');
+  });
+
+  it('library.open E_NOT_FOUND shows the missing-files state even if the reloaded Library still lists it', async () => {
+    const list = vi.fn(async () => ok([entry('Topic A', '2026-01-01T00:00:00Z')]));
+    fake.api.library.list = list;
+    const open = vi.fn(async (): Promise<IpcResult<void>> => fail('E_NOT_FOUND', 'Not found'));
+    fake.api.library.open = open;
+    const host = await render(App);
+    await click(host.querySelector('.library-item'));
+    await flush();
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(host.textContent).toContain('This document’s files are missing.');
+    expect(host.querySelector('[data-testid="viewer-slot"]')).toBeNull();
+
+    // Files restored: opening it again succeeds and the viewer comes back.
+    open.mockResolvedValueOnce(ok(undefined));
+    await click(host.querySelector('.library-item'));
+    expect(host.querySelector('[data-testid="viewer-slot"]')).not.toBeNull();
   });
 
   it('library.open E_NOT_FOUND reloads the Library and shows the missing-files state', async () => {
@@ -349,7 +414,7 @@ describe('App against live data (11 §5.2, §8, §13)', () => {
     await click(items()[0]); // Topic B
     await act(async () => first.resolve(fail('E_IO', 'late failure')));
     await flush();
-    expect(host.textContent).not.toContain('Could not display this document.');
+    expect(host.textContent).not.toContain('late failure');
     expect(host.querySelector('.doc-header h1')?.textContent).toBe('Topic B');
   });
 
@@ -391,6 +456,7 @@ describe('App against live data (11 §5.2, §8, §13)', () => {
         id: 'j1',
         status: 'done',
         statusLine: 'Done: Topic A',
+        finishedAt: new Date().toISOString(), // within its 10 minutes (06 §6)
         result: { docId: 'd', topicSlug: 'topic-a', title: 'Topic A' },
         canCancel: false,
         canDismiss: true,

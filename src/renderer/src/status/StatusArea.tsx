@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { JobSnapshot, JobStatus } from '../../../preload/contract';
 import { useAnnounce } from '../a11y/Announcer';
-import { jobGlyph, settingsLinkParts, sortJobs, upsertJob } from './jobs';
+import { doneExpiry, dropExpired, jobGlyph, settingsLinkParts, sortJobs, upsertJob } from './jobs';
 
 /**
  * Status area (11 §5.5): one pipeline-supplied line per job, newest at the bottom. The shell never
@@ -36,7 +36,7 @@ export function StatusArea(p: StatusAreaProps) {
     const merged = new Map(r.value.map((j) => [j.id, j]));
     for (const e of lastEvent.current.values()) if (e.seq > since) merged.set(e.s.id, e.s);
     for (const j of merged.values()) seen.current.set(j.id, j.status);
-    setJobs(sortJobs([...merged.values()]));
+    setJobs(sortJobs(dropExpired([...merged.values()], Date.now())));
   }, []);
 
   useEffect(() => {
@@ -54,6 +54,14 @@ export function StatusArea(p: StatusAreaProps) {
       if (!known) void refetch();
     });
   }, [announce, refetch]);
+
+  // Hide each done line when its 10 minutes pass (06 §6): one timer for the earliest expiry.
+  useEffect(() => {
+    const next = Math.min(...jobs.map((j) => doneExpiry(j) ?? Infinity));
+    if (next === Infinity) return;
+    const t = setTimeout(() => setJobs((list) => dropExpired(list, Date.now())), Math.max(0, next - Date.now()));
+    return () => clearTimeout(t);
+  }, [jobs]);
 
   // Synchronous guard against a double click before the disabled state renders.
   const inFlight = useRef(new Set<string>());
