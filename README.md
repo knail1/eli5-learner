@@ -2,7 +2,7 @@
 
 macOS app that turns decks, docs, PDFs, screenshots and URLs into interactive HTML explainers: an in-depth WSJ-style view plus an ELI5 view, refinable section by section.
 
-> **Status:** early development. The foundations are built; document generation is in progress.
+> **Status:** v1 is feature-complete (milestones M0 to M4): generation, interactive reading, the library, local publishing, completion notifications, and test, CI and packaging hardening. Builds are unsigned.
 > Full requirements: [spec/ELI5 Learner Product Requirements Document.md](spec/ELI5%20Learner%20Product%20Requirements%20Document.md)
 
 ## What it does
