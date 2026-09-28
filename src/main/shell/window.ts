@@ -1,6 +1,5 @@
 import { access } from 'node:fs/promises';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import {
   BrowserWindow,
   Menu,
@@ -10,6 +9,7 @@ import {
   nativeTheme,
   screen,
   dialog,
+  protocol,
   session,
 } from 'electron';
 import { IPC, type UiRoute, type ViewerBounds } from '../../preload/contract';
@@ -22,6 +22,7 @@ import {
   type LibraryItemMenuActions,
   type MenuShortcutId,
 } from './app-menu';
+import { APP_ENTRY_URL, APP_SCHEME, createAppProtocolHandler, isAppRendererUrl } from './app-protocol';
 import type { FolderChooserDeps } from './choose-folder';
 import { createHelpOpener, type HelpOpener } from './menu-help';
 import { createSettingsServices } from './settings-services';
@@ -94,15 +95,19 @@ export function viewerWebContents(): Electron.WebContents | undefined {
 
 /** App renderer origin check used by the IPC sender guard (12 §7.2 step 6). */
 export function isAppUrl(url: URL): boolean {
-  const p = need();
-  if (p.devServerUrl) return url.origin === new URL(p.devServerUrl).origin;
-  const index = pathToFileURL(path.join(p.rendererDir, 'index.html'));
-  return url.protocol === 'file:' && url.pathname === index.pathname;
+  return isAppRendererUrl(url, need().devServerUrl);
 }
 
+/** Builds load over eli5app://, never file:// (GrantFileProtocolExtraPrivileges is off, 12 §7.8). */
 function rendererEntry(): string {
+  return need().devServerUrl ?? APP_ENTRY_URL;
+}
+
+/** Serves out/renderer over eli5app:// on the default session (the app renderer's) in builds. */
+export function installAppProtocol(): void {
   const p = need();
-  return p.devServerUrl ?? pathToFileURL(path.join(p.rendererDir, 'index.html')).toString();
+  if (p.devServerUrl || protocol.isProtocolHandled(APP_SCHEME)) return;
+  protocol.handle(APP_SCHEME, createAppProtocolHandler({ rendererDir: p.rendererDir }));
 }
 
 /** App renderer CSP as a response header for the dev server; builds use the meta tag in index.html. */
@@ -225,6 +230,7 @@ export function requestCloseMainWindow(): void {
 
 export function createMainWindow(): BrowserWindow {
   installAppCsp();
+  installAppProtocol();
   installAppMenu();
   const { file, state } = initialState();
   const win = new BrowserWindow({

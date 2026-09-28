@@ -8,6 +8,7 @@ export {
   mainWebContents,
   viewerWebContents,
   isAppUrl,
+  installAppProtocol,
   createMainWindow,
   setViewerBounds,
   setViewerVisible,
@@ -24,6 +25,14 @@ export {
 } from './window';
 export { ContextMenuRequest, handleContextMenu, observeAppEvent, seedTray } from './events';
 export type { ShellPaths, ShellHooks } from './window';
+export {
+  APP_ENTRY_URL,
+  APP_SCHEME,
+  APP_SCHEME_PRIVILEGES,
+  createAppProtocolHandler,
+  isAppRendererUrl,
+} from './app-protocol';
+export type { AppProtocolDeps } from './app-protocol';
 export { createTray, rebuildTrayMenu, buildTrayMenu, setTrayCatalog, setTrayActiveJobs, trayModel } from './tray';
 export {
   activeJobCounter,

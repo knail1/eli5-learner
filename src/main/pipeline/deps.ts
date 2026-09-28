@@ -88,6 +88,12 @@ export function createPipelineDeps(o: CreatePipelineDepsOptions): PipelineRuntim
   const reg = o.registry;
   const prompts = PromptCatalogue.load([...(o.promptOverrideDirs ?? []), o.resourcePath('prompts')]);
   const skills = new SkillLibrary([o.userSkillsDir ?? path.join(o.userData, 'skills'), o.resourcePath('skills')]);
+  // Names only (no content): lets the packaged smoke check skills resolved from resourcesPath (01 §8.3).
+  const skillNames = skills
+    .list()
+    .map((s) => s.name)
+    .sort();
+  log.info('pipeline.skills-loaded', { count: skillNames.length, kind: skillNames.join(',').slice(0, 200) });
   if (o.watchSkills !== false) skills.watch();
   const tasks = createTasks({
     provider: () => reg.llm(),

@@ -54,6 +54,7 @@ import { hardenApp } from './security/harden';
 import { RotatingFileSink, createLogger, installLogger, log } from './security/log';
 import { registerSurface, safeOpenExternal } from './security';
 import {
+  APP_SCHEME_PRIVILEGES,
   createMainWindow,
   createNotificationControls,
   createNotifier,
@@ -90,6 +91,8 @@ protocol.registerSchemesAsPrivileged([
   },
   // pdf-render window pages and pdf.js (04 §6.3, 01 §2).
   PDF_RENDER_SCHEME_PRIVILEGES,
+  // The app renderer in builds: file:// inside app.asar is refused with the fuse off (12 §7.8).
+  APP_SCHEME_PRIVILEGES,
 ]);
 
 // Dev and test runs never touch the real profile (12 §4.1).
