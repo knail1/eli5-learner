@@ -7,10 +7,12 @@
 // 2. Secret scan: the baseline SecretScanner rules (10 §5.4) over tracked files and out/**,
 //    minus the per-file, per-rule exceptions in .hygiene-allow.
 // 3. Deny-list (HOOK-CFG-03): terms from ELI5_HYGIENE_DENYLIST (inline, or `@path` to a file)
-//    over tracked files and out/**, case-insensitive. Skipped with a notice when unset. Findings
-//    name the term's index only, because CI logs of a public repo are public.
-// 4. Bundle check: out/** has no `@eli5/overlay` resolved to anything but overlay.none, and (with
-//    --package) no FakeProvider.
+//    over the contents and paths of tracked files and out/**, case-insensitive. Skipped with a
+//    notice when unset; set but empty is a configuration error. Findings name the term's index
+//    only, because CI logs of a public repo are public.
+// 4. Bundle check: out/main/build-info.json (written by electron.vite.config.ts) records that
+//    `@eli5/overlay` resolved to overlay.none in a public build with no module from outside src/;
+//    out/** also has no leftover overlay path and (with --package) no FakeProvider.
 //
 // Exit 1 on any finding, 2 on a usage or configuration error.
 
@@ -41,6 +43,8 @@ export interface TextFile {
 export interface SecretAllow {
   glob: string;
   rule: string;
+  /** Masked preview (scanner `maskPreview`) pinning the exception to one reviewed value. */
+  preview?: string;
 }
 
 export interface AllowList {
@@ -49,19 +53,22 @@ export interface AllowList {
   secrets: SecretAllow[];
 }
 
-/** `.hygiene-allow`: one docs path per line, or `secret <glob> <rule-id>`; `#` starts a comment. */
+/**
+ * `.hygiene-allow`: one docs path per line, or `secret <glob> <rule-id> [<preview>]`. `#` at the
+ * start of a line or after whitespace starts a comment (a preview may itself contain `#`).
+ */
 export function parseAllowFile(text: string): AllowList {
   const out: AllowList = { paths: [], secrets: [] };
   text.split(/\r?\n/).forEach((raw, i) => {
-    const line = raw.replace(/#.*$/, '').trim();
+    const line = raw.replace(/(^|\s)#.*$/, '').trim();
     if (!line) return;
     const parts = line.split(/\s+/);
     if (parts[0] === 'secret') {
-      const [, glob, rule, ...rest] = parts;
+      const [, glob, rule, preview, ...rest] = parts;
       if (!glob || !rule || rest.length > 0) {
-        throw new Error(`.hygiene-allow line ${i + 1}: expected "secret <glob> <rule-id>"`);
+        throw new Error(`.hygiene-allow line ${i + 1}: expected "secret <glob> <rule-id> [<preview>]"`);
       }
-      out.secrets.push({ glob, rule });
+      out.secrets.push(preview === undefined ? { glob, rule } : { glob, rule, preview });
     } else {
       out.paths.push(line);
     }
@@ -113,18 +120,24 @@ export function checkTrackedPaths(paths: readonly string[], allow: readonly stri
 }
 
 export function scanSecrets(files: readonly TextFile[], allow: readonly SecretAllow[]): HygieneFinding[] {
-  const compiled = allow.map((a) => ({ re: globToRegExp(a.glob), rule: a.rule }));
+  const compiled = allow.map((a) => ({ re: globToRegExp(a.glob), rule: a.rule, preview: a.preview }));
   const out: HygieneFinding[] = [];
   for (const f of files) {
     for (const s of scanText(f.path, f.text)) {
-      if (compiled.some((a) => a.rule === s.rule && a.re.test(f.path))) continue;
+      const allowed = compiled.some(
+        (a) => a.rule === s.rule && a.re.test(f.path) && (a.preview === undefined || a.preview === s.preview),
+      );
+      if (allowed) continue;
       out.push({ check: 'secret', path: f.path, line: s.line, detail: `${s.rule} (${s.preview})` });
     }
   }
   return out;
 }
 
-/** HOOK-CFG-03: inline newline-separated terms, or `@/path/to/list`. Null when unset. */
+/**
+ * HOOK-CFG-03: inline newline-separated terms, or `@/path/to/list`. Null when unset; throws when
+ * set but yielding no terms, so a misconfigured secret never reads as a passing scan.
+ */
 export function loadDenylist(value: string | undefined): string[] | null {
   if (value === undefined || value.trim() === '') return null;
   let text = value;
@@ -140,6 +153,7 @@ export function loadDenylist(value: string | undefined): string[] | null {
     .split(/\r?\n/)
     .map((t) => t.trim().toLowerCase())
     .filter((t) => t !== '' && !t.startsWith('#'));
+  if (terms.length === 0) throw new Error('ELI5_HYGIENE_DENYLIST is set but has no terms');
   return terms;
 }
 
@@ -158,7 +172,51 @@ export function scanDenylist(files: readonly TextFile[], terms: readonly string[
   return out;
 }
 
-/** Bundle markers (13 §11 rule 4). overlay.none is the public resolution and is fine. */
+/** File and directory names (binaries included) against the terms; reports the index only. */
+export function scanDenylistPaths(paths: readonly string[], terms: readonly string[]): HygieneFinding[] {
+  const out: HygieneFinding[] = [];
+  for (const p of paths) {
+    const lower = p.toLowerCase();
+    terms.forEach((term, t) => {
+      if (lower.includes(term))
+        out.push({ check: 'denylist', path: p, detail: `path matches deny-list term #${t + 1}` });
+    });
+  }
+  return out;
+}
+
+/** Where electron.vite.config.ts records the main build's resolved edition and overlay. */
+export const BUILD_INFO = 'main/build-info.json';
+const PUBLIC_OVERLAY = 'src/main/editions/overlay.none.ts';
+
+/**
+ * 13 §11 rule 4 from the resolved module ids: Vite inlines the overlay's code and leaves no path
+ * behind, so the bundle text alone cannot show which module `@eli5/overlay` became.
+ */
+export function checkBuildInfo(info: unknown, path: string): HygieneFinding[] {
+  const finding = (detail: string): HygieneFinding => ({ check: 'bundle', path, detail });
+  if (info === undefined) return [finding('build-info.json missing: cannot verify the @eli5/overlay resolution')];
+  const r = info as { edition?: unknown; overlay?: unknown; foreign?: unknown };
+  if (
+    typeof r !== 'object' ||
+    r === null ||
+    typeof r.edition !== 'string' ||
+    !(typeof r.overlay === 'string' || r.overlay === null) ||
+    !Array.isArray(r.foreign)
+  ) {
+    return [finding('build-info.json is malformed: cannot verify the @eli5/overlay resolution')];
+  }
+  const out: HygieneFinding[] = [];
+  if (r.edition !== 'public') out.push(finding('bundle was built for a non-public edition'));
+  if (r.overlay !== PUBLIC_OVERLAY)
+    out.push(finding(`@eli5/overlay resolved to something other than ${PUBLIC_OVERLAY}`));
+  // Paths are not printed: for a private overlay they would be private file names.
+  if (r.foreign.length > 0)
+    out.push(finding(`${r.foreign.length} bundled module(s) from outside src/ and node_modules`));
+  return out;
+}
+
+/** Leftover path markers (13 §11 rule 4), a second line behind checkBuildInfo. */
 const OVERLAY_MARKERS: readonly { re: RegExp; detail: string }[] = [
   { re: /@eli5\/overlay/, detail: '@eli5/overlay left unresolved in the public bundle' },
   { re: /overlay-fake/, detail: 'fixture overlay referenced by the public bundle' },
@@ -238,6 +296,8 @@ export async function runHygiene(opts: RunHygieneOptions): Promise<HygieneResult
   );
 
   let outText: TextFile[] = [];
+  let outPaths: string[] = [];
+  let buildInfo: { path: string; value: unknown } | undefined;
   if (opts.outDir !== undefined) {
     const outAbs = resolve(root, opts.outDir);
     if (!existsSync(outAbs) || !(await stat(outAbs)).isDirectory()) {
@@ -245,9 +305,20 @@ export async function runHygiene(opts: RunHygieneOptions): Promise<HygieneResult
     }
     const files = await walk(outAbs);
     const toRel = (abs: string): string => relative(root, abs).split(sep).join('/');
+    outPaths = files.map(toRel);
     outText = (await Promise.all(files.map((abs) => readText(abs, toRel(abs))))).filter(
       (f): f is TextFile => f !== null,
     );
+    const infoAbs = join(outAbs, BUILD_INFO);
+    let value: unknown;
+    if (existsSync(infoAbs)) {
+      try {
+        value = JSON.parse(readFileSync(infoAbs, 'utf8')) as unknown;
+      } catch {
+        value = null; // reported as malformed
+      }
+    }
+    buildInfo = { path: toRel(infoAbs), value };
   }
 
   const findings: HygieneFinding[] = [
@@ -257,8 +328,15 @@ export async function runHygiene(opts: RunHygieneOptions): Promise<HygieneResult
 
   const terms = loadDenylist(opts.env.ELI5_HYGIENE_DENYLIST);
   if (terms === null) log('hygiene: deny-list scan skipped (ELI5_HYGIENE_DENYLIST is not set)');
-  else findings.push(...scanDenylist([...trackedText, ...outText], terms));
+  else {
+    log(`hygiene: deny-list scan with ${terms.length} term(s)`);
+    findings.push(
+      ...scanDenylist([...trackedText, ...outText], terms),
+      ...scanDenylistPaths([...tracked, ...outPaths], terms),
+    );
+  }
 
+  if (buildInfo !== undefined) findings.push(...checkBuildInfo(buildInfo.value, buildInfo.path));
   if (opts.outDir !== undefined) findings.push(...checkBundle(outText, { packageMode: opts.packageMode === true }));
 
   for (const f of findings) log(`hygiene: [${f.check}] ${f.path}${f.line ? `:${f.line}` : ''} ${f.detail}`);

@@ -128,6 +128,27 @@ describe('.github/workflows/ci.yml (13 §12)', () => {
     }
   });
 
+  it('enforces the 13 §3.1 per-directory line coverage floors in vitest.config.ts', async () => {
+    const cfg = (await import('../../../vitest.config')).default as {
+      test?: { coverage?: { thresholds?: Record<string, unknown> } };
+    };
+    const t = cfg.test?.coverage?.thresholds ?? {};
+    const floors: Record<string, number> = {
+      'src/main/extract/**': 85,
+      'src/main/document/**': 85,
+      'src/main/library/**': 85,
+      'src/main/pipeline/**': 85,
+      'src/main/config/**': 85,
+      'src/main/editions/**': 85,
+      'src/main/sources/**': 75,
+      'src/main/fetch/**': 75,
+      'src/main/publish/**': 75,
+      'src/main/llm/**': 75,
+      'src/doc-runtime/**': 80,
+    };
+    for (const [glob, lines] of Object.entries(floors)) expect(t[glob], glob).toEqual({ lines });
+  });
+
   it('unit runs the offline Vitest projects with coverage and uploads the report', () => {
     const r = runs('unit');
     expect(r).toContain('npx vitest run');
@@ -157,6 +178,14 @@ describe('.github/workflows/ci.yml (13 §12)', () => {
     const r = runs('edition-fixture');
     expect(r).toContain('ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=test/fixtures/overlay-fake npx electron-vite build');
     expect(r).toContain('requires an overlay');
+  });
+
+  it('edition-fixture proves the bundle check rejects the cell F build (13 §11 rule 4)', () => {
+    const r = runs('edition-fixture');
+    expect(r).toContain('overlay-fake npx electron-vite build');
+    expect(r).toContain('npx jiti scripts/check-hygiene.ts --out out >');
+    expect(r).toContain('@eli5/overlay resolved');
+    expect(r.indexOf('check-hygiene.ts')).toBeGreaterThan(r.indexOf('overlay-fake npx electron-vite build'));
   });
 
   it('hygiene checks the downloaded package build with the deny-list secret', () => {
@@ -189,7 +218,8 @@ describe('.github/workflows/ci.yml (13 §12)', () => {
 
   it('keeps the nightly schedule to evals', () => {
     for (const id of Object.keys(jobs).filter((j) => j !== 'evals' && j !== 'package')) {
-      expect(String(job(id).if ?? "github.event_name != 'schedule'"), id).toContain("github.event_name != 'schedule'");
+      expect(job(id).if, id).toBeDefined();
+      expect(String(job(id).if), id).toContain("github.event_name != 'schedule'");
     }
   });
 

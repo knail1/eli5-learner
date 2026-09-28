@@ -8,7 +8,8 @@
 //
 //   node scripts/check-licenses.mjs --audit audit.json [--today YYYY-MM-DD]
 //     Reads `npm audit --omit=dev --json` output; a high or critical advisory fails unless
-//     audit-allow.json lists it with a reason and an expiry date that has not passed.
+//     audit-allow.json lists it with a reason and an expiry date that has not passed. An error
+//     object or a report without `vulnerabilities` (registry unreachable) exits 2, never "ok".
 //
 // Dependency-free. Exit 1 on a policy failure, 2 on a usage or configuration error.
 
@@ -156,9 +157,17 @@ function advisoryId(via) {
 
 function checkAudit(root, auditPath, today) {
   const report = readJson(auditPath, 'npm audit report');
+  // Fail closed: a registry or network error yields an error object, not a report (13 §13).
+  if (report?.error !== undefined) {
+    const code = typeof report.error?.code === 'string' ? ` (${report.error.code})` : '';
+    throw new UsageError(`npm audit did not produce a report${code}; the audit was not run`);
+  }
+  if (!report || typeof report.vulnerabilities !== 'object' || report.vulnerabilities === null) {
+    throw new UsageError('npm audit report has no vulnerabilities map; the audit was not run');
+  }
   const allow = loadAuditAllow(root);
   const failures = [];
-  for (const [pkg, vuln] of Object.entries(report.vulnerabilities ?? {})) {
+  for (const [pkg, vuln] of Object.entries(report.vulnerabilities)) {
     // String `via` entries are transitive; the advisory is reported on the package that owns it.
     for (const via of vuln.via ?? []) {
       if (typeof via !== 'object' || via === null) continue;

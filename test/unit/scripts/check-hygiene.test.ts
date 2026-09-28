@@ -4,12 +4,14 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  checkBuildInfo,
   checkBundle,
   checkTrackedPaths,
   loadDenylist,
   parseAllowFile,
   runHygiene,
   scanDenylist,
+  scanDenylistPaths,
   scanSecrets,
 } from '../../../scripts/check-hygiene';
 
@@ -43,6 +45,13 @@ function tempRepo(files: Record<string, string>, untracked: Record<string, strin
 
 const DEFAULT_ALLOW = 'docs/.gitkeep\ndocs/.nojekyll\ndocs/index.html\ndocs/sample/\n';
 
+/** What electron.vite.config.ts writes to out/main/build-info.json for a public build. */
+const PUBLIC_BUILD_INFO = JSON.stringify({
+  edition: 'public',
+  overlay: 'src/main/editions/overlay.none.ts',
+  foreign: [],
+});
+
 describe('parseAllowFile (.hygiene-allow)', () => {
   it('splits docs paths from secret exceptions and ignores comments and blanks', () => {
     const a = parseAllowFile('# c\n\ndocs/index.html\ndocs/sample/\nsecret test/** url-credentials\n');
@@ -52,6 +61,12 @@ describe('parseAllowFile (.hygiene-allow)', () => {
 
   it('rejects a malformed secret entry', () => {
     expect(() => parseAllowFile('secret only-a-glob\n')).toThrow(/\.hygiene-allow line 1/);
+    expect(() => parseAllowFile('secret a b c d\n')).toThrow(/\.hygiene-allow line 1/);
+  });
+
+  it('reads an optional masked preview that pins an exception to one value', () => {
+    const a = parseAllowFile('secret out/r/*.js generic-high-entropy !0,r#*** # React table\n');
+    expect(a.secrets).toEqual([{ glob: 'out/r/*.js', rule: 'generic-high-entropy', preview: '!0,r#***' }]);
   });
 });
 
@@ -111,6 +126,18 @@ describe('scanSecrets (13 §11 rule 2, baseline SecretScanner from 10 §5.4)', (
     expect(found.map((f) => f.path)).toEqual(['src/b.ts', 'test/unit/c.test.ts']);
   });
 
+  it('with a preview, allows only the finding whose masked value matches', () => {
+    const table = 'x={password:!0,range:!0,search:!0,tel:!0,text:!0,time:!0,url:!0,week:!0}';
+    const real = 'const c={password:"' + cycle(30) + '"}';
+    const files = [
+      { path: 'out/renderer/assets/index-abc.js', text: `${table}\n${real}\n` },
+      { path: 'out/renderer/assets/other-def.js', text: table },
+    ];
+    const allow = [{ glob: 'out/renderer/assets/*.js', rule: 'generic-high-entropy', preview: '!0,r****************' }];
+    const found = scanSecrets(files, allow);
+    expect(found.map((f) => [f.path, f.line])).toEqual([['out/renderer/assets/index-abc.js', 2]]);
+  });
+
   it('matches a single-segment * glob inside one directory only', () => {
     const allow = [{ glob: 'out/renderer/assets/*.js', rule: 'url-credentials' }];
     const found = scanSecrets(
@@ -144,6 +171,14 @@ describe('loadDenylist (HOOK-CFG-03)', () => {
   it('fails loudly when the @file is missing', () => {
     expect(() => loadDenylist('@/nonexistent/eli5/terms.txt')).toThrow(/ELI5_HYGIENE_DENYLIST/);
   });
+
+  it('treats a set variable with no terms as a configuration error, not a pass', () => {
+    expect(() => loadDenylist('# only a comment\n\n')).toThrow(/no terms/);
+    const dir = mkdtempSync(join(tmpdir(), 'eli5-deny-'));
+    temps.push(dir);
+    writeFileSync(join(dir, 'empty.txt'), '\n# nothing\n');
+    expect(() => loadDenylist('@' + join(dir, 'empty.txt'))).toThrow(/no terms/);
+  });
 });
 
 describe('scanDenylist (HOOK-CFG-03)', () => {
@@ -157,6 +192,47 @@ describe('scanDenylist (HOOK-CFG-03)', () => {
     );
     expect(found).toEqual([{ check: 'denylist', path: 'README.md', line: 2, detail: 'matches deny-list term #1' }]);
     expect(JSON.stringify(found).toLowerCase()).not.toContain('acme');
+  });
+});
+
+describe('scanDenylistPaths (HOOK-CFG-03 over file names)', () => {
+  it('matches terms in paths case-insensitively and never prints the term', () => {
+    const found = scanDenylistPaths(
+      ['src/a.ts', 'docs/Acme-Widgets/notes.md', 'out/x/acme-widgets.png'],
+      ['acme-widgets'],
+    );
+    expect(found).toEqual([
+      { check: 'denylist', path: 'docs/Acme-Widgets/notes.md', detail: 'path matches deny-list term #1' },
+      { check: 'denylist', path: 'out/x/acme-widgets.png', detail: 'path matches deny-list term #1' },
+    ]);
+  });
+});
+
+describe('checkBuildInfo (13 §11 rule 4, 12 §12 gate 3: resolved @eli5/overlay id)', () => {
+  const at = 'out/main/build-info.json';
+
+  it('passes a public build whose overlay resolved to overlay.none', () => {
+    expect(checkBuildInfo(JSON.parse(PUBLIC_BUILD_INFO), at)).toEqual([]);
+  });
+
+  it('fails a cell F build (fixture overlay resolved and inlined)', () => {
+    // Frozen from `ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=test/fixtures/overlay-fake electron-vite build`:
+    // the bundle text carries no overlay path, only this record does.
+    const info = {
+      edition: 'enterprise',
+      overlay: 'test/fixtures/overlay-fake/index.ts',
+      foreign: ['test/fixtures/overlay-fake/index.ts', 'test/fixtures/overlay-fake/provider.ts'],
+    };
+    const details = checkBuildInfo(info, at).map((f) => f.detail);
+    expect(details).toHaveLength(3);
+    expect(details.join('\n')).toMatch(/edition/);
+    expect(details.join('\n')).toMatch(/@eli5\/overlay resolved/);
+    expect(details.join('\n')).toMatch(/2 bundled module\(s\) from outside src\//);
+  });
+
+  it('fails a missing or malformed record', () => {
+    expect(checkBuildInfo(undefined, at)[0]?.detail).toMatch(/missing/);
+    expect(checkBuildInfo({ edition: 'public' }, at)[0]?.detail).toMatch(/malformed/);
   });
 });
 
@@ -194,6 +270,46 @@ describe('runHygiene over temp git repos', () => {
     return { lines, log: (s) => lines.push(s) };
   };
 
+  it('fails a set deny-list variable that yields no terms (exit 2 path)', async () => {
+    const dir = tempRepo({ 'src/a.ts': 'ok' });
+    await expect(runHygiene({ root: dir, env: { ELI5_HYGIENE_DENYLIST: '# none\n' }, log: () => {} })).rejects.toThrow(
+      /no terms/,
+    );
+  });
+
+  it('matches the deny-list against tracked and out/** paths, binaries included', async () => {
+    const dir = tempRepo(
+      { 'assets/omicron-logo.png': '\u0000PNG' },
+      { 'out/main/build-info.json': PUBLIC_BUILD_INFO, 'out/renderer/omicron.png': '\u0000PNG' },
+    );
+    const r = await runHygiene({ root: dir, env: { ELI5_HYGIENE_DENYLIST: 'omicron' }, outDir: 'out', log: () => {} });
+    expect(r.findings.map((f) => [f.check, f.path])).toEqual([
+      ['denylist', 'assets/omicron-logo.png'],
+      ['denylist', 'out/renderer/omicron.png'],
+    ]);
+  });
+
+  it('fails an out/ without the build-info record, and one built with a non-public overlay', async () => {
+    const missing = tempRepo({ 'src/a.ts': 'ok' }, { 'out/main/index.js': 'x' });
+    const r1 = await runHygiene({ root: missing, env: {}, outDir: 'out', log: () => {} });
+    expect(r1.findings.map((f) => [f.check, f.path])).toEqual([['bundle', 'out/main/build-info.json']]);
+
+    const cellF = tempRepo(
+      { 'src/a.ts': 'ok' },
+      {
+        'out/main/index.js': 'const e = new Error("fixture overlay provider has no scripted responses");\n',
+        'out/main/build-info.json': JSON.stringify({
+          edition: 'enterprise',
+          overlay: 'test/fixtures/overlay-fake/index.ts',
+          foreign: ['test/fixtures/overlay-fake/index.ts'],
+        }),
+      },
+    );
+    const r2 = await runHygiene({ root: cellF, env: {}, outDir: 'out', packageMode: true, log: () => {} });
+    expect(r2.ok).toBe(false);
+    expect(new Set(r2.findings.map((f) => f.check))).toEqual(new Set(['bundle']));
+  });
+
   it('passes a clean repo and notes the skipped deny-list scan', async () => {
     const dir = tempRepo({
       'src/a.ts': 'export const a = 1;\n',
@@ -228,7 +344,11 @@ describe('runHygiene over temp git repos', () => {
   it('runs the deny-list over tracked files and out/** when the variable is set', async () => {
     const dir = tempRepo(
       { 'README.md': 'Made by Omicron Labs\n' },
-      { 'out/main/index.js': 'const org = "OMICRON LABS";\n', 'notes.txt': 'omicron labs (untracked)' },
+      {
+        'out/main/index.js': 'const org = "OMICRON LABS";\n',
+        'out/main/build-info.json': PUBLIC_BUILD_INFO,
+        'notes.txt': 'omicron labs (untracked)',
+      },
     );
     const out = quiet();
     const r = await runHygiene({
@@ -249,6 +369,7 @@ describe('runHygiene over temp git repos', () => {
       { 'src/a.ts': 'ok' },
       {
         'out/main/index.js': 'class FakeProvider {}\n',
+        'out/main/build-info.json': PUBLIC_BUILD_INFO,
         'out/renderer/app.js': fakeUrlCreds(),
         'out/renderer/logo.png': `\u0000PNG${fakeKey()}`,
       },
@@ -275,5 +396,13 @@ describe('this repository', () => {
   it('whitelists exactly the public Pages paths from .gitignore', () => {
     const allow = parseAllowFile(readFileSync(join(repoRoot, '.hygiene-allow'), 'utf8'));
     expect(allow.paths).toEqual(['docs/.gitkeep', 'docs/.nojekyll', 'docs/index.html', 'docs/sample/']);
+  });
+
+  it('keeps secret exceptions narrow: no directory-wide test/** and no unpinned bundle-chunk globs', () => {
+    const allow = parseAllowFile(readFileSync(join(repoRoot, '.hygiene-allow'), 'utf8'));
+    for (const a of allow.secrets) {
+      expect(a.glob, a.glob).not.toMatch(/\*\*/);
+      if (a.glob.includes('*')) expect(a.preview, a.glob).toBeDefined();
+    }
   });
 });

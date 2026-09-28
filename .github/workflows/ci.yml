@@ -147,6 +147,13 @@ jobs:
       - run: npm run build:runtime
       - name: Cell F (fixture overlay builds)
         run: ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=test/fixtures/overlay-fake npx electron-vite build
+      - name: Cell F fails the public bundle check (13 §11 rule 4, from out/main/build-info.json)
+        run: |
+          if npx jiti scripts/check-hygiene.ts --out out > f-bundle.log 2>&1; then
+            echo "expected the bundle check to reject the fixture-overlay build"
+            exit 1
+          fi
+          grep -q '@eli5/overlay resolved' f-bundle.log
       - name: Cell F-missing (enterprise build without an overlay fails with the 01 §6.5 message)
         run: |
           if ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=./no-such-overlay npx electron-vite build > f-missing.log 2>&1; then

@@ -151,6 +151,30 @@ describe('check-licenses.mjs --audit (13 §13 dependency audit, audit-allow.json
     expect(r.out).toContain('expires');
   });
 
+  it('fails closed when npm audit itself errored (no report to check)', () => {
+    // npm audit prints an error object instead of a report when the registry is unreachable.
+    const dir = tempProject(
+      {},
+      {
+        'audit.json': JSON.stringify({ message: 'request to registry failed', error: { code: 'ENOTFOUND' } }),
+        'audit-allow.json': JSON.stringify({ allow: [] }),
+      },
+    );
+    const r = run(['--root', dir, '--audit', join(dir, 'audit.json'), '--today', '2026-09-28']);
+    expect(r.code).toBe(2);
+    expect(r.out).not.toContain('audit: ok');
+    expect(r.out).toContain('ENOTFOUND');
+  });
+
+  it('fails closed on a report without a vulnerabilities map', () => {
+    const dir = tempProject(
+      {},
+      { 'audit.json': JSON.stringify({ auditReportVersion: 2 }), 'audit-allow.json': '{"allow":[]}' },
+    );
+    const r = run(['--root', dir, '--audit', join(dir, 'audit.json'), '--today', '2026-09-28']);
+    expect(r.code).toBe(2);
+  });
+
   it('ships an audit-allow.json with a valid shape', () => {
     const allow = JSON.parse(readFileSync(join(repoRoot, 'audit-allow.json'), 'utf8')) as { allow: unknown[] };
     expect(Array.isArray(allow.allow)).toBe(true);
