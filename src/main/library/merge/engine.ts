@@ -398,7 +398,11 @@ class MergeEngine implements MergeDelegate {
     const dir = path.dirname(this.lib.docPath(s.source.slug));
     const meta = await this.lib.getMeta(s.source.slug).catch(() => undefined);
     if (!meta || meta.id !== s.source.id) return;
-    await this.lib.moveToTrash(dir, s.source.slug);
+    const dest = await this.lib.moveToTrash(dir, s.source.slug);
+    // Listed in the Trash as merged into the target, restorable with Put Back (09 §4.2).
+    await this.lib
+      .noteMergedAway(path.basename(dest), s.source.id, s.target.title)
+      .catch((err: unknown) => this.log.warn('merge.trash-note-failed', { errno: errnoOf(err) }));
   }
 
   /** 09 §10.8 step 1 / §12: a pending suggestion whose document left the catalog is stale. */

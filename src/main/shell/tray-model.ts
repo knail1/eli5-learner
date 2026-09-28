@@ -1,5 +1,5 @@
 import type { MenuItemConstructorOptions } from 'electron';
-import type { CatalogEntry, JobSnapshot } from '../../preload/contract';
+import type { CatalogEntry, JobSnapshot, LibraryOrganization } from '../../preload/contract';
 
 /** Tray menu model (11 §4.1). Pure; the Electron side lives in tray.ts. */
 
@@ -41,11 +41,21 @@ export function libraryOrder(a: CatalogEntry, b: CatalogEntry): number {
   return a.title.localeCompare(b.title);
 }
 
-export function recentFromCatalog(entries: readonly CatalogEntry[]): TrayEntry[] {
-  return [...entries]
+/** Newest finished documents; archived ones (`hidden` ids) never appear (09 §4.2, §9.1). */
+export function recentFromCatalog(
+  entries: readonly CatalogEntry[],
+  hidden: ReadonlySet<string> = new Set(),
+): TrayEntry[] {
+  return entries
+    .filter((e) => !hidden.has(e.id))
     .sort(libraryOrder)
     .slice(0, MAX_RECENT)
     .map((e) => ({ slug: e.topicSlug, label: trayLabel(e.title) }));
+}
+
+/** Ids of archived documents in an `eli5:library:organization-changed` payload. */
+export function archivedIds(o: Pick<LibraryOrganization, 'placement'>): Set<string> {
+  return new Set(Object.entries(o.placement).flatMap(([id, at]) => (at === 'archive' ? [id] : [])));
 }
 
 const jobs = (n: number): string => `${n} ${n === 1 ? 'job' : 'jobs'}`;

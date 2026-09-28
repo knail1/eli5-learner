@@ -1,5 +1,5 @@
 import type { MenuItemConstructorOptions } from 'electron';
-import type { HelpTopic } from '../../preload/contract';
+import type { HelpTopic, LibraryFolder, LibraryLocation } from '../../preload/contract';
 
 /**
  * macOS application menu (11 §3.2 step 5, §9). There is no `role: 'quit'` item: Cmd+Q and Cmd+W
@@ -165,15 +165,52 @@ export function appMenuTemplate(
 export interface LibraryItemMenuActions {
   open(slug: string): void;
   reveal(slug: string): void;
+  /** Files the document (09 §4.2); the library emits `moved` so the app offers Undo (11 §5.2). */
+  move?(slug: string, to: LibraryLocation): void;
+}
+
+/** What the item menu needs to offer Move to / Archive / Move to Trash (09 §4.2). */
+export interface LibraryItemMenuOrganize {
+  folders: readonly LibraryFolder[];
+  location: Exclude<LibraryLocation, 'trash'>;
 }
 
 /**
- * Native context menu for a Library item (11 §5.2, `eli5:app:context-menu`). Enterprise publish
- * items are appended by the caller only when HOOK-UI-01 enables them.
+ * Native context menu for a Library item (11 §5.2, `eli5:app:context-menu`). With `organize`, it
+ * adds Move to (No folder and each folder), Archive and Move to Trash. Enterprise publish items
+ * are appended by the caller only when HOOK-UI-01 enables them.
  */
-export function libraryItemMenuTemplate(slug: string, a: LibraryItemMenuActions): MenuItemConstructorOptions[] {
-  return [
+export function libraryItemMenuTemplate(
+  slug: string,
+  a: LibraryItemMenuActions,
+  organize?: LibraryItemMenuOrganize,
+): MenuItemConstructorOptions[] {
+  const items: MenuItemConstructorOptions[] = [
     { label: 'Open', click: () => a.open(slug) },
     { label: 'Reveal in Finder', click: () => a.reveal(slug) },
+  ];
+  const move = a.move;
+  if (!organize || !move) return items;
+  const at = organize.location;
+  const to = (where: LibraryLocation) => () => move(slug, where);
+  const folders: MenuItemConstructorOptions[] = organize.folders.map((f) => ({
+    label: f.name,
+    enabled: at !== f.id,
+    click: to(f.id),
+  }));
+  return [
+    ...items,
+    { type: 'separator' },
+    {
+      label: 'Move to',
+      submenu: [
+        { label: 'No folder', enabled: at !== 'unfiled', click: to('unfiled') },
+        { type: 'separator' },
+        ...(folders.length > 0 ? folders : [{ label: 'No folders yet', enabled: false }]),
+      ],
+    },
+    { label: 'Archive', enabled: at !== 'archive', click: to('archive') },
+    { type: 'separator' },
+    { label: 'Move to Trash', click: to('trash') },
   ];
 }

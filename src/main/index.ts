@@ -356,8 +356,11 @@ async function bootstrap(): Promise<void> {
     return;
   }
 
-  // The viewer loads catalogued documents only through main (09 §11, 12 §7.7).
-  const openDocument = (slug: string): void => openInViewer(viewerWebContents(), slug);
+  // The viewer loads catalogued documents only through main (09 §11, 12 §7.7). A trashed one is not
+  // loaded; the renderer's route shows it in the Trash with Put Back (11 §8).
+  const openDocument = (slug: string): void => {
+    if (library.hasSlug(slug)) openInViewer(viewerWebContents(), slug);
+  };
   // Tray and context-menu callers pass slugs unchecked; only catalogued documents are revealed.
   const revealDocument = (slug: string): void => {
     if (library.hasSlug(slug)) electronShell.showItemInFolder(library.docPath(slug));
@@ -432,12 +435,32 @@ async function bootstrap(): Promise<void> {
     preloadDir: path.join(import.meta.dirname, '../preload'),
     rendererDir: path.join(import.meta.dirname, '../renderer'),
     devServerUrl: app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL,
-    hooks: { openDocument, revealDocument, docHistory: docHistoryFromMenu },
+    hooks: {
+      openDocument,
+      revealDocument,
+      docHistory: docHistoryFromMenu,
+      // 09 §4.2: the item menu's Move to / Archive / Move to Trash; `moved` reaches the app's toast.
+      organizeMenu: (slug) => {
+        const e = library.getEntry(slug);
+        return e && !library.readOnly ? { folders: library.folders(), location: library.locationOf(e.id) } : undefined;
+      },
+      moveDocument: (slug, to) => {
+        library
+          .moveDocument(slug, to)
+          .catch((err: unknown) =>
+            log.info('library.move-refused', { slug, code: (err as { code?: string }).code ?? 'unknown' }),
+          );
+      },
+    },
   });
   createMainWindow();
   viewerPort.attach();
   createTray();
-  seedTray({ catalog: library.list(), jobs: jobs.list() });
+  seedTray({
+    catalog: library.list(),
+    archived: new Set(library.list().flatMap((e) => (library.locationOf(e.id) === 'archive' ? [e.id] : []))),
+    jobs: jobs.list(),
+  });
   log.info('app.ready', { kind: edition });
 }
 

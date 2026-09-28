@@ -78,6 +78,21 @@ export function matchHistoryKey(e: KeyLike): 'undo' | 'redo' | null {
   return e.shiftKey ? 'redo' : 'undo';
 }
 
+/** Cmd+Backspace on a focused Library row moves it to the Trash (11 §5.2, §9). */
+export function matchLibraryKey(e: KeyLike): 'trash' | null {
+  return e.key === 'Backspace' && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey ? 'trash' : null;
+}
+
+/**
+ * Who gets Cmd+Z outside text fields (11 §9): the last Library move while its Undo toast is showing,
+ * or while focus is in the sidebar and a move can still be undone; otherwise the open document.
+ * The sidebar listens in the capture phase and prevents the default, so the document's handler
+ * (which skips prevented events) stands down.
+ */
+export function libraryUndoWins(s: { toastPending: boolean; focusInSidebar: boolean; hasLastMove: boolean }): boolean {
+  return s.toastPending || (s.focusInSidebar && s.hasLastMove);
+}
+
 const NON_TEXT_INPUTS = new Set(['button', 'checkbox', 'color', 'file', 'image', 'radio', 'range', 'reset', 'submit']);
 
 /** True when keys typed at `el` edit text: text-like inputs, textareas, selects and contenteditable. */

@@ -155,7 +155,7 @@ describe('SuggestionsPanel (11 §5.6)', () => {
     expect(document.activeElement).toBe(focused);
     expect(host.querySelector('[data-testid="announcer-polite"]')?.textContent).toBe('New suggestion');
 
-    await click(button(host, 'Target doc'));
+    await click(host.querySelector('a.title-link'));
     expect(onOpenDoc).toHaveBeenCalledWith('target-doc');
 
     fake.api.suggestions.accept = vi.fn(() => new Promise(() => {})) as typeof fake.api.suggestions.accept;
@@ -186,16 +186,23 @@ const entry = (title: string, createdAt: string, summary = ''): CatalogEntry => 
 });
 
 describe('LibrarySidebar (11 §5.2, §8)', () => {
-  const base = { error: null, selectedSlug: null, onOpen: vi.fn(), onRetry: vi.fn() };
+  const base = {
+    error: null,
+    selectedSlug: null,
+    onOpen: vi.fn(),
+    onRetry: vi.fn(),
+    onOpenTrash: vi.fn(),
+    organization: { folders: [], placement: {}, trash: [], trashRetentionDays: 30 },
+  };
 
   it('shows the empty state', async () => {
-    const host = await render(LibrarySidebar, { ...base, entries: [] });
+    const host = await render(withAnnouncer(LibrarySidebar), { ...base, entries: [] });
     expect(host.textContent).toContain('Your finished documents will appear here');
   });
 
   it('shows load errors with Retry', async () => {
     const onRetry = vi.fn();
-    const host = await render(LibrarySidebar, { ...base, entries: null, error: 'x', onRetry });
+    const host = await render(withAnnouncer(LibrarySidebar), { ...base, entries: null, error: 'x', onRetry });
     expect(host.textContent).toContain('Could not load the Library');
     await click(button(host, 'Retry'));
     expect(onRetry).toHaveBeenCalledOnce();
@@ -207,7 +214,7 @@ describe('LibrarySidebar (11 §5.2, §8)', () => {
       entry('Topic B', '2026-02-01T00:00:00Z', 'about widgets'),
       entry('Topic A', '2026-01-01T00:00:00Z'),
     ];
-    const host = await render(LibrarySidebar, { ...base, entries, selectedSlug: 'topic-a', onOpen });
+    const host = await render(withAnnouncer(LibrarySidebar), { ...base, entries, selectedSlug: 'topic-a', onOpen });
     const titles = () => Array.from(host.querySelectorAll('.item-title')).map((e) => e.textContent);
     expect(titles()).toEqual(['Topic B', 'Topic A']);
     expect(host.querySelector('[aria-current="page"] .item-title')?.textContent).toBe('Topic A');
@@ -229,7 +236,7 @@ describe('LibrarySidebar (11 §5.2, §8)', () => {
 
   it('a failed context-menu call shows an inline message next to the item (11 §13)', async () => {
     const entries = [entry('Topic A', '2026-01-01T00:00:00Z')];
-    const host = await render(LibrarySidebar, { ...base, entries });
+    const host = await render(withAnnouncer(LibrarySidebar), { ...base, entries });
     await key(host.querySelector('.library-item'), 'ContextMenu');
     expect(host.querySelector('li .inline-error')?.textContent).toBe('Not implemented yet');
   });

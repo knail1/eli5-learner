@@ -146,4 +146,48 @@ describe('libraryItemMenuTemplate (11 §5.2)', () => {
     expect(a.open).toHaveBeenCalledWith('topic-a');
     expect(a.reveal).toHaveBeenCalledWith('topic-a');
   });
+
+  it('adds Move to (folders and No folder), Archive and Move to Trash when organizing is wired (09 §4.2)', () => {
+    const a = { open: vi.fn(), reveal: vi.fn(), move: vi.fn() };
+    const folders = [
+      { id: 'f-0000000a' as const, name: 'Budgets', createdAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'f-0000000b' as const, name: 'Supply', createdAt: '2026-01-01T00:00:00.000Z' },
+    ];
+    const items = libraryItemMenuTemplate('topic-a', a, { folders, location: 'f-0000000a' });
+    expect(items.filter((i) => i.type !== 'separator').map((i) => i.label)).toEqual([
+      'Open',
+      'Reveal in Finder',
+      'Move to',
+      'Archive',
+      'Move to Trash',
+    ]);
+    const sub = items.find((i) => i.label === 'Move to')?.submenu as MenuItemConstructorOptions[];
+    const named = sub.filter((i) => i.type !== 'separator');
+    expect(named.map((i) => [i.label, i.enabled !== false])).toEqual([
+      ['No folder', true],
+      ['Budgets', false],
+      ['Supply', true],
+    ]);
+    click(named.find((i) => i.label === 'Supply'));
+    click(named.find((i) => i.label === 'No folder'));
+    click(items.find((i) => i.label === 'Archive'));
+    click(items.find((i) => i.label === 'Move to Trash'));
+    expect(a.move.mock.calls).toEqual([
+      ['topic-a', 'f-0000000b'],
+      ['topic-a', 'unfiled'],
+      ['topic-a', 'archive'],
+      ['topic-a', 'trash'],
+    ]);
+  });
+
+  it('disables Archive for an archived document and says when there are no folders', () => {
+    const a = { open: vi.fn(), reveal: vi.fn(), move: vi.fn() };
+    const items = libraryItemMenuTemplate('topic-a', a, { folders: [], location: 'archive' });
+    expect(items.find((i) => i.label === 'Archive')?.enabled).toBe(false);
+    const sub = items.find((i) => i.label === 'Move to')?.submenu as MenuItemConstructorOptions[];
+    expect(sub.filter((i) => i.type !== 'separator').map((i) => [i.label, i.enabled !== false])).toEqual([
+      ['No folder', true],
+      ['No folders yet', false],
+    ]);
+  });
 });

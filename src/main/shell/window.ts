@@ -12,7 +12,7 @@ import {
   protocol,
   session,
 } from 'electron';
-import { IPC, type UiRoute, type ViewerBounds } from '../../preload/contract';
+import { IPC, type LibraryLocation, type UiRoute, type ViewerBounds } from '../../preload/contract';
 import { resourcePath } from '../config';
 import { APP_CSP_DEV, APP_CSP_PROD, SECURE_WEB_PREFERENCES, log, registerSurface, safeOpenExternal } from '../security';
 import {
@@ -20,6 +20,7 @@ import {
   appMenuTemplate,
   libraryItemMenuTemplate,
   type LibraryItemMenuActions,
+  type LibraryItemMenuOrganize,
   type MenuShortcutId,
 } from './app-menu';
 import { APP_ENTRY_URL, APP_SCHEME, createAppProtocolHandler, isAppRendererUrl } from './app-protocol';
@@ -49,6 +50,10 @@ export interface ShellHooks {
   revealDocument?(slug: string): void;
   /** Edit > Undo/Redo Document Change for the document in the viewer (09 §4.1). */
   docHistory?(dir: 'undo' | 'redo'): void;
+  /** Folders and the document's place for the item menu's Move to (09 §4.2); undefined: not listed. */
+  organizeMenu?(slug: string): LibraryItemMenuOrganize | undefined;
+  /** Files a document from the item menu (09 §4.2). */
+  moveDocument?(slug: string, to: LibraryLocation): void;
 }
 
 export interface ShellPaths {
@@ -444,7 +449,7 @@ export function showMainWindow(): void {
 }
 
 /** Native Library item menu for `eli5:app:context-menu` (11 §5.2, §10); the IPC handler calls this. */
-export function showLibraryItemMenu(slug: string, a: LibraryItemMenuActions): void {
+export function showLibraryItemMenu(slug: string, a: LibraryItemMenuActions, organize?: LibraryItemMenuOrganize): void {
   const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
-  Menu.buildFromTemplate(libraryItemMenuTemplate(slug, a)).popup(win ? { window: win } : {});
+  Menu.buildFromTemplate(libraryItemMenuTemplate(slug, a, organize)).popup(win ? { window: win } : {});
 }

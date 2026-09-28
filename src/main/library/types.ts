@@ -5,12 +5,18 @@
 import type {
   CatalogEntry,
   DocHistoryState,
+  FolderId,
+  LibraryFolder,
   LibraryInfo,
+  LibraryLocation,
+  LibraryMoveReceipt,
+  LibraryOrganization,
   MenuAction,
   MergeSuggestion,
   MergeSuggestionStatus,
   PublicationRecord,
   SectionId,
+  TrashItem,
 } from '../../preload/contract';
 import type { Edition } from '../editions';
 import type { SkippedSource } from '../sources';
@@ -19,7 +25,13 @@ import type { JobWarning } from '../pipeline';
 export type {
   CatalogEntry,
   DocHistoryState,
+  FolderId,
+  LibraryFolder,
   LibraryInfo,
+  LibraryLocation,
+  LibraryMoveReceipt,
+  LibraryOrganization,
+  TrashItem,
   MenuAction,
   MergeSuggestion,
   MergeSuggestionStatus,
@@ -107,6 +119,29 @@ export interface DocumentMeta {
   publications: PublicationRecord[];
 }
 
+/** One `.trash/` entry's record in `.eli5/organization.json` (09 §4.2). */
+export interface TrashRecord {
+  docId: string;
+  trashedAt: string;
+  reason: 'trashed' | 'merged';
+  from: Exclude<LibraryLocation, 'trash'>;
+  fromName?: string;
+  mergedInto?: string;
+}
+
+/**
+ * `.eli5/organization.json` (09 §4.2): folders, where each document is filed, and what the Trash
+ * holds. Keyed by document id, so a catalog rebuild never touches it. Missing file: all unfiled.
+ */
+export interface OrganizationFile {
+  schemaVersion: number;
+  folders: LibraryFolder[];
+  /** Document id -> 'archive' or a folder id; absent means unfiled. */
+  placement: Record<string, 'archive' | FolderId>;
+  /** Trash id (the `.trash/` folder name) -> record. */
+  trashed: Record<string, TrashRecord>;
+}
+
 /** .eli5/suggestions.json (09 §10.5). */
 export interface SuggestionsFile {
   schemaVersion: 1;
@@ -173,7 +208,7 @@ export interface PriorVersionState {
 }
 
 /** 09 §9. */
-export type LibraryChangeReason = 'created' | 'updated' | 'removed' | 'merged' | 'reconciled';
+export type LibraryChangeReason = 'created' | 'updated' | 'removed' | 'merged' | 'reconciled' | 'restored';
 
 /** Library facade (09 §9). Implemented in M1. */
 export interface Library {
@@ -199,8 +234,23 @@ export interface Library {
   suggestions(): MergeSuggestion[];
   acceptSuggestion(id: string): Promise<{ targetSlug: string }>;
   dismissSuggestion(id: string): Promise<void>;
+  /** Folders, Archive and Trash (09 §4.2). */
+  organization(): Promise<LibraryOrganization>;
+  folders(): LibraryFolder[];
+  locationOf(docId: string): Exclude<LibraryLocation, 'trash'>;
+  createFolder(name: string): Promise<LibraryFolder>;
+  renameFolder(id: string, name: string): Promise<LibraryFolder>;
+  deleteFolder(id: string): Promise<{ trashed: number }>;
+  moveDocument(slug: string, to: LibraryLocation, opts?: { undo?: boolean }): Promise<LibraryMoveReceipt>;
+  putBack(trashId: string): Promise<{ slug: string }>;
+  deletePermanently(trashId: string): Promise<void>;
+  emptyTrash(): Promise<{ deleted: number }>;
   on(event: 'changed', cb: (e: { reason: LibraryChangeReason; slugs: string[] }) => void): () => void;
   on(event: 'suggestions', cb: (s: MergeSuggestion[]) => void): () => void;
+  /** Folders, placement or Trash changed (09 §4.2). */
+  on(event: 'organization', cb: () => void): () => void;
+  /** A document was moved (09 §4.2); the app shows an Undo toast (11 §5.2). */
+  on(event: 'moved', cb: (r: LibraryMoveReceipt) => void): () => void;
 }
 
 /** 09 §9. */
@@ -215,7 +265,11 @@ export type LibraryErrorCode =
   | 'SUGGESTION_STALE'
   | 'MERGE_FAILED'
   | 'PATH_OUTSIDE_ROOT'
-  | 'HISTORY_EMPTY';
+  | 'HISTORY_EMPTY'
+  | 'FOLDER_NOT_FOUND'
+  | 'FOLDER_NAME_INVALID'
+  | 'FOLDER_NAME_TAKEN'
+  | 'TRASH_ITEM_NOT_FOUND';
 
 export class LibraryError extends Error {
   readonly code: LibraryErrorCode;

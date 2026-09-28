@@ -9,7 +9,11 @@ import type {
   CatalogEntry,
   IpcResult,
   JobSnapshot,
+  LibraryFolder,
   LibraryInfo,
+  LibraryLocation,
+  LibraryMoveReceipt,
+  LibraryOrganization,
   StartJobRequest,
 } from '../../../../src/preload/contract';
 
@@ -78,6 +82,41 @@ export class FakeJobs {
 export class FakeLibrary {
   entries: CatalogEntry[] = [entry('solar-power'), entry('tax-basics')];
   private listeners = new Set<(e: { reason: 'created'; slugs: string[] }) => void>();
+  private orgListeners = new Set<() => void>();
+  private movedListeners = new Set<(r: LibraryMoveReceipt) => void>();
+  org: LibraryOrganization = { folders: [], placement: {}, trash: [], trashRetentionDays: 30 };
+  organization = vi.fn(async (): Promise<LibraryOrganization> => structuredClone(this.org));
+  createFolder = vi.fn(async (name: string): Promise<LibraryFolder> => ({
+    id: 'f-0000000a',
+    name,
+    createdAt: '2026-01-02T03:04:05.000Z',
+  }));
+  renameFolder = vi.fn(async (id: string, name: string): Promise<LibraryFolder> => ({
+    id: id as LibraryFolder['id'],
+    name,
+    createdAt: '2026-01-02T03:04:05.000Z',
+  }));
+  deleteFolder = vi.fn(async (_id: string) => ({ trashed: 0 }));
+  moveDocument = vi.fn(
+    async (slug: string, to: LibraryLocation, opts: { undo?: boolean } = {}): Promise<LibraryMoveReceipt> => ({
+      slug,
+      docId: `id-${slug}`,
+      title: slug,
+      from: 'unfiled',
+      to,
+      ...(to === 'trash' ? { trashId: `${slug}--20260102T030405` } : {}),
+      ...(opts.undo ? { undo: true } : {}),
+    }),
+  );
+  putBack = vi.fn(async (trashId: string) => ({ slug: trashId.split('--')[0] ?? '' }));
+  deletePermanently = vi.fn(async (_trashId: string) => {});
+  emptyTrash = vi.fn(async () => ({ deleted: 0 }));
+  emitOrganization(): void {
+    for (const cb of this.orgListeners) cb();
+  }
+  emitMoved(r: LibraryMoveReceipt): void {
+    for (const cb of this.movedListeners) cb(r);
+  }
   info(): LibraryInfo {
     return { root: '/tmp/lib', readOnly: false, count: this.entries.length };
   }
@@ -87,9 +126,15 @@ export class FakeLibrary {
   hasSlug(slug: string): boolean {
     return this.entries.some((e) => e.topicSlug === slug);
   }
-  on(_event: 'changed', cb: (e: { reason: 'created'; slugs: string[] }) => void): () => void {
-    this.listeners.add(cb);
-    return () => this.listeners.delete(cb);
+  on(event: 'changed', cb: (e: { reason: 'created'; slugs: string[] }) => void): () => void;
+  on(event: 'organization', cb: () => void): () => void;
+  on(event: 'moved', cb: (r: LibraryMoveReceipt) => void): () => void;
+  on(event: 'changed' | 'organization' | 'moved', cb: (e: never) => void): () => void {
+    const set = (
+      event === 'changed' ? this.listeners : event === 'organization' ? this.orgListeners : this.movedListeners
+    ) as Set<typeof cb>;
+    set.add(cb);
+    return () => set.delete(cb);
   }
   emit(slugs: string[]): void {
     for (const cb of this.listeners) cb({ reason: 'created', slugs });

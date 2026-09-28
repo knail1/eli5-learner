@@ -45,14 +45,14 @@ The app runs as a normal window plus a persistent menu bar item. Closing the win
 **Menu bar item**
 
 - Always present while the app runs, including after the main window is closed.
-- Shows the last 3 finished documents at the top. Clicking one opens that document in the app's viewer (reopening the main window if needed).
+- Shows the last 3 finished documents at the top, leaving out archived and trashed ones. Clicking one opens that document in the app's viewer (reopening the main window if needed).
 - Entries are finished documents only, not sessions or source material.
 - Includes Open ELI5 Learner and Quit.
 - A newly finished document appears here automatically, and a native macOS notification announces it (see Completion notifications).
 
 **Main window, modeled on the Claude app and VS Code**
 
-- **Left sidebar, Library:** every finished document, newest first, titled by topic. Clicking one renders it in the main area.
+- **Left sidebar, Library:** every finished document, newest first, titled by topic. Clicking one renders it in the main area. Documents can be filed in folders, archived, or moved to the Trash so a long list stays manageable (see Organizing the Library).
 - **Main area, Viewer:** renders the generated HTML directly in an embedded Electron view. The user never sees raw HTML.
 - **Input zone:** one drop box accepting drag and drop, paste (Cmd+V), and a URL field, plus an optional single line or multiline text field for clarifying specifics. Enter starts generation.
 - **Status area (lower right):** a simple, human readable status line per job, for example Reading sources, Extracting content, Generating document, Done. No verbose logs.
@@ -198,12 +198,24 @@ All documents live inside the Electron app's own project directory, one folder p
 - `meta.json` records the sources used, sources skipped, the clarifying input, and the tab list.
 - The catalog powers the Library sidebar, the menu bar list, and merge matching, so no document is re read to list or compare.
 
+**Organizing the Library**
+
+A long Library is pruned with folders, an Archive and a Trash. Nothing here asks a question mid-task, and only emptying the Trash (or deleting one trashed document for good) cannot be undone.
+
+- **Folders:** a "New folder" button beside the Library heading. Folders are one level deep, collapsible and renamable. Unfiled documents are listed first. The filter searches inside folders and opens the ones that match. Deleting a folder moves its documents to the Trash, which remembers the folder they came from.
+- **Moving:** drag a document onto a folder, or use its context menu: Move to (a folder or No folder), Archive, Move to Trash. Cmd+Delete on a selected document moves it to the Trash.
+- **Swipe:** on a document, a two-finger swipe (or a drag) left archives it and right moves it to the Trash. The row slides to reveal a colored action; a short swipe leaves the action button showing to click.
+- **Archive:** a built-in folder above the Trash that cannot be renamed or deleted. Archived documents stay in the Library but leave the menu bar list.
+- **Trash:** a row at the bottom of the sidebar with a count. Trashed documents leave the Library and the menu bar list, but their files are kept inside the library folder and can be put back to where they were (or unfiled if that folder is gone). Documents removed by accepting a merge suggestion also appear there. Delete Permanently and Empty Trash each ask for one confirmation. The Trash is managed by the app, not the system Trash, and old entries are cleared after a retention period.
+- **Undo:** each move shows a short "Moved to … · Undo" notice; Cmd+Z undoes it while the notice is showing.
+- Opening a trashed document from a notification or a stale link shows that it is in the Trash, with Put Back.
+
 **Post generation merge suggestions**
 
 1. Only after a new document is fully generated and saved, the app compares its summary against the catalog.
 2. If a strong match exists, it posts a non blocking suggestion: "This looks related to *X*. Merge it in or keep it separate?"
 3. The suggestion waits in the suggestions area until the user acts. It never interrupts or gates generation.
-4. On accept, v1 appends the new material to the existing document as a clearly marked new section, and the standalone document is removed from the Library. Intelligent weaving into existing sections is future work.
+4. On accept, v1 appends the new material to the existing document as a clearly marked new section, and the standalone document is moved to the Trash (restorable with Put Back). Intelligent weaving into existing sections is future work.
 5. On dismiss, both documents remain.
 
 ## Enterprise publishing (documented, not implemented in v1)

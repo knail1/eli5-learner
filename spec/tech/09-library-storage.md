@@ -25,6 +25,7 @@ Related: [01-architecture.md](01-architecture.md) · [02-llm-provider.md](02-llm
 | `src/main/library/catalog.ts` | Load, validate, upsert, remove, rebuild and reconcile |
 | `src/main/library/library.ts` | `Library` facade used by the pipeline, document, publish and tray modules |
 | `src/main/library/prior.ts` | The single prior version per document: stage, install, read, labels (§4.1) |
+| `src/main/library/organization.ts` | Folders, Archive and Trash: `organization.json` schema, name rules, trash ids (§4.2); `FsLibrary` does the I/O |
 | `src/main/library/merge/similarity.ts` | Lexical prefilter (`SimilarityScorer`) |
 | `src/main/library/merge/check.ts` | `runMergeCheck(docId)` |
 | `src/main/library/merge/suggestions.ts` | Suggestion store, lifecycle, accept and dismiss |
@@ -69,9 +70,11 @@ Everything the library writes there is covered by the existing `docs/*` rule in 
     meta.json                       # DocumentMeta (§5.2)
     .prev/                          # the single prior version: index.html, meta.json, state.json (§4.1)
   .staging/<jobId>/                 # save staging, owned by the pipeline (06 §5.7)
-  .trash/<slug>--<yyyymmddThhmmss>/ # folders removed by merge, plus pre-merge backups (§10.6)
+  .trash/<slug>--<yyyymmddThhmmss>/ # the Trash: trashed documents and merged-away sources (§4.2)
+  .trash/<slug>--<ts>-premerge/     # pre-merge backups (§10.6); housekeeping, never listed
   .eli5/
     suggestions.json                # SuggestionsFile (§9.3)
+    organization.json               # folders, placement, Trash records (§4.2)
     library.lock                    # process lock (§8.4)
 ```
 
@@ -92,7 +95,20 @@ The PRD's full per-section history is future work. v1 keeps exactly **one** prio
 - **Pairing.** A slot counts only while `pairedUpdatedAt` equals the live `meta.json` `updatedAt`. Any other rewrite of the live meta (a reconcile patch, an edit by hand, a crash between the commit point and the install) voids it: history reports nothing to undo.
 - **Swap** (`undo(slug)` / `redo(slug)`, under `withDocLock(slug)`): undo needs `slot: 'undo'`, redo `slot: 'redo'`, otherwise `HISTORY_EMPTY`. Stage the live `index.html` and `meta.json` as the new slot with the opposite `slot` and the same `label`; write the slot's `index.html`, then its `meta.json` with `id`, `topicSlug`, `createdAt` and `publications` taken from the live meta (they must not travel back in time) and `updatedAt` = now; install the staged slot; upsert the catalog entry (`title`, `updatedAt`, `tabCount`, `mergedFromCount`) and write `catalog.json`; emit `changed {reason:'updated'}`. Everything else in `meta.json` (`tabs`, `retiredIds`, `actions`, `merges`, sources) travels with the content. A new change after an undo overwrites the slot, so redo is lost.
 - **Crash safety.** Each file write is atomic (§8.1). A crash between the two renames leaves no `.prev/` (nothing to undo), never a mixed one; reconcile's housekeeping deletes `.prev.tmp-*` folders older than 1 hour (§7 step 8).
-- Undoing a merge restores the target's pre-merge content; the merged-away source stays in `.trash/` (§10.6) and is not restored.
+- Undoing a merge restores the target's pre-merge content; the merged-away source stays in the Trash (§10.6). Undo does not restore it; Put Back does (§4.2).
+
+### 4.2 Folders, Archive and Trash
+
+A long Library is organized without touching document folders or slugs: folder membership is data, and the Trash reuses `.trash/`.
+
+- **`.eli5/organization.json`** `{schemaVersion: 1, folders: LibraryFolder[], placement: {[docId]: 'archive' | FolderId}, trashed: {[trashId]: TrashRecord}}`. Keyed by document id, so a catalog rebuild (§7) never touches it and folder membership survives a deleted or corrupt `catalog.json`. Missing file: every document is unfiled; that is the whole migration of a flat library, and nothing is written until the first change. Read with §5.3 (a corrupt file is renamed `.corrupt-<ts>` and the Library opens with everything unfiled; a newer version is read-only mode). Written atomically (§8.1), always under `withCatalogLock`, by `FsLibrary` only.
+- **Folders** are one level deep: `{id: 'f-' + 8 hex, name, createdAt}`. Names are trimmed to one line, 1..60 characters, unique ignoring case, and never `Archive` or `Trash` (`FOLDER_NAME_INVALID`, `FOLDER_NAME_TAKEN`). Deleting a folder moves each of its documents to the Trash (each record keeps the folder's name) and then drops the folder.
+- **Archive** is the built-in placement `'archive'`: not renamable or deletable. Archived documents stay catalogued and openable; `recents()` (§9.1) leaves them out, so they leave the menu bar list.
+- **Trash** is `.trash/`. `trashDocument(slug)` (and `moveDocument(slug, 'trash')`) takes `withDocLock(slug)` then the catalog lock, renames the folder to `.trash/<slug>--<ts>[-n]` (the *trash id*), drops the catalog entry, removes its placement, and records `{docId, trashedAt, reason: 'trashed', from, fromName?}`. The files, `.prev/` included, stay intact. The merge flow's step 8 (§10.6) records the source as `reason: 'merged'` with the target's title (`noteMergedAway`), so merged-away sources are listed and can be put back too. Pre-merge backups (`…-premerge`) are merge housekeeping: never listed, emptied or put back. A trash folder with no record (trashed before this existed) lists as trashed from unfiled at its name's timestamp.
+- **Slugs of trashed documents are not reused.** `allocateSlug` (§6.2) counts `.trash/` entries as taken, so Put Back normally restores the same slug (and the same `eli5doc://` URL and publication records). If the name was taken anyway (a folder copied in by hand), Put Back picks a fresh slug with `chooseSlug` and rewrites `meta.topicSlug`; if the document's id is live again, it gets a new id (as §7 step 4 would).
+- **Put Back** `putBack(trashId)`: under `withDocLock(oldSlug)` then the catalog lock, rename `.trash/<trashId>` back to `<root>/<slug>`, upsert the catalog entry, place it where its record says when that still exists (a folder or the Archive), else unfiled, and drop the record. Emits `changed {reason: 'restored'}`.
+- **Delete Permanently / Empty Trash** remove one or every Trash entry (`rm -r`) and their records. They are the only irreversible library operations; the app asks once before each (11 §5.2). Retention still applies: entries older than `trashRetentionDays` (HOOK-LIB-01) are purged at startup (§7 step 8), which also drops records of entries that are gone.
+- **Moves** (`moveDocument(slug, to)`, `to` = `'unfiled' | 'archive' | 'trash' | FolderId`) return a `LibraryMoveReceipt {slug, docId, title, from, to, trashId?, undo?}` and emit `moved` with it, so the app can offer Undo: a move back to `from`, or Put Back for the Trash. Every organization change emits `organization`.
 
 ## 5. Schemas
 
@@ -276,7 +292,7 @@ Reservations are in memory only. After a crash, pipeline recovery re-derives the
    - A folder with no entry is added. This covers the crash window between the folder rename and the catalog upsert ([06](06-generation-pipeline.md) §5.7 step 4).
    - Where both exist, meta wins for every field.
 7. If anything changed, write `catalog.json` atomically, then emit `changed`.
-8. Delete `.tmp-*` files, and `.prev.tmp-*` folders inside document folders (§4.1), older than 1 hour. Purge `.trash/` entries older than the retention period (§9). Run suggestion validation (§9.4).
+8. Delete `.tmp-*` files, and `.prev.tmp-*` folders inside document folders (§4.1), older than 1 hour. Purge `.trash/` entries older than the retention period (§9) and drop the Trash records of entries that no longer exist (§4.2). Run suggestion validation (§9.4). `organization.json` is not read here and is never rebuilt from folders.
 
 Complexity is O(n) small JSON reads. It runs in under 200 ms for 1,000 documents on a local SSD, which is acceptable at startup. v1 has no file watcher. External edits are picked up on the next launch.
 
@@ -338,7 +354,7 @@ Entered on a newer schema (§5.3 step 3) or a held process lock. Listing, viewin
 ## 9. Library API
 
 ```ts
-export type LibraryChangeReason = 'created' | 'updated' | 'removed' | 'merged' | 'reconciled';
+export type LibraryChangeReason = 'created' | 'updated' | 'removed' | 'merged' | 'reconciled' | 'restored';
 
 export interface Library {
   readonly root: string;
@@ -367,6 +383,18 @@ export interface Library {
   withDocLocks<T>(slugs: string[], fn: () => Promise<T>): Promise<T>;
   reconcile(): Promise<void>;
 
+  // folders, Archive and Trash (§4.2)
+  organization(): Promise<LibraryOrganization>;           // folders by name, placements of catalogued ids, Trash newest first
+  folders(): LibraryFolder[];
+  locationOf(docId: string): 'unfiled' | 'archive' | FolderId;
+  createFolder(name: string): Promise<LibraryFolder>;
+  renameFolder(id: string, name: string): Promise<LibraryFolder>;
+  deleteFolder(id: string): Promise<{ trashed: number }>;   // its documents go to the Trash
+  moveDocument(slug: string, to: LibraryLocation, opts?: { undo?: boolean }): Promise<LibraryMoveReceipt>;
+  putBack(trashId: string): Promise<{ slug: string }>;
+  deletePermanently(trashId: string): Promise<void>;
+  emptyTrash(): Promise<{ deleted: number }>;
+
   // merge
   runMergeCheck(docId: string): Promise<MergeSuggestion | null>;
   suggestions(): MergeSuggestion[];                        // pending only, newest first
@@ -375,12 +403,15 @@ export interface Library {
 
   on(event: 'changed', cb: (e: { reason: LibraryChangeReason; slugs: string[] }) => void): () => void;
   on(event: 'suggestions', cb: (s: MergeSuggestion[]) => void): () => void;
+  on(event: 'organization', cb: () => void): () => void;   // folders, placement or Trash changed
+  on(event: 'moved', cb: (r: LibraryMoveReceipt) => void): () => void;
 }
 
 export type LibraryErrorCode =
   | 'WRITE_FAILED' | 'SLUG_TAKEN' | 'NOT_FOUND' | 'META_INVALID' | 'LIBRARY_READ_ONLY'
   | 'LOCK_REENTRY' | 'LOCK_NOT_HELD' | 'SUGGESTION_STALE' | 'MERGE_FAILED' | 'PATH_OUTSIDE_ROOT'
-  | 'HISTORY_EMPTY';                                       // undo/redo with nothing in that direction (§4.1)
+  | 'HISTORY_EMPTY'                                        // undo/redo with nothing in that direction (§4.1)
+  | 'FOLDER_NOT_FOUND' | 'FOLDER_NAME_INVALID' | 'FOLDER_NAME_TAKEN' | 'TRASH_ITEM_NOT_FOUND'; // §4.2
 export class LibraryError extends Error { constructor(public code: LibraryErrorCode, public detail?: object) { super(code); } }
 ```
 
@@ -392,7 +423,7 @@ Retention constants: `TRASH_RETENTION_DAYS = 30`, `RESOLVED_SUGGESTION_RETENTION
 
 ### 9.1 Menu bar recents
 
-- `recents(3)` returns the 3 catalog entries with the latest `createdAt`, meaning the last 3 **finished** documents (PRD "Menu bar item"). Regenerating a section changes `updatedAt` but does not move a document up. That keeps the list stable and matches "newly finished document appears here".
+- `recents(3)` returns the 3 catalog entries with the latest `createdAt` that are not archived, meaning the last 3 **finished** documents (PRD "Menu bar item"). Trashed documents are not catalogued, so they never appear; archived ones are skipped (§4.2). The tray feed does the same from the `eli5:library:organization-changed` placements. Regenerating a section changes `updatedAt` but does not move a document up. That keeps the list stable and matches "newly finished document appears here".
 - A merge removes the source entry, so it drops out of recents. The target keeps its original `createdAt`.
 - The tray module ([11](11-app-shell-ui.md)) subscribes to `library.on('changed')` in the main process and rebuilds the menu. No IPC is involved. Clicking an entry calls the same code path as `eli5:library:open {slug}`, reopening the main window if needed.
 - The Library sidebar uses `list()`, which has the same ordering.
@@ -532,7 +563,7 @@ export interface SuggestionsFile {
 5. **Backup:** copy the target's `index.html` and `meta.json` to `.trash/<target.slug>--<ts>-premerge/`. This makes a bad merge recoverable by hand. The step 7 write also keeps the pre-merge target as its prior version (§4.1, label `merged '<source title>' in`), so Undo reverts the merge's content. Per-section history is future work.
 6. `appendMergedDocument(...)` (§10.3). A thrown error → `MERGE_FAILED`, go to step 11.
 7. Write the target `index.html` atomically, then the target `meta.json` atomically, with `tabs` from the result, `sourcesUsed` / `sourcesSkipped` unioned (source items tagged `origin: 'merge:<sourceId>'`, dedup by `ref` + `sha256`), and a new `MergeRecord` appended. **This `meta.json` write is the commit point.**
-8. `rename(root/source.slug, .trash/<source.slug>--<ts>)`.
+8. `rename(root/source.slug, .trash/<source.slug>--<ts>)`, then record it in `organization.json` as merged into the target (§4.2), so it is listed in the Trash and can be put back.
 9. `withCatalogLock`: remove the source entry. Update the target entry (`updatedAt`, `tabCount`, `mergedFromCount`). Write atomically.
 10. `withSuggestionsLock`: set this suggestion `accepted` with `resolvedAt`. Any other `pending` suggestion that references the source becomes `stale`. Persist.
 11. On error before step 7: restore nothing (the target is untouched), set `pending` with `lastError = "Could not merge. The documents were left unchanged."`, and persist. On error after step 7: continue steps 8–10 on the next reconcile (§10.8).
@@ -561,12 +592,24 @@ Channels are registered in `src/main/ipc/library.ts`. Payloads are validated in 
 | `eli5:library:reveal` | R→M invoke | `{slug}` → `void`. `shell.showItemInFolder` on the document folder |
 | `eli5:library:info` | R→M invoke | `void` → `{root: string; readOnly: boolean; readOnlyReason?: string; count: number}` (new here, for Settings) |
 | `eli5:library:changed` | M→R event | `{entries: CatalogEntry[]}` |
+| `eli5:library:organization` | R→M invoke | `void` → `LibraryOrganization` (§4.2) |
+| `eli5:library:create-folder` | R→M invoke | `{name}` (≤ 200 chars; the library applies §4.2's rules) → `LibraryFolder` |
+| `eli5:library:rename-folder` | R→M invoke | `{folderId, name}` → `LibraryFolder` |
+| `eli5:library:delete-folder` | R→M invoke | `{folderId}` → `{trashed: number}` |
+| `eli5:library:move` | R→M invoke | `{slug, to: 'unfiled' \| 'archive' \| 'trash' \| FolderId, undo?}` → `LibraryMoveReceipt` |
+| `eli5:library:put-back` | R→M invoke | `{trashId}` (`<slug>--<yyyymmddThhmmss>[-n]`) → `{slug}` |
+| `eli5:library:delete-permanently` | R→M invoke | `{trashId}` → `void` |
+| `eli5:library:empty-trash` | R→M invoke | `void` → `{deleted: number}` |
+| `eli5:library:organization-changed` | M→R event | `{organization: LibraryOrganization}`, after any organization or catalog change (only the newest of overlapping pushes is sent) |
+| `eli5:library:moved` | M→R event | `LibraryMoveReceipt`, for every move including the native item menu's (the app shows its Undo toast) |
 | `eli5:suggestions:list` | R→M invoke | `void` → `MergeSuggestion[]` (pending and accepting) |
 | `eli5:suggestions:accept` | R→M invoke | `{suggestionId}` → `{targetSlug}` or `IpcError` (`SUGGESTION_STALE`, `MERGE_FAILED`, `LIBRARY_READ_ONLY`) |
 | `eli5:suggestions:dismiss` | R→M invoke | `{suggestionId}` → `void` |
 | `eli5:suggestions:changed` | M→R event | `{suggestions: MergeSuggestion[]}`. This is the event [06](06-generation-pipeline.md) §10 step 5 refers to as the library's suggestion event |
 
 Undo/redo of a document (§4.1) is exposed through 08's service as `eli5:doc:history`, `eli5:doc:undo`, `eli5:doc:redo` and `eli5:doc:history-changed` ([01](01-architecture.md) §5.2, [08](08-interactive-reading.md) §6.7), because only 08 knows which sections are busy.
+
+The organization channels are app-window only (the viewer gets `E_FORBIDDEN`, like `eli5:doc:history`). Folder ids and trash ids are matched against their patterns in the zod schemas, so a path never reaches the library. Refusals map to `E_NOT_FOUND` (folder or Trash item gone), `E_CONFLICT` (name taken), `E_BAD_REQUEST` (name invalid) and `E_LIBRARY_READ_ONLY`.
 
 The renderer never sends file paths. It only sends slugs and IDs, and main resolves those through `docPath`.
 
@@ -589,6 +632,10 @@ The renderer never sends file paths. It only sends slugs and IDs, and main resol
 | Merge check finishes after the new doc was already merged elsewhere | Step 8 re-check discards it ([06](06-generation-pipeline.md) §10 step 6) |
 | New doc and target are the same topic re-run (user pressed Enter twice) | Usually a suggestion with a high score. Accept appends a near-duplicate block. The user can dismiss instead |
 | Library written by a newer app version | Read-only mode (§8.5) |
+| `organization.json` deleted or corrupt | Every document is listed unfiled; the corrupt file is renamed `.corrupt-<ts>`. Documents and the Trash are untouched (§4.2) |
+| A trashed document is opened from a notification or a stale link | Not catalogued, so not served; the app shows it is in the Trash with Put Back (11 §8) |
+| Put Back while a new document took the slug | Restored under a fresh slug with `meta.topicSlug` rewritten (§4.2) |
+| A folder is deleted while one of its documents is trashed | Put Back returns that document unfiled |
 | Undo requested while a section job for the document runs | Refused with `E_CONFLICT` by 08 §6.7; the files are untouched |
 | Crash during an undo, redo or update | Each file is old or new (§8.1); at worst the prior version is voided (§4.1 pairing) and Undo is unavailable |
 | Second process on the same root | Read-only mode (§8.4) |
@@ -613,11 +660,13 @@ Unit (Vitest, temp dir via `ELI5_LIBRARY_DIR`): slugify table tests; allocate un
 - [ ] A stale process lock whose PID was reused by an unrelated process is detected by start time and does not force read-only mode.
 - [ ] Deleting or corrupting `catalog.json` is repaired at startup from folders; folders without valid `meta.json` (including the dev `sample/`) are ignored and never modified.
 - [ ] Files with an older `schemaVersion` migrate with a `.bak`; a newer `schemaVersion` puts the library in read-only mode with a clear status message.
-- [ ] Menu bar shows the 3 most recently finished documents (by `createdAt`) and updates automatically on create and merge.
+- [ ] Menu bar shows the 3 most recently finished documents (by `createdAt`), leaving out archived ones, and updates automatically on create, merge, archive and trash.
+- [ ] Folders (one level), the Archive and the Trash persist in `.eli5/organization.json` by document id, written atomically under the catalog lock; a flat library opens with every document unfiled and nothing lost, and a catalog rebuild keeps folder membership.
+- [ ] Moving to the Trash keeps the files in `.trash/`; Put Back returns the document to its folder or the Archive (unfiled when that is gone) under its old slug when free; Delete Permanently and Empty Trash remove only Trash entries, never pre-merge backups.
 - [ ] The merge check runs only after a create job commits, never affects job status, uses a lexical prefilter (K = 8) then an LLM judge, and posts at most one suggestion when score ≥ 0.75.
 - [ ] LLM failure during the merge check produces no suggestion and no user-visible error.
 - [ ] Suggestions persist across restarts in `.eli5/suggestions.json`, wait until acted on, and go `stale` when either document disappears.
-- [ ] Accept appends the source's content to the target behind clearly marked "Added from" sections with fresh unique SectionIds, merges references and sources, removes the source from the Library (folder moved to `.trash/`), and opens the target at the marker.
+- [ ] Accept appends the source's content to the target behind clearly marked "Added from" sections with fresh unique SectionIds, merges references and sources, removes the source from the Library (folder moved to `.trash/`, listed in the Trash as merged and restorable with Put Back), and opens the target at the marker.
 - [ ] Accept is crash-safe: recovery completes or rolls back an interrupted accept, with `meta.json` as the commit point.
 - [ ] Dismiss leaves both documents unchanged and the same pair is never suggested again.
 - [ ] HOOK-LIB-01 and HOOK-LIB-02 are marked, and the public build uses the default behavior described in each.

@@ -12,6 +12,10 @@
   --ok: #26734d;
   --focus: #1f5fbf;
   --chip: #e7e4dc;
+  /* Swipe actions (11 §5.2): Archive olive, Trash rust; text on them uses --on-action. */
+  --archive: #5c6b2e;
+  --trash: #b4452a;
+  --on-action: #ffffff;
   --sidebar-w: 272px;
   font:
     14px/1.5 -apple-system,
@@ -32,6 +36,9 @@
     --ok: #7fd1a4;
     --focus: #7fb0ff;
     --chip: #302f2b;
+    --archive: #a3b56b;
+    --trash: #e8836a;
+    --on-action: #1b1b1a;
   }
 }
 @media (prefers-contrast: more) {
@@ -165,12 +172,205 @@ body {
   width: 100%;
   margin-bottom: 8px;
 }
+.library-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.new-folder {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 2px 6px;
+}
+.new-folder:hover {
+  color: var(--fg);
+  background: var(--chip);
+}
+.library-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
 .library-list {
   list-style: none;
   margin: 0;
   padding: 0;
-  overflow: auto;
+}
+.library-list.unfiled {
+  min-height: 4px;
+  border-radius: 6px;
+}
+.library-list.in-folder {
+  padding-left: 12px;
+}
+.dragging .library-list.unfiled {
+  min-height: 28px;
+}
+.drop-hint {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+}
+.drop-over {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+/* A row slides over its swipe action; the action fills the row behind it. */
+.doc-row {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+}
+.swipe-action {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  border-radius: 6px;
+}
+.swipe-action.swipe-archive {
+  justify-content: flex-end;
+  background: var(--archive);
+}
+.swipe-action.swipe-trash {
+  justify-content: flex-start;
+  background: var(--trash);
+}
+.swipe-button {
+  width: 76px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--on-action);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0 4px;
+}
+.doc-row .library-item {
+  position: relative;
+  background: var(--panel);
+  touch-action: pan-y;
+}
+.library-item.settling {
+  transition: transform 160ms ease-out;
+}
+.folder {
+  margin-top: 2px;
+}
+.folder-head {
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+}
+.folder-toggle {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  padding: 4px 8px;
+  text-align: left;
+  font-weight: 600;
+}
+.folder-toggle:hover {
+  background: var(--chip);
+}
+.chevron {
+  display: inline-block;
+  font-size: 10px;
+  transition: transform 120ms ease-out;
+}
+.folder-toggle[aria-expanded='true'] .chevron {
+  transform: rotate(90deg);
+}
+.folder-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.count {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.folder-action {
+  border: 0;
+  background: transparent;
+  padding: 2px 6px;
+  color: var(--muted);
+  opacity: 0;
+}
+.folder-head:hover .folder-action,
+.folder-head:focus-within .folder-action {
+  opacity: 1;
+}
+.folder-empty {
+  font-size: 12px;
+  padding: 2px 8px;
+}
+.name-field {
+  padding: 2px 0;
+}
+.name-field input {
+  width: 100%;
+}
+.trash-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  margin: 4px 0;
+  border: 0;
+  background: transparent;
+  padding: 4px 8px;
+  text-align: left;
+}
+.trash-row:hover {
+  background: var(--chip);
+}
+.trash-row[aria-current='page'] {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+.trash-row[aria-current='page'] .count {
+  color: inherit;
+}
+.toast {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 4px 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 13px;
+}
+.toast button.link {
+  color: inherit;
+  font-weight: 600;
+}
+.drag-ghost {
+  position: fixed;
+  z-index: 10;
+  max-width: 220px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  pointer-events: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .library-item {
   display: flex;
@@ -226,6 +426,19 @@ body {
   padding: 8px;
   margin-bottom: 8px;
   background: var(--bg);
+  text-align: left;
+}
+/* Titles read as inline prose: they wrap with the sentence and keep its period attached. */
+.title-link {
+  color: var(--accent);
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+/* "New: <title>" stays on one line; a long title ends in an ellipsis (the full text is the link's). */
+.suggestion-new {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .suggestion-card p {
   margin: 0 0 4px;
@@ -236,6 +449,51 @@ body {
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+/* ---- Trash view (11 §5.2) ---- */
+.trash-view {
+  padding: 36px 32px 24px;
+  max-width: 760px;
+}
+.trash-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.trash-head h1 {
+  margin: 0;
+}
+.trash-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+.trash-item {
+  border-top: 1px solid var(--line);
+  padding: 8px 0;
+}
+.trash-text {
+  display: flex;
+  flex-direction: column;
+}
+.trash-detail {
+  font-size: 12px;
+}
+.confirm {
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 8px 0;
+}
+.confirm p {
+  margin: 0;
+}
+button.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--accent-fg);
 }
 
 /* ---- viewer ---- */

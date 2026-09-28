@@ -17,6 +17,8 @@ import { navigate, setTrayAvailable, shellHooks, showMainWindow } from './window
 
 let tray: Tray | undefined;
 let model: TrayModel = { recent: [], activeJobs: 0 };
+let catalog: readonly CatalogEntry[] = [];
+let archived: ReadonlySet<string> = new Set();
 let busyIcon = false;
 
 const actions: TrayActions = {
@@ -78,7 +80,15 @@ export function rebuildTrayMenu(): void {
 
 /** Feed from `eli5:library:changed` (and the startup `library:list`). */
 export function setTrayCatalog(entries: readonly CatalogEntry[]): void {
-  model = { ...model, recent: recentFromCatalog(entries) };
+  catalog = [...entries];
+  model = { ...model, recent: recentFromCatalog(catalog, archived) };
+  rebuildTrayMenu();
+}
+
+/** Feed from `eli5:library:organization-changed`: archived documents leave the recents (09 §4.2). */
+export function setTrayArchived(ids: ReadonlySet<string>): void {
+  archived = new Set(ids);
+  model = { ...model, recent: recentFromCatalog(catalog, archived) };
   rebuildTrayMenu();
 }
 

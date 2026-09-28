@@ -8,7 +8,28 @@ import { log as defaultLog, type Logger } from '../security';
 import { catalogFile, diffEntries, entryFromMeta, newestFirst, sanitizeMeta, uuidFrom } from './catalog';
 import { DIR_MODE, errnoOf, fsyncDir, isErrno, renameDirAtomic, writeFileAtomic, writeJsonAtomic } from './fs-atomic';
 import { LockSet, acquireProcessLock, releaseProcessLock } from './locks';
-import { catalogMigrations, compactTimestamp, metaMigrations, readVersioned } from './migrations';
+import {
+  catalogMigrations,
+  compactTimestamp,
+  metaMigrations,
+  organizationMigrations,
+  readVersioned,
+} from './migrations';
+import {
+  ORGANIZATION_FILE,
+  ORGANIZATION_SCHEMA_VERSION,
+  OrganizationFileSchema,
+  TRASH_ID_RE,
+  cleanFolderName,
+  emptyOrganization,
+  folderNameTaken,
+  isFolderId,
+  locationIn,
+  organizationView,
+  slugOfTrashId,
+  sortedFolders,
+  withPlacement,
+} from './organization';
 import { defaultLibraryPolicy } from './policy';
 import {
   PREV_DIR,
@@ -29,18 +50,26 @@ import {
   type DocHistoryState,
   type DocumentMeta,
   type DocumentPatch,
+  type FolderId,
   type Library,
   type LibraryChangeReason,
   type LibraryClock,
+  type LibraryFolder,
   type LibraryIdSource,
   type LibraryInfo,
+  type LibraryLocation,
+  type LibraryMoveReceipt,
+  type LibraryOrganization,
   type LibraryPolicy,
   type LibraryRootInput,
   type MergeSuggestion,
+  type OrganizationFile,
   type ProcessProbe,
   type PublicationRecord,
   type ReadOnlyReason,
   type SlugReservation,
+  type TrashItem,
+  type TrashRecord,
 } from './types';
 
 /** Hidden housekeeping folders and files (09 §4). */
@@ -192,6 +221,7 @@ export async function openLibrary(opts: OpenLibraryOptions): Promise<FsLibrary> 
   if (readOnly) lib.enterReadOnly(readOnly);
   try {
     await lib.loadCatalog();
+    await lib.loadOrganization();
     if (opts.reconcile ?? true) await lib.reconcile();
   } catch (err) {
     // Do not leave our lock behind when startup fails (close() is unreachable for the caller).
@@ -224,6 +254,9 @@ export interface MergeDelegate {
 
 type ChangedListener = (e: { reason: LibraryChangeReason; slugs: string[] }) => void;
 type SuggestionsListener = (s: MergeSuggestion[]) => void;
+type OrganizationListener = () => void;
+type MovedListener = (r: LibraryMoveReceipt) => void;
+type Where = Exclude<LibraryLocation, 'trash'>;
 
 export class FsLibrary implements Library {
   readonly root: string;
@@ -234,7 +267,11 @@ export class FsLibrary implements Library {
   private readOnlyReason: ReadOnlyReason | undefined;
   private readonly changedListeners = new Set<ChangedListener>();
   private readonly suggestionsListeners = new Set<SuggestionsListener>();
+  private readonly organizationListeners = new Set<OrganizationListener>();
+  private readonly movedListeners = new Set<MovedListener>();
   private merge: MergeDelegate | undefined;
+  /** `.eli5/organization.json` (09 §4.2); replaced whole on every write, under the catalog lock. */
+  private org: OrganizationFile = emptyOrganization();
 
   constructor(deps: FsLibraryDeps) {
     this.d = deps;
@@ -270,9 +307,11 @@ export class FsLibrary implements Library {
     return newestFirst(this.entries.values()).map((e) => ({ ...e }));
   }
 
-  /** The n latest-created entries (09 §9.1). */
+  /** The n latest-created entries not in the Archive (09 §9.1, §4.2). */
   recents(n = 3): CatalogEntry[] {
-    return this.list().slice(0, Math.max(0, n));
+    return this.list()
+      .filter((e) => locationIn(this.org, e.id) !== 'archive')
+      .slice(0, Math.max(0, n));
   }
 
   getEntry(idOrSlug: string): CatalogEntry | undefined {
@@ -369,6 +408,8 @@ export class FsLibrary implements Library {
       const taken: string[] = [...this.reservations];
       for (const e of this.entries.values()) taken.push(e.topicSlug);
       for (const name of await fsp.readdir(this.root)) taken.push(name);
+      // A trashed document keeps its slug, so Put Back can restore it unchanged (09 §4.2).
+      taken.push(...(await this.trashedSlugs()));
       const slug = chooseSlug(title, hint, taken, {
         now: this.d.clock.now(),
         randomHex: () => this.d.ids.hex(8),
@@ -650,23 +691,37 @@ export class FsLibrary implements Library {
   }
 
   /**
-   * Moves a document folder to `.trash/<slug>--<ts>` and drops its entry (12 §10.2 delete; the
-   * merge flow reuses the move in M3). Takes the doc lock itself.
+   * Moves a document folder to `.trash/<slug>--<ts>`, drops its entry and records where it was
+   * filed (09 §4.2). Takes the doc lock itself. Returns the receipt; the files stay intact.
    */
-  async trashDocument(slug: string): Promise<void> {
+  async trashDocument(slug: string): Promise<LibraryMoveReceipt> {
     this.assertWritable();
     const dir = path.dirname(this.docPath(slug));
-    await this.withDocLock(slug, () =>
+    const receipt = await this.withDocLock(slug, () =>
       this.withCatalogLock(async () => {
         const entry = [...this.entries.values()].find((e) => e.topicSlug === slug);
         if (!entry) throw new LibraryError('NOT_FOUND', { slug });
-        await this.moveToTrash(dir, slug);
+        const from = locationIn(this.org, entry.id);
+        const dest = await this.moveToTrash(dir, slug);
         this.entries.delete(entry.id);
         await this.writeCatalog();
+        const trashId = path.basename(dest);
+        const record: TrashRecord = {
+          docId: entry.id,
+          trashedAt: this.d.clock.now().toISOString(),
+          reason: 'trashed',
+          from,
+          ...(isFolderId(from) ? { fromName: this.folderById(from)?.name ?? '' } : {}),
+        };
+        const next = withPlacement(this.org, entry.id, 'unfiled');
+        await this.writeOrganization({ ...next, trashed: { ...next.trashed, [trashId]: record } });
+        return { slug, docId: entry.id, title: entry.title, from, to: 'trash', trashId } satisfies LibraryMoveReceipt;
       }),
     );
     this.d.logger.info('library.removed', { slug });
     this.emitChanged('removed', [slug]);
+    this.emitOrganization();
+    return receipt;
   }
 
   /** `.trash/<name>--<yyyymmddThhmmss>[-n]` (09 §4). Returns the trash path. */
@@ -681,6 +736,326 @@ export class FsLibrary implements Library {
       throw new LibraryError('WRITE_FAILED', { errno: errnoOf(err) });
     }
     return dest;
+  }
+
+  // ---- organization: folders, Archive, Trash (09 §4.2) ----
+
+  /** Loads `.eli5/organization.json`; missing means every document is unfiled (nothing to migrate). */
+  async loadOrganization(): Promise<void> {
+    const r = await readVersioned<OrganizationFile>(this.organizationPath(), {
+      schema: OrganizationFileSchema,
+      lenient: OrganizationFileSchema.loose(),
+      chain: organizationMigrations,
+      current: ORGANIZATION_SCHEMA_VERSION,
+      allowWrite: !this.readOnly,
+      renameCorrupt: true,
+      now: () => this.d.clock.now(),
+    });
+    switch (r.status) {
+      case 'ok':
+        this.org = r.data;
+        return;
+      case 'newer':
+        this.org = r.data;
+        this.enterReadOnly('newer-schema');
+        return;
+      case 'missing':
+        this.org = emptyOrganization();
+        return;
+      case 'corrupt':
+        this.d.logger.warn('library.organization-invalid', { kind: r.reason });
+        this.org = emptyOrganization();
+        return;
+    }
+  }
+
+  private organizationPath(): string {
+    return path.join(this.root, ELI5_DIR, ORGANIZATION_FILE);
+  }
+
+  /** Caller holds the catalog lock. The file is written first, then the in-memory copy. */
+  private async writeOrganization(next: OrganizationFile): Promise<void> {
+    if (!this.locks.holds(CATALOG_KEY)) throw new LibraryError('LOCK_NOT_HELD', { kind: 'organization' });
+    const file = { ...next, schemaVersion: ORGANIZATION_SCHEMA_VERSION };
+    await writeJsonAtomic(this.organizationPath(), file);
+    this.org = file;
+  }
+
+  private folderById(id: string): LibraryFolder | undefined {
+    return this.org.folders.find((f) => f.id === id);
+  }
+
+  /** User folders by name. */
+  folders(): LibraryFolder[] {
+    return sortedFolders(this.org.folders);
+  }
+
+  /** Where a catalogued document is filed; unknown ids read as unfiled. */
+  locationOf(docId: string): Where {
+    return locationIn(this.org, docId);
+  }
+
+  /** `eli5:library:organization`: folders, placements of catalogued documents, and the Trash. */
+  async organization(): Promise<LibraryOrganization> {
+    const trash = await this.listTrash();
+    return organizationView(this.org, new Set(this.entries.keys()), trash, this.d.policy.trashRetentionDays);
+  }
+
+  async createFolder(name: string): Promise<LibraryFolder> {
+    this.assertWritable();
+    const clean = cleanFolderName(name);
+    if (clean === undefined) throw new LibraryError('FOLDER_NAME_INVALID');
+    const folder = await this.withCatalogLock(async () => {
+      if (folderNameTaken(this.org, clean)) throw new LibraryError('FOLDER_NAME_TAKEN');
+      let id: FolderId;
+      do id = `f-${this.d.ids.hex(8)}`;
+      while (this.folderById(id));
+      const f: LibraryFolder = { id, name: clean, createdAt: this.d.clock.now().toISOString() };
+      await this.writeOrganization({ ...this.org, folders: [...this.org.folders, f] });
+      return f;
+    });
+    this.emitOrganization();
+    return { ...folder };
+  }
+
+  async renameFolder(id: string, name: string): Promise<LibraryFolder> {
+    this.assertWritable();
+    const clean = cleanFolderName(name);
+    if (clean === undefined) throw new LibraryError('FOLDER_NAME_INVALID');
+    const folder = await this.withCatalogLock(async () => {
+      const f = this.folderById(id);
+      if (!f) throw new LibraryError('FOLDER_NOT_FOUND');
+      if (folderNameTaken(this.org, clean, id)) throw new LibraryError('FOLDER_NAME_TAKEN');
+      const renamed = { ...f, name: clean };
+      await this.writeOrganization({ ...this.org, folders: this.org.folders.map((x) => (x.id === id ? renamed : x)) });
+      return renamed;
+    });
+    this.emitOrganization();
+    return { ...folder };
+  }
+
+  /** Moves the folder's documents to the Trash (each remembers the folder's name), then drops it. */
+  async deleteFolder(id: string): Promise<{ trashed: number }> {
+    this.assertWritable();
+    const folder = this.folderById(id);
+    if (!folder) throw new LibraryError('FOLDER_NOT_FOUND');
+    const members = [...this.entries.values()].filter((e) => locationIn(this.org, e.id) === id).map((e) => e.topicSlug);
+    let trashed = 0;
+    for (const slug of members) {
+      try {
+        await this.trashDocument(slug);
+        trashed++;
+      } catch (err) {
+        // Gone meanwhile: nothing to trash. Anything else stops the delete with the folder kept.
+        if (!(err instanceof LibraryError && err.code === 'NOT_FOUND')) throw err;
+      }
+    }
+    await this.withCatalogLock(async () => {
+      const placement = Object.fromEntries(Object.entries(this.org.placement).filter(([, at]) => at !== id));
+      await this.writeOrganization({ ...this.org, folders: this.org.folders.filter((f) => f.id !== id), placement });
+    });
+    this.emitOrganization();
+    return { trashed };
+  }
+
+  /**
+   * Files a document in a folder, the Archive, unfiled, or the Trash (09 §4.2). Emits `moved` with
+   * a receipt the app uses to offer Undo (11 §5.2); `undo` marks the move that reverses one.
+   */
+  async moveDocument(slug: string, to: LibraryLocation, opts: { undo?: boolean } = {}): Promise<LibraryMoveReceipt> {
+    this.assertWritable();
+    if (!isValidSlug(slug)) throw new LibraryError('NOT_FOUND', { slug: 'invalid' });
+    let receipt: LibraryMoveReceipt;
+    if (to === 'trash') {
+      receipt = await this.trashDocument(slug);
+    } else {
+      receipt = await this.withCatalogLock(async () => {
+        const entry = [...this.entries.values()].find((e) => e.topicSlug === slug);
+        if (!entry) throw new LibraryError('NOT_FOUND', { slug });
+        if (isFolderId(to) && !this.folderById(to)) throw new LibraryError('FOLDER_NOT_FOUND');
+        if (to !== 'unfiled' && to !== 'archive' && !isFolderId(to)) throw new LibraryError('FOLDER_NOT_FOUND');
+        const from = locationIn(this.org, entry.id);
+        if (from !== to) await this.writeOrganization(withPlacement(this.org, entry.id, to));
+        return { slug, docId: entry.id, title: entry.title, from, to };
+      });
+      this.emitOrganization();
+    }
+    if (opts.undo) receipt = { ...receipt, undo: true };
+    this.d.logger.info('library.moved', { slug, kind: to === 'trash' || to === 'archive' ? to : 'folder' });
+    for (const cb of [...this.movedListeners]) {
+      try {
+        cb({ ...receipt });
+      } catch (err) {
+        this.d.logger.error('library.listener-failed', { kind: 'moved' }, err);
+      }
+    }
+    return receipt;
+  }
+
+  /**
+   * Restores a Trash entry to the Library (09 §4.2): its old slug when free, else a fresh one (the
+   * meta follows); back into its old folder or the Archive when that still exists, else unfiled.
+   */
+  async putBack(trashId: string): Promise<{ slug: string }> {
+    this.assertWritable();
+    const oldSlug = slugOfTrashId(trashId);
+    if (oldSlug === undefined) throw new LibraryError('TRASH_ITEM_NOT_FOUND');
+    const src = path.join(this.root, TRASH_DIR, trashId);
+    const slug = await this.withDocLock(oldSlug, () =>
+      this.withCatalogLock(async () => {
+        const html = await fsp.lstat(path.join(src, INDEX_FILE)).catch(() => undefined);
+        if (!html?.isFile()) throw new LibraryError('TRASH_ITEM_NOT_FOUND');
+        const r = await this.readMeta(path.join(src, META_FILE), false).catch(() => undefined);
+        if (r?.status !== 'ok') throw new LibraryError(r ? 'META_INVALID' : 'TRASH_ITEM_NOT_FOUND', { kind: 'trash' });
+        const taken: string[] = [...this.reservations, ...[...this.entries.values()].map((e) => e.topicSlug)];
+        for (const name of await fsp.readdir(this.root)) taken.push(name);
+        const free = !taken.some((t) => t.toLowerCase() === oldSlug);
+        const slug = free
+          ? oldSlug
+          : chooseSlug(r.data.title, oldSlug, taken, { now: this.d.clock.now(), randomHex: () => this.d.ids.hex(8) });
+        try {
+          await renameDirAtomic(src, path.join(this.root, slug));
+        } catch (err) {
+          throw new LibraryError('WRITE_FAILED', { errno: errnoOf(err) });
+        }
+        let meta = r.data;
+        // A copy of the same document is live: this one gets a new id (as reconcile would, §7 step 4).
+        const clash = this.entries.has(meta.id);
+        if (meta.topicSlug !== slug || clash) {
+          meta = {
+            ...meta,
+            topicSlug: slug,
+            ...(clash ? { id: uuidFrom(this.d.ids) } : {}),
+            updatedAt: this.d.clock.now().toISOString(),
+          };
+          await writeJsonAtomic(path.join(this.root, slug, META_FILE), meta);
+        }
+        const e = entryFromMeta(meta);
+        this.entries.set(e.id, e);
+        await this.writeCatalog();
+        const record = this.org.trashed[trashId];
+        const back: Where =
+          record?.from === 'archive' || (record && isFolderId(record.from) && this.folderById(record.from))
+            ? record.from
+            : 'unfiled';
+        const { [trashId]: _gone, ...trashed } = this.org.trashed;
+        await this.writeOrganization({ ...withPlacement(this.org, e.id, back), trashed });
+        return slug;
+      }),
+    );
+    this.d.logger.info('library.restored', { slug });
+    this.emitChanged('restored', [slug]);
+    this.emitOrganization();
+    return { slug };
+  }
+
+  /** Deletes one Trash entry for good. */
+  async deletePermanently(trashId: string): Promise<void> {
+    this.assertWritable();
+    if (slugOfTrashId(trashId) === undefined) throw new LibraryError('TRASH_ITEM_NOT_FOUND');
+    await this.withCatalogLock(async () => {
+      const dir = path.join(this.root, TRASH_DIR, trashId);
+      const st = await fsp.lstat(dir).catch(() => undefined);
+      if (!st?.isDirectory()) throw new LibraryError('TRASH_ITEM_NOT_FOUND');
+      await fsp.rm(dir, { recursive: true, force: true });
+      await fsyncDir(path.join(this.root, TRASH_DIR));
+      const { [trashId]: _gone, ...trashed } = this.org.trashed;
+      await this.writeOrganization({ ...this.org, trashed });
+    });
+    this.d.logger.info('library.trash-deleted', { count: 1 });
+    this.emitOrganization();
+  }
+
+  /** Deletes every Trash entry (not the merge flow's pre-merge backups, 09 §10.6). */
+  async emptyTrash(): Promise<{ deleted: number }> {
+    this.assertWritable();
+    const deleted = await this.withCatalogLock(async () => {
+      const trash = path.join(this.root, TRASH_DIR);
+      let n = 0;
+      for (const name of await fsp.readdir(trash).catch(() => [] as string[])) {
+        if (!TRASH_ID_RE.test(name)) continue;
+        await fsp.rm(path.join(trash, name), { recursive: true, force: true });
+        n++;
+      }
+      await fsyncDir(trash);
+      await this.writeOrganization({ ...this.org, trashed: {} });
+      return n;
+    });
+    this.d.logger.info('library.trash-deleted', { count: deleted });
+    this.emitOrganization();
+    return { deleted };
+  }
+
+  /** The merge flow (09 §10.6 step 8) marks the source it moved to the Trash as merged away. */
+  async noteMergedAway(trashId: string, docId: string, mergedInto: string): Promise<void> {
+    if (this.readOnly || slugOfTrashId(trashId) === undefined) return;
+    await this.withCatalogLock(async () => {
+      const from = locationIn(this.org, docId);
+      const record: TrashRecord = {
+        docId,
+        trashedAt: this.d.clock.now().toISOString(),
+        reason: 'merged',
+        from,
+        ...(isFolderId(from) ? { fromName: this.folderById(from)?.name ?? '' } : {}),
+        mergedInto: mergedInto.slice(0, 200),
+      };
+      const next = withPlacement(this.org, docId, 'unfiled');
+      await this.writeOrganization({ ...next, trashed: { ...next.trashed, [trashId]: record } });
+    });
+    this.emitOrganization();
+  }
+
+  /** Trash entries with a valid meta.json; others are not listed (Empty Trash still removes them). */
+  private async listTrash(): Promise<TrashItem[]> {
+    const trash = path.join(this.root, TRASH_DIR);
+    const items: TrashItem[] = [];
+    for (const name of await fsp.readdir(trash).catch(() => [] as string[])) {
+      const slug = slugOfTrashId(name);
+      if (slug === undefined) continue;
+      const r = await this.readMeta(path.join(trash, name, META_FILE), false).catch(() => undefined);
+      if (r?.status !== 'ok' && r?.status !== 'newer') continue;
+      const rec = this.org.trashed[name];
+      const at = trashTime(name);
+      items.push({
+        trashId: name,
+        docId: r.data.id,
+        title: r.data.title,
+        topicSlug: slug,
+        summary: r.data.summary,
+        trashedAt: rec?.trashedAt ?? (at !== undefined ? new Date(at).toISOString() : r.data.updatedAt),
+        reason: rec?.reason ?? 'trashed',
+        from: rec?.from ?? 'unfiled',
+        ...(rec?.fromName !== undefined ? { fromName: rec.fromName } : {}),
+        ...(rec?.mergedInto !== undefined ? { mergedInto: rec.mergedInto } : {}),
+      });
+    }
+    return items;
+  }
+
+  /** Slugs of user-facing Trash entries (09 §4.2: not reused while trashed). */
+  private async trashedSlugs(): Promise<string[]> {
+    const names = await fsp.readdir(path.join(this.root, TRASH_DIR)).catch(() => [] as string[]);
+    return names.map(slugOfTrashId).filter((s): s is string => s !== undefined);
+  }
+
+  /** Housekeeping: records of Trash entries that are gone (purged, deleted by hand). */
+  private async pruneTrashRecords(): Promise<void> {
+    await this.withCatalogLock(async () => {
+      const present = new Set(await fsp.readdir(path.join(this.root, TRASH_DIR)).catch(() => [] as string[]));
+      const kept = Object.entries(this.org.trashed).filter(([id]) => present.has(id));
+      if (kept.length === Object.keys(this.org.trashed).length) return;
+      await this.writeOrganization({ ...this.org, trashed: Object.fromEntries(kept) });
+    });
+  }
+
+  private emitOrganization(): void {
+    for (const cb of [...this.organizationListeners]) {
+      try {
+        cb();
+      } catch (err) {
+        this.d.logger.error('library.listener-failed', { kind: 'organization' }, err);
+      }
+    }
   }
 
   // ---- catalog load, reconcile (09 §5.3, §7) ----
@@ -890,6 +1265,9 @@ export class FsLibrary implements Library {
       }
     }
     if (removed > 0) this.d.logger.debug('library.housekeeping', { count: removed });
+    await this.pruneTrashRecords().catch((err: unknown) =>
+      this.d.logger.warn('library.organization-write-failed', { errno: errnoOf(err) }),
+    );
     await fsyncDir(this.root);
   }
 
@@ -934,8 +1312,19 @@ export class FsLibrary implements Library {
 
   on(event: 'changed', cb: ChangedListener): () => void;
   on(event: 'suggestions', cb: SuggestionsListener): () => void;
-  on(event: 'changed' | 'suggestions', cb: ChangedListener | SuggestionsListener): () => void {
-    const set = (event === 'changed' ? this.changedListeners : this.suggestionsListeners) as Set<typeof cb>;
+  on(event: 'organization', cb: OrganizationListener): () => void;
+  on(event: 'moved', cb: MovedListener): () => void;
+  on(
+    event: 'changed' | 'suggestions' | 'organization' | 'moved',
+    cb: ChangedListener | SuggestionsListener | OrganizationListener | MovedListener,
+  ): () => void {
+    const sets = {
+      changed: this.changedListeners,
+      suggestions: this.suggestionsListeners,
+      organization: this.organizationListeners,
+      moved: this.movedListeners,
+    };
+    const set = sets[event] as Set<typeof cb>;
     set.add(cb);
     return () => {
       set.delete(cb);

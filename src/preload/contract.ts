@@ -94,6 +94,17 @@ export const IPC = {
     info: 'eli5:library:info',
     revealRoot: 'eli5:library:reveal-root',
     changed: 'eli5:library:changed',
+    /** App-only (01 §5.2): folders, Archive and Trash (09 §4.2). */
+    organization: 'eli5:library:organization',
+    createFolder: 'eli5:library:create-folder',
+    renameFolder: 'eli5:library:rename-folder',
+    deleteFolder: 'eli5:library:delete-folder',
+    move: 'eli5:library:move',
+    putBack: 'eli5:library:put-back',
+    deletePermanently: 'eli5:library:delete-permanently',
+    emptyTrash: 'eli5:library:empty-trash',
+    organizationChanged: 'eli5:library:organization-changed',
+    moved: 'eli5:library:moved',
   },
   suggestions: {
     list: 'eli5:suggestions:list',
@@ -335,6 +346,71 @@ export interface CatalogEntry {
   mergedFromCount: number;
 }
 
+/**
+ * Where a Library document lives (09 §4.2): no folder, the built-in Archive, the Trash, or a user
+ * folder (`f-` + 8 hex). Folders are one level deep.
+ */
+export type FolderId = `f-${string}`;
+export type LibraryLocation = 'unfiled' | 'archive' | 'trash' | FolderId;
+
+export interface LibraryFolder {
+  id: FolderId;
+  /** 1..60 characters, one line; unique ignoring case; never "Archive" or "Trash". */
+  name: string;
+  createdAt: string;
+}
+
+/** A document in the app-managed Trash (`<root>/.trash/<trashId>/`, 09 §4.2). */
+export interface TrashItem {
+  /** The `.trash/` folder name, `<slug>--<yyyymmddThhmmss>[-n]`. */
+  trashId: string;
+  docId: string;
+  title: string;
+  /** The slug it had in the Library; Put Back reuses it when free. */
+  topicSlug: string;
+  summary: string;
+  trashedAt: string;
+  /** 'merged': removed by accepting a merge suggestion (09 §10.6). */
+  reason: 'trashed' | 'merged';
+  /** Where it was when trashed; Put Back returns it there if that still exists. */
+  from: Exclude<LibraryLocation, 'trash'>;
+  /** The folder's name when trashed, for display after the folder is gone. */
+  fromName?: string;
+  /** Set for 'merged': the title of the document it was merged into. */
+  mergedInto?: string;
+}
+
+/** `eli5:library:organization` and `eli5:library:organization-changed` (09 §4.2, §11). */
+export interface LibraryOrganization {
+  /** User folders, by name. */
+  folders: LibraryFolder[];
+  /** Catalogued document id -> folder or 'archive'; documents not listed are unfiled. */
+  placement: Record<string, 'archive' | FolderId>;
+  /** Newest first. */
+  trash: TrashItem[];
+  /** Trash entries older than this are deleted at startup (HOOK-LIB-01). */
+  trashRetentionDays: number;
+}
+
+/** `eli5:library:move`. `undo` marks the move that reverses a previous one (no new Undo toast). */
+export interface LibraryMoveRequest {
+  slug: string;
+  to: LibraryLocation;
+  undo?: boolean;
+}
+
+/** Result of a move and the `eli5:library:moved` event: enough to undo it (11 §5.2). */
+export interface LibraryMoveReceipt {
+  slug: string;
+  docId: string;
+  title: string;
+  from: Exclude<LibraryLocation, 'trash'>;
+  to: LibraryLocation;
+  /** Set when `to` is 'trash': the item Put Back restores. */
+  trashId?: string;
+  undo?: boolean;
+}
+
 export interface LibraryInfo {
   root: string;
   readOnly: boolean;
@@ -443,6 +519,7 @@ export type UiRoute =
   | { view: 'welcome' }
   | { view: 'doc'; slug: string }
   | { view: 'not-found'; slug: string }
+  | { view: 'trash' }
   | { view: 'settings'; section?: SettingsSection };
 
 export interface AppNavigateEvent {

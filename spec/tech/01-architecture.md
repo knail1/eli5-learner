@@ -299,6 +299,16 @@ this table is corrected. Channel **names** are fixed here.
 | `eli5:library:info` | R→M | — | `{root: string; readOnly: boolean; readOnlyReason?: string; count: number}` | 09 §11 |
 | `eli5:library:reveal-root` | R→M | — | `void` (Finder shows the Library root; Settings > Library) | 11 §7 |
 | `eli5:library:changed` | M→R | — | `{entries: CatalogEntry[]}` | 09 §11 |
+| `eli5:library:organization` | R→M | — | `LibraryOrganization {folders; placement; trash; trashRetentionDays}`. App window only | 09 §4.2, §11 |
+| `eli5:library:create-folder` | R→M | `{name}` | `LibraryFolder`. App window only | 09 §4.2, §11 |
+| `eli5:library:rename-folder` | R→M | `{folderId; name}` | `LibraryFolder`. App window only | 09 §4.2, §11 |
+| `eli5:library:delete-folder` | R→M | `{folderId}` | `{trashed: number}` (its documents go to the Trash). App window only | 09 §4.2, §11 |
+| `eli5:library:move` | R→M | `{slug; to: 'unfiled' \| 'archive' \| 'trash' \| FolderId; undo?}` | `LibraryMoveReceipt`. App window only | 09 §4.2, §11 |
+| `eli5:library:put-back` | R→M | `{trashId}` | `{slug}`. App window only | 09 §4.2, §11 |
+| `eli5:library:delete-permanently` | R→M | `{trashId}` | `void`. App window only | 09 §4.2, §11 |
+| `eli5:library:empty-trash` | R→M | — | `{deleted: number}`. App window only | 09 §4.2, §11 |
+| `eli5:library:organization-changed` | M→R | — | `{organization: LibraryOrganization}` | 09 §11 |
+| `eli5:library:moved` | M→R | — | `LibraryMoveReceipt` (every move, for the Undo toast) | 09 §11, 11 §5.2 |
 | `eli5:suggestions:list` | R→M | — | `MergeSuggestion[]` | 09 §11 |
 | `eli5:suggestions:accept` | R→M | `{suggestionId}` | `{targetSlug}`; `E_SUGGESTION_STALE`, `E_MERGE_FAILED`, `E_LIBRARY_READ_ONLY` | 09 §11 |
 | `eli5:suggestions:dismiss` | R→M | `{suggestionId}` | `void` | 09 §11 |
@@ -383,7 +393,10 @@ export interface Eli5Api {
     readClipboard(draftId: string); stageText(draftId: string, text: string, markup: 'plain' | 'html');
     discard(draftId: string, inputId: string); discardDraft(draftId: string); classifyText(text: string);
   };
-  library: { list(); open(slug: string); reveal(slug: string); info(); revealRoot(); onChanged(cb): Unsub };
+  library: { list(); open(slug: string); reveal(slug: string); info(); revealRoot(); onChanged(cb): Unsub;
+    organization(); createFolder(name); renameFolder(folderId, name); deleteFolder(folderId);
+    move(slug, to, opts?: { undo?: boolean }); putBack(trashId); deletePermanently(trashId); emptyTrash();
+    onOrganizationChanged(cb): Unsub; onMoved(cb): Unsub };
   suggestions: { list(); accept(id: string); dismiss(id: string); onChanged(cb): Unsub };
   doc: { onUpdated(cb): Unsub };
   viewer: { setBounds(r: { x: number; y: number; width: number; height: number }); setVisible(v: boolean); focus() };

@@ -28,7 +28,7 @@ import {
   type SenderIdentity,
 } from './handle';
 import { registerJobsIpc, type JobsPort } from './jobs';
-import { registerLibraryIpc, type DocumentActions, type LibraryPort } from './library';
+import { registerLibraryIpc, subscribeOrganization, type DocumentActions, type LibraryPort } from './library';
 import { registerAppIpc } from './app';
 import { registerDocIpc } from './doc';
 import { registerPublishIpc } from './publish';
@@ -187,6 +187,8 @@ export function registerIpc(d: IpcDeps): () => void {
   const subs = [
     d.jobs.on('changed', (s) => d.sendToApp(IPC.jobs.changed, s)),
     d.library.on('changed', () => d.sendToApp(IPC.library.changed, { entries: d.library.list() })),
+    subscribeOrganization(d.library, (organization) => d.sendToApp(IPC.library.organizationChanged, { organization })),
+    d.library.on('moved', (r) => d.sendToApp(IPC.library.moved, r)),
     d.settings.onChanged((settings, changed) => d.sendToApp(IPC.settings.changed, { changed, settings })),
     svc.sectionActions.onUpdated((e) => d.sendToApp(IPC.doc.updated, e)),
     svc.sectionActions.onScrollTo((e) => d.sendToViewer(IPC.doc.scrollTo, e)),
@@ -208,6 +210,8 @@ const EVENT_CHANNELS = new Set<string>([
   IPC.jobs.changed,
   IPC.auth.changed,
   IPC.library.changed,
+  IPC.library.organizationChanged,
+  IPC.library.moved,
   IPC.suggestions.changed,
   IPC.doc.updated,
   IPC.doc.scrollTo,

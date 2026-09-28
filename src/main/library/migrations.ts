@@ -14,6 +14,7 @@ export interface Migration {
 export const metaMigrations: Migration[] = [];
 export const catalogMigrations: Migration[] = [];
 export const suggestionsMigrations: Migration[] = [];
+export const organizationMigrations: Migration[] = [];
 
 export interface ReadVersionedOptions<T> {
   schema: z.ZodType<T>;

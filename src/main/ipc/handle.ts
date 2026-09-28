@@ -101,6 +101,14 @@ function libraryError(code: LibraryErrorCode): IpcError {
       return { code: 'E_NOT_FOUND', message: 'Document not found' };
     case 'HISTORY_EMPTY':
       return { code: 'E_CONFLICT', message: 'Nothing to undo or redo' };
+    case 'FOLDER_NOT_FOUND':
+      return { code: 'E_NOT_FOUND', message: 'Folder not found' };
+    case 'FOLDER_NAME_INVALID':
+      return { code: 'E_BAD_REQUEST', message: 'Folder names are 1 to 60 characters and not "Archive" or "Trash"' };
+    case 'FOLDER_NAME_TAKEN':
+      return { code: 'E_CONFLICT', message: 'A folder with that name already exists' };
+    case 'TRASH_ITEM_NOT_FOUND':
+      return { code: 'E_NOT_FOUND', message: 'That document is no longer in the Trash' };
     default:
       return { code: 'E_IO', message: 'Could not access the Library' };
   }

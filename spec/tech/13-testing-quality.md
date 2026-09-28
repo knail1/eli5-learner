@@ -276,6 +276,7 @@ The PRD requires the file to open in Chrome, Safari, and Edge. Playwright opens 
 | E14 | Public build UI | No publish buttons or sign-in state visible; `EditionInfo.overlayLoaded === false` |
 | E15 | Menu bar and library after relaunch | State persists across restart using the same `ELI5_USER_DATA_DIR` and `ELI5_LIBRARY_DIR` |
 | E16 | Drop a source, let the `FakeProvider` job finish | Via `electronApp.evaluate`, the test-only notifier spy (`__ELI5_TEST__`) recorded exactly one notification "Document ready" with the document title; invoking its click handler shows and focuses the main window and navigates to `{view:'doc', slug}` with the viewer on that document; a section action (E8) records no further notification |
+| E17 | Seed a flat Library of three documents; create a folder, drag a document onto it, swipe one left, `Cmd+Backspace` one, `Cmd+Z`, swipe it right, Put Back from the Trash view, trash two and Empty Trash (`test/e2e/library-organize.e2e.ts`) | All three list unfiled with no `organization.json` written; the folder and placement persist in `.eli5/organization.json`; the archived document leaves the Tray recents; a trashed document's files sit intact in `.trash/`; `Cmd+Z` with the Undo toast showing restores it; Put Back returns it to the Library; Empty Trash asks once inline and leaves no Trash entries; no modal |
 
 ### 8.3 Edge cases
 
@@ -483,7 +484,7 @@ Rules:
 - [ ] `validateDocument` enforces every rule in §7.1, runs before every save and regenerate-in-place write, and every golden passes it.
 - [ ] `probeDocument` records zero network requests and zero console errors for every golden and every e2e-generated document.
 - [ ] Golden documents render and switch tabs in Playwright Chromium and WebKit via `file://`.
-- [ ] e2e scenarios E1 to E16 pass against the built public app, with zero modal dialogs recorded.
+- [ ] e2e scenarios E1 to E17 pass against the built public app, with zero modal dialogs recorded.
 - [ ] `replaceSection` changes only the target section's bytes (E8 and unit test).
 - [ ] Eval suite runs nightly with a cost cap, stores results, compares to baselines, and never runs on pull requests.
 - [ ] Edition matrix cells P, P-stub, F, and F-missing pass in public CI; `contracts:enterprise` is skipped with one notice when no overlay is present.

@@ -159,9 +159,10 @@ Menu, top to bottom:
 | separator | always | |
 | Quit / Quit ({n} jobs will resume) | always | §3.2 step 3 |
 
-- `recent` is the first three `CatalogEntry` items of the catalog in Library order (§5.2). Only
-  finished documents are in the catalog (09), so sessions, sources, and failed jobs never appear
-  (PRD *Menu bar item*).
+- `recent` is the first three `CatalogEntry` items of the catalog in Library order (§5.2) that are
+  not archived (09 §4.2, from the `eli5:library:organization-changed` placements). Only finished
+  documents are in the catalog (09), so sessions, sources, failed jobs and trashed documents never
+  appear (PRD *Menu bar item*).
 - Icon: a monochrome template image (`trayTemplate.png`, `@2x`) so macOS tints it for light and dark
   menu bars: "eli5" in a thin font inside a thin oval, 32×18 pt. While `activeJobs > 0` the icon swaps
   to `trayBusyTemplate.png` (the same mark with a dot on the oval's upper right). Regenerate both
@@ -173,8 +174,9 @@ Menu, top to bottom:
 
 ### 4.2 Rebuild triggers
 
-Rebuild the menu (it is cheap and synchronous) on `eli5:library:changed`, on `eli5:jobs:changed`
-when the active count changes, and at startup. A newly finished document appears automatically
+Rebuild the menu (it is cheap and synchronous) on `eli5:library:changed`,
+`eli5:library:organization-changed` (archive and unarchive), on `eli5:jobs:changed` when the active
+count changes, and at startup. A newly finished document appears automatically
 because the pipeline emits `eli5:library:changed` on `done` (06 §5). A merge accept that removes a
 standalone document (09) also rebuilds, so a removed document never lingers in the menu.
 
@@ -236,9 +238,43 @@ so renderer DOM can never draw over the viewer rectangle. Therefore:
 - Filter field at the top: case-insensitive substring match on title and summary, client side.
   Escape clears it.
 - Context menu (right click, `Shift+F10`, or the context-menu key): Open, Reveal in Finder
-  (`eli5:library:reveal`), and, only when enabled by HOOK-UI-01, the enterprise publish items.
+  (`eli5:library:reveal`), **Move to ▸** (No folder, then each folder; the current one disabled),
+  **Archive**, **Move to Trash**, and, only when enabled by HOOK-UI-01, the enterprise publish items.
+  The menu is native; main performs the move and the library's `moved` event reaches the toast below.
 - Collapsible (`Cmd+\`) and resizable by a drag handle that is also a keyboard `separator`
   (`aria-valuenow`, arrow keys move 16 px).
+
+**Folders, Archive and Trash** (PRD *Organizing the Library*, 09 §4.2). State comes from
+`eli5:library:organization` and follows `eli5:library:organization-changed`.
+
+- Order in the list: unfiled documents, then user folders by name, then the built-in **Archive**;
+  the **Trash** row (with its count) sits at the bottom of the Library, above Suggestions.
+- **+ New folder** beside the LIBRARY heading shows an inline name field (Enter creates, Escape
+  cancels). Folders are one level, collapsible (a disclosure button with `aria-expanded` and a
+  count), and renamable (the pencil button, double click, or `F2`; inline field). The × button
+  deletes a folder; its documents go to the Trash, and a toast says how many. Which folders are
+  open is a per-viewer convenience in `localStorage`. The Archive cannot be renamed or deleted.
+- The filter searches inside folders and the Archive: folders with a match (or whose name matches)
+  open, others hide while filtering.
+- **Move** by dragging a row onto a folder header, the Archive, the Trash row, or the unfiled list
+  (a pointer drag that starts vertically; a ghost label follows the pointer and the target is
+  outlined), or with the context menu. `Cmd+Backspace` on a focused row moves it to the Trash.
+- **Swipe** a row with a two-finger trackpad swipe (horizontal `wheel` deltas; vertical ones still
+  scroll) or a horizontal pointer drag. Left slides the row to reveal **Archive** (olive) on the
+  right; right reveals **Move to Trash** (rust) on the left. Released past half the row width
+  (at least 120 px) it commits; past 28 px it rests with the 76 px action button showing to click;
+  shorter snaps back. Escape or a click elsewhere closes an open row. Momentum wheel events for
+  350 ms after a gesture are ignored. The thresholds are pure functions in `library/swipe.ts`.
+  Under reduced motion the row does not animate.
+- **Undo toast:** every move (including the native menu's) shows "Moved to Archive · Undo",
+  "Moved to Trash · Undo" or "Moved to “Folder” · Undo" for 5 s, announced politely. Undo moves the
+  document back (`eli5:library:move` with `undo: true`, which shows no new toast) or, for the Trash,
+  puts it back. `Cmd+Z` precedence is in §9.
+- **Trash view** (route `{view: 'trash'}`, opened from the Trash row) in the viewer area: each item
+  with its title and "Deleted 3d ago · from “Folder”" or "Merged into “X” 2d ago"; **Put Back** and
+  **Delete Permanently**, and **Empty Trash** in the header. Delete Permanently and Empty Trash each
+  ask once in an inline confirmation (focus on Cancel, Escape cancels; never a modal). A line says
+  how long the Trash keeps documents (`trashRetentionDays`).
 
 ### 5.3 Viewer and document header
 
@@ -350,7 +386,8 @@ semantics, 03).
 - One `SuggestionCard` per `MergeSuggestion` (09): text "This looks related to *{target title}*.
   Merge it in or keep it separate?", the new document's title, and two buttons: **Merge in**
   (`eli5:suggestions:accept`) and **Keep separate** (`eli5:suggestions:dismiss`). Both titles are
-  links that open the document. 09 §10.4 owns the suggestion copy and button labels; this file
+  links that open the document, set inline in the sentence (left-aligned prose, the period attached;
+  the "New:" line clamps a long title with an ellipsis). 09 §10.4 owns the suggestion copy and button labels; this file
   only places them.
 - On accept, the card shows "Merging…" until `eli5:suggestions:changed`. The viewer then opens the
   target document scrolled to the appended section if the removed document was open.
@@ -365,6 +402,7 @@ export type UiRoute =
   | { view: 'welcome' }                 // no document selected, or empty Library
   | { view: 'doc'; slug: string }
   | { view: 'not-found'; slug: string }
+  | { view: 'trash' }                   // the Trash (§5.2)
   | { view: 'settings'; section?: SettingsSection };
 
 export interface AppNavigateEvent { route: UiRoute }   // payload of eli5:app:navigate
@@ -451,6 +489,8 @@ Rules:
 | No suggestions | Sidebar | Section hidden |
 | No jobs | Status area | Blank (§5.5) |
 | Document files missing | Viewer area (`not-found`) | "This document's files are missing." + Reveal Library folder |
+| Document is in the Trash (opened from a notification, the tray or a stale route) | Viewer area (`not-found` with a Trash item for the slug) | "This document is in the Trash." + where it came from + **Put Back** (then it opens) |
+| Trash empty | Viewer area (`trash`) | "The Trash is empty"; Empty Trash disabled |
 | Viewer load failure | Viewer area | "Could not display this document." + Retry (reload) |
 | Enterprise overlay failed to load | Error window (01 §6.3) | Owned by 01 |
 
@@ -477,7 +517,8 @@ where a menu item exists, so they appear in the Help menu search.
 | `Cmd+W`, `Cmd+Q` | Close window (hide) | Window (§3.2) |
 | `Escape` | Clear filter / leave settings / close inline hint | Context |
 | `Cmd+R` | Reload viewer (not the app) | Viewer focused |
-| `Cmd+Z` / `Shift+Cmd+Z` | Undo / redo the open document's last change (09 §4.1) | Window, outside text fields |
+| `Cmd+Z` / `Shift+Cmd+Z` | Undo / redo the open document's last change (09 §4.1); `Cmd+Z` first undoes a pending Library move (below) | Window, outside text fields |
+| `Cmd+Backspace` | Move the focused Library row to the Trash (§5.2) | Library row |
 
 `Cmd+R` never reloads the React app in production builds; the default `reload` role is not in the
 application menu. Shortcuts inside the document (selection menu) are owned by 08.
@@ -491,6 +532,12 @@ Change** items with no accelerator (so they never take `Cmd+Z` from text fields)
 document in the viewer from anywhere. While the viewer itself has focus, `Cmd+Z` stays with the
 document page (no document change is undone); the header buttons and the Edit menu items work.
 
+`Cmd+Z` precedence outside text fields: (1) while a Library move's Undo toast is showing, or while
+focus is in the Library and its last move can still be undone, `Cmd+Z` undoes that move; (2)
+otherwise it undoes the open document's last change. The Library listens in the capture phase and
+prevents the default; the document's handler skips prevented events. The rule is
+`libraryUndoWins()` in `shortcuts.ts`. `Shift+Cmd+Z` is always the document's redo.
+
 ## 10. IPC added by this file
 
 Additions to the 01 §5.2 baseline, same conventions (`IpcResult<T>`, zod validation, sender check).
@@ -498,7 +545,7 @@ Additions to the 01 §5.2 baseline, same conventions (`IpcResult<T>`, zod valida
 | Channel | Dir | Owner | Request | Response / payload |
 | --- | --- | --- | --- | --- |
 | `eli5:app:navigate` | M→R | shell | — | `AppNavigateEvent` |
-| `eli5:app:context-menu` | R→M | shell | `{kind: 'library-item'; slug: string}` | `void` (main shows a native menu; choices act in main or emit `eli5:app:navigate`) |
+| `eli5:app:context-menu` | R→M | shell | `{kind: 'library-item'; slug: string}` | `void` (main shows a native menu; choices act in main or emit `eli5:app:navigate`; Move to / Archive / Move to Trash call the library, whose `eli5:library:moved` event drives the toast) |
 | `eli5:viewer:set-visible` | R→M | shell/viewer | `{visible: boolean}` | `void` |
 | `eli5:viewer:focus` | R→M | shell/viewer | — | `void` (focuses the attached viewer view, §12) |
 | `eli5:app:cycle-region` | M→R | shell | — | `CycleRegionEvent {dir: 1 \| -1}` (F6 / Shift+F6 pressed in the viewer, §12) |
@@ -509,7 +556,10 @@ Additions to the 01 §5.2 baseline, same conventions (`IpcResult<T>`, zod valida
 | `eli5:app:test-notification` | R→M | shell/notifications | — | `{shown: boolean; reason?: 'disabled' \| 'unsupported'}` (§14.7) |
 | `eli5:app:open-notification-settings` | R→M | shell/notifications | — | `void` (main opens the fixed System Settings URL, §14.6) |
 
-All of these channels are in the 01 §5.2 IPC table and their constants are in `contract.ts`.
+All of these channels are in the 01 §5.2 IPC table and their constants are in `contract.ts`. The
+folders, Archive and Trash channels (`eli5:library:organization`, `create-folder`, `rename-folder`,
+`delete-folder`, `move`, `put-back`, `delete-permanently`, `empty-trash`, and the
+`organization-changed` and `moved` events) are owned by 09 §11.
 
 `window.eli5` gains `app: { onNavigate(cb): Unsubscribe; contextMenu(p); testNotification();
 openNotificationSettings(); onCycleRegion(cb): Unsubscribe }`,
@@ -766,6 +816,10 @@ click shows the main window on Settings > Notifications.
       user action; clicking one opens it in the viewer, reopening the window if hidden.
 - [ ] Library lists every finished document newest first by `createdAt`; clicking renders it in the
       viewer; raw HTML is never shown.
+- [ ] Documents can be filed in one-level folders (create, rename, collapse, delete to Trash),
+      archived, and trashed by drag, the context menu, `Cmd+Backspace` or a swipe (left Archive, right
+      Trash); every move offers Undo; the Trash view puts documents back and empties with one inline
+      confirmation; archived and trashed documents leave the Tray recents.
 - [ ] Files can be dropped, clipboard content pasted with `Cmd+V`, and URLs entered, all combined
       into one job; Enter starts it; the draft clears and a new job can be composed immediately.
 - [ ] Enter with no sources, an invalid URL, or no API key does not start a job and shows an inline

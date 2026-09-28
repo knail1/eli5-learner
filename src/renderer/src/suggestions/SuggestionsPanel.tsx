@@ -82,16 +82,11 @@ export function SuggestionsPanel(p: {
             <li key={s.id} className="suggestion-card" aria-busy={busy || undefined}>
               <p>
                 This looks related to{' '}
-                <button type="button" className="link" onClick={() => p.onOpenDoc(s.target.slug)}>
-                  <strong>{s.target.title}</strong>
-                </button>
-                . Merge it in or keep it separate?
+                <TitleLink title={s.target.title} onOpen={() => p.onOpenDoc(s.target.slug)} strong />. Merge it in or
+                keep it separate?
               </p>
-              <p className="muted">
-                New:{' '}
-                <button type="button" className="link" onClick={() => p.onOpenDoc(s.source.slug)}>
-                  {s.source.title}
-                </button>
+              <p className="muted suggestion-new">
+                New: <TitleLink title={s.source.title} onOpen={() => p.onOpenDoc(s.source.slug)} />
               </p>
               {s.reason && <p className="muted suggestion-reason">{s.reason}</p>}
               <div className="row">
@@ -109,5 +104,26 @@ export function SuggestionsPanel(p: {
         })}
       </ul>
     </section>
+  );
+}
+
+/**
+ * A document title inside the card's prose. An anchor, not a <button>: a button is an atomic
+ * inline-block, so a long title wrapped as its own centered block and pushed the period that
+ * follows onto a new line. The anchor flows and wraps like text.
+ */
+function TitleLink(p: { title: string; onOpen(): void; strong?: boolean }) {
+  return (
+    <a
+      href="#"
+      className="title-link"
+      title={p.title}
+      onClick={(e) => {
+        e.preventDefault();
+        p.onOpen();
+      }}
+    >
+      {p.strong ? <strong>{p.title}</strong> : p.title}
+    </a>
   );
 }

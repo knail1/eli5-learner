@@ -56,6 +56,8 @@ export interface FakeApi {
     event:
       | 'jobs'
       | 'library'
+      | 'organization'
+      | 'moved'
       | 'suggestions'
       | 'settings'
       | 'navigate'
@@ -103,6 +105,16 @@ export function installFakeApi(edition: EditionInfo = PUBLIC_EDITION): FakeApi {
       info: resolved(notImplemented),
       revealRoot: resolved(ok(undefined)),
       onChanged: on('library'),
+      organization: resolved(ok({ folders: [], placement: {}, trash: [], trashRetentionDays: 30 })),
+      createFolder: resolved(notImplemented),
+      renameFolder: resolved(notImplemented),
+      deleteFolder: resolved(notImplemented),
+      move: resolved(notImplemented),
+      putBack: resolved(notImplemented),
+      deletePermanently: resolved(notImplemented),
+      emptyTrash: resolved(notImplemented),
+      onOrganizationChanged: on('organization'),
+      onMoved: on('moved'),
     },
     suggestions: {
       list: resolved(notImplemented),

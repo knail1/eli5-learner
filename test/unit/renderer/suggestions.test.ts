@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { createElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IpcResult, MergeSuggestion } from '../../../src/preload/contract';
@@ -127,5 +129,43 @@ describe('SuggestionsPanel copy and states (09 §10.4)', () => {
     expect(document.activeElement).toBe(input);
     expect(host.querySelector('[data-testid="announcer-polite"]')?.textContent).toBe('New suggestion');
     input.remove();
+  });
+});
+
+describe('SuggestionsPanel card layout (11 §5.6)', () => {
+  const css = readFileSync(path.join(process.cwd(), 'src/renderer/src/styles.css'), 'utf8');
+  const rule = (selector: string): string => {
+    const at = css.indexOf(`${selector} {`);
+    return at < 0 ? '' : css.slice(at, css.indexOf('}', at));
+  };
+
+  it('renders the titles as inline links inside the prose, with the period attached', async () => {
+    fake.api.suggestions.list = async () =>
+      ok([suggestion({ target: { id: 't', slug: 'widget-ad-spend', title: 'A very long title '.repeat(6).trim() } })]);
+    const onOpenDoc = vi.fn();
+    const host = await render(Panel, { onOpenDoc });
+    const [lead, fresh] = Array.from(host.querySelectorAll('.suggestion-card p'));
+    // Anchors flow as inline text; a <button> is an atomic inline-block that wraps as a centered block.
+    const target = lead?.querySelector('a.title-link');
+    expect(target?.tagName).toBe('A');
+    expect(lead?.querySelector('button')).toBeNull();
+    expect(target?.nextSibling?.textContent).toBe('. Merge it in or keep it separate?');
+    expect(lead?.textContent).toMatch(/^This looks related to A very long title .*title\. Merge it in/);
+    expect(fresh?.classList.contains('suggestion-new')).toBe(true);
+    expect(fresh?.textContent).toBe('New: Widget ROAS');
+    expect(fresh?.querySelector('a.title-link')?.textContent).toBe('Widget ROAS');
+    await click(target);
+    expect(onOpenDoc).toHaveBeenCalledWith('widget-ad-spend');
+    await click(fresh?.querySelector('a.title-link'));
+    expect(onOpenDoc).toHaveBeenCalledWith('widget-roas');
+  });
+
+  it('left-aligns the card and clamps the "New:" line with an ellipsis', () => {
+    expect(rule('.suggestion-card')).toContain('text-align: left');
+    expect(rule('.title-link')).not.toMatch(/display:\s*(block|inline-block)/);
+    const line = rule('.suggestion-new');
+    expect(line).toContain('white-space: nowrap');
+    expect(line).toContain('text-overflow: ellipsis');
+    expect(line).toContain('overflow: hidden');
   });
 });

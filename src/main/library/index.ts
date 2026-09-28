@@ -38,7 +38,22 @@ export { PREV_DIR, PREV_STATE_FILE, DEFAULT_CHANGE_LABEL, cleanChangeLabel, quot
 export { writeFileAtomic, writeJsonAtomic, fsyncDir, renameDirAtomic } from './fs-atomic';
 export { AsyncMutex, acquireProcessLock, releaseProcessLock, defaultProcessProbe } from './locks';
 export type { ProcessLockRecord, ProcessLockResult } from './locks';
-export { readVersioned, metaMigrations, catalogMigrations, suggestionsMigrations } from './migrations';
+export {
+  readVersioned,
+  metaMigrations,
+  catalogMigrations,
+  suggestionsMigrations,
+  organizationMigrations,
+} from './migrations';
+export {
+  ORGANIZATION_FILE,
+  ORGANIZATION_SCHEMA_VERSION,
+  FOLDER_ID_RE,
+  TRASH_ID_RE,
+  MAX_FOLDER_NAME_CHARS,
+  cleanFolderName,
+  isFolderId,
+} from './organization';
 export type { Migration } from './migrations';
 export { createDocProtocolHandler, installDocProtocol, DOC_SCHEME } from './protocol';
 export type { DocProtocolDeps } from './protocol';

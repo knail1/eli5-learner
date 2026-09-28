@@ -292,7 +292,8 @@ describe('runMergeCheck (09 §10.2)', () => {
       await s.lib.trashDocument(s.target.topicSlug);
       return { matches: c.map((x) => ({ catalogId: x.catalogId, score: 0.95, reason: 'r' })) };
     }) as Judge;
-    const { h } = engine(s, { judge });
+    // The judge must finish (not time out) so step 8, not the timeout, discards the result.
+    const { h } = engine(s, { judge, judgeTimeoutMs: 10_000 });
     expect(await h.runMergeCheck(s.source.id)).toBeNull();
     expect(await h.service.list()).toEqual([]);
   });

@@ -3,6 +3,7 @@ import type { CatalogEntry } from '../../../../src/preload/contract';
 import {
   activeJobCounter,
   quitLabel,
+  archivedIds,
   recentFromCatalog,
   trayLabel,
   trayMenuTemplate,
@@ -90,6 +91,25 @@ describe('recentFromCatalog', () => {
     ]);
     expect(r.map((e) => e.label)).toEqual(['Newest', 'Alpha', 'Beta']);
     expect(r[0]).toEqual({ slug: 'newest', label: 'Newest' });
+  });
+
+  it('leaves archived documents out, so the next newest fill in (09 §4.2)', () => {
+    const r = recentFromCatalog(
+      [
+        entry('Old', '2026-01-01T00:00:00.000Z'),
+        entry('Beta', '2026-03-01T00:00:00.000Z'),
+        entry('Alpha', '2026-03-01T00:00:00.000Z'),
+        entry('Newest', '2026-04-01T00:00:00.000Z'),
+      ],
+      new Set(['id-Newest']),
+    );
+    expect(r.map((e) => e.label)).toEqual(['Alpha', 'Beta', 'Old']);
+  });
+});
+
+describe('archivedIds', () => {
+  it('reads the archived document ids from an organization', () => {
+    expect([...archivedIds({ placement: { a: 'archive', b: 'f-0123abcd' } })]).toEqual(['a']);
   });
 });
 

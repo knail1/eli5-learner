@@ -68,7 +68,7 @@ The ELI5 tab rebuilds the same material in plain words, with analogies and pictu
 
   <img src="images/protective_order_expanded.png" alt="The expanded section 'The specific danger for people with protective orders': a definition paragraph, a Key point callout, and a four-step walkthrough 'How a protective order normally protects someone' with Previous and Next buttons" width="640">
 - **Section ELI5 tabs.** Focused ELI5 tabs, spun off from any passage and labeled by topic. You can close them.
-- **Library and menu bar.** Every document is listed in a sidebar. The menu bar shows the last three, and the app keeps running in the menu bar when the window is closed.
+- **Library and menu bar.** Every document is listed in a sidebar, which you can prune with folders (drag documents in), an Archive and a recoverable Trash: swipe a document left to archive it or right to trash it, with Undo. The menu bar shows the last three, and the app keeps running in the menu bar when the window is closed.
 - **Merge suggestions.** When a new document covers the same or a related topic as one already in your
   Library, the app notices when the job finishes. It offers to merge the new material into the existing
   document to enrich it, instead of leaving two near-copies. The match doesn't have to be the same link:

@@ -16,7 +16,11 @@ import type {
   HelpTopic,
   IpcResult,
   JobSnapshot,
+  LibraryFolder,
   LibraryInfo,
+  LibraryLocation,
+  LibraryMoveReceipt,
+  LibraryOrganization,
   MergeSuggestion,
   ModelsResult,
   ProviderId,
@@ -65,6 +69,19 @@ export interface Eli5Api {
     /** Reveals the Library root in Finder (Settings > Library, 11 §7). */
     revealRoot(): R<void>;
     onChanged(cb: (e: { entries: CatalogEntry[] }) => void): Unsub;
+    /** Folders, Archive and Trash (09 §4.2, 11 §5.2). */
+    organization(): R<LibraryOrganization>;
+    createFolder(name: string): R<LibraryFolder>;
+    renameFolder(folderId: string, name: string): R<LibraryFolder>;
+    /** Its documents go to the Trash. */
+    deleteFolder(folderId: string): R<{ trashed: number }>;
+    move(slug: string, to: LibraryLocation, opts?: { undo?: boolean }): R<LibraryMoveReceipt>;
+    putBack(trashId: string): R<{ slug: string }>;
+    deletePermanently(trashId: string): R<void>;
+    emptyTrash(): R<{ deleted: number }>;
+    onOrganizationChanged(cb: (e: { organization: LibraryOrganization }) => void): Unsub;
+    /** Every move, including those from the native item menu; the sidebar offers Undo. */
+    onMoved(cb: (r: LibraryMoveReceipt) => void): Unsub;
   };
   suggestions: {
     list(): R<MergeSuggestion[]>;

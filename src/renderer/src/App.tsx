@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import type { CatalogEntry, Settings, SettingsSection, UiRoute } from '../../preload/contract';
+import type { CatalogEntry, LibraryOrganization, Settings, SettingsSection, UiRoute } from '../../preload/contract';
 import { AnnouncerProvider } from './a11y/Announcer';
 import { matchShortcut } from './a11y/shortcuts';
 import { EditionProvider, FeatureGate } from './edition/FeatureGate';
 import { InputZone, type InputZoneHandle } from './input/InputZone';
 import { LibrarySidebar } from './library/LibrarySidebar';
 import { sortCatalog } from './library/order';
+import { EMPTY_ORGANIZATION } from './library/organize';
+import { InTrash, TrashView } from './library/TrashView';
 import { readLastDoc, rememberDoc, resolveRoute, sameRoute, startupRoute } from './routes';
 import { SettingsScreen, SignInIndicator } from './settings/SettingsScreen';
 import { StatusArea } from './status/StatusArea';
@@ -58,6 +60,7 @@ function Shell() {
   const [keyEpoch, setKeyEpoch] = useState(0);
   const [catalog, setCatalog] = useState<CatalogEntry[] | null>(null);
   const [libraryError, setLibraryError] = useState<string | null>(null);
+  const [organization, setOrganization] = useState<LibraryOrganization>(EMPTY_ORGANIZATION);
   const [route, setRouteState] = useState<UiRoute>({ view: 'welcome' });
   const previous = useRef<UiRoute>({ view: 'welcome' });
   const startupDone = useRef(false);
@@ -106,6 +109,17 @@ function Shell() {
       setLibraryError(null);
     });
   }, [loadLibrary]);
+
+  // Folders, Archive and Trash (09 §4.2): pushed on every organization or catalog change.
+  useEffect(() => {
+    let live = true;
+    void window.eli5.library.organization().then((r) => live && r.ok && setOrganization(r.value));
+    const off = window.eli5.library.onOrganizationChanged((e) => setOrganization(e.organization));
+    return () => {
+      live = false;
+      off();
+    };
+  }, []);
 
   // ---- opening a document in the viewer (11 §5.2, §8, §13) ----
   // An ok:false answer is an IPC failure, reported inline with Retry while the viewer stays
@@ -169,11 +183,14 @@ function Shell() {
   const openSettings = useCallback((section?: SettingsSection) => go({ view: 'settings', section }), [go]);
   const leaveSettings = useCallback(() => go(previous.current), [go]);
   const openDoc = useCallback((slug: string) => go({ view: 'doc', slug }), [go]);
+  const openTrash = useCallback(() => go({ view: 'trash' }), [go]);
 
   const resolved = resolveRoute(route, catalog);
   const shown: UiRoute =
     resolved.view === 'doc' && missing.has(resolved.slug) ? { view: 'not-found', slug: resolved.slug } : resolved;
   const selectedSlug = shown.view === 'doc' ? shown.slug : null;
+  // A missing document that is in the Trash offers Put Back instead of "files are missing" (11 §8).
+  const inTrash = shown.view === 'not-found' ? organization.trash.find((t) => t.topicSlug === shown.slug) : undefined;
 
   // ---- sidebar: collapse (Cmd+\), resize, auto-collapse below 1000 px (11 §5.2, §12) ----
   useEffect(() => {
@@ -273,9 +290,12 @@ function Shell() {
       <aside className="sidebar" data-region="sidebar" hidden={collapsed}>
         <LibrarySidebar
           entries={catalog}
+          organization={organization}
           error={libraryError}
           selectedSlug={selectedSlug}
+          trashSelected={shown.view === 'trash'}
           onOpen={openDoc}
+          onOpenTrash={openTrash}
           onRetry={() => void loadLibrary()}
           filterRef={filterRef}
         />
@@ -318,7 +338,9 @@ function Shell() {
           {shown.view === 'welcome' && (
             <Welcome hasKey={hasKey} libraryEmpty={!catalog?.length} onAddKey={() => openSettings('ai')} />
           )}
-          {shown.view === 'not-found' && <NotFound />}
+          {shown.view === 'not-found' &&
+            (inTrash ? <InTrash item={inTrash} onRestored={(slug) => openDoc(slug)} /> : <NotFound />)}
+          {shown.view === 'trash' && <TrashView organization={organization} />}
           {shown.view === 'settings' && (
             <SettingsScreen
               settings={settings}

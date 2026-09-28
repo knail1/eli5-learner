@@ -33,7 +33,15 @@ export {
   isAppRendererUrl,
 } from './app-protocol';
 export type { AppProtocolDeps } from './app-protocol';
-export { createTray, rebuildTrayMenu, buildTrayMenu, setTrayCatalog, setTrayActiveJobs, trayModel } from './tray';
+export {
+  createTray,
+  rebuildTrayMenu,
+  buildTrayMenu,
+  setTrayCatalog,
+  setTrayArchived,
+  setTrayActiveJobs,
+  trayModel,
+} from './tray';
 export {
   activeJobCounter,
   trayMenuTemplate,
@@ -41,13 +49,14 @@ export {
   trayTooltip,
   quitLabel,
   recentFromCatalog,
+  archivedIds,
   libraryOrder,
 } from './tray-model';
 export type { TrayEntry, TrayModel, TrayActions } from './tray-model';
 export { shell, installLifecycle, quitApp, closeAction, crashTracker, ERROR_PAGE, RELOAD_FRAGMENT } from './lifecycle';
 export type { LifecycleApp } from './lifecycle';
 export { appMenuTemplate, libraryItemMenuTemplate, MENU_IDS, MENU_SHORTCUT_KEYS } from './app-menu';
-export type { AppMenuActions, LibraryItemMenuActions, MenuShortcutId } from './app-menu';
+export type { AppMenuActions, LibraryItemMenuActions, LibraryItemMenuOrganize, MenuShortcutId } from './app-menu';
 export { createHelpOpener, HELP_FILES, PUBLIC_README_URL } from './menu-help';
 export type { HelpOpener, HelpOpenerDeps } from './menu-help';
 export {
