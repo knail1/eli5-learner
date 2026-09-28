@@ -2,6 +2,7 @@ import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { validateDocument } from '../helpers/doc-validity';
+import { probeDocument } from './probe';
 import type { FixtureServer } from '../helpers/fixture-server';
 import {
   Harness,
@@ -54,6 +55,8 @@ const launch = (dirs: Dirs, opts: { fake?: boolean; script?: string } = {}): Pro
 const slowScript = (dirs: Dirs, latencyMs: number): Promise<string> =>
   writeScript(dirs, `slow-${String(latencyMs)}`, { latencyMs });
 
+const CLEAN = { booted: true, requests: [], consoleErrors: [] };
+
 /** The finished document: in the Library, opens in the viewer, and the saved file is valid (07, 13 §7). */
 async function expectDocument(l: Launched, dirs: Dirs): Promise<string> {
   const entries = await libraryEntries(l.win);
@@ -72,6 +75,8 @@ async function expectDocument(l: Launched, dirs: Dirs): Promise<string> {
   const report = validateDocument(html);
   expect(report.errors).toEqual([]);
   expect(report.ok).toBe(true);
+  // 13 §7.2: every document an e2e flow produces makes zero requests at runtime.
+  expect(await probeDocument(l.app, path.join(dirs.library, slug, 'index.html'))).toMatchObject(CLEAN);
   expect(meta.title).toBe(TITLE);
   return slug;
 }

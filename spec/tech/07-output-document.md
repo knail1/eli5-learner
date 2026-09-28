@@ -278,6 +278,7 @@ Figure `alt` defaults to the caption when the model provides none.
 </head>
 <body>
   <header class="doc-head">
+    <button class="theme-toggle" aria-label="Switch theme" hidden></button>  <!-- not in the tablist: a tablist owns only tabs -->
     <p class="kicker">Explainer</p><h1>{title}</h1><p class="dek">{dek}</p>
     <p class="doc-meta">Generated 27 Sep 2026 · 4 sources · 1 skipped</p>
   </header>
@@ -286,7 +287,6 @@ Figure `alt` defaults to the caption when the model provides none.
     <button role="tab" id="tabbtn-eli5" aria-controls="tab-eli5" aria-selected="false">ELI5</button>
     <span class="tab-sx"><button role="tab" id="tabbtn-sx4e1a07" …>ELI5: Revenue recognition</button>
       <button class="tab-close" data-close-tab="sx4e1a07" aria-label="Close tab ELI5: Revenue recognition" hidden>×</button></span>
-    <button class="theme-toggle" aria-label="Switch theme" hidden></button>
   </nav>
   <main>
     <div class="tabpanel" role="tabpanel" id="tab-indepth" data-tab-key="indepth" data-tab-kind="indepth" aria-labelledby="tabbtn-indepth">
