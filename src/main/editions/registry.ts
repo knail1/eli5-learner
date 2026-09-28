@@ -8,6 +8,7 @@ import type { PipelinePolicy } from '../pipeline';
 import type { DocTheme, ReferenceFormatter } from '../document';
 import type { LibraryPolicy, MergeEligibility } from '../library';
 import type { PrePublishPolicy, Publisher, SecretScanner } from '../publish';
+import type { NotificationPolicy } from '../shell';
 import type { UiFeature, EditionInfo } from '../../preload/contract';
 import type { Edition } from './types';
 import { NotAvailableInEdition } from './errors';
@@ -49,6 +50,7 @@ export interface CapabilityRegistry {
   registerPrePublishPolicy(fn: PrePublishPolicy): void; // HOOK-PUB-05
   registerSettingsExtension(ext: SettingsExtension): void; // HOOK-CFG-01
   enableUiFeatures(f: UiFeature[]): void; // HOOK-UI-01
+  registerNotificationPolicy(p: NotificationPolicy): void; // HOOK-UI-03
   /** Lane-rule builder the sources module installs so registerLaneRules can build a router. */
   setLaneRouterFactory(fn: (rules: readonly LaneRule[]) => LaneRouter): void;
 
@@ -73,6 +75,8 @@ export interface CapabilityRegistry {
   mergeEligibility(): MergeEligibility;
   secretScanner(): SecretScanner;
   prePublishPolicy(): PrePublishPolicy;
+  /** HOOK-UI-03; public default {hideTitle:false} (11 §14.3). */
+  notificationPolicy(): NotificationPolicy;
   settingsExtension(): SettingsExtension | undefined;
   info(): EditionInfo;
   freeze(): void;
@@ -140,6 +144,8 @@ export class Registry implements CapabilityRegistry {
   private mcpClient: McpClient | undefined;
   private extension: SettingsExtension | undefined;
   private uiFeatures = new Set<UiFeature>();
+  // HOOK-UI-03: the public default lives here, so no module registration is needed.
+  private notification: NotificationPolicy = { hideTitle: false };
 
   constructor(opts: RegistryOptions) {
     this.edition = opts.edition;
@@ -277,6 +283,11 @@ export class Registry implements CapabilityRegistry {
     this.assertOpen();
     for (const x of f) this.uiFeatures.add(x);
   }
+  registerNotificationPolicy(p: NotificationPolicy): void {
+    this.assertOpen();
+    this.onReplace('slot', 'notificationPolicy');
+    this.notification = { hideTitle: p.hideTitle };
+  }
 
   // ---- lookups ----
 
@@ -363,6 +374,9 @@ export class Registry implements CapabilityRegistry {
   }
   prePublishPolicy(): PrePublishPolicy {
     return this.getSlot('prePublishPolicy');
+  }
+  notificationPolicy(): NotificationPolicy {
+    return this.notification;
   }
   settingsExtension(): SettingsExtension | undefined {
     return this.extension;

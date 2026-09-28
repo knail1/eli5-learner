@@ -145,9 +145,15 @@ describe('App layout and routes (11 §5, §6)', () => {
     expect(host.querySelector('#settings-enterprise')).toBeNull();
     expect(host.querySelector('.sign-in')).toBeNull();
     // Unavailable providers are not shown: bedrock never appears.
-    const radios = Array.from(host.querySelectorAll('input[type="radio"]')).map((r) => r.parentElement?.textContent);
+    const radios = Array.from(host.querySelectorAll('#settings-ai input[type="radio"]')).map(
+      (r) => r.parentElement?.textContent,
+    );
     expect(radios).toEqual(['Claude', 'OpenAI']);
-    // Dormant keys have no controls.
+    // Dormant keys have no controls. Settings > Notifications names the remote link kinds in its
+    // disabled published-link option (11 §7), so it is checked separately.
+    const notifications = host.querySelector('#settings-notifications');
+    expect(notifications?.querySelector<HTMLInputElement>('input[type="radio"]:disabled')).not.toBeNull();
+    notifications?.remove();
     expect(host.innerHTML).not.toMatch(/mcp|drive|github/i);
   });
 
