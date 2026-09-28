@@ -126,11 +126,11 @@ export class Harness {
   }
 }
 
-/** A copy of the default fake script with overrides (latency, extra or replaced responses). */
+/** A copy of the default fake script with overrides (latency, extra or replaced responses, injected errors). */
 export async function writeScript(
   dirs: Dirs,
   name: string,
-  patch: { latencyMs?: number; responses?: Record<string, unknown> },
+  patch: { latencyMs?: number; responses?: Record<string, unknown>; errors?: Record<string, string | string[]> },
 ): Promise<string> {
   const script = JSON.parse(await readFile(DEFAULT_SCRIPT, 'utf8')) as FakeScript;
   const file = path.join(dirs.root, `${name}.json`);
@@ -139,6 +139,7 @@ export async function writeScript(
     JSON.stringify({
       ...script,
       ...(patch.latencyMs !== undefined ? { latencyMs: patch.latencyMs } : {}),
+      ...(patch.errors ? { errors: patch.errors } : {}),
       responses: { ...script.responses, ...patch.responses },
     }),
   );
@@ -179,6 +180,17 @@ export async function viewerUrl(app: ElectronApplication): Promise<string> {
   });
 }
 
+/**
+ * Clicks Start until the draft clears. Start is debounced 400 ms against a double Enter (11 §5.4),
+ * so a click right after the previous start is ignored by design.
+ */
+export async function startDraft(win: Page): Promise<void> {
+  await expect(async () => {
+    await win.getByRole('button', { name: 'Start' }).click();
+    await expect(win.getByRole('list', { name: 'Added sources' })).toHaveCount(0, { timeout: 500 });
+  }).toPass();
+}
+
 /** Drop one text source, Start, and wait for its `Done:` line; returns the new Library entry. */
 export async function generate(
   l: Launched,
@@ -186,7 +198,7 @@ export async function generate(
 ): Promise<{ id: string; topicSlug: string; title: string }> {
   const before = new Set((await libraryEntries(l.win)).map((e) => e.id));
   await dropFiles(l.win, [rel]);
-  await l.win.getByRole('button', { name: 'Start' }).click();
+  await startDraft(l.win);
   await expect
     .poll(async () => (await libraryEntries(l.win)).filter((e) => !before.has(e.id)).length, { timeout: 30_000 })
     .toBe(1);
@@ -194,4 +206,49 @@ export async function generate(
   if (!entry) throw new Error('no new Library entry');
   await expect(jobText(l.win)).toHaveText(new RegExp(`^Done: `));
   return entry;
+}
+
+/** One request the FakeProvider received (13 §6.1 step 4), flattened for assertions. */
+export interface RecordedCall {
+  taskId: string;
+  imageCount: number;
+  /** All message text of the request, joined. */
+  text: string;
+}
+
+/** Every request the test build's FakeProvider(s) recorded, in order (13 §8.2 E2). */
+export async function fakeCalls(app: ElectronApplication): Promise<RecordedCall[]> {
+  return app.evaluate(() => {
+    type Call = { taskId: string; imageCount: number; messages: { text: string }[] };
+    const providers = (globalThis as { __eli5FakeProviders?: { calls: Call[] }[] }).__eli5FakeProviders ?? [];
+    return providers.flatMap((p) =>
+      p.calls.map((c) => ({
+        taskId: c.taskId,
+        imageCount: c.imageCount,
+        text: c.messages.map((m) => m.text).join('\n'),
+      })),
+    );
+  });
+}
+
+/** Records shell.openPath / openExternal / showItemInFolder instead of reaching Finder or a browser. */
+export async function spyShell(app: ElectronApplication): Promise<() => Promise<[string, string][]>> {
+  await app.evaluate(({ shell }) => {
+    const calls: [string, string][] = [];
+    (globalThis as { __shellCalls?: unknown }).__shellCalls = calls;
+    const s = shell as unknown as Record<string, unknown>;
+    s.openPath = (p: string) => (calls.push(['openPath', p]), Promise.resolve(''));
+    s.openExternal = (u: string) => (calls.push(['openExternal', u]), Promise.resolve());
+    s.showItemInFolder = (p: string) => void calls.push(['showItemInFolder', p]);
+  });
+  return () => app.evaluate(() => (globalThis as { __shellCalls?: [string, string][] }).__shellCalls ?? []);
+}
+
+/** Opens a Library entry by title from the sidebar. */
+export async function openFromLibrary(win: Page, title: string): Promise<void> {
+  await win
+    .getByRole('navigation', { name: 'Library' })
+    .getByRole('button', { name: new RegExp(title) })
+    .first()
+    .click();
 }

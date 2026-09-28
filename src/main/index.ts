@@ -145,7 +145,14 @@ async function bootstrap(): Promise<void> {
     const read = (p: string): string => fs.readFileSync(p, 'utf8');
     const script = fs.existsSync(scriptPath) ? loadFakeScript(scriptPath, read) : { responses: {} };
     const provider = settings.get().llm.provider;
-    registry.registerLLMProvider(provider, () => new FakeProvider(script, { id: provider, readFile: read }));
+    // e2e reads every recorded request from main (13 §8.2 E2: "Fake recorded one image").
+    const made: InstanceType<typeof FakeProvider>[] = [];
+    (globalThis as { __eli5FakeProviders?: unknown }).__eli5FakeProviders = made;
+    registry.registerLLMProvider(provider, () => {
+      const fake = new FakeProvider(script, { id: provider, readFile: read });
+      made.push(fake);
+      return fake;
+    });
   }
 
   // 3. overlay (enterprise only; fatal on failure)
