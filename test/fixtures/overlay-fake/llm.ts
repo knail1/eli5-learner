@@ -1,6 +1,6 @@
 /** Fixture enterprise LLM backend: the public FakeProvider registered as `bedrock` (13 §10.1). */
-import type { FakeScript } from '@eli5/public/llm/testing/fake';
-import { FakeProvider } from '@eli5/public/llm/testing/fake';
+import type { FakeScript } from '@eli5/public/llm/testing';
+import { FakeProvider } from '@eli5/public/llm/testing';
 import defaultScript from '../llm/default.json';
 
 export const FIXTURE_GATEWAY_MODEL = 'fixture-gateway-model';

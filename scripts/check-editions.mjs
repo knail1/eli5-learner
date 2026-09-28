@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 // check-editions.mjs: edition matrix build cells (spec/tech/13-testing-quality.md §10.1).
 //
-//   F          ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=test/fixtures/overlay-fake builds, and the
-//              main bundle contains the fixture overlay.
+//   F          ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=test/fixtures/overlay-fake builds, the main
+//              bundle contains the fixture overlay (and its FakeProvider), and loadOverlay's
+//              enterprise branch is compiled in (`__ELI5_EDITION__` was 'enterprise'). Its runtime
+//              behaviour is covered by test/unit/main/editions/load-overlay.enterprise.test.ts.
 //   F-missing  An enterprise build whose overlay directory is absent fails with the documented
 //              message (01 §6.5): "Enterprise build requires an overlay at <dir>/index.ts (set ELI5_OVERLAY_DIR)".
-//   P-stub     The public build (even with ELI5_OVERLAY_DIR set) bundles no overlay code and no
-//              FakeProvider, and the P-stub unit suite passes (every stub throws its hook id).
+//   P-stub     The public build (even with ELI5_OVERLAY_DIR set) writes a real main bundle (public
+//              stubs present) with no overlay code, no FakeProvider and no enterprise loader branch,
+//              and the P-stub unit suite passes (every stub throws its hook id).
 //
 // Builds go to a temp --outDir, so out/ is never touched. Offline; no keys.
 //
@@ -26,6 +29,10 @@ const CELLS = ['F', 'F-missing', 'P-stub'];
 
 /** Strings only the fixture overlay puts into a bundle (test/fixtures/overlay-fake). */
 const OVERLAY_MARKERS = ['Fixture overlay', 'docs.example.test', 'fixture-gateway-model'];
+/** Present only when loadOverlay's enterprise branch survives dead-code elimination (01 §6.5 step 5). */
+const ENTERPRISE_LOADER = 'Enterprise build without overlay';
+/** Public stubs are registered in every edition, so any real main bundle contains their hook ids. */
+const PUBLIC_MARKERS = ['HOOK-LLM-01', 'HOOK-AUTH-01'];
 
 function parseArgs(argv) {
   const opts = { cells: [], list: false, keep: false };
@@ -82,7 +89,9 @@ const CHECKS = {
     const r = build(outDir, { ELI5_EDITION: 'enterprise', ELI5_OVERLAY_DIR: OVERLAY_DIR });
     if (r.status !== 0) return [`enterprise build with the fixture overlay failed:\n${r.out}`];
     const js = mainBundle(outDir);
-    return OVERLAY_MARKERS.filter((m) => !js.includes(m)).map((m) => `main bundle lacks overlay marker "${m}"`);
+    return [...OVERLAY_MARKERS, 'FakeProvider', ENTERPRISE_LOADER, ...PUBLIC_MARKERS]
+      .filter((m) => !js.includes(m))
+      .map((m) => `enterprise main bundle lacks "${m}"`);
   },
 
   'F-missing'(tmp) {
@@ -103,9 +112,13 @@ const CHECKS = {
     const r = build(outDir, { ELI5_OVERLAY_DIR: OVERLAY_DIR });
     if (r.status !== 0) return [`public build failed:\n${r.out}`];
     const js = mainBundle(outDir);
-    const problems = [...OVERLAY_MARKERS, 'FakeProvider']
-      .filter((m) => js.includes(m))
-      .map((m) => `public main bundle contains "${m}"`);
+    if (js === '') return [`public build wrote no main bundle under ${join(outDir, 'main')}`];
+    const problems = [
+      ...PUBLIC_MARKERS.filter((m) => !js.includes(m)).map((m) => `public main bundle lacks "${m}"`),
+      ...[...OVERLAY_MARKERS, 'FakeProvider', ENTERPRISE_LOADER]
+        .filter((m) => js.includes(m))
+        .map((m) => `public main bundle contains "${m}"`),
+    ];
     const t = run('vitest', ['run', '--project', 'unit', 'test/unit/main/editions/p-stub.test.ts'], envWith({}));
     if (t.status !== 0) problems.push(`P-stub unit suite failed:\n${t.out}`);
     return problems;

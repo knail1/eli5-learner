@@ -29,7 +29,7 @@ import { BaselineSecretScanner } from '../../src/main/publish';
 vi.mock('@eli5/public/config', () => import('../../src/main/config'));
 vi.mock('@eli5/public/editions', () => import('../../src/main/editions'));
 vi.mock('@eli5/public/llm', () => import('../../src/main/llm'));
-vi.mock('@eli5/public/llm/testing/fake', () => import('../../src/main/llm/testing/fake'));
+vi.mock('@eli5/public/llm/testing', () => import('../../src/main/llm/testing'));
 vi.mock('@eli5/public/publish', () => import('../../src/main/publish'));
 vi.mock('@eli5/public/sources', () => import('../../src/main/sources'));
 
@@ -122,8 +122,11 @@ function gatewayFor(s: ContractScenario) {
 
 describeLLMProviderContract('fixture bedrock gateway', async (s) => gatewayFor(s), { transport: 'fake' });
 
-describeAuthContract('fixture auth broker', async () => new FixtureAuthBroker());
-describeAuthContract('fixture auth broker (signed out)', async () => new FixtureAuthBroker({ initial: 'signed-out' }));
+const interactions = (b: FixtureAuthBroker) => b.interactions;
+describeAuthContract('fixture auth broker', async () => new FixtureAuthBroker(), { interactions });
+describeAuthContract('fixture auth broker (signed out)', async () => new FixtureAuthBroker({ initial: 'signed-out' }), {
+  interactions,
+});
 
 const docsRoute = () => buildLaneRouter(FIXTURE_LANE_RULES);
 const orgUrl = (p: string): SourceInput => ({
@@ -135,6 +138,7 @@ const orgUrl = (p: string): SourceInput => ({
 
 describeSourceResolverContract(
   'fixture MCP resolver',
+  // 20 ms of client latency outlasts the contract's 5 ms abort, so a resolver ignoring it fails.
   async () => new FixtureMcpResolver(new FixtureAuthBroker(), new FixtureMcpClient({ latencyMs: 20 })),
   [
     {
@@ -160,6 +164,7 @@ describeSourceResolverContract(
       expect: 'skipped',
     },
   ],
+  { outlastsAbort: true },
 );
 
 describe('fixture MCP resolver rules (03 §10.1)', () => {

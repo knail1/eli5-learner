@@ -50,10 +50,15 @@ export default defineConfig({
   main: {
     define,
     resolve: {
-      alias: {
-        '@eli5/overlay': overlay,
-        '@eli5/public': resolve(root, 'src/main'),
-      },
+      // Overlays reach public code only as `@eli5/public/<module>` → its index.ts, plus the test
+      // entry `llm/testing`; a deep import matches nothing and fails the build (01 §6.5 step 4.3).
+      alias: [
+        { find: '@eli5/overlay', replacement: overlay },
+        {
+          find: /^@eli5\/public\/([a-z-]+(?:\/testing)?)$/,
+          replacement: `${resolve(root, 'src/main')}/$1/index.ts`,
+        },
+      ],
     },
     build: {
       rollupOptions: {

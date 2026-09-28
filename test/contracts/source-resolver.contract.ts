@@ -86,6 +86,26 @@ function scrubPayloads(out: ResolveOutcome): unknown {
   };
 }
 
+/** An abort shows as a `cancelled` skip for the input, or as an AbortError rejection. */
+async function expectCancelled(p: Promise<ResolveOutcome>): Promise<void> {
+  const out = await p.catch((e: unknown) => e);
+  if (out instanceof Error) {
+    expect(out.name).toBe('AbortError');
+    return;
+  }
+  const o = out as ResolveOutcome;
+  expect(o.resolved).toEqual([]);
+  expect(o.skipped.map((s) => s.code)).toContain('cancelled');
+}
+
+export interface ResolverContractOptions {
+  /**
+   * Every case takes longer than the 5 ms mid-resolution abort (for example a fake client with
+   * latency), so an aborted resolve must end cancelled rather than merely settle in time.
+   */
+  outlastsAbort?: boolean;
+}
+
 function settlesWithin<T>(p: Promise<T>, ms: number): Promise<'settled' | 'timeout'> {
   return Promise.race([
     p.then(
@@ -100,6 +120,7 @@ export function describeSourceResolverContract(
   name: string,
   make: () => Promise<SourceResolver>,
   cases: ResolverContractCase[],
+  opts: ResolverContractOptions = {},
 ): void {
   describe(`SourceResolver contract: ${name}`, () => {
     it('has a stable id, a lane and a non-empty handles list', async () => {
@@ -159,8 +180,9 @@ export function describeSourceResolverContract(
           const { input, ctx } = await c.setup();
           const ctl = new AbortController();
           ctl.abort();
-          const verdict = await settlesWithin(r.resolve(input, baseCtx([], { ...ctx, signal: ctl.signal })), 1000);
-          expect(verdict).toBe('settled');
+          const p = r.resolve(input, baseCtx([], { ...ctx, signal: ctl.signal }));
+          expect(await settlesWithin(p, 1000)).toBe('settled');
+          if (opts.outlastsAbort) await expectCancelled(p);
         });
 
         it('honors an abort during resolution within 1 s', async () => {
@@ -170,6 +192,7 @@ export function describeSourceResolverContract(
           const p = r.resolve(input, baseCtx([], { ...ctx, signal: ctl.signal }));
           setTimeout(() => ctl.abort(), 5);
           expect(await settlesWithin(p, 1000)).toBe('settled');
+          if (opts.outlastsAbort) await expectCancelled(p);
         });
 
         it('exposes no credential material in the outcome or logs', async () => {

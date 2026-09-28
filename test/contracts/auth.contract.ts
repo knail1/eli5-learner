@@ -27,7 +27,16 @@ function attempt(fn: () => Promise<AuthStatus>): Promise<AuthStatus | Error> {
     .catch((e: unknown) => (e instanceof Error ? e : new Error(String(e))));
 }
 
-export function describeAuthContract(name: string, make: () => Promise<AuthBroker>): void {
+export interface AuthContractOptions<B extends AuthBroker> {
+  /** Counts interactive prompts (browser, dialog) the broker has opened, when it can observe them. */
+  interactions?: (b: B) => number;
+}
+
+export function describeAuthContract<B extends AuthBroker>(
+  name: string,
+  make: () => Promise<B>,
+  opts: AuthContractOptions<B> = {},
+): void {
   describe(`AuthCapability contract: ${name}`, () => {
     it('status() is synchronous, well formed and carries no token', async () => {
       const b = await make();
@@ -40,11 +49,13 @@ export function describeAuthContract(name: string, make: () => Promise<AuthBroke
       const b = await make();
       const events: AuthStatus[] = [];
       const off = b.onChange((s) => events.push(s));
+      const prompts = opts.interactions?.(b);
       const first = b.status();
       for (let i = 0; i < 5; i++) expect(b.status().state).toBe(first.state);
       await new Promise((r) => setTimeout(r, 10));
       expect(events).toEqual([]);
       expect(first.state).not.toBe('signing-in');
+      if (opts.interactions) expect(opts.interactions(b), 'status() opened an interactive prompt').toBe(prompts);
       off();
     });
 

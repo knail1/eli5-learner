@@ -6,7 +6,7 @@
     "types": ["node", "vite/client"],
     "paths": {
       "@eli5/overlay": ["./src/main/editions/overlay.none.ts"],
-      "@eli5/public/*": ["./src/main/*"]
+      "@eli5/public/*": ["./src/main/*/index.ts"]
     }
   },
   "include": [
