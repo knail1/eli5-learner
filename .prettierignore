@@ -13,3 +13,4 @@ resources/skills/beautiful-doc/theme.css
 release/
 test-results/
 playwright-report/
+test/evals/results/
