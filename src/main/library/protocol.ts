@@ -5,6 +5,7 @@
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import type { Session } from 'electron';
+import { upgradeThemeBlock } from '../document';
 import { VIEWER_CSP } from '../security';
 import { isValidSlug } from './slug';
 
@@ -81,9 +82,11 @@ async function containedFile(root: string, rel: string[]): Promise<string | unde
   return st?.isFile() ? real : undefined;
 }
 
-async function serve(file: string, head: boolean): Promise<Response> {
+async function serve(file: string, head: boolean, upgrade = false): Promise<Response> {
   try {
-    const body = head ? null : await fsp.readFile(file);
+    const raw = head ? null : await fsp.readFile(file);
+    // 07 §11.4: a document rendered before theme dark variants gets them on the way out.
+    const body = raw && upgrade ? upgradeThemeBlock(raw.toString('utf8')) : raw;
     return new Response(body, { status: 200, headers: headers() });
   } catch {
     return notFound();
@@ -114,7 +117,7 @@ export function createDocProtocolHandler(deps: DocProtocolDeps): (request: Reque
       if (file !== '' && file !== 'index.html') return notFound();
       if (!isValidSlug(slug) || !deps.isCatalogued(slug)) return notFound();
       const real = await containedFile(deps.root, [slug, 'index.html']);
-      return real ? serve(real, head) : notFound();
+      return real ? serve(real, head, true) : notFound();
     }
 
     if (url.hostname === 'help') {

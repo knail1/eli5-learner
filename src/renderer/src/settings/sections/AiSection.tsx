@@ -138,31 +138,41 @@ function ApiKeyPanel(p: { provider: ApiKeyProvider; onChanged(): void }) {
     else setMessage(r.value.message ?? 'Could not connect');
   };
 
+  // 11 §7: the key, its state row and the Model field share one label column, so every input
+  // starts at the same x.
   return (
     <div className="api-key">
-      <form className="row" onSubmit={(e) => void saveKey(e)}>
-        <input
-          ref={input}
-          type="password"
-          autoComplete="off"
-          spellCheck={false}
-          placeholder={`${p.provider === 'claude' ? 'Claude' : 'OpenAI'} API key`}
-          aria-label="API key"
-        />
-        <button type="submit">Save key</button>
-      </form>
-      <div className="row">
-        <span className="muted" data-testid="key-state">
-          {hasKey === null ? '' : hasKey ? 'Key saved in Keychain' : 'No key'}
+      <form className="field" onSubmit={(e) => void saveKey(e)}>
+        <span className="field-label" aria-hidden="true">
+          API key
         </span>
-        {hasKey && (
-          <button type="button" onClick={() => void remove()}>
-            Remove
+        <div className="field-row">
+          <input
+            ref={input}
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder={`${p.provider === 'claude' ? 'Claude' : 'OpenAI'} API key`}
+            aria-label="API key"
+          />
+          <button type="submit">Save key</button>
+        </div>
+      </form>
+      <div className="field">
+        <span />
+        <div className="field-row">
+          <span className="muted" data-testid="key-state">
+            {hasKey === null ? '' : hasKey ? 'Key saved in Keychain' : 'No key'}
+          </span>
+          {hasKey && (
+            <button type="button" onClick={() => void remove()}>
+              Remove
+            </button>
+          )}
+          <button type="button" onClick={() => void test()} disabled={testing} aria-busy={testing}>
+            {testing ? 'Testing…' : 'Test connection'}
           </button>
-        )}
-        <button type="button" onClick={() => void test()} disabled={testing} aria-busy={testing}>
-          {testing ? 'Testing…' : 'Test connection'}
-        </button>
+        </div>
       </div>
       {message && <p className="note">{message}</p>}
     </div>

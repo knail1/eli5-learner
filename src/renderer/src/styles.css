@@ -796,6 +796,21 @@ textarea {
 .api-key input[type='password'] {
   flex: 1;
 }
+/* Settings forms (11 §7): one label column, so inputs line up; rows of controls sit in the field. */
+.settings .field {
+  margin: 8px 0;
+  align-items: center;
+}
+.settings .field .field-label {
+  padding-top: 0;
+}
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  min-width: 0;
+}
 button {
   font: inherit;
   min-height: 24px;

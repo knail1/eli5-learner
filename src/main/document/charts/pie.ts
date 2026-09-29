@@ -11,7 +11,7 @@ interface Slice {
   index: number;
 }
 
-export function renderPie(chart: ChartSpec): { body: string; height: number } {
+export function renderPie(chart: ChartSpec, W: number = CHART_WIDTH): { body: string; height: number } {
   const pieH = 300;
   const values = chart.series[0]?.values ?? [];
   const data: Slice[] = chart.categories
@@ -19,9 +19,10 @@ export function renderPie(chart: ChartSpec): { body: string; height: number } {
     .filter((d): d is Slice => d.value !== null && Number.isFinite(d.value) && d.value > 0)
     .sort((a, b) => b.value - a.value || a.index - b.index);
   const total = data.reduce((s, d) => s + d.value, 0);
-  const cx = CHART_WIDTH / 2;
+  const cx = W / 2;
   const cy = pieH / 2;
-  const radius = 104;
+  // Compact: a smaller pie leaves room for the outside labels.
+  const radius = W < CHART_WIDTH ? 70 : 104;
   const arcs = pie<Slice>()
     .sort(null)
     .value((d) => d.value)(data);
@@ -62,10 +63,10 @@ export function renderPie(chart: ChartSpec): { body: string; height: number } {
         ['text-anchor', right ? 'start' : 'end'],
         ['class', 'viz-ink viz-cat'],
       ],
-      escSvg(`${truncate(d.label, 26)} ${pct}%`),
+      escSvg(`${truncate(d.label, W < CHART_WIDTH ? 12 : 26)} ${pct}%`),
     );
   });
   // Rule 6: the note sits under the pie, below the lowest slice label.
-  if (chart.highlight) body += noteUnder(chart.highlight.note, cx, pieH);
+  if (chart.highlight) body += noteUnder(chart.highlight.note, cx, pieH, W);
   return { body, height: pieH + (chart.highlight ? NOTE_BELOW : 0) };
 }

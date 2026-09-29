@@ -14,6 +14,7 @@ import {
   markLabel,
   maxOf,
   minOf,
+  niceScale,
   r2,
   seriesClass,
   textWidth,
@@ -21,7 +22,7 @@ import {
 } from './common';
 import { NOTE_ROW, noteAbove } from './annotate';
 
-export function renderLine(chart: ChartSpec): { body: string; height: number } {
+export function renderLine(chart: ChartSpec, W: number = CHART_WIDTH): { body: string; height: number } {
   const isArea = chart.kind === 'area';
   const height = 320;
   const direct = chart.series.length > 1 && chart.series.length <= 4;
@@ -31,31 +32,29 @@ export function renderLine(chart: ChartSpec): { body: string; height: number } {
           chart.series.map((s) => s.name),
           4,
           0,
+          W,
         )
       : { svg: '', height: 0 };
   // Rule 6: a band above the plot is reserved for the highlight note.
-  const noteTop = leg.height + (chart.yLabel ? 22 : 12);
+  const noteTop = leg.height + (chart.yLabel ? 30 : 12);
   const top = noteTop + (chart.highlight ? NOTE_ROW : 0);
   const bottom = chart.xLabel ? 46 : 28;
   const left = 44;
   const right = direct
-    ? Math.min(140, Math.max(...chart.series.map((s) => textWidth(truncate(s.name, 18), 12))) + 14)
+    ? Math.min(
+        W < CHART_WIDTH ? 90 : 140,
+        Math.max(...chart.series.map((s) => textWidth(truncate(s.name, W < CHART_WIDTH ? 12 : 18), 12))) + 14,
+      )
     : 16;
   const vals = allValues(chart);
-  let lo = minOf(vals) ?? 0;
-  let hi = maxOf(vals) ?? 1;
-  if (isArea) {
-    lo = Math.min(0, lo);
-    hi = Math.max(0, hi);
-  }
-  if (lo === hi) hi = lo + 1;
+  // Rule 2: nice extent that contains every value; an area starts at 0.
+  const nice = niceScale(minOf(vals) ?? 0, maxOf(vals) ?? 1, 6, isArea);
   const y = scaleLinear()
-    .domain([lo, hi])
-    .nice()
+    .domain(nice.domain)
     .range([height - bottom, top]);
   const x = scalePoint<number>()
     .domain(chart.categories.map((_, i) => i))
-    .range([left + 8, CHART_WIDTH - right])
+    .range([left + 8, W - right])
     .padding(0);
   const xp = (i: number): number => x(i) ?? left;
 
@@ -71,10 +70,10 @@ export function renderLine(chart: ChartSpec): { body: string; height: number } {
       escSvg(chart.yLabel),
     );
   }
-  for (const t of y.ticks(5)) {
+  for (const t of nice.ticks) {
     body += el('line', [
       ['x1', left],
-      ['x2', CHART_WIDTH - right],
+      ['x2', W - right],
       ['y1', r2(y(t))],
       ['y2', r2(y(t))],
       ['class', t === 0 ? 'viz-axis' : 'viz-grid'],
@@ -92,7 +91,8 @@ export function renderLine(chart: ChartSpec): { body: string; height: number } {
   }
   // Thin out category labels so they do not collide.
   const n = chart.categories.length;
-  const every = Math.max(1, Math.ceil((n * 64) / (CHART_WIDTH - right - left)));
+  const need = Math.max(...chart.categories.map((c) => textWidth(truncate(c, 12), 12))) + 16;
+  const every = Math.max(1, Math.ceil((n * need) / (W - right - left)));
   chart.categories.forEach((c, i) => {
     if (i % every !== 0 && i !== n - 1) return;
     body += el(
@@ -164,7 +164,7 @@ export function renderLine(chart: ChartSpec): { body: string; height: number } {
             ['y', r2(y(lv) + 4)],
             ['class', `${hasHl ? 'viz-fill-ink' : seriesClass('fill', si)} viz-direct`],
           ],
-          escSvg(truncate(s.name, 18)),
+          escSvg(truncate(s.name, W < CHART_WIDTH ? 12 : 18)),
         );
       }
     }
@@ -175,14 +175,14 @@ export function renderLine(chart: ChartSpec): { body: string; height: number } {
     if (ci >= 0 && v !== undefined) {
       // An area's fill runs from the zero line to each value, so its leader stops above both.
       const yt = y(isArea ? Math.max(0, v) : v);
-      body += noteAbove(chart.highlight.note, xp(ci), noteTop, yt - 7);
+      body += noteAbove(chart.highlight.note, xp(ci), noteTop, yt - 7, W);
     }
   }
   if (chart.xLabel) {
     body += el(
       'text',
       [
-        ['x', r2((left + CHART_WIDTH - right) / 2)],
+        ['x', r2((left + W - right) / 2)],
         ['y', height - 8],
         ['text-anchor', 'middle'],
         ['class', 'viz-ink viz-axis-title'],

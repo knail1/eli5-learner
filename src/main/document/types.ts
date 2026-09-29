@@ -280,6 +280,11 @@ export interface DocTheme {
   id: string;
   version: string;
   tokens: Partial<Record<TokenName, string>>;
+  /**
+   * Optional explicit dark values (07 §11.4). Color tokens set in `tokens` but not here get a derived
+   * dark value at render time (same hue, lightness moved to reach WCAG contrast on the dark paper).
+   */
+  darkTokens?: Partial<Record<TokenName, string>>;
   footer?: string;
   logoSvg?: string; // sanitized per 07 §7.3
 }

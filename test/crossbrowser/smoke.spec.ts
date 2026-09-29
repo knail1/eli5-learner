@@ -172,10 +172,9 @@ for (const g of GOLDENS) {
       await page.emulateMedia({ colorScheme: 'dark' });
       await open(page, g.url);
       await expect(page.locator('body')).not.toHaveCSS('background-color', 'rgb(255, 255, 255)');
-      // A document with #eli5-theme token overrides applies them in both schemes (theme.ts
-      // themeCss), so its accent is only checked in light; dark covers the body text (07 §16).
-      const overridden = ((await page.locator('#eli5-theme').textContent()) ?? '').trim() !== '';
-      const dark = (await seriousViolations(page, overridden ? 'section p' : undefined)).map((v) => `[dark] ${v}`);
+      // A themed document carries a derived dark variant (07 §11.4), so the whole page is scanned
+      // in dark too, its accent kicker and links included.
+      const dark = (await seriousViolations(page)).map((v) => `[dark] ${v}`);
       await page.emulateMedia({ colorScheme: 'light' });
       await open(page, g.url);
       const found: string[] = [];
@@ -197,3 +196,67 @@ for (const g of GOLDENS) {
     });
   });
 }
+
+/** Relative luminance of a computed `rgb(...)` color, in the page. */
+async function paperLuminance(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const m = /rgba?\(([^)]*)\)/.exec(getComputedStyle(document.body).backgroundColor)?.[1] ?? '0,0,0';
+    const [r, g, b] = m.split(',').map((x) => Number(x.trim()) / 255);
+    const lin = (c: number): number => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+    return 0.2126 * lin(r ?? 0) + 0.7152 * lin(g ?? 0) + 0.0722 * lin(b ?? 0);
+  });
+}
+
+const themed = GOLDENS.find((g) => g.name === 'themed');
+test.describe('themed document: dark variant (07 §11.2, §11.4)', () => {
+  test.skip(!themed, 'no themed golden');
+  const url = themed?.url ?? '';
+
+  test('follows the system in auto and honours the toggle both ways', async ({ context, page }) => {
+    const probe = await instrument(context, page, url);
+    await page.setViewportSize(WIDE);
+    const kicker = page.locator('header.doc-head .kicker');
+    const setTheme = (t: string) => page.evaluate((v) => document.documentElement.setAttribute('data-theme', v), t);
+
+    await page.emulateMedia({ colorScheme: 'light' });
+    await open(page, url);
+    expect(await paperLuminance(page)).toBeGreaterThan(0.8);
+    const lightAccent = await kicker.evaluate((e) => getComputedStyle(e).color);
+    await setTheme('dark'); // explicit dark on a light system
+    expect(await paperLuminance(page)).toBeLessThan(0.02);
+    const darkAccent = await kicker.evaluate((e) => getComputedStyle(e).color);
+    expect(darkAccent).not.toBe(lightAccent);
+
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await setTheme('auto'); // auto follows the dark system
+    expect(await paperLuminance(page)).toBeLessThan(0.02);
+    expect(await kicker.evaluate((e) => getComputedStyle(e).color)).toBe(darkAccent);
+    await setTheme('light'); // explicit light on a dark system
+    expect(await paperLuminance(page)).toBeGreaterThan(0.8);
+    expect(await kicker.evaluate((e) => getComputedStyle(e).color)).toBe(lightAccent);
+
+    // The toggle button cycles auto -> light -> dark on a dark system.
+    await setTheme('auto');
+    await open(page, url);
+    await page.locator('.theme-toggle').click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    expect(await paperLuminance(page)).toBeGreaterThan(0.8);
+    await page.locator('.theme-toggle').click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+    expect(await paperLuminance(page)).toBeLessThan(0.02);
+    expectClean(probe);
+  });
+
+  test('axe: zero serious or critical violations in dark, auto and explicit', async ({ context, page }) => {
+    const probe = await instrument(context, page, url);
+    await page.setViewportSize(WIDE);
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await open(page, url);
+    const found = (await seriousViolations(page)).map((v) => `[auto dark] ${v}`);
+    await page.emulateMedia({ colorScheme: 'light' });
+    await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+    found.push(...(await seriousViolations(page)).map((v) => `[explicit dark] ${v}`));
+    expect(found).toEqual([]);
+    expectClean(probe);
+  });
+});

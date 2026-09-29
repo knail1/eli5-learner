@@ -137,7 +137,10 @@ describe('renderDocument (07 §6)', () => {
     const themed = fixtureDocument('themed');
     const out = renderDocument(themed.model, themed.assets, { runtime: STUB_RUNTIME, theme: themed.theme });
     expect(out).toContain(
-      '<style id="eli5-theme">:root:root:root{--accent:#8a1c7c;--font-serif:"Iowan Old Style", Georgia, serif}</style>',
+      '<style id="eli5-theme">:root:root:root{--accent:#8a1c7c;--font-serif:"Iowan Old Style", Georgia, serif}' +
+        // 07 §11.4: the derived dark accent (same hue, >= 4.5:1 on the dark paper) for auto and dark.
+        '@media (prefers-color-scheme: dark){:root:root:root:not([data-theme="light"]){--accent:#d73cc4}}' +
+        ':root:root:root[data-theme="dark"]{--accent:#d73cc4}</style>',
     );
     expect(out).toContain('<footer class="doc-foot">Made with ELI5 Learner · Example footer label</footer>');
     expect(out).toMatch(/<p class="kicker"><span class="doc-logo"><svg [^>]*role="img" aria-label="Logo"/);

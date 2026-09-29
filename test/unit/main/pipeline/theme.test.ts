@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseThemeTokens } from '../../../../src/main/pipeline';
+import { parseThemeDarkTokens, parseThemeTokens } from '../../../../src/main/pipeline';
 
 const REPO = path.resolve(import.meta.dirname, '../../../..');
 
@@ -23,5 +23,8 @@ describe('parseThemeTokens (07 §11.3 skill theme input)', () => {
     `;
     expect(parseThemeTokens(css)).toEqual({ '--paper': '#fff', '--ink': '#111', '--accent': '#0af' });
     expect(parseThemeTokens('')).toEqual({});
+    // 07 §11.4: the dark @media block is the skill's explicit dark set; other @media is ignored.
+    expect(parseThemeDarkTokens(css)).toEqual({ '--paper': '#000', '--ink': '#eee' });
+    expect(parseThemeDarkTokens('@media print { :root { --paper: #fff } }')).toEqual({});
   });
 });

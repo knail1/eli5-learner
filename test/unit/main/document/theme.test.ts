@@ -6,7 +6,7 @@ import {
   sanitizeTokens,
   themeCss,
 } from '../../../../src/main/document';
-import { parseThemeCss } from '../../../../src/main/document/theme';
+import { parseThemeCss, parseThemeDarkCss, upgradeThemeBlock } from '../../../../src/main/document/theme';
 
 describe('theme tokens (07 §11.3)', () => {
   it('accepts only known token names with valid values', () => {
@@ -73,10 +73,49 @@ describe('theme tokens (07 §11.3)', () => {
     ).toContain('theme-logo-dropped');
   });
 
-  it('writes and parses the override block', () => {
+  it('writes and parses the override block, with a derived dark variant under the runtime guards', () => {
     const css = themeCss({ id: 'x', version: '1', tokens: { '--accent': '#123456', '--font-serif': 'Georgia' } });
-    expect(css).toBe(':root:root:root{--accent:#123456;--font-serif:Georgia}');
+    const light = ':root:root:root{--accent:#123456;--font-serif:Georgia}';
+    expect(css.startsWith(light)).toBe(true);
+    // 07 §11.4: auto follows the system, the toggle wins; fonts are not repeated in dark.
+    expect(css).toMatch(
+      /^[^@]*@media \(prefers-color-scheme: dark\)\{:root:root:root:not\(\[data-theme="light"\]\)\{--accent:#[0-9a-f]{6}\}\}:root:root:root\[data-theme="dark"\]\{--accent:#[0-9a-f]{6}\}$/,
+    );
     expect(parseThemeCss(css)).toEqual({ '--accent': '#123456', '--font-serif': 'Georgia' });
+    expect(parseThemeDarkCss(css)).toBeUndefined(); // derived, so nothing explicit to keep
     expect(themeCss(defaultDocTheme)).toBe('');
+    expect(themeCss({ id: 'f', version: '1', tokens: { '--font-sans': 'Arial' } })).toBe(
+      ':root:root:root{--font-sans:Arial}',
+    );
+  });
+
+  it('keeps explicit dark tokens through a render and parse round trip', () => {
+    const theme = { id: 'x', version: '1', tokens: { '--accent': '#8a1c7c' }, darkTokens: { '--accent': '#ff99ee' } };
+    const css = themeCss(theme);
+    expect(css).toContain(':root:root:root[data-theme="dark"]{--accent:#ff99ee}');
+    expect(parseThemeDarkCss(css)).toEqual({ '--accent': '#ff99ee' });
+    expect(themeCss({ ...theme, darkTokens: parseThemeDarkCss(css) })).toBe(css);
+  });
+
+  it("drops a lower layer's dark value when a higher layer changes that token's light value", () => {
+    const r = resolveDocTheme({
+      skill: { '--accent': '#111111', '--link': '#222222' },
+      skillDark: { '--accent': '#eeeeee', '--link': '#dddddd' },
+      overlay: { id: 'org', version: '1', tokens: { '--accent': '#333333' } },
+    });
+    expect(r.theme.darkTokens).toEqual({ '--link': '#dddddd' });
+    expect(resolveDocTheme({ skill: { '--accent': '#111111' } }).theme.darkTokens).toBeUndefined();
+  });
+
+  it('upgrades a light-only theme block and leaves current or empty ones alone', () => {
+    const light = ':root:root:root{--accent:#8a1c7c}';
+    const old = `<style id="eli5-theme">${light}</style><p>x</p>`;
+    const up = upgradeThemeBlock(old);
+    expect(up).toBe(
+      `<style id="eli5-theme">${themeCss({ id: 'x', version: '1', tokens: { '--accent': '#8a1c7c' } })}</style><p>x</p>`,
+    );
+    expect(upgradeThemeBlock(up)).toBe(up);
+    expect(upgradeThemeBlock('<style id="eli5-theme"></style>')).toBe('<style id="eli5-theme"></style>');
+    expect(upgradeThemeBlock('<p>no theme</p>')).toBe('<p>no theme</p>');
   });
 });

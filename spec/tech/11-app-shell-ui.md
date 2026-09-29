@@ -466,6 +466,9 @@ Rules:
 
 - Non-secret settings save on change (debounced 300 ms) via `eli5:settings:set`; the saved state is
   confirmed by a quiet "Saved" text next to the control. Validation errors from main render inline.
+- Form layout: labeled fields (API key, Model) share one label column (`.field`: a 72 px label
+  column, then the control), so their inputs start at the same x; the key state and its buttons sit
+  in the control column under the key field.
 - The API key field never shows a stored key and is cleared after save. Keys go only to the
   Keychain (12). The renderer never receives a stored key.
 - The Publishing folder chooser is the only native panel the app uses. It is user-initiated from

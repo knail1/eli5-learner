@@ -316,6 +316,53 @@ test('E10: a document written by an earlier build still takes a section action (
   expect(meta.actions?.map((a) => a.action)).toEqual(['expand']);
 });
 
+/** The viewer's own view of the appearance: its color-scheme media query and its paper color. */
+async function viewerAppearance(app: ElectronApplication): Promise<{ dark: boolean; paper: string }> {
+  return app.evaluate(async ({ BrowserWindow }) => {
+    const w = BrowserWindow.getAllWindows()[0];
+    const child = w?.contentView.children[0] as unknown as { webContents?: Electron.WebContents } | undefined;
+    return (await child?.webContents?.executeJavaScript(
+      '({ dark: matchMedia("(prefers-color-scheme: dark)").matches, paper: getComputedStyle(document.body).backgroundColor })',
+    )) as { dark: boolean; paper: string };
+  });
+}
+
+test('the viewer follows the app appearance, also for a document from an earlier build (07 §11.2, §11.4)', async () => {
+  const dirs = await h.tempDirs('eli5-e2e-app-dark-');
+  const slug = 'widget-supply-planning';
+  await mkdir(path.join(dirs.library, slug), { recursive: true });
+  // Written before theme dark variants: its skill theme block has light tokens only.
+  const oldHtml = await readFile(path.join(PRIOR, 'index.html.frozen'), 'utf8');
+  expect(oldHtml).not.toContain('[data-theme="dark"]{');
+  await writeFile(path.join(dirs.library, slug, 'index.html'), oldHtml);
+  await copyFile(path.join(PRIOR, 'meta.json.frozen'), path.join(dirs.library, slug, 'meta.json'));
+  const l = await h.launch(dirs);
+  await expect.poll(async () => (await libraryEntries(l.win)).map((e) => e.topicSlug)).toEqual([slug]);
+  await openFromLibrary(l.win, TITLE);
+  // Playwright pins prefers-color-scheme on the pages it drives; unpin it so only nativeTheme,
+  // which the app follows (11 §12), drives the viewer's appearance.
+  await (await viewerPage(l.app, slug)).emulateMedia({ colorScheme: null });
+  const setSource = (t: 'light' | 'dark' | 'system') =>
+    l.app.evaluate(({ nativeTheme }, v) => {
+      nativeTheme.themeSource = v;
+    }, t);
+  await setSource('dark');
+  await expect.poll(() => viewerAppearance(l.app)).toMatchObject({ dark: true });
+  const dark = await viewerAppearance(l.app);
+  await setSource('light');
+  await expect.poll(() => viewerAppearance(l.app)).toMatchObject({ dark: false });
+  const light = await viewerAppearance(l.app);
+  const lum = (rgb: string) => {
+    const [r, g, b] = (/\(([^)]*)\)/.exec(rgb)?.[1] ?? '0,0,0').split(',').map((x) => Number(x) / 255);
+    return 0.2126 * (r ?? 0) + 0.7152 * (g ?? 0) + 0.0722 * (b ?? 0);
+  };
+  expect(lum(dark.paper), dark.paper).toBeLessThan(0.2);
+  expect(lum(light.paper), light.paper).toBeGreaterThan(0.9);
+  await setSource('system');
+  // The file on disk is untouched; the dark variant is added when the viewer serves it.
+  expect(await readFile(path.join(dirs.library, slug, 'index.html'), 'utf8')).toBe(oldHtml);
+});
+
 /** A real left click on the page's `a[role=button]`, sent from main as native input. */
 async function clickLinkButton(wc: 'main' | 'viewer', app: ElectronApplication): Promise<void> {
   await app.evaluate(async ({ BrowserWindow }, which) => {

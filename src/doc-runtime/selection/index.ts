@@ -3,6 +3,7 @@
 import type { DocBridge } from '../bridge';
 import type { TabsApi } from '../tabs';
 import { placeMenu } from './menu';
+import { drawPending, pendingRects } from './pending';
 import { rangeText } from './text';
 
 export const MENU_ACTIONS = [
@@ -131,7 +132,8 @@ export function snapshotSelection(sel: Selection | null): SelectionSnapshot | nu
 const MENU_CSS = `
 :host{all:initial}
 .m{position:absolute;z-index:30;display:flex;flex-direction:column;gap:6px;max-width:420px;padding:8px;border-radius:10px;
-background:#1f2125;color:#f3f1ec;font:13px/1.3 -apple-system,'Helvetica Neue',Arial,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+background:var(--eli5-menu-bg,#1f2125);color:#f3f1ec;font:13px/1.3 -apple-system,'Helvetica Neue',Arial,sans-serif;
+border:1px solid var(--eli5-menu-rule,#1f2125);box-shadow:var(--eli5-menu-shadow,0 6px 24px rgba(0,0,0,.25))}
 .m[hidden]{display:none}
 input{font:inherit;padding:6px 8px;border-radius:6px;border:1px solid #555;background:#2b2e33;color:inherit}
 .acts{display:flex;flex-wrap:wrap;gap:4px}
@@ -154,11 +156,6 @@ export interface SelectionController {
   close(): void;
   submit(action: MenuActionId, note?: string): Promise<void>;
   setBusy(busy: { sectionId: string; action: string }[]): void;
-}
-
-interface HighlightHost {
-  CSS?: { highlights?: { set(k: string, v: unknown): void; delete(k: string): void } };
-  Highlight?: new (r: Range) => unknown;
 }
 
 function lastRect(range: Range | null): { left: number; top: number; bottom: number; width: number } | undefined {
@@ -206,13 +203,16 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
   let snap: SelectionSnapshot | null = null;
   let snapRange: Range | null = null;
   const busy = new Set<string>();
-  const hl = win as unknown as HighlightHost;
+  // 08 §5.2 step 5: boxes over the passage's own line boxes, painted with the highlight color.
+  const layer = doc.createElement('div');
+  layer.className = 'eli5-pending';
+  layer.setAttribute('data-eli5-noact', '');
+  layer.setAttribute('aria-hidden', 'true');
+  layer.hidden = true;
+  doc.body.appendChild(layer);
 
   const setHighlight = (range: Range | null): void => {
-    const reg = hl.CSS?.highlights;
-    if (!reg) return;
-    if (range && hl.Highlight) reg.set('eli5-pending', new hl.Highlight(range));
-    else reg.delete('eli5-pending');
+    drawPending(layer, range ? pendingRects(range, TEXT_EXCLUDED) : [], { x: win.scrollX, y: win.scrollY });
   };
 
   const place = (): void => {
@@ -387,7 +387,10 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
     else place();
   };
   win.addEventListener('scroll', follow, { passive: true });
-  win.addEventListener('resize', follow);
+  win.addEventListener('resize', () => {
+    follow();
+    if (!menu.hidden) setHighlight(snapRange); // line boxes move when the text reflows
+  });
   tabs?.onChange(() => ctl.close());
   bridge.onSectionBusy((e) => {
     ctl.setBusy(e.busy);

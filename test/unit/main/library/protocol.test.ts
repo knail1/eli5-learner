@@ -53,6 +53,15 @@ describe('eli5doc:// handler (12 §7.7)', () => {
     },
   );
 
+  it('adds the dark variant to a document rendered before theme dark variants (07 §11.4)', async () => {
+    const old = '<head><style id="eli5-theme">:root:root:root{--paper:#faf9f5;--accent:#d97757}</style></head>';
+    await writeFile(path.join(root, 'widget-pricing', 'index.html'), old);
+    const body = await (await get('eli5doc://doc/widget-pricing/index.html')).text();
+    expect(body).toMatch(
+      /^<head><style id="eli5-theme">:root:root:root\{--paper:#faf9f5;--accent:#d97757\}@media \(prefers-color-scheme: dark\)\{[^<]*:root:root:root\[data-theme="dark"\]\{--paper:#[0-9a-f]{6};--accent:#[0-9a-f]{6}\}<\/style><\/head>$/,
+    );
+  });
+
   it('serves help pages from the help root', async () => {
     const res = await get('eli5doc://help/pages-help.html');
     expect(res.status).toBe(200);

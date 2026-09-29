@@ -47,11 +47,12 @@ describe('chart rendering (07 §7.2)', () => {
     }
   });
 
-  it('bars start at zero and nulls leave an empty slot', () => {
+  it('bars start at zero and nulls leave an empty slot marked "No data"', () => {
     const svg = renderChartSvg(base({ series: [{ name: 'S1', values: [5, null, 7] }] }), 'x');
     expect(marks(svg)).toHaveLength(2);
     expect(svg).toContain('>0</text>'); // zero tick present
-    expect(svg).not.toContain('data-label="B"');
+    expect(svg).not.toMatch(/<rect[^>]*data-label="B"/);
+    expect(svg).toContain('data-label="B" data-value="No data"');
   });
 
   it('switches to horizontal for long labels or > 8 categories and prints value labels when <= 12 bars', () => {

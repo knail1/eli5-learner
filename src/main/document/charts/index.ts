@@ -2,12 +2,12 @@
 import type { ChartSpec } from '../../llm';
 import { attrs, esc } from '../html';
 import { renderBar, isHorizontal } from './bar';
-import { CHART_WIDTH, formatValue, maxOf } from './common';
+import { CHART_WIDTH, COMPACT_WIDTH, NO_DATA, formatValue, maxOf } from './common';
 import { renderLine } from './line';
 import { renderPie } from './pie';
 import { renderScatter } from './scatter';
 
-export { formatValue } from './common';
+export { formatValue, niceScale, COMPACT_WIDTH, COMPACT_BELOW } from './common';
 export { isHorizontal } from './bar';
 
 const MAX_CATEGORIES = 30;
@@ -84,28 +84,41 @@ export function chartSummary(chart: ChartSpec): string {
   if (chart.series.length > 1) parts.push(`${chart.series.length} series`);
   if (ti >= 0 && top !== undefined)
     parts.push(`highest: ${chart.categories[ti] ?? ''} ${formatValue(top, chart.unit)}`);
+  // Rule 8: missing values are named, so a screen reader hears what the empty slot means.
+  const gaps = chart.categories.flatMap((c, i) =>
+    chart.series
+      .filter((s) => s.values[i] === null || !Number.isFinite(s.values[i] ?? NaN))
+      .map((s) => (chart.series.length > 1 ? `${c} · ${s.name}` : c)),
+  );
+  if (gaps.length) {
+    const shown = gaps.slice(0, 3).join('; ');
+    parts.push(`${NO_DATA.toLowerCase()}: ${shown}${gaps.length > 3 ? ` and ${gaps.length - 3} more` : ''}`);
+  }
   return parts.join(', ');
 }
 
-/** The chart SVG alone (role=img, <title>, <desc>). `idBase` must be unique in the document. */
-export function renderChartSvg(chart: ChartSpec, idBase: string): string {
+/**
+ * The chart SVG alone (role=img, <title>, <desc>). `idBase` must be unique in the document. `W` is
+ * the viewBox width: CHART_WIDTH for the regular layout, COMPACT_WIDTH for the narrow one (rule 12).
+ */
+export function renderChartSvg(chart: ChartSpec, idBase: string, W: number = CHART_WIDTH): string {
   const { body, height } =
     chart.kind === 'bar' || chart.kind === 'stacked-bar'
-      ? renderBar(chart)
+      ? renderBar(chart, W)
       : chart.kind === 'pie'
-        ? renderPie(chart)
+        ? renderPie(chart, W)
         : chart.kind === 'scatter'
-          ? renderScatter(chart)
-          : renderLine(chart);
+          ? renderScatter(chart, W)
+          : renderLine(chart, W);
   const t = `${idBase}-t`;
   const d = `${idBase}-d`;
   return (
     `<svg${attrs([
       ['xmlns', 'http://www.w3.org/2000/svg'],
-      ['viewBox', `0 0 ${CHART_WIDTH} ${height}`],
+      ['viewBox', `0 0 ${W} ${height}`],
       ['role', 'img'],
       ['aria-labelledby', `${t} ${d}`],
-      ['class', 'viz'],
+      ['class', W < CHART_WIDTH ? 'viz viz--compact' : 'viz'],
     ])}>` +
     `<title id="${t}">${esc(chart.title)}</title><desc id="${d}">${esc(chartSummary(chart))}</desc>` +
     body +
@@ -122,14 +135,25 @@ export function renderChartData(chart: ChartSpec): string {
     .map(
       (c, i) =>
         `<tr><th scope="row">${esc(c)}</th>` +
-        chart.series.map((s) => `<td class="num">${esc(formatValue(s.values[i] ?? null, chart.unit))}</td>`).join('') +
+        chart.series
+          .map((s) => {
+            const v = s.values[i] ?? null;
+            return v === null || !Number.isFinite(v)
+              ? `<td class="num nodata">${NO_DATA}</td>`
+              : `<td class="num">${esc(formatValue(v, chart.unit))}</td>`;
+          })
+          .join('') +
         '</tr>',
     )
     .join('');
   return `<details class="chart-data"><summary>Show data</summary><div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div></details>`;
 }
 
-/** `<figure class="chart">` with takeaway headline, subtitle, SVG, source line and data table (07 §7.1, §7.2). */
+/**
+ * `<figure class="chart">` with takeaway headline, subtitle, SVG, source line and data table (07 §7.1,
+ * §7.2). Two SVGs: the regular layout and a compact one (rule 12); CSS container queries show
+ * exactly one, so the hidden one is out of the accessibility tree too.
+ */
 export function renderChartFigure(chart: ChartSpec, idBase: string): string {
   const orient = chart.kind === 'bar' || chart.kind === 'stacked-bar' ? (isHorizontal(chart) ? 'h' : 'v') : undefined;
   return (
@@ -141,6 +165,7 @@ export function renderChartFigure(chart: ChartSpec, idBase: string): string {
     `<h3 class="chart-title">${esc(chart.title)}</h3>` +
     (chart.subtitle ? `<p class="chart-sub">${esc(chart.subtitle)}</p>` : '') +
     renderChartSvg(chart, idBase) +
+    renderChartSvg(chart, `${idBase}-c`, COMPACT_WIDTH) +
     (chart.source ? `<p class="chart-source">Source: ${esc(chart.source)}</p>` : '') +
     renderChartData(chart) +
     '</figure>'

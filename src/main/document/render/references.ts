@@ -15,20 +15,52 @@ function httpHref(href: string | undefined): string | undefined {
   }
 }
 
-function link(href: string, text: string, cls: string): string {
+function link(href: string, text: string, cls: string, title?: string): string {
   return `<a${attrs([
     ['class', cls],
     ['href', href],
+    ['title', title],
     ['target', '_blank'],
     ['rel', 'noopener noreferrer'],
   ])}>${esc(text)}</a>`;
 }
 
+/**
+ * "www.example.com/widgets/pricing": host plus path, no scheme, query or fragment (the same
+ * host+path form skipped-source labels use, 07 §10, which validity.ts looks for).
+ */
+export function readableUrl(href: string): string {
+  try {
+    const u = new URL(href);
+    return u.host + (u.pathname === '/' ? '' : u.pathname);
+  } catch {
+    return href;
+  }
+}
+
+/** The label is only the address (with or without scheme, `www.` or a trailing slash). */
+function labelIsUrl(label: string, href: string): boolean {
+  const norm = (s: string): string =>
+    s
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, '')
+      .replace(/^www\./, '')
+      .replace(/\/+$/, '');
+  const l = norm(label);
+  return l === norm(href) || l === norm(readableUrl(href)) || label.includes(href);
+}
+
 function item(e: ReferenceEntry): string {
   const href = httpHref(e.href);
-  let out = href ? link(href, e.label, 'ref-label') : `<span class="ref-label">${esc(e.label)}</span>`;
-  // URLs are shown as text and as a link (07 §10).
-  if (href && href !== e.label) out += ` <span class="ref-url">${esc(href)}</span>`;
+  let out: string;
+  if (href && labelIsUrl(e.label, href)) {
+    // 07 §10: an address-only label is shown once, readable, as the link; the full URL is its title.
+    out = link(href, readableUrl(href), 'ref-label', href);
+  } else if (href) {
+    // A titled source: the title is the link, the address follows once as subtle text.
+    out = `${link(href, e.label, 'ref-label', href)} <span class="ref-url">${esc(readableUrl(href))}</span>`;
+  } else out = `<span class="ref-label">${esc(e.label)}</span>`;
   if (e.status === 'skipped')
     out += ` — <span class="ref-reason">${esc(e.reason?.trim() || SKIPPED_REASON_FALLBACK)}</span>`;
   else if (e.detail) out += ` <span class="ref-detail">${esc(e.detail)}</span>`;

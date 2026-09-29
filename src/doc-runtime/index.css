@@ -36,6 +36,11 @@
   --font-serif: Charter, 'Iowan Old Style', Georgia, serif;
   --font-sans: -apple-system, 'Helvetica Neue', Arial, sans-serif;
   --eli5-tabbar-h: 44px;
+  /* Selection menu (08 §5.1), runtime-only: a dark panel in both themes. On dark paper it is
+     lifted (lighter surface, a >= 3:1 border, a deeper shadow) so its edge stays visible. */
+  --eli5-menu-bg: #1f2125;
+  --eli5-menu-rule: #1f2125;
+  --eli5-menu-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
@@ -67,6 +72,9 @@
     --pull-rule: #ece9e4;
     --enh: #d7b6ff;
     --enh-bg: #35274c;
+    --eli5-menu-bg: #2c2f35;
+    --eli5-menu-rule: #8a8f98;
+    --eli5-menu-shadow: 0 10px 32px rgba(0, 0, 0, 0.7);
   }
 }
 :root[data-theme='dark'] {
@@ -98,6 +106,9 @@
   --pull-rule: #ece9e4;
   --enh: #d7b6ff;
   --enh-bg: #35274c;
+  --eli5-menu-bg: #2c2f35;
+  --eli5-menu-rule: #8a8f98;
+  --eli5-menu-shadow: 0 10px 32px rgba(0, 0, 0, 0.7);
 }
 :root[data-theme='light'] {
   color-scheme: light;
@@ -476,9 +487,31 @@ section[data-eli5-busy] {
     animation: none;
   }
 }
-/* 08 §5.2 step 5: the passage stays marked while the menu is open. */
-::highlight(eli5-pending) {
-  background-color: var(--highlight);
+/* 08 §5.2 step 5: the passage stays marked while the menu is open. Boxes over the passage's line
+   boxes (selection/pending.ts); darken (light) or lighten (dark) keeps the text as it is and turns
+   only the paper to --highlight, and overlapping boxes do not stack. The layer must not form a
+   stacking context, or the boxes would blend with nothing. */
+.eli5-pending {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+.eli5-pending[hidden] {
+  display: none;
+}
+.eli5-pending > div {
+  position: absolute;
+  background: var(--highlight);
+  mix-blend-mode: darken;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .eli5-pending > div {
+    mix-blend-mode: lighten;
+  }
+}
+:root[data-theme='dark'] .eli5-pending > div {
+  mix-blend-mode: lighten;
 }
 .eli5-notice {
   font: 14px/1.4 var(--font-sans);
@@ -616,6 +649,23 @@ figure.diagram svg {
   display: block;
   overflow: visible;
 }
+/* 07 §7.2 rule 12: below 560 px the compact layout (a 380-unit viewBox) replaces the regular one
+   (640 units), so chart text never scales below ~10.5 px. Without container queries the regular
+   layout shows. */
+figure.chart {
+  container-type: inline-size;
+}
+figure.chart svg.viz--compact {
+  display: none;
+}
+@container (max-width: 559.98px) {
+  figure.chart svg.viz:not(.viz--compact) {
+    display: none;
+  }
+  figure.chart svg.viz--compact {
+    display: block;
+  }
+}
 .chart-data {
   font: 13px/1.4 var(--font-sans);
   margin-top: 6px;
@@ -678,6 +728,17 @@ figure.diagram svg {
   outline: none;
   stroke: var(--ink);
   stroke-width: 1.5;
+}
+/* Rule 8: the "No data" mark of an empty bar slot; focus shows as an underline, not a stroke. */
+.viz .viz-nodata {
+  fill: var(--muted);
+  font-style: italic;
+  font-size: 11px;
+}
+.viz text[data-value]:focus,
+.viz text[data-value]:hover {
+  stroke: none;
+  text-decoration: underline;
 }
 .viz-fill-1 {
   fill: var(--viz-1);
@@ -820,14 +881,15 @@ figure.diagram svg {
   border: 1px solid var(--rule);
 }
 .fig-marker {
+  /* --fm: diameter from the renderer (18-24 px by image size, 07 §7.1). */
   position: absolute;
   transform: translate(-50%, -50%);
-  width: 24px;
-  height: 24px;
+  width: var(--fm, 24px);
+  height: var(--fm, 24px);
   border-radius: 50%;
   background: var(--accent);
   color: var(--accent-ink);
-  font: 700 12px/24px var(--font-sans);
+  font: 700 max(10px, calc(var(--fm, 24px) / 2)) / var(--fm, 24px) var(--font-sans);
   text-align: center;
   text-decoration: none;
   box-shadow: 0 0 0 2px var(--paper);
@@ -1055,8 +1117,9 @@ html.js.eli5-sel-note .gl-note[data-eli5-sel] * {
   margin: 18mm;
 }
 @media print {
-  /* Forced light palette regardless of OS or doc theme: (0,4,0) outranks the theme block's (0,3,0). */
-  :root:root:root:root {
+  /* Forced light palette regardless of OS or doc theme: (0,5,0) outranks the theme blocks' (0,3,0)
+     light and (0,4,0) dark rules (07 §11.4). */
+  :root:root:root:root:root {
     color-scheme: light;
     --paper: #ffffff;
     --paper-2: #f3f3f3;
@@ -1086,6 +1149,9 @@ html.js.eli5-sel-note .gl-note[data-eli5-sel] * {
     --pull-rule: #000000;
     --enh: #5e2596;
     --enh-bg: #e9dbfa;
+    --eli5-menu-bg: #1f2125;
+    --eli5-menu-rule: #1f2125;
+    --eli5-menu-shadow: none;
   }
   body {
     font-size: 11pt;

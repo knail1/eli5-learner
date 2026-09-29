@@ -13,13 +13,14 @@ import {
   markLabel,
   maxOf,
   minOf,
+  niceScale,
   r2,
   seriesClass,
   truncate,
 } from './common';
 import { NOTE_ROW, noteAbove } from './annotate';
 
-export function renderScatter(chart: ChartSpec): { body: string; height: number } {
+export function renderScatter(chart: ChartSpec, W: number = CHART_WIDTH): { body: string; height: number } {
   const height = 320;
   const leg =
     chart.series.length > 1
@@ -27,42 +28,32 @@ export function renderScatter(chart: ChartSpec): { body: string; height: number 
           chart.series.map((s) => s.name),
           4,
           0,
+          W,
         )
       : { svg: '', height: 0 };
   // Rule 6: a band above the plot is reserved for the highlight note.
-  const noteTop = leg.height + (chart.yLabel ? 22 : 12);
+  const noteTop = leg.height + (chart.yLabel ? 30 : 12);
   const top = noteTop + (chart.highlight ? NOTE_ROW : 0);
   const bottom = chart.xLabel ? 46 : 28;
   const left = 44;
   const right = 16;
   const numeric =
     chart.categories.length > 0 && chart.categories.every((c) => c.trim() !== '' && Number.isFinite(Number(c)));
-  let lo = minOf(allValues(chart)) ?? 0;
-  let hi = maxOf(allValues(chart)) ?? 1;
-  if (lo === hi) {
-    lo -= 1;
-    hi += 1;
-  }
+  // Rule 2: nice extents that contain every point on both axes.
+  const ny = niceScale(minOf(allValues(chart)) ?? 0, maxOf(allValues(chart)) ?? 1, 6);
   const y = scaleLinear()
-    .domain([lo, hi])
-    .nice()
+    .domain(ny.domain)
     .range([height - bottom, top]);
   let xp: (i: number) => number;
   let body = leg.svg;
   if (numeric) {
     const xs = chart.categories.map(Number);
-    let xlo = Math.min(...xs);
-    let xhi = Math.max(...xs);
-    if (xlo === xhi) {
-      xlo -= 1;
-      xhi += 1;
-    }
+    const nx = niceScale(Math.min(...xs), Math.max(...xs), W < CHART_WIDTH ? 4 : 6);
     const x = scaleLinear()
-      .domain([xlo, xhi])
-      .nice()
-      .range([left + 8, CHART_WIDTH - right]);
+      .domain(nx.domain)
+      .range([left + 8, W - right]);
     xp = (i) => x(xs[i] ?? 0);
-    for (const t of x.ticks(6)) {
+    for (const t of nx.ticks) {
       body += el(
         'text',
         [
@@ -77,10 +68,10 @@ export function renderScatter(chart: ChartSpec): { body: string; height: number 
   } else {
     const x = scalePoint<number>()
       .domain(chart.categories.map((_, i) => i))
-      .range([left + 8, CHART_WIDTH - right])
+      .range([left + 8, W - right])
       .padding(0.5);
     xp = (i) => x(i) ?? left;
-    const every = Math.max(1, Math.ceil((chart.categories.length * 64) / (CHART_WIDTH - left - right)));
+    const every = Math.max(1, Math.ceil((chart.categories.length * 64) / (W - left - right)));
     chart.categories.forEach((c, i) => {
       if (i % every !== 0) return;
       body += el(
@@ -106,10 +97,10 @@ export function renderScatter(chart: ChartSpec): { body: string; height: number 
       escSvg(chart.yLabel),
     );
   }
-  for (const t of y.ticks(5)) {
+  for (const t of ny.ticks) {
     body += el('line', [
       ['x1', left],
-      ['x2', CHART_WIDTH - right],
+      ['x2', W - right],
       ['y1', r2(y(t))],
       ['y2', r2(y(t))],
       ['class', 'viz-grid'],
@@ -152,13 +143,13 @@ export function renderScatter(chart: ChartSpec): { body: string; height: number 
       undefined,
     );
     const targetY = topDot?.hl ? topDot.cy - topDot.r - 3 : -Infinity;
-    body += noteAbove(chart.highlight.note, lx, noteTop, targetY);
+    body += noteAbove(chart.highlight.note, lx, noteTop, targetY, W);
   }
   if (chart.xLabel) {
     body += el(
       'text',
       [
-        ['x', r2((left + CHART_WIDTH - right) / 2)],
+        ['x', r2((left + W - right) / 2)],
         ['y', height - 8],
         ['text-anchor', 'middle'],
         ['class', 'viz-ink viz-axis-title'],

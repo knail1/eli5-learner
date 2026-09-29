@@ -35,7 +35,7 @@ describe('print stylesheet (07 §13)', () => {
   const print = printBlock(CSS);
 
   it('forces every color token to the light palette with color-scheme light', () => {
-    const rule = /:root:root:root:root \{([^}]*)\}/.exec(print)?.[1] ?? '';
+    const rule = /:root:root:root:root:root \{([^}]*)\}/.exec(print)?.[1] ?? '';
     expect(rule).toContain('color-scheme: light');
     const colors = rootTokens(CSS).filter((t) => !NON_COLOR.has(t));
     expect(colors.length).toBeGreaterThan(20);
@@ -46,8 +46,10 @@ describe('print stylesheet (07 §13)', () => {
     const themed = readGolden('themed');
     const themeSel = /<style id="eli5-theme">([^{]*)\{/.exec(themed)?.[1] ?? '';
     expect(themeSel).toBe(':root:root:root');
-    // (0,4,0) inside @media print beats the theme block's (0,3,0).
-    expect(print).toContain(':root:root:root:root {');
+    // (0,5,0) inside @media print beats the theme blocks' (0,3,0) light and (0,4,0) dark rules.
+    expect(print).toContain(':root:root:root:root:root {');
+    const dark = /<style id="eli5-theme">[^<]*\[data-theme="dark"\]\{/.exec(themed)?.[0] ?? '';
+    expect(dark).toContain(':root:root:root[data-theme="dark"]{');
   });
 
   it('hides the tab bar and controls, shows every stepper step, keeps callout backgrounds', () => {

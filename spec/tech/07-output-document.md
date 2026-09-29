@@ -435,13 +435,21 @@ translated into those choices by the prompt, never into raw HTML. Adding a compo
 | `table` | `<div class="table-wrap"><table>` with caption; numeric columns right-aligned, `tabular-nums` | Exact values the reader may look up | Horizontal scroll inside wrapper on narrow widths |
 | `chart` | `<figure class="chart">` with inline SVG built at render time (7.2) | Source has numbers, comparisons, trends, or shares | Hover/focus tooltips, data disclosure |
 | `diagram` | `<figure class="diagram">` with sanitized model SVG (7.3) | Structure, flow, architecture, relationships: at most 5 labeled shapes, labels inside their shapes, never people, buildings or scenes | None |
-| `figure` | `<figure class="annotated">` with `<img>` and numbered annotation markers | An input image (screenshot, slide) benefits from callouts | Marker click/focus shows note; list of notes below image |
+| `figure` | `<figure class="annotated">` with `<img>` and numbered annotation markers (layout below) | An input image (screenshot, slide) benefits from callouts | Marker click/focus shows note; list of notes below image |
 | `photo` | A credited `<figure class="annotated stock-photo">` (7.4), or nothing when no photo fits | A real-world scene: people, places, objects, what an experience looks like; never data or structure | Credit links open in a new tab |
 | `stepper` | `<div class="stepper">` with ordered steps | A process with 3–8 stages | Prev/next buttons and step dots; all steps visible without JS and in print |
 | `analogy` | `<aside class="analogy">` with a "Think of it like" label | Mainly ELI5 and "Give me an analogy" actions | None |
 
 Page-level elements the renderer adds (not model blocks): kicker, `h1`, dek, meta line, merge
 legend (6.4), tab bar, references section, footer.
+
+Annotation markers (`render/blocks.ts` `layoutMarkers`): the diameter is 45% of the shown image's
+short side, clamped to 18–24 px (the image counted at most 680 px wide, the text column), written as
+`--fm` in the marker's `style` when below 24 px; the number is `max(10px, --fm / 2)`. Each center is
+kept inside the image (half a diameter from every edge). Markers are placed in annotation order; a
+marker whose center is closer than a diameter plus 2 px to an earlier one moves directly away from
+it to that distance (coincident centers move right, or down at the right edge), up to 8 times, so
+the layout is deterministic and the first marker never moves.
 
 ### 7.2 Charts (`src/main/document/charts/`)
 
@@ -455,7 +463,12 @@ WSJ conventions enforced by the renderer:
 1. `title` is displayed as a takeaway headline (the prompt asks for a sentence, e.g. "Paid search
    returns the most per dollar"); `subtitle` carries unit and scope; `source` renders as a small
    "Source:" line under the plot.
-2. Bars always start at zero. Line and area y-domains are "nice" rounded extents; area starts at 0.
+2. Bars always start at zero. Every numeric axis uses `niceScale(lo, hi, count, zero)`
+   (`charts/common.ts`): a step of 1, 2, 2.5 or 5 × 10ⁿ giving at most `count` intervals (6 on
+   vertical axes, 5 on horizontal bars, 3 or 4 in the compact layout), and a domain of whole steps
+   that always contains every value (and 0 for bars and areas), so the first and last gridlines sit
+   at or beyond the data. Ticks are every step from end to end. A y-axis title gets 30 units above
+   the plot so it never meets the top tick label.
 3. Horizontal gridlines only, light; no chart border, no 3D, no gradients, no drop shadows.
 4. Direct labels at line ends when ≤ 4 series; otherwise a compact legend above the plot.
 5. Bar charts switch to horizontal when any category label exceeds 14 characters or there are more
@@ -463,11 +476,25 @@ WSJ conventions enforced by the renderer:
 6. `highlight.category` gets the accent color and all other marks the muted series color; the note
    is drawn as a leader-line annotation.
 7. Pies: ≤ 6 slices, largest first, clockwise from 12 o'clock, labels outside with percentages.
-8. `null` values leave a gap in lines and an empty slot in bars (never zero).
+8. `null` values leave a gap in lines and an empty slot in bars (never zero). An empty bar slot
+   shows a muted italic "No data" (`n/a` when the slot is too narrow) just above the zero line, or
+   beside the axis in a horizontal chart; it is a focusable `text.viz-nodata` mark with
+   `data-value="No data"`, so the tooltip and focus treat it like a bar. In a stacked chart only a
+   category with no value in any series gets it. The data table shows "No data" in that cell and
+   the `<desc>` summary ends with `no data: {category}` (`{category} · {series}` with several series;
+   the first three, then "and N more").
 9. Number formatting via `d3-format` with SI suffixes (`1.2M`); `unit` prefixes currency symbols and
    suffixes `%`.
 10. Size: `viewBox` based, width 100% of the text column, height derived from type (bar: 28 px per
     category horizontal, 320 px vertical; line/area/scatter 320 px; pie 300 px).
+12. Narrow widths: `renderChartFigure` emits the chart twice, the regular SVG (`viewBox` 640 wide)
+    and a compact one (`class="viz viz--compact"`, 380 wide, ids `{idBase}-c-t`/`-c-d`). `figure.chart`
+    is an inline-size container; below 560 px the compact SVG replaces the regular one
+    (`display:none` on the other, so it also leaves the accessibility tree). 12-unit chart text thus
+    stays at 10.5 px or more down to a 368 px column. The compact layout switches bars to horizontal
+    whenever a category label would not fit under its bar, truncates category and series labels
+    sooner, uses fewer ticks, and shrinks the pie. Without container query support only the regular
+    SVG shows.
 11. Color is applied only through classes, never through presentation attributes holding `var()`
     (engines, notably WebKit over `file://`, do not reliably resolve `var()` in SVG presentation
     attributes). Marks get `class="viz-fill-N"` / `viz-stroke-N` (N = 1..8), `viz-fill-muted`,
@@ -476,7 +503,7 @@ WSJ conventions enforced by the renderer:
     without re-render.
 
 Accessibility: `<svg role="img" aria-labelledby="{t} {d}">` with `<title>` and a generated `<desc>`
-summary ("Bar chart, 5 categories, highest: Paid search 4.2"). Each mark carries
+summary ("Bar chart, 5 categories, highest: Paid search 4.2, no data: Affiliate"). Each mark carries
 `data-label` and `data-value` and `tabindex="0"` for tooltip focus. A `<details class="chart-data">
 <summary>Show data</summary><table>…</table></details>` follows every chart.
 
@@ -740,8 +767,11 @@ Layout: an ordered list "Used" in input order, then a list "Skipped" (only if an
 `label — reason`, e.g. "pricing.example.com/login — page required login". Reasons come from
 `SkippedSource.reason` codes mapped to human strings by [03](03-source-resolvers.md); unknown codes
 render as "could not be read". Merged references appear in a third group "Added by merge", each
-with the enhancement swatch and "Added in merge on {date} from {title}" (6.4). URLs
-are shown as text and as a link; label text is escaped. When the document shows stock photos, a
+with the enhancement swatch and "Added in merge on {date} from {title}" (6.4). A URL is printed
+once: when the label is only the address (with or without scheme, `www.` or trailing slash, or
+containing the URL), the link text is the readable host + path and the full URL is the link's
+`title`; otherwise the title is the link (`title` = the URL) followed by the host + path once as
+subtle `.ref-url` text. Label text is escaped. When the document shows stock photos, a
 last group "Image credits" lists each one's credit (7.4) in asset order.
 
 <!-- hook:HOOK-DOC-02 -->
@@ -769,7 +799,8 @@ No web fonts are embedded by default (system fonts only; keeps files small and o
 ### 11.2 Switching
 
 - Default `data-theme="auto"` follows the OS. In the app, Electron's `nativeTheme` drives
-  `prefers-color-scheme` in the viewer, so the document follows the app.
+  `prefers-color-scheme` in the viewer, so the document follows the app. This holds for themed
+  documents too (11.4).
 - A theme toggle button in the tab bar (hidden until the runtime boots) cycles auto → light → dark
   and stores the choice in `localStorage` key `eli5.theme` (try/catch; per-viewer convenience only).
 - Charts and diagrams use tokens via classes (`.viz-fill-1{fill:var(--viz-1)}`, 7.2 rule 11), never
@@ -784,10 +815,44 @@ Precedence: default theme < skill theme input (CSS custom properties supplied by
 skill, [02](02-llm-provider.md) §11) < overlay theme (HOOK-DOC-01). Only known token names are
 accepted and values must match `^(#[0-9a-f]{3,8}|rgb\(…\)|hsl\(…\)|oklch\(…\)|[a-z-]+|[0-9.]+(px|rem|em)?|"[^"<>]*"( ?, ?[a-zA-Z "-]+)*)$`;
 anything else is dropped with a warning. The theme is written into `#eli5-theme` and recorded in
-`DocumentModel.theme`.
+`DocumentModel.theme`. `DocTheme.darkTokens?` optionally carries explicit dark values (11.4); a
+skill supplies them in a `@media (prefers-color-scheme: dark)` block of its CSS. When a higher layer
+sets a token's light value without a dark one, the dark value from the layers below is dropped.
+
+### 11.4 Theme dark variants
+
+A theme's light tokens must not freeze a document in light mode. `#eli5-theme` holds three rules:
+
+```css
+:root:root:root{ light tokens }                                                     /* (0,3,0) */
+@media (prefers-color-scheme: dark){:root:root:root:not([data-theme="light"]){ dark tokens }}
+:root:root:root[data-theme="dark"]{ dark tokens }                                   /* (0,4,0) */
+```
+
+The light rule outranks every runtime token rule; the dark rules outrank the light rule under the
+same guards as the runtime's own dark palette, so auto follows the system, and the toggle's light
+and dark win either way. The print palette is `:root:root:root:root:root` (0,5,0) inside
+`@media print`, above both.
+
+Dark tokens (`color.ts` `deriveDarkTokens`): for every color token the theme sets, the explicit dark
+value when given, else a derived one. Surfaces (`--paper`, `--paper-2`, `--rule`, `--highlight`,
+callouts, `--gl-bg`, `--viz-muted`, `--viz-grid`) keep the light color's hue and chroma at the
+runtime dark palette's lightness for that token. Text and marks keep their hue and move lightness
+up from their light value (body text: from the inverted lightness) until they reach WCAG contrast on
+the dark paper: `--ink` 7:1 (and 4.5:1 on every surface it sits on), `--ink-2`, `--muted`, `--link`
+and `--accent` (kicker, tab underline) 4.5:1, `--gl-rule`, `--pull-rule` and `--viz-1…8` 3:1 (large
+text and UI). `--accent-ink` becomes a dark tint of its hue with 4.5:1 on the dark accent. Values
+that are not a parseable color (`#hex`, `rgb()`, `hsl()`, `oklch()`) take the runtime dark value;
+fonts are not repeated. The neutral default theme writes nothing, so the runtime palette applies.
+`parseDocument` keeps the dark block as `darkTokens` only when it differs from the derivation, so a
+re-render is byte-identical.
+
+Documents rendered before dark variants have only the light rule. The viewer's `eli5doc://`
+handler adds the derived rules when it serves such a document (`upgradeThemeBlock`); the file on
+disk changes at its next re-render.
 
 <!-- hook:HOOK-DOC-01 -->
-> **Private hook · HOOK-DOC-01 · Organization document theme and branding.** Public behavior: neutral default theme, footer "Made with ELI5 Learner", no logo, no classification label; the registry's `docTheme` capability returns the default `DocTheme`. Private binding supplies: organization token overrides (colors, fonts, optionally a data-URI embedded font within a size cap), a logo SVG (sanitized by 7.3 rules) for the header kicker, a footer or data-classification label, whether the theme applies to every document or only to documents published through HOOK-PUB-01 / HOOK-PUB-03, and the theme `id`/`version` for traceability. Registered through the capability registry per HOOK-CFG-02. Binding lives in the private spec under "HOOK-DOC-01".
+> **Private hook · HOOK-DOC-01 · Organization document theme and branding.** Public behavior: neutral default theme, footer "Made with ELI5 Learner", no logo, no classification label; the registry's `docTheme` capability returns the default `DocTheme`. Private binding supplies: organization token overrides (colors, fonts, optionally a data-URI embedded font within a size cap), optionally explicit dark values for those colors (`DocTheme.darkTokens`; otherwise derived per 11.4), a logo SVG (sanitized by 7.3 rules) for the header kicker, a footer or data-classification label, whether the theme applies to every document or only to documents published through HOOK-PUB-01 / HOOK-PUB-03, and the theme `id`/`version` for traceability. Registered through the capability registry per HOOK-CFG-02. Binding lives in the private spec under "HOOK-DOC-01".
 
 ## 12. Tab bar behavior (`tabs.ts`)
 

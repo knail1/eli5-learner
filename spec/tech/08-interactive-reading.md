@@ -154,9 +154,11 @@ The runtime listens for `mouseup`, `keyup` (Shift plus arrow or Home/End selecti
 2. `range = sel.getRangeAt(0)`. Find the enclosing section (§5.3). If there is none, hide the menu. Stop.
 3. Normalize the text (§5.3). If fewer than 3 non-whitespace characters remain, stop.
 4. Take a **selection snapshot**: `{tabKey, sectionId, heading, text, rects: range.getClientRects()}`. The menu operates only on the snapshot, because clicking the note field clears the live selection.
-5. Keep the passage visibly marked while the menu is open with the CSS Custom Highlight API (`CSS.highlights.set('eli5-pending', new Highlight(range))`). Remove the highlight when the menu closes.
+5. Keep the passage visibly marked while the menu is open (`selection/pending.ts`): one box per line box of each selected text run (`Range.getClientRects()` of the run, runs inside excluded regions skipped), in a body-level layer `div.eli5-pending` (`data-eli5-noact`, `aria-hidden`), placed in document coordinates and redrawn on resize. The boxes paint `--highlight` with `mix-blend-mode: darken` (light) or `lighten` (dark), so the text keeps its color and overlapping boxes do not stack. This follows the native selection's geometry in every engine (the CSS Custom Highlight API drifted from it in WebKit next to a drop cap). Remove the boxes when the menu closes.
 6. Position the menu in document coordinates (it scrolls with the content), centered on the last rect of the selection, 8 px above it. Flip it below the selection if it would overlap the sticky tab bar or leave the viewport top. Clamp it horizontally with 8 px margins. On narrow widths, the menu is full width minus 16 px.
 7. Do not move focus. Focus enters the menu on click, on Tab, or on the shortcut `Cmd+.`.
+
+The menu is a dark panel in both themes. Its surface, border and shadow come from runtime-only custom properties (`--eli5-menu-bg`, `--eli5-menu-rule`, `--eli5-menu-shadow`, which reach into the shadow root): on dark paper the panel is lifted (`#2c2f35`), with a `#8a8f98` border (≥ 3:1 against the dark paper, WCAG 1.4.11) and a deeper shadow, so its edge stays visible.
 
 The menu is rendered in a closed shadow root attached to `document.body` so document CSS cannot restyle it, and it carries `data-eli5-noact` so it is never itself a selection target. It is hidden under `@media print`.
 

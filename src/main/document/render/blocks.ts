@@ -96,6 +96,55 @@ function pct(v: number): number {
   return Math.round(Math.max(0, Math.min(100, p)) * 100) / 100;
 }
 
+/** Marker diameter bounds (px) and the share of the image's short side it may take (07 §7.1). */
+const MARKER_MAX = 24;
+const MARKER_MIN = 18;
+const MARKER_SHARE = 0.45;
+/** Widest the image is shown in the text column; markers are laid out at this size or smaller. */
+const COLUMN_PX = 680;
+
+export interface MarkerLayout {
+  /** Marker diameter in px. */
+  size: number;
+  /** Centers in percent of the image box, in annotation order. */
+  points: { left: number; top: number }[];
+}
+
+/**
+ * Annotation marker layout (07 §7.1 figure): the diameter scales with the shown image (24 px, down
+ * to 18 px on small images), centers stay inside the image, and markers that would overlap are
+ * pushed apart deterministically, in order, each moving away from the earlier one it hits.
+ */
+export function layoutMarkers(anns: readonly { x: number; y: number }[], imgW: number, imgH: number): MarkerLayout {
+  const scale = imgW > COLUMN_PX ? COLUMN_PX / imgW : 1;
+  const w = Math.max(1, imgW * scale);
+  const h = Math.max(1, imgH * scale);
+  const size = Math.round(Math.max(MARKER_MIN, Math.min(MARKER_MAX, Math.min(w, h) * MARKER_SHARE)));
+  const half = size / 2;
+  const clampX = (x: number): number => (w <= size ? w / 2 : Math.min(w - half, Math.max(half, x)));
+  const clampY = (y: number): number => (h <= size ? h / 2 : Math.min(h - half, Math.max(half, y)));
+  const gap = size + 2; // centers at least a diameter plus the 2 px paper ring apart
+  const placed: { x: number; y: number }[] = [];
+  for (const a of anns) {
+    let x = clampX((pct(a.x) / 100) * w);
+    let y = clampY((pct(a.y) / 100) * h);
+    for (let round = 0; round < 8; round++) {
+      const hit = placed.find((p) => Math.hypot(p.x - x, p.y - y) < gap - 0.01);
+      if (!hit) break;
+      const dx = x - hit.x;
+      const dy = y - hit.y;
+      const d = Math.hypot(dx, dy);
+      // Coincident centers move right (then down once the edge is reached).
+      const [ux, uy] = d < 0.01 ? (hit.x + gap <= w - half ? [1, 0] : [0, 1]) : [dx / d, dy / d];
+      x = clampX(hit.x + ux * gap);
+      y = clampY(hit.y + uy * gap);
+    }
+    placed.push({ x, y });
+  }
+  const r = (v: number): number => Math.round(v * 100) / 100;
+  return { size, points: placed.map((p) => ({ left: r((p.x / w) * 100), top: r((p.y / h) * 100) })) };
+}
+
 function renderFigure(b: Extract<DocBlock, { type: 'figure' }>, ctx: BlockContext): string {
   const ref = ctx.assetRefs.get(b.assetId);
   const bytes = ctx.assets.get(b.assetId);
@@ -104,16 +153,18 @@ function renderFigure(b: Extract<DocBlock, { type: 'figure' }>, ctx: BlockContex
     return `<figure class="annotated" data-asset-missing="${escAttr(b.assetId)}"><figcaption>${esc(b.caption)}</figcaption></figure>`;
   }
   const anns = b.annotations ?? [];
+  const layout = layoutMarkers(anns, ref.width, ref.height);
   const markers = anns
-    .map(
-      (a, i) =>
-        `<a${attrs([
-          ['class', 'fig-marker'],
-          ['href', `#${ctx.idBase}-n${i + 1}`],
-          ['style', `left:${pct(a.x)}%;top:${pct(a.y)}%`],
-          ['aria-label', `Note ${i + 1}`],
-        ])}>${i + 1}</a>`,
-    )
+    .map((_, i) => {
+      const p = layout.points[i] ?? { left: 0, top: 0 };
+      const size = layout.size === MARKER_MAX ? '' : `;--fm:${layout.size}px`;
+      return `<a${attrs([
+        ['class', 'fig-marker'],
+        ['href', `#${ctx.idBase}-n${i + 1}`],
+        ['style', `left:${p.left}%;top:${p.top}%${size}`],
+        ['aria-label', `Note ${i + 1}`],
+      ])}>${i + 1}</a>`;
+    })
     .join('');
   const notes = anns.length
     ? `<ol class="fig-notes">${anns.map((a, i) => `<li id="${ctx.idBase}-n${i + 1}">${esc(a.text)}</li>`).join('')}</ol>`

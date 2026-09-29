@@ -3,6 +3,7 @@ import { scaleBand, scaleLinear } from 'd3-scale';
 import type { ChartSpec } from '../../llm';
 import {
   CHART_WIDTH,
+  NO_DATA,
   el,
   escSvg,
   formatValue,
@@ -11,6 +12,8 @@ import {
   markLabel,
   maxOf,
   minOf,
+  niceScale,
+  noDataMark,
   r2,
   seriesClass,
   textWidth,
@@ -18,9 +21,34 @@ import {
 } from './common';
 import { NOTE_BELOW, NOTE_ROW, noteAbove, noteBelow } from './annotate';
 
-/** Horizontal when any category label exceeds 14 characters or there are more than 8 (rule 5). */
-export function isHorizontal(chart: ChartSpec): boolean {
-  return chart.categories.length > 8 || chart.categories.some((c) => c.length > 14);
+/** Left margin of a vertical bar chart (tick labels). */
+const V_LEFT = 44;
+
+/**
+ * Horizontal when any category label exceeds 14 characters or there are more than 8 (rule 5); in a
+ * narrower layout (rule 12) also when a category label would not fit under its bar.
+ */
+export function isHorizontal(chart: ChartSpec, W: number = CHART_WIDTH): boolean {
+  if (chart.categories.length > 8 || chart.categories.some((c) => c.length > 14)) return true;
+  if (W >= CHART_WIDTH) return false;
+  const slot = (W - 8 - V_LEFT) / Math.max(1, chart.categories.length);
+  return chart.categories.some((c) => textWidth(c, 12) > slot - 4);
+}
+
+/** Categories and series with no value (rule 8), in category order. */
+function missing(chart: ChartSpec, stacked: boolean): { ci: number; si: number }[] {
+  const out: { ci: number; si: number }[] = [];
+  const isNull = (v: number | null | undefined): boolean => v === null || v === undefined || !Number.isFinite(v);
+  chart.categories.forEach((_, ci) => {
+    if (stacked) {
+      if (chart.series.every((s) => isNull(s.values[ci]))) out.push({ ci, si: -1 });
+      return;
+    }
+    chart.series.forEach((s, si) => {
+      if (isNull(s.values[ci])) out.push({ ci, si });
+    });
+  });
+  return out;
 }
 
 interface BarMark {
@@ -54,12 +82,15 @@ function markClass(chart: ChartSpec, m: BarMark): string {
   return seriesClass('fill', m.si);
 }
 
-export function renderBar(chart: ChartSpec): { body: string; height: number } {
+export function renderBar(chart: ChartSpec, W: number = CHART_WIDTH): { body: string; height: number } {
   const stacked = chart.kind === 'stacked-bar';
   const ms = marks(chart, stacked);
+  const gaps = missing(chart, stacked);
   const lo = Math.min(0, minOf(ms.map((m) => Math.min(m.v0, m.v1))) ?? 0);
   const hi = Math.max(0, maxOf(ms.map((m) => Math.max(m.v0, m.v1))) ?? 0);
   const multi = chart.series.length > 1;
+  const gapLabel = (ci: number, si: number): string =>
+    si < 0 ? (chart.categories[ci] ?? '') : markLabel(chart, chart.categories[ci] ?? '', si);
   const showValues = ms.length <= 12 && !stacked; // rule 5
   const leg =
     multi && !chart.highlight
@@ -67,9 +98,10 @@ export function renderBar(chart: ChartSpec): { body: string; height: number } {
           chart.series.map((s) => s.name),
           4,
           0,
+          W,
         )
       : { svg: '', height: 0 };
-  const top = leg.height + (chart.yLabel ? 22 : 10);
+  const top = leg.height + (chart.yLabel ? 30 : 10);
   const yLabel = chart.yLabel
     ? el(
         'text',
@@ -82,8 +114,12 @@ export function renderBar(chart: ChartSpec): { body: string; height: number } {
       )
     : '';
 
-  if (isHorizontal(chart)) {
-    const labelW = Math.min(220, Math.max(...chart.categories.map((c) => textWidth(truncate(c, 34), 12))) + 10);
+  if (isHorizontal(chart, W)) {
+    const maxChars = W < CHART_WIDTH ? 18 : 34;
+    const labelW = Math.min(
+      W < CHART_WIDTH ? 130 : 220,
+      Math.max(...chart.categories.map((c) => textWidth(truncate(c, maxChars), 12))) + 10,
+    );
     const rowH = 28;
     // Rule 6: the note gets its own space under the highlighted row, so it never meets a bar or a
     // value label; rows after it move down by that space.
@@ -93,10 +129,10 @@ export function renderBar(chart: ChartSpec): { body: string; height: number } {
     const bandH = rowH * chart.categories.length;
     const plotH = bandH + extra;
     const height = top + plotH + (chart.xLabel ? 30 : 12);
+    const nice = niceScale(lo, hi, W < CHART_WIDTH ? 3 : 5, true);
     const x = scaleLinear()
-      .domain([lo, hi === lo ? lo + 1 : hi])
-      .nice()
-      .range([labelW, CHART_WIDTH - 56]);
+      .domain(nice.domain)
+      .range([labelW, W - 56]);
     const band = scaleBand<number>()
       .domain(chart.categories.map((_, i) => i))
       .range([top, top + bandH])
@@ -117,9 +153,15 @@ export function renderBar(chart: ChartSpec): { body: string; height: number } {
           ['text-anchor', 'end'],
           ['class', 'viz-ink viz-cat'],
         ],
-        escSvg(truncate(c, 34)),
+        escSvg(truncate(c, maxChars)),
       );
     });
+    // Rule 8: a category without a value says so where its bar would start.
+    for (const g of gaps) {
+      const y0 = rowY(g.ci) + (stacked || !multi || g.si < 0 ? 0 : (sub(g.si) ?? 0));
+      const h = stacked || !multi || g.si < 0 ? band.bandwidth() : sub.bandwidth();
+      body += noDataMark(gapLabel(g.ci, g.si), x(0) + 4, y0 + h / 2 + 4, 'start', h >= 10 ? NO_DATA : 'n/a');
+    }
     for (const m of ms) {
       const y0 = rowY(m.ci) + (stacked || !multi ? 0 : (sub(m.si) ?? 0));
       const h = stacked || !multi ? band.bandwidth() : sub.bandwidth();
@@ -155,7 +197,7 @@ export function renderBar(chart: ChartSpec): { body: string; height: number } {
     if (chart.highlight && hlRow >= 0) {
       const rowBottom = rowY(hlRow) + band.bandwidth();
       const start = Math.min(x0, ...ms.filter((m) => m.ci === hlRow).map((m) => x(Math.min(m.v0, m.v1))));
-      const note = noteBelow(chart.highlight.note, start, rowBottom, labelW);
+      const note = noteBelow(chart.highlight.note, start, rowBottom, labelW, W);
       body += note.svg;
       if (note.x0 - 2 < x0 && x0 < note.x1 + 2) {
         axisSpans.splice(0, 1, [top, rowBottom + 4], [rowBottom + NOTE_BELOW - 2, top + plotH]);
@@ -174,7 +216,7 @@ export function renderBar(chart: ChartSpec): { body: string; height: number } {
       body += el(
         'text',
         [
-          ['x', r2((labelW + CHART_WIDTH - 56) / 2)],
+          ['x', r2((labelW + W - 56) / 2)],
           ['y', height - 8],
           ['text-anchor', 'middle'],
           ['class', 'viz-ink viz-axis-title'],
@@ -187,16 +229,16 @@ export function renderBar(chart: ChartSpec): { body: string; height: number } {
 
   const height = 320;
   const bottom = chart.xLabel ? 46 : 28;
-  const left = 44;
+  const left = V_LEFT;
   // Rule 6: a band above the plot is reserved for the highlight note.
   const vTop = top + (chart.highlight ? NOTE_ROW : 0);
+  const nice = niceScale(lo, hi, 6, true);
   const y = scaleLinear()
-    .domain([lo, hi === lo ? lo + 1 : hi])
-    .nice()
+    .domain(nice.domain)
     .range([height - bottom, vTop]);
   const band = scaleBand<number>()
     .domain(chart.categories.map((_, i) => i))
-    .range([left, CHART_WIDTH - 8])
+    .range([left, W - 8])
     .paddingInner(0.25)
     .paddingOuter(0.1);
   const sub = scaleBand<number>()
@@ -204,10 +246,10 @@ export function renderBar(chart: ChartSpec): { body: string; height: number } {
     .range([0, band.bandwidth()])
     .padding(0.08);
   let body = leg.svg + yLabel;
-  for (const t of y.ticks(5)) {
+  for (const t of nice.ticks) {
     body += el('line', [
       ['x1', left],
-      ['x2', CHART_WIDTH - 8],
+      ['x2', W - 8],
       ['y1', r2(y(t))],
       ['y2', r2(y(t))],
       ['class', t === 0 ? 'viz-axis' : 'viz-grid'],
@@ -263,6 +305,13 @@ export function renderBar(chart: ChartSpec): { body: string; height: number } {
       );
     }
   }
+  // Rule 8: a category without a value says so just above the zero line of its slot.
+  for (const g of gaps) {
+    const x0 = (band(g.ci) ?? 0) + (stacked || !multi || g.si < 0 ? 0 : (sub(g.si) ?? 0));
+    const w = stacked || !multi || g.si < 0 ? band.bandwidth() : sub.bandwidth();
+    const label = textWidth(NO_DATA, 11) <= w ? NO_DATA : 'n/a';
+    body += noDataMark(gapLabel(g.ci, g.si), x0 + w / 2, y(0) - 6, 'middle', label);
+  }
   if (chart.highlight) {
     const ci = chart.categories.indexOf(chart.highlight.category);
     const ms2 = ms.filter((m) => m.ci === ci);
@@ -270,14 +319,14 @@ export function renderBar(chart: ChartSpec): { body: string; height: number } {
       // The leader stops above the category's highest mark and its value label.
       const yt = y(Math.max(0, ...ms2.map((m) => Math.max(m.v0, m.v1))));
       const xc = (band(ci) ?? 0) + band.bandwidth() / 2;
-      body += noteAbove(chart.highlight.note, xc, top, yt - (showValues ? 18 : 4));
+      body += noteAbove(chart.highlight.note, xc, top, yt - (showValues ? 18 : 4), W);
     }
   }
   if (chart.xLabel) {
     body += el(
       'text',
       [
-        ['x', r2((left + CHART_WIDTH) / 2)],
+        ['x', r2((left + W) / 2)],
         ['y', height - 8],
         ['text-anchor', 'middle'],
         ['class', 'viz-ink viz-axis-title'],

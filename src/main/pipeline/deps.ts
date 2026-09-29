@@ -23,7 +23,7 @@ import { createNativeImageReencoder, createTasks, PromptCatalogue, SkillLibrary,
 import { collectPhotoSlots, createNativePhotoOps, isStockStub, resolvePhotos } from '../photos';
 import { log as defaultLog, type Logger } from '../security';
 import { inProcessExtractRunner } from './runner';
-import { parseThemeTokens } from './theme';
+import { parseThemeDarkTokens, parseThemeTokens } from './theme';
 import type { ExtractRunner, JobId, PipelineDeps, PipelineLibrary, PipelinePhotos } from './types';
 
 /** The Electron surface the pipeline needs; injected so Node tests can pass fakes. */
@@ -144,6 +144,7 @@ export function createPipelineDeps(o: CreatePipelineDepsOptions): PipelineRuntim
     const overlay = reg.docTheme();
     const r = resolveDocTheme({
       skill: parseThemeTokens(skills.themeCss()),
+      skillDark: parseThemeDarkTokens(skills.themeCss()),
       ...(overlay !== defaultDocTheme ? { overlay } : {}),
     });
     for (const w of r.warnings) log.warn('pipeline.theme-warning', { kind: w.slice(0, 80) });

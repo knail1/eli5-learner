@@ -49,11 +49,11 @@ function leaderLine(x1: number, y1: number, x2: number, y2: number): string {
  * is centered on `x` where it fits; the leader drops from under the text to `targetY`, which the
  * caller sets above every mark and value label at `x`.
  */
-export function noteAbove(note: string, x: number, rowTop: number, targetY: number): string {
-  const text = fitNote(note, CHART_WIDTH - 2 * MARGIN);
+export function noteAbove(note: string, x: number, rowTop: number, targetY: number, W: number = CHART_WIDTH): string {
+  const text = fitNote(note, W - 2 * MARGIN);
   const w = textWidth(text, 12);
   const baseline = rowTop + 12;
-  const tx = Math.max(MARGIN, Math.min(x - w / 2, CHART_WIDTH - w - MARGIN));
+  const tx = Math.max(MARGIN, Math.min(x - w / 2, W - w - MARGIN));
   const y1 = baseline + 5;
   return group(targetY > y1 ? leaderLine(x, y1, x, targetY) : '', tx, baseline, text);
 }
@@ -70,9 +70,10 @@ export function noteBelow(
   barStart: number,
   rowBottom: number,
   plotStart: number,
+  W: number = CHART_WIDTH,
 ): { svg: string; x0: number; x1: number } {
   const lx = barStart + 2;
-  const right = CHART_WIDTH - MARGIN;
+  const right = W - MARGIN;
   // Fitted to the widest start; either position below leaves it that much room.
   const text = fitNote(note, right - Math.min(plotStart, lx + 6));
   const w = textWidth(text, 12);
@@ -84,7 +85,7 @@ export function noteBelow(
 }
 
 /** Centered note under a pie (no leader: it would cross the slices). */
-export function noteUnder(note: string, cx: number, top: number): string {
-  const text = fitNote(note, CHART_WIDTH - 2 * MARGIN);
+export function noteUnder(note: string, cx: number, top: number, W: number = CHART_WIDTH): string {
+  const text = fitNote(note, W - 2 * MARGIN);
   return group('', cx, top + 12, text, 'middle');
 }

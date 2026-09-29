@@ -148,19 +148,23 @@ describe('menu interaction (08 §5.2, §5.4)', () => {
     expect(h.selection?.root.activeElement).toBe(h.selection?.root.querySelector('input'));
   });
 
-  it('marks the passage with the eli5-pending highlight while open (CSS Custom Highlight API)', () => {
+  it('marks the passage with boxes over its own line boxes while open (08 §5.2 step 5)', () => {
     const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
-    const highlights = new Map<string, unknown>();
-    class Highlight {
-      constructor(readonly range: Range) {}
-    }
-    Object.defineProperty(win, 'CSS', { configurable: true, value: { highlights } });
-    Object.defineProperty(win, 'Highlight', { configurable: true, value: Highlight });
+    // jsdom has no layout: every text run reports one 40 x 18 line box.
+    const proto = win.Range.prototype as unknown as { getClientRects: () => unknown };
+    proto.getClientRects = () => [{ left: 10, top: 20, width: 40, height: 18 }];
     const h = rt.boot(win, doc);
+    const layer = doc.querySelector<HTMLElement>('body > div.eli5-pending');
+    expect(layer?.hidden).toBe(true);
+    expect(layer?.getAttribute('aria-hidden')).toBe('true');
     open(win, doc);
-    expect(highlights.get('eli5-pending')).toBeInstanceOf(Highlight);
+    const boxes = Array.from(layer?.children ?? []) as HTMLElement[];
+    expect(layer?.hidden).toBe(false);
+    expect(boxes.length).toBeGreaterThan(0);
+    expect(boxes[0]?.style.cssText).toBe('left: 10px; top: 20px; width: 40px; height: 18px;');
     h.selection?.close();
-    expect(highlights.has('eli5-pending')).toBe(false);
+    expect(layer?.hidden).toBe(true);
+    expect(layer?.children.length).toBe(0);
   });
 
   it('closes on a tab switch', () => {

@@ -25,6 +25,7 @@ export {
   resolveDocTheme,
   sanitizeTokens,
   themeCss,
+  upgradeThemeBlock,
   isValidTokenValue,
 } from './theme';
 export type { ThemeLayers } from './theme';

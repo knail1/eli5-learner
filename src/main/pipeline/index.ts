@@ -62,6 +62,6 @@ export { dedupeInputs, snapshotInputs } from './inputs';
 export type { CopyFileFn, PendingCopy, SnapshotOptions, SnapshotResult } from './inputs';
 export { fallbackSummary } from './stages/generate';
 export { SAVE_RETRY_DELAY_MS } from './stages/save';
-export { parseThemeTokens } from './theme';
+export { parseThemeDarkTokens, parseThemeTokens } from './theme';
 export { createPipelineDeps } from './deps';
 export type { CreatePipelineDepsOptions, PipelineElectron, PipelineRuntime } from './deps';

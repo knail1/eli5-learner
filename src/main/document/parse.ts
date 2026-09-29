@@ -6,7 +6,7 @@ import { fromDataUri, sha256Hex } from './images';
 import { modelJson, renderSectionHtml } from './render/page';
 import { DocumentModelSchema } from './schema';
 import { sanitizeSvg } from './svg-sanitize';
-import { DEFAULT_FOOTER, parseThemeCss } from './theme';
+import { DEFAULT_FOOTER, parseThemeCss, parseThemeDarkCss } from './theme';
 import type { DocBlock, DocTheme, DocumentModel, ParsedDocument, Section } from './types';
 
 /** The newest `formatVersion` this build understands (07 §3). */
@@ -65,10 +65,13 @@ export function parseDocument(html: string): ParsedDocument {
   const footer = findAll(doc, (el) => el.tagName === 'footer' && attr(el, 'class') === 'doc-foot')[0];
   const footerText = footer ? textOf(footer).trim() : DEFAULT_FOOTER;
   const logo = findAll(doc, (el) => el.tagName === 'span' && attr(el, 'class') === 'doc-logo')[0];
+  const themeText = themeStyle ? textOf(themeStyle) : '';
+  const darkTokens = parseThemeDarkCss(themeText);
   const theme: DocTheme = {
     id: model.theme.id,
     version: model.theme.version,
-    tokens: parseThemeCss(themeStyle ? textOf(themeStyle) : ''),
+    tokens: parseThemeCss(themeText),
+    ...(darkTokens ? { darkTokens } : {}),
     footer: footerText.startsWith(`${DEFAULT_FOOTER} · `)
       ? footerText.slice(DEFAULT_FOOTER.length + 3)
       : DEFAULT_FOOTER,
