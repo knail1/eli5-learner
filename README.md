@@ -168,6 +168,8 @@ interactive reading, the library, local publishing, and the test, CI and packagi
 | `npm test` | Unit, integration, renderer, eval-runner, perf and public contract tests (offline; network access fails the test) |
 | `npm run test:e2e` | Test build, then Playwright: the app end to end, startup time, and the cross-browser suite |
 | `npm run test:crossbrowser` | Golden documents in Chromium and WebKit (smoke, accessibility, zero network); no app build |
+| `npm run test:visual` | Test build, then screenshot comparisons: golden documents in Chromium and WebKit, the app in Electron; contact sheet at `test-results/visual/index.html` |
+| `npm run test:visual:update` | Rewrites the visual baselines in `test/visual/__screenshots__/`; review the contact sheet before committing them |
 | `npm run check:spec` | Validates the spec's private-hook markers |
 | `npm run check:hygiene -- --out out --package` | Public-repo hygiene over tracked files and a package build in `out/` |
 | `npm run check:licenses` | Runtime dependency license allow list |

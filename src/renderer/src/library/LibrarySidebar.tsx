@@ -373,24 +373,27 @@ export function LibrarySidebar(p: LibrarySidebarProps) {
                           <span className="folder-name">{f.name}</span>
                           <span className="count">{g.entries.length}</span>
                         </button>
-                        <button
-                          type="button"
-                          className="folder-action"
-                          aria-label={`Rename folder ${f.name}`}
-                          title="Rename folder"
-                          onClick={() => setRenaming(f.id)}
-                        >
-                          <span aria-hidden="true">✎</span>
-                        </button>
-                        <button
-                          type="button"
-                          className="folder-action"
-                          aria-label={`Delete folder ${f.name}`}
-                          title="Delete folder (its documents go to the Trash)"
-                          onClick={() => void deleteFolder(f)}
-                        >
-                          <span aria-hidden="true">×</span>
-                        </button>
+                        {/* Over the count on hover or focus, so every count lines up with Archive and Trash. */}
+                        <span className="folder-actions">
+                          <button
+                            type="button"
+                            className="folder-action"
+                            aria-label={`Rename folder ${f.name}`}
+                            title="Rename folder"
+                            onClick={() => setRenaming(f.id)}
+                          >
+                            <span aria-hidden="true">✎</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="folder-action"
+                            aria-label={`Delete folder ${f.name}`}
+                            title="Delete folder (its documents go to the Trash)"
+                            onClick={() => void deleteFolder(f)}
+                          >
+                            <span aria-hidden="true">×</span>
+                          </button>
+                        </span>
                       </div>
                     )}
                     {rowError?.key === f.id && renaming !== f.id && (

@@ -129,6 +129,42 @@ jobs:
             playwright-report/
           if-no-files-found: ignore
 
+  visual:
+    if: github.event_name != 'schedule'
+    runs-on: macos-latest
+    # Visual regression (13 §7.4). Non-blocking for now: the baselines are generated on a developer
+    # Mac, and the runner's macOS image can rasterize the same system fonts slightly differently, so
+    # a diff here may be the machine rather than the change. The job always uploads the contact
+    # sheet (expected, actual and diff side by side) for a human to judge. Make it blocking once
+    # runs on the runner have matched the committed baselines for a while (13 §7.4 policy).
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Cache Electron binary
+        uses: actions/cache@v5
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npm ci
+      - run: npx playwright install chromium webkit
+      - name: Screenshot comparisons (documents in Chromium and WebKit, app in Electron)
+        run: npm run test:visual
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: visual-contact-sheet
+          path: test-results/visual/
+          if-no-files-found: ignore
+
   edition-fixture:
     if: github.event_name != 'schedule'
     runs-on: macos-latest

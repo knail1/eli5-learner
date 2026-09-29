@@ -174,8 +174,10 @@ enterprise/
 # Build pre-step output (01 §8.1)
 build/doc-runtime/
 
-# Test and packaging output
+# Test and packaging output (incl. test-results/visual/: the visual contact sheet, 13 §7.4; its
+# baselines live under test/visual/__screenshots__/ and are committed)
 test-results/
+test-results/visual/
 playwright-report/
 
 # Dev library root: generated learnings, possibly from private sources (09 §3.1)

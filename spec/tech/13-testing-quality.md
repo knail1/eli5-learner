@@ -45,10 +45,13 @@ test/
   unit/ ...                mirrors src/ (src/main/extract/pptx.ts -> test/unit/main/extract/pptx.test.ts)
   integration/             multi-module tests in Node (pipeline with fakes)
   e2e/                     Playwright specs (§8)
+  visual/                  screenshot comparisons (§7.4): docs.visual.ts, app.visual.ts, the contact
+                           sheet reporter; baselines committed under __screenshots__/
   evals/                   eval set, rubrics, judge prompts, baselines (§9)
 config/vitest.config.ts    projects: unit, integration, renderer (renderer and doc-runtime, jsdom), evals:unit, contracts:public, perf, contracts:enterprise
 config/playwright.e2e.config.ts   projects: e2e, perf (startup), crossbrowser-chromium, crossbrowser-webkit
 config/playwright.crossbrowser.config.ts   the cross-browser projects alone (no app build)
+config/playwright.visual.config.ts         visual regression (§7.4): projects chromium, webkit, app
 config/playwright.package.config.ts        packaged-app checks (§11.1), opt-in
 ```
 
@@ -65,6 +68,7 @@ Co-located `*.test.ts` files under `src/` are not used; a lint rule forbids them
 | Document validity | Vitest + hidden `BrowserWindow` probe in e2e | Every golden and every e2e-generated `index.html` | Every push | inside unit/e2e budgets |
 | End-to-end | Playwright `_electron` against the built public app | User flows through the real UI | Every push to PR and `main` | < 10 min |
 | Cross-browser smoke | Playwright Chromium and WebKit | Golden documents opened as files | Every push | < 2 min |
+| Visual regression | Playwright `toHaveScreenshot` (Chromium, WebKit, Electron) | Golden document components and app screens against committed baselines (§7.4) | Every push, non-blocking in CI | < 2 min |
 | Evals | Vitest runner + real providers + LLM judge | Generation quality | Nightly and manual | cost-capped (§9.6) |
 
 ### 3.1 Coverage targets
@@ -100,7 +104,7 @@ Each row lists the minimum required cases. Module specs add their own cases in t
 | `fetch/` | Against `fixture-server`: article extraction; client-rendered detection triggers hidden-window fallback (fallback itself faked in unit, real in e2e); login wall classified as skip; redirect limit; size cap; timeout; charset decoding; non-HTML content types routed to extraction. ([05](05-url-fetching.md)) |
 | `photos/` | All offline, with a fake `StockHttp` and fake `nativeImage`: `sanitizePhotoQuery` strips URLs, e-mail addresses, digits, quoted text, acronyms, camelCase, capitalized runs and the drafts' proper nouns, and caps words and length; Openverse requests `license=cc0,pdm,by,by-sa` and `mature=false` and drops NC/ND, mature, sensitivity-flagged, non-https and logo results; Commons maps `License` codes to the four allowed licenses; the fallback tops up and survives a failing primary; `collectPhotoSlots` applies the per-section, in-depth and document caps; `resolvePhotos` shows at most 4 labeled thumbnails per slot, honours 0 = none, ignores out-of-range picks, never repeats a photo, falls back to the thumbnail source, stays within the byte cap, is quiet on every failure and rethrows cancellation; photo sizing (384 px thumbnails; ≤ 1200 px, q80 then lower); the HOOK-DOC-03 stub. ([07 §7.4](07-output-document.md)) |
 | `pipeline/` | State machine transitions `queued → reading → extracting → generating → saving → done`; `failed` on total failure codes; partial failure yields a document with skipped list; two queued jobs; cancellation; crash-resume from checkpoint; exact status-line strings from the table in [06 §6](06-generation-pipeline.md); stock photos: resolved photos are embedded with credits, a failing photo service never fails the job or adds a warning, and with `images.stockPhotos` off or a stub provider no search runs and the prompts say not to use `photo` blocks. |
-| `document/` | Builder output passes `validateDocument` (§7); SectionIds unique and well-formed; `replaceSection` ([07](07-output-document.md)) replaces exactly one `<section>` and leaves every other byte of the file unchanged; add and remove Section ELI5 tab; glossary present only in In depth tab and only when enabled; references list includes skipped sources with reasons; woven merge (`enhance.ts` word diff, `applyMergePlan` with a fixed plan: IDs kept, both tabs changed, only inserted words marked, legend and merged references, a second merge keeps the first merge's marks); a `merged` golden document. ([07](07-output-document.md), [08](08-interactive-reading.md)) |
+| `document/` | Builder output passes `validateDocument` (§7); SectionIds unique and well-formed; `replaceSection` ([07](07-output-document.md)) replaces exactly one `<section>` and leaves every other byte of the file unchanged; add and remove Section ELI5 tab; glossary present only in In depth tab and only when enabled; references list includes skipped sources with reasons; woven merge (`enhance.ts` word diff, `applyMergePlan` with a fixed plan: IDs kept, both tabs changed, only inserted words marked, legend and merged references, a second merge keeps the first merge's marks); a `merged` golden document; a `showcase` golden with the components the others lack (a four-step stepper, credited stock photos in both tabs, an "ELI5 this selection" tab). ([07](07-output-document.md), [08](08-interactive-reading.md)) |
 | `library/` | `catalog.json` and `meta.json` schemas; atomic write (crash between temp write and rename leaves the previous catalog intact); newest-first ordering; last-3 list for the menu bar; merge suggestion threshold using a faked match result; accept weaves with a mocked `merge-weave` planner, highlights the enhancements and removes the standalone entry, and one Undo restores the pre-merge target; a failing or budget-exhausted weave leaves both documents untouched with `lastError`, and nothing is appended; dismiss keeps both. ([09](09-library-storage.md)) |
 | `publish/` | Local publisher writes to target dir; stubs throw with `HOOK-PUB-01`/`HOOK-PUB-03`; baseline secret scanner finds each pattern in a synthetic fixture and has no false positives on golden documents. ([10](10-publishing.md)) |
 | `config/` | Schema defaults; dormant keys accepted but inert in public; API keys rejected if written to settings JSON; Keychain port read/write via fake. ([12](12-configuration-security.md)) |
@@ -246,6 +250,63 @@ Static checks cannot see requests made by script. In e2e, `probeDocument(path)` 
 ### 7.3 Cross-browser smoke
 
 The PRD requires the file to open in Chrome, Safari, and Edge. Playwright opens each golden via `file://` in Chromium (covers Chrome and Edge engines) and WebKit (Safari engine): the default tab renders, tab switching works, glossary collapses at narrow width, and there are no page errors. The select-and-act bridge is absent outside the app and must fail silently ([08](08-interactive-reading.md)). Selection zones (`selection-zones.spec.ts`, [08](08-interactive-reading.md) §5.6): a real mouse drag across body paragraphs next to a glossary note leaves the note out of the selection, its computed `user-select` is `none`, and a copy carries no note text; a drag that starts inside a note stays inside it, wide and narrow.
+
+### 7.4 Visual regression
+
+No other test compares pixels, so layout bugs (a label overflowing its SVG shape, a link wrapped
+onto its own centered line, a wrong step number, overlapping margin notes) used to be caught only by
+eye. `npm run test:visual` (config `config/playwright.visual.config.ts`) builds the test app and
+compares screenshots with baselines committed under `test/visual/__screenshots__/<spec>/`, named
+`<shot>-<project>-<platform>.png`. It is not part of `npm test` or `npm run test:e2e`.
+
+**Coverage.** `docs.visual.ts` opens the golden documents via `file://` in Chromium (light and
+dark) and WebKit (light; the dark tokens are the same CSS in both engines): header and tab bar
+(default and themed), the first In depth section with its glossary margin notes, pull quote and
+callouts, each chart kind, the SVG diagram, the annotated figure, the stepper on step 3 of 4 (badge
+3), a stock photo with its credit caption, both ELI5 tabs (one with a photo), the "ELI5 this
+selection" tab with its "You asked about" quote, the references (used and skipped, "Image
+credits", "Added by merge"), the woven merge (legend, violet enhancements, the new-block badge, and
+the "Hide highlights" state), and the 420 px narrow layout (top of page, an opened glossary note, a
+chart, the stepper). Two in-app document states use a stand-in `window.eli5Doc` that answers every
+call at once: the selection action menu with "ELI5 this selection", and a section marked
+"Updating…". `app.visual.ts` drives the built app through the e2e harness (§8.1, FakeProvider,
+temp library) with a seeded library (a folder, the Archive, one document in the Trash, a pending
+merge suggestion, an undoable change): the whole window with the document (light and dark; the
+viewer's WebContentsView is composited into its slot), the sidebar and a hovered folder, the
+document header with Undo enabled, the suggestion card (the test also checks that the period after
+the title link sits on the link's last line), the find bar with "1 of N", a section "Updating…" in
+the viewer, a row resting mid-swipe with Archive showing, the Trash view, the input zone with
+sources, and the AI provider and Documents settings. Native tooltips are drawn outside the page,
+so the Undo tooltip text is asserted instead of pictured.
+
+**Determinism.** Viewport 1280 × 800 (documents also 420 × 800), device scale factor 2 (the app is
+launched with `--force-device-scale-factor=2` and a 1280 × 800 content size), `en-US`, `UTC`,
+reduced motion, `animations: 'disabled'`, caret hidden, a fixed clock (`page.clock.setFixedTime`)
+in the browsers, seeded section ids (the goldens), `document.fonts.ready` plus two animation frames
+before each shot, the mouse parked in a corner, every request other than the document aborted.
+Relative times ("3h", "Updated 3h ago", "Trashed …") are seeded relative to the run's clock so they
+read the same, and are masked anyway (`mask`, or a solid block in the composited window shot). No
+retries: a shot that only matches on a second try is a determinism bug.
+
+**Tolerances.** Per-pixel `threshold: 0.2` (YIQ distance below which a pixel counts as equal), and
+at most `min(0.2% of the image, 20 pixels)` differing pixels (`maxDiffPixelRatio: 0.002`,
+`maxDiffPixels: 20`). A ratio alone was too loose: at 1% a whole toast plus an extra sidebar row
+passed on the window shot, and a folder count moved by 45 px differed in only 80 pixels. Runs on
+one Mac are pixel-identical; the caps only absorb engine noise.
+
+**Updating baselines.** Run `npm run test:visual:update` (rewrites the shots that no longer match
+and adds new ones), then open `test-results/visual/index.html` and look at every changed image
+before committing it: a baseline is a claim that the picture is right. Every run writes that
+contact sheet: failed comparisons first with expected, actual and diff side by side, then every
+baseline of the platform with its name; the PNGs are copied next to it (`screens/`, `failures/`).
+Baselines are generated on macOS (darwin) only.
+
+**CI policy.** The `visual` job (§12) runs the same config on the macOS runner and always uploads
+`test-results/visual/` as the `visual-contact-sheet` artifact. It is `continue-on-error` for now,
+because the runner image can rasterize system fonts differently from the Mac that made the
+baselines; a red run there is reviewed on the contact sheet, not trusted blindly. It becomes
+blocking once runner runs have matched the committed baselines for two weeks, or once baselines
+are generated on the runner itself.
 
 ## 8. End-to-end tests (Playwright `_electron`)
 
@@ -440,6 +501,7 @@ Reviewed false positives are listed in `config/hygiene-allow` as `secret <glob> 
 | `build-public` | `macos-latest` | — | assert `enterprise/` absent; `npm run build` | `out/` |
 | `e2e` | `macos-latest` | `build-public` (ordering only; `npm run test:e2e` rebuilds with `ELI5_TEST_BUILD=1`) | install Playwright WebKit+Chromium; `npm run test:e2e` (e2e, startup and cross-browser projects) | traces, screenshots, logs on failure |
 | `edition-fixture` | `macos-latest` | — | cell F and F-missing (§10.1), the §11 bundle check rejecting cell F, `npm run check:editions` | — |
+| `visual` | `macos-latest` | — | install Playwright WebKit+Chromium; `npm run test:visual` (§7.4); `continue-on-error` (non-blocking) until the runner matches the darwin baselines | contact sheet and diffs, always |
 | `hygiene` | `macos-latest` | `build-public` | §11 | — |
 | `package` | `macos-latest` | all above | `main` only: `electron-builder --mac dmg --arm64` (the runner's architecture; an x64 dmg needs its own Intel job, [01 §8.3](01-architecture.md)), unsigned | dmg (7-day retention) |
 | `evals` | `macos-latest` | — | `schedule`/`workflow_dispatch` only, never on `pull_request`; secrets `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` mapped to `ELI5_EVAL_API_KEY_*`; skips with a notice when unset; `npm run eval`, exit 2 opens an issue; §9 | eval results JSON |
@@ -488,6 +550,7 @@ Rules:
 - [ ] `validateDocument` enforces every rule in §7.1, runs before every save and regenerate-in-place write, and every golden passes it.
 - [ ] `probeDocument` records zero network requests and zero console errors for every golden and every e2e-generated document.
 - [ ] Golden documents render and switch tabs in Playwright Chromium and WebKit via `file://`.
+- [ ] `npm run test:visual` passes twice in a row against the committed baselines (§7.4), and every run writes the contact sheet.
 - [ ] e2e scenarios E1 to E18 pass against the built public app, with zero modal dialogs recorded.
 - [ ] `replaceSection` changes only the target section's bytes (E8 and unit test).
 - [ ] Eval suite runs nightly with a cost cap, stores results, compares to baselines, and never runs on pull requests.

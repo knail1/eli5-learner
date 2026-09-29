@@ -86,6 +86,7 @@ describe('.github/workflows/ci.yml (13 §12)', () => {
       'unit',
       'build-public',
       'e2e',
+      'visual',
       'edition-fixture',
       'hygiene',
       'package',
@@ -173,6 +174,17 @@ describe('.github/workflows/ci.yml (13 §12)', () => {
     expect(runs('e2e')).toContain('npm run test:e2e');
     const failUpload = steps('e2e').find((s) => String(s.uses).startsWith('actions/upload-artifact@'));
     expect(failUpload?.if).toBe('failure()');
+  });
+
+  it('visual runs the screenshot suite non-blocking and always uploads the contact sheet (13 §7.4)', () => {
+    expect(job('visual')['continue-on-error']).toBe(true);
+    expect(runs('visual')).toContain('npx playwright install chromium webkit');
+    expect(runs('visual')).toContain('npm run test:visual');
+    const up = steps('visual').find((s) => String(s.uses).startsWith('actions/upload-artifact@'));
+    expect(up?.if).toBe('always()');
+    expect(obj(up?.with)).toMatchObject({ name: 'visual-contact-sheet', path: 'test-results/visual/' });
+    // Not a gate for packaging while it is non-blocking.
+    expect(arr(job('package').needs)).not.toContain('visual');
   });
 
   it('edition-fixture builds cell F and proves F-missing fails with the 01 §6.5 message', () => {

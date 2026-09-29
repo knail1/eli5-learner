@@ -263,6 +263,7 @@ body {
   margin-top: 2px;
 }
 .folder-head {
+  position: relative;
   display: flex;
   align-items: center;
   border-radius: 6px;
@@ -301,15 +302,28 @@ body {
   font-weight: 400;
   color: var(--muted);
 }
+/* Laid over the right end of the head (the count), so a folder's count lines up with Archive's and
+   Trash's instead of sitting left of two invisible buttons. */
+.folder-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  padding-left: 4px;
+  border-radius: 6px;
+  background: var(--chip);
+  opacity: 0;
+}
 .folder-action {
   border: 0;
   background: transparent;
   padding: 2px 6px;
   color: var(--muted);
-  opacity: 0;
 }
-.folder-head:hover .folder-action,
-.folder-head:focus-within .folder-action {
+.folder-head:hover .folder-actions,
+.folder-head:focus-within .folder-actions {
   opacity: 1;
 }
 .folder-empty {
@@ -751,6 +765,12 @@ button.icon-button {
 .settings h2 {
   font-size: 15px;
   margin: 0 0 8px;
+}
+/* One switch per line: two inline toggles in a row ran together ("…by default ☑ Use stock photos…"). */
+.settings .toggle {
+  display: flex;
+  width: fit-content;
+  margin: 4px 0;
 }
 .path {
   font-size: 12px;

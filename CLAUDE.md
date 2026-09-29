@@ -28,7 +28,8 @@ LICENSE, CLAUDE.md, tsconfig.json (a pointer into config/ for editors), .gitigno
   configs, eslint.config.js, electron-builder.yml, prettier.json, allow-lists; `config/packaging/`
   holds the entitlements and app icon. Run tools through the npm scripts (they pass `--config`).
   ESLint editor integrations need `eslint.workingDirectories`/`overrideConfigFile` pointed at it.
-- `test/` — unit, integration, e2e, cross-browser, perf, package, contracts, evals, fixtures.
+- `test/` — unit, integration, e2e, cross-browser, visual (screenshot baselines), perf, package, contracts,
+  evals, fixtures.
 - `scripts/` — repo checks (spec hooks, hygiene, licenses, editions), eval and real-run tooling.
 - `spec/` — public product spec; `spec/tech/` — engineering spec and `hooks.md` registry.
 - `docs/` — the public GitHub Pages site only (`docs/index.html`, `docs/.nojekyll`, `docs/sample/`).
@@ -74,6 +75,8 @@ Node 22.12+ (Electron 44's installer needs it; `postinstall` downloads the Elect
 - `npm run dev` — run the app; `npm run build` — production build into `out/`
 - `npm run typecheck`, `npm run lint`, `npm test` (Vitest, offline), `npm run test:e2e` (test build,
   then Playwright: e2e, startup, cross-browser), `npm run test:crossbrowser`, `npm run check:spec`
+- `npm run test:visual` (screenshot comparisons, contact sheet at `test-results/visual/index.html`),
+  `npm run test:visual:update` (rewrite baselines, then look at the contact sheet before committing)
 - `npm run check:hygiene -- --out out --package`, `npm run check:licenses`, `npm run check:editions`
 - `scripts/build.sh [--check] [--clean] [--open]` builds the unsigned app and dmg in `release/`
   (wraps `npm run package:arm64`); then `npm run test:package`

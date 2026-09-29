@@ -28,6 +28,8 @@
     "fixtures:build": "ELI5_WRITE_FIXTURES=1 vitest run --config config/vitest.config.ts test/unit/fixtures/build.test.ts",
     "test:e2e": "ELI5_TEST_BUILD=1 npm run build && playwright test -c config/playwright.e2e.config.ts",
     "test:crossbrowser": "playwright test -c config/playwright.crossbrowser.config.ts",
+    "test:visual": "ELI5_TEST_BUILD=1 npm run build && playwright test -c config/playwright.visual.config.ts",
+    "test:visual:update": "ELI5_TEST_BUILD=1 npm run build && playwright test -c config/playwright.visual.config.ts --update-snapshots",
     "test:perf": "vitest run --config config/vitest.config.ts --project perf",
     "test:perf:startup": "npm run build && playwright test -c test/perf/playwright.perf.config.ts",
     "test:evals": "vitest run --config config/vitest.config.ts --project evals:unit",

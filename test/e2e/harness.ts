@@ -33,6 +33,8 @@ export interface LaunchOptions {
   script?: string;
   /** Extra environment for this launch. */
   env?: Record<string, string>;
+  /** Extra command-line switches after the app path (e.g. Chromium's --force-device-scale-factor). */
+  args?: string[];
 }
 
 type FakeScript = { responses: Record<string, unknown> } & Record<string, unknown>;
@@ -71,7 +73,7 @@ export class Harness {
       env.ELI5_TEST_API_KEY_CLAUDE = TEST_KEY;
     }
     Object.assign(env, opts.env);
-    const app = await electron.launch({ args: [path.resolve('.')], env });
+    const app = await electron.launch({ args: [path.resolve('.'), ...(opts.args ?? [])], env });
     this.running.push(app);
     const win = await app.firstWindow();
     // The input zone listens for test drops once it has mounted.
