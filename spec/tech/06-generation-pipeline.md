@@ -358,7 +358,7 @@ At enqueue time (§5.1), inputs are made independent of the outside world:
 | Clipboard image | Written as PNG into `inputs/` |
 | Clipboard text / rich text | Written as `.txt` / `.html` into `inputs/` |
 | Clipboard file references | Treated as dropped files |
-| Clipboard drafts staged before Enter (doc 03 §6) | Moved into `jobs/<jobId>/inputs/` |
+| Clipboard drafts staged before Enter (doc 03 §6) | Copied into `jobs/<jobId>/inputs/` (APFS clone where possible). Never moved: the draft stays in the input zone and may be started again (11 §5.4), and doc 03 §6.1 owns its deletion |
 | URL | Stored as a string only. Fetched in the reading stage |
 
 The `SourceInput.ref` shown to the user (in references and skipped lists) is always the original name or URL, never the staging path.
@@ -446,7 +446,7 @@ All channels are registered in `src/main/ipc/jobs.ts` (with the other handlers u
 
 Section jobs are started through doc 08's `eli5:doc:regenerate-section` / `eli5:doc:create-section-eli5` channels. Those channels call `JobQueue.enqueueSection()` internally and report through `eli5:jobs:changed`.
 
-Renderer payloads are validated with a schema in the main process. Main cannot tell a preload-captured path from a forged one, so raw paths are never accepted from the renderer. Instead, `src/preload/app.ts` registers its own `drop` listener, ignores events where `event.isTrusted` is false, resolves each file with `webUtils.getPathForFile`, and sends the paths to main via `eli5:sources:register-drop`, which returns opaque input ids. The renderer keeps working with paths (`window.eli5.files.pathFor`); the preload swaps in the id main minted for each dropped path when it sends `eli5:jobs:start`, so file `SourceInput`s there carry those ids and main maps them back to paths from its own registry. An unknown id is refused with `E_FORBIDDEN`; a successful start uses the ids up. Details are in doc 03 §6.3 and doc 12.
+Renderer payloads are validated with a schema in the main process. Main cannot tell a preload-captured path from a forged one, so raw paths are never accepted from the renderer. Instead, `src/preload/app.ts` registers its own `drop` listener, ignores events where `event.isTrusted` is false, resolves each file with `webUtils.getPathForFile`, and sends the paths to main via `eli5:sources:register-drop`, which returns opaque input ids. The renderer keeps working with paths (`window.eli5.files.pathFor`); the preload swaps in the id main minted for each dropped path when it sends `eli5:jobs:start`, so file `SourceInput`s there carry those ids and main maps them back to paths from its own registry. An unknown id is refused with `E_FORBIDDEN`. A start does not use the ids up, because the input zone keeps its draft for Start again or Restart (11 §5.4). Instead, the renderer releases an id with `eli5:sources:release-drops` when its chip is removed (and no other chip names the same file) or the draft is cleared, and the registry is an LRU bounded at 1000 entries (the most paths one `register-drop` may carry), so ids from forgotten drafts age out. Only ids main minted for a trusted drop or a clipboard read ever resolve. Details are in doc 03 §6.3 and doc 12.
 
 ## 12. Edge cases
 

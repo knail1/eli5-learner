@@ -1,6 +1,13 @@
 /// <reference lib="dom" />
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
-import { IPC, type DropRegistration, type IpcChannel, type IpcResult, type StartJobRequest } from './contract';
+import {
+  IPC,
+  type DropRegistration,
+  type IpcChannel,
+  type IpcResult,
+  type SourceInput,
+  type StartJobRequest,
+} from './contract';
 import type { Eli5Api } from './api';
 
 /** Marshalling only; no logic (01 §2). */
@@ -30,6 +37,23 @@ function withDropIds(r: StartJobRequest): StartJobRequest {
   };
 }
 
+/** Main's ids for file chips leaving the draft; a dropped path's id is forgotten here too. */
+function dropIdsToRelease(inputs: readonly SourceInput[]): string[] {
+  const ids: string[] = [];
+  for (const i of inputs) {
+    if (i.kind !== 'file') continue;
+    if (i.origin !== 'drop') {
+      ids.push(i.id); // clipboard file chips already carry main's id
+      continue;
+    }
+    const id = dropIds.get(i.path);
+    if (id === undefined) continue;
+    dropIds.delete(i.path);
+    ids.push(id);
+  }
+  return ids;
+}
+
 const api: Eli5Api = {
   jobs: {
     start: async (r) => {
@@ -47,6 +71,12 @@ const api: Eli5Api = {
     stageText: (draftId, text, markup) => invoke(IPC.sources.stageText, { draftId, text, markup }),
     discard: (draftId, inputId) => invoke(IPC.sources.discard, { draftId, inputId }),
     discardDraft: (draftId) => invoke(IPC.sources.discardDraft, { draftId }),
+    release: async (inputs) => {
+      await pendingDrops;
+      const inputIds = dropIdsToRelease(inputs);
+      if (inputIds.length === 0) return { ok: true, value: undefined };
+      return invoke(IPC.sources.releaseDrops, { inputIds });
+    },
     classifyText: (text) => invoke(IPC.sources.classifyText, { text }),
   },
   library: {

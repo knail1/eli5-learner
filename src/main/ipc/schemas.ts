@@ -68,6 +68,7 @@ export const StageTextPayload = z.object({
 });
 export const DiscardPayload = z.object({ draftId: DraftId, inputId: InputId });
 export const RegisterDropPayload = z.object({ paths: z.array(AbsolutePath).min(1).max(1000) });
+export const ReleaseDropsPayload = z.object({ inputIds: z.array(InputId).min(1).max(1000) });
 
 /** 11 §5.3 find bar: longer queries are refused rather than truncated. */
 export const MAX_FIND_TEXT_CHARS = 200;

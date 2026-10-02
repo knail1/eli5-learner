@@ -206,8 +206,9 @@ async function bootstrap(): Promise<void> {
     timeouts: pipelinePolicy.llmTimeoutOverride,
   });
 
-  // Crash sweep of pre-job clipboard drafts older than 24 h (03 §6.1 step 6); never rejects.
-  void sweepStaleDrafts(userData);
+  // Drafts live only in the window's memory, so any draft from before this launch is an orphan
+  // (03 §6.1 step 6); the live draft is created after launch and never matches. Never rejects.
+  void sweepStaleDrafts(userData, { before: Date.now() - process.uptime() * 1000 });
 
   // Library root, process lock, catalog and reconcile (09 §3.1, §7, §8.4).
   const library = await openLibrary({

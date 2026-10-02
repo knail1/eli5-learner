@@ -85,6 +85,18 @@ describe('sweepStaleDrafts (03 §6.1 step 6)', () => {
     expect(await readdir(path.join(userData, 'staging', 'drafts'))).toEqual(['young']);
   });
 
+  it('with a launch time, removes every draft from before it and keeps the live one (11 §5.4 kept drafts)', async () => {
+    const userData = await fx.tmpDir();
+    await stageDraftItem(userData, 'last-session', 'in-a', 'txt', 'a');
+    await stageDraftItem(userData, 'live', 'in-b', 'txt', 'b');
+    const launch = Date.now() - 1000;
+    const before = new Date(launch - 5 * 60_000); // minutes old: the 24 h rule alone would keep it
+    await utimes(draftDir(userData, 'last-session'), before, before);
+    expect(await sweepStaleDrafts(userData, { before: launch })).toBe(1);
+    expect(await readdir(path.join(userData, 'staging', 'drafts'))).toEqual(['live']);
+    expect(await readFile(path.join(draftDir(userData, 'live'), 'in-b', 'pasted-1.txt'), 'utf8')).toBe('b');
+  });
+
   it('is a no-op without a drafts root and never touches anything outside it', async () => {
     const userData = await fx.tmpDir();
     await fx.put(userData, 'jobs/j1/inputs/keep.txt', 'k');

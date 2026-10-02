@@ -203,7 +203,7 @@ before display.
 │ [Merge in][Keep]│ [chip][chip]  drop / paste here  │ ◌ Reading (2/5) │
 │─────────────────│ URL: [                        ]  │ ✓ Done: Topic A │
 │ ⚙ Settings      │ Specifics: [                  ]  │                 │
-│ [signed-in]*    │ [x] Explain terms      [Start ⏎] │                 │
+│ [signed-in]*    │ [x] Explain terms [Clear][Start] │                 │
 └─────────────────┴──────────────────────────────────┴─────────────────┘
 * rendered only when HOOK-UI-01 features are enabled
 ```
@@ -336,7 +336,7 @@ so renderer DOM can never draw over the viewer rectangle. Therefore:
 ```ts
 // src/renderer/input/types.ts
 export interface InputDraft {
-  draftId: string;           // "draft-" + 8 hex; new one after every start or clear
+  draftId: string;           // "draft-" + 8 hex; new one after every clear (a start keeps it)
   inputs: SourceInput[];     // shown as chips, in the order added
   urlText: string;           // uncommitted text in the URL field
   clarifying: string;        // optional specifics
@@ -366,14 +366,23 @@ Parts (PRD *Input zone*):
    (HOOK-SRC-02, HOOK-SRC-03). Placeholder: "https://…" in the public build; the enterprise hint
    text comes from HOOK-UI-01.
 4. **Chips.** Show icon by kind, label, and a remove button (`eli5:sources:discard` for staged
-   pastes). Chips are a `list`; Backspace on a focused chip removes it.
+   pastes; `eli5:sources:release-drops` for a file chip when no other chip names the same file,
+   06 §11). Chips are a `list`; Backspace on a focused chip removes it.
 5. **Clarifying specifics.** Auto-growing textarea, 1 to 6 lines, placeholder "Optional: what do
    you want to understand? What do you already know?". `Shift+Enter` inserts a newline.
 6. **Glossary toggle.** Checkbox "Explain domain specific terms", initialised from
    `glossary.defaultOn` (12) for every new draft.
-7. **Start button.** Label "Start", hint "⏎".
+7. **Start button.** Label "Start", hint "⏎". While the job last started from this draft is queued
+   or running (any status but `done` or `failed`, from `eli5:jobs:changed`), it reads "Restart",
+   with the tooltip "Cancel the current run and start again with these inputs". Once that job is
+   done, failed or cancelled, it reads "Start" again.
+8. **Clear button.** "Clear", left of Start, enabled when the draft has chips, URL text or
+   specifics. It clears the draft like `Cmd+N`: `eli5:sources:discard-draft` for staged pastes,
+   `eli5:sources:release-drops` for its file chips, a new `draftId`, glossary back to default, and
+   no remembered job (the button reads "Start"). Focus moves to the drop box.
 
-**Start algorithm** (Enter in any input-zone field or on the drop box, or clicking Start):
+**Start algorithm** (Enter in any input-zone field or on the drop box, or clicking Start or
+Restart):
 
 1. If the URL field holds text, try to commit it as chips. If it is invalid, show the inline error,
    do not start, and keep focus on the field.
@@ -383,15 +392,26 @@ Parts (PRD *Input zone*):
    Show the inline hint "Add an API key in Settings to start" with a link to Settings.
 4. Call `eli5:jobs:start {inputs, options: {clarifyingInput: draft.clarifying, glossary:
    draft.glossary}}` (`JobOptions`, 06).
-5. On `ok`: clear the draft (new `draftId`, glossary back to default), announce "Started" in the
-   live region, and return focus to the drop box. The status area shows the new line. The user
-   can immediately compose the next job (PRD *Concurrency*).
-6. On error: keep the draft intact and show `error.message` inline under the Start button. For
-   `E_NOT_AVAILABLE_IN_EDITION` the message is "Requires the enterprise edition" (01 §6.4).
+5. On `ok`: **keep the draft as it is**: chips (URL text committed in step 1 stays as chips), the
+   specifics, the glossary choice and the `draftId`. Remember the returned `jobId` as the draft's
+   run. Focus stays where it was. Announce "Started" in the live region and show the transient
+   hint "Started. Edit and Restart to run it again with changes" (3 s). The status area shows the
+   new line. The user can edit the draft and run it again, or clear it to compose the next job
+   (PRD *Concurrency*).
+   **Restart:** when the button read "Restart" at step 4, the new job is started first, then the
+   earlier run is cancelled with `eli5:jobs:cancel` (so a failed start leaves the earlier run
+   going). The hint is "Restarted with these inputs. The earlier run was cancelled", or, when the
+   cancel is refused (the earlier run is already saving or has just finished), "Started again. The
+   earlier run could not be stopped and will finish too". The live region says "Restarted".
+   **Start again** after the run ended creates another document; the earlier one is kept.
+6. On error: keep the draft intact (and any earlier run going) and show `error.message` inline
+   under the Start button. For `E_NOT_AVAILABLE_IN_EDITION` the message is "Requires the enterprise
+   edition" (01 §6.4).
 
-The start action is debounced for 400 ms against double Enter. A draft survives hiding the
-window but not an app restart; on quit, main deletes draft staging (`eli5:sources:discard-draft`
-semantics, 03).
+The start action is debounced for 400 ms against double Enter or a double click, Start and Restart
+alike. A draft survives hiding the window and any number of starts, but not an app restart: it lives
+only in the window's memory. Its staging left on disk at quit is removed by the next launch's sweep
+(03 §6.1 step 6).
 
 ### 5.5 Status area
 
@@ -534,11 +554,11 @@ where a menu item exists, so they appear in the Help menu search.
 
 | Shortcut | Action | Scope |
 | --- | --- | --- |
-| `Enter` | Start job (§5.4) | Input zone (not in specifics when `Shift` held) |
+| `Enter` | Start (or Restart) the job (§5.4) | Input zone (not in specifics when `Shift` held) |
 | `Shift+Enter` | Newline | Specifics field |
 | `Cmd+V` | Paste as source | Window, outside text fields |
 | `Cmd+L` | Focus URL field | Window |
-| `Cmd+N` | Focus drop box and clear the draft | Window |
+| `Cmd+N` | Focus drop box and clear the draft (same as Clear, §5.4) | Window |
 | `Cmd+,` | Open Settings | Window |
 | `Cmd+\` | Toggle sidebar | Window |
 | `Cmd+F` | Find in document: open the find bar (§5.3), or refocus it; focuses the Library filter when no document is shown | Window |
@@ -870,7 +890,8 @@ click shows the main window on Settings > Notifications.
       Trash); every move offers Undo; the Trash view puts documents back and empties with one inline
       confirmation; archived and trashed documents leave the Tray recents.
 - [ ] Files can be dropped, clipboard content pasted with `Cmd+V`, and URLs entered, all combined
-      into one job; Enter starts it; the draft clears and a new job can be composed immediately.
+      into one job; Enter starts it; the draft stays for editing, Restart reruns it while its job is
+      running, Start afterwards makes another document, and Clear (or `Cmd+N`) empties it.
 - [ ] Enter with no sources, an invalid URL, or no API key does not start a job and shows an inline
       hint; no modal, alert, or sheet appears anywhere in ingest and generation, and the only native
       notification is the completion notification (§14).

@@ -20,15 +20,19 @@ const {
   chipLabel,
   clarifyRows,
   commitUrlText,
-  draftAfterStart,
+  draftHasContent,
+  filesToRelease,
   isHttpUrl,
   isTextField,
   newDraft,
   startErrorMessage,
+  startMode,
   startRequest,
 } = await loadRenderer<{
   chipLabel(i: SourceInput): string;
-  draftAfterStart(cur: Draft, sent: StartJobRequest, glossary: boolean): Draft;
+  draftHasContent(d: Draft): boolean;
+  filesToRelease(leaving: SourceInput[], remaining: SourceInput[]): SourceInput[];
+  startMode(run: { jobId: string; status: JobSnapshot['status'] } | null): 'start' | 'restart';
   clarifyRows(t: string): number;
   commitUrlText(t: string): { added: SourceInput[]; invalid: string[] };
   isHttpUrl(s: string): boolean;
@@ -134,28 +138,32 @@ describe('input draft (11 §5.4)', () => {
     expect(chipLabel({ id: 'a', kind: 'file', origin: 'drop', path: '/Users/x/deck.pptx' })).toBe('deck.pptx');
   });
 
-  it('after a start, clears only what was sent (11 §5.4 step 5)', () => {
-    const sentUrl: SourceInput = { id: 'in-00000001', kind: 'url', origin: 'url-field', url: 'https://example.com' };
-    const later: SourceInput = { id: 'in-00000003', kind: 'file', origin: 'drop', path: '/Users/x/later.pdf' };
-    const staged: SourceInput = {
-      id: 'in-00000004',
-      kind: 'text',
-      origin: 'paste',
-      stagedPath: '/tmp/t.txt',
-      markup: 'plain',
-      preview: 'Pasted text',
-    };
-    const d = { ...newDraft(false), clarifying: 'pricing' };
-    const req = startRequest(d, [sentUrl]);
-    const plain = draftAfterStart({ ...d, inputs: [sentUrl, later] }, req, true);
-    expect(plain.inputs).toEqual([later]);
-    expect(plain.clarifying).toBe('');
-    expect(plain.glossary).toBe(true);
-    expect(plain.draftId).not.toBe(d.draftId);
-    // Staged leftovers keep their draft; edited specifics survive.
-    const kept = draftAfterStart({ ...d, inputs: [sentUrl, staged], clarifying: 'pricing and costs' }, req, true);
-    expect(kept.draftId).toBe(d.draftId);
-    expect(kept.clarifying).toBe('pricing and costs');
+  it('a start keeps the draft: Restart while its run is queued or running, else Start (11 §5.4)', () => {
+    expect(startMode(null)).toBe('start');
+    for (const status of ['queued', 'reading', 'extracting', 'generating', 'saving'] as const) {
+      expect(startMode({ jobId: 'job-1', status })).toBe('restart');
+    }
+    for (const status of ['done', 'failed'] as const) expect(startMode({ jobId: 'job-1', status })).toBe('start');
+  });
+
+  it('Clear is enabled only when the draft has something in it', () => {
+    const d = newDraft(true);
+    expect(draftHasContent(d)).toBe(false);
+    expect(draftHasContent({ ...d, urlText: '  ' })).toBe(false);
+    expect(draftHasContent({ ...d, urlText: 'https://e' })).toBe(true);
+    expect(draftHasContent({ ...d, clarifying: 'pricing' })).toBe(true);
+    const url: SourceInput = { id: 'in-00000001', kind: 'url', origin: 'url-field', url: 'https://example.com' };
+    expect(draftHasContent({ ...d, inputs: [url] })).toBe(true);
+  });
+
+  it('releases a file chip only when no remaining chip names the same path (06 §11)', () => {
+    const a: SourceInput = { id: 'in-00000001', kind: 'file', origin: 'drop', path: '/x/a.pdf' };
+    const a2: SourceInput = { id: 'in-00000002', kind: 'file', origin: 'drop', path: '/x/a.pdf' };
+    const b: SourceInput = { id: 'in-00000003', kind: 'file', origin: 'paste', path: '/x/b.pdf' };
+    const url: SourceInput = { id: 'in-00000004', kind: 'url', origin: 'url-field', url: 'https://example.com' };
+    expect(filesToRelease([a], [a2, b])).toEqual([]);
+    expect(filesToRelease([a, b, url], [])).toEqual([a, b]);
+    expect(filesToRelease([b], [a])).toEqual([b]);
   });
 
   it('maps edition errors to the documented copy', () => {

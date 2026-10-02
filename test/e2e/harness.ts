@@ -193,15 +193,24 @@ export async function viewerUrl(app: ElectronApplication): Promise<string> {
   });
 }
 
+const jobCount = async (win: Page): Promise<number> => {
+  const r = await win.evaluate(() => window.eli5.jobs.list());
+  return r.ok ? r.value.length : 0;
+};
+
 /**
- * Clicks Start until the draft clears. Start is debounced 400 ms against a double Enter (11 §5.4),
- * so a click right after the previous start is ignored by design.
+ * Starts the draft as one new job, then clears it so the next draft starts fresh. Start is debounced
+ * 400 ms against a double Enter (11 §5.4), so a click right after the previous start is ignored by
+ * design and clicked again; the input zone keeps its draft after a start, so Clear empties it.
  */
 export async function startDraft(win: Page): Promise<void> {
+  const before = await jobCount(win);
   await expect(async () => {
-    await win.getByRole('button', { name: 'Start' }).click();
-    await expect(win.getByRole('list', { name: 'Added sources' })).toHaveCount(0, { timeout: 500 });
+    if ((await jobCount(win)) === before) await win.getByRole('button', { name: 'Start', exact: true }).click();
+    await expect.poll(() => jobCount(win), { timeout: 1_000 }).toBeGreaterThan(before);
   }).toPass();
+  await win.getByRole('button', { name: 'Clear', exact: true }).click();
+  await expect(win.getByRole('list', { name: 'Added sources' })).toHaveCount(0);
 }
 
 /** The saved `index.html` of a Library document, under the resolved library root (09 §3). */

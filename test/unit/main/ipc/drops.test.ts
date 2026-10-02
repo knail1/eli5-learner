@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DropRegistry } from '../../../../src/main/ipc/drops';
+import { DROP_REGISTRY_MAX, DropRegistry } from '../../../../src/main/ipc/drops';
 
 function counter(): () => string {
   let n = 0;
@@ -31,19 +31,40 @@ describe('DropRegistry (06 §11)', () => {
     expect(a?.inputId).not.toBe(b?.inputId);
   });
 
-  it('consumes registrations by id', () => {
+  it('releases registrations by id (chip removed or draft cleared)', () => {
     const r = new DropRegistry({ newId: counter() });
     r.register(['/x/1', '/x/2']);
-    r.consume(['drop-1']);
+    r.release(['drop-1', 'drop-unknown']);
     expect(r.resolve('drop-1')).toBeUndefined();
     expect(r.resolve('drop-2')).toBe('/x/2');
   });
 
-  it('keeps at most `max` entries, evicting the oldest', () => {
+  it('resolving does not use an id up, so the same draft can start again', () => {
+    const r = new DropRegistry({ newId: counter() });
+    r.register(['/x/1']);
+    expect(r.resolve('drop-1')).toBe('/x/1');
+    expect(r.resolve('drop-1')).toBe('/x/1');
+  });
+
+  it('keeps at most `max` entries, evicting the least recently used', () => {
     const r = new DropRegistry({ max: 2, newId: counter() });
     r.register(['/1', '/2', '/3']);
     expect(r.resolve('drop-1')).toBeUndefined();
     expect(r.resolve('drop-2')).toBe('/2');
     expect(r.resolve('drop-3')).toBe('/3');
+    // drop-2 was used more recently than drop-3 after this resolve, so drop-3 goes first.
+    expect(r.resolve('drop-2')).toBe('/2');
+    r.register(['/4']);
+    expect(r.resolve('drop-3')).toBeUndefined();
+    expect(r.resolve('drop-2')).toBe('/2');
+    expect(r.resolve('drop-4')).toBe('/4');
+  });
+
+  it('defaults to a bounded registry', () => {
+    const r = new DropRegistry({ newId: counter() });
+    const paths = Array.from({ length: DROP_REGISTRY_MAX + 5 }, (_, i) => `/f/${String(i)}`);
+    for (const p of paths) r.register([p]);
+    expect(r.size).toBe(DROP_REGISTRY_MAX);
+    expect(r.resolve('drop-1')).toBeUndefined();
   });
 });

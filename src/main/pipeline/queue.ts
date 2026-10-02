@@ -224,7 +224,6 @@ export class JobQueue {
       stagingDir: this.store.stagingDir(id),
       userData: this.d.userData,
       copyMaxBytes: this.d.policy.snapshotCopyMaxBytes,
-      ...(req.draftId ? { draftId: req.draftId } : {}),
       ...(this.d.copyFile ? { copyFile: this.d.copyFile } : {}),
       ...(this.d.snapshotInlineCopyMaxBytes !== undefined
         ? { inlineCopyMaxBytes: this.d.snapshotInlineCopyMaxBytes }

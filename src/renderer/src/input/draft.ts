@@ -1,4 +1,4 @@
-import type { IpcError, SourceInput, SourceOrigin, StartJobRequest } from '../../../preload/contract';
+import type { IpcError, JobStatus, SourceInput, SourceOrigin, StartJobRequest } from '../../../preload/contract';
 import { newDraftId, newInputId } from '../ids';
 import type { InputDraft } from './types';
 
@@ -116,22 +116,40 @@ export function startRequest(d: InputDraft, inputs: SourceInput[]): StartJobRequ
   return req;
 }
 
+/** A job that can still be cancelled: Restart applies while the draft's last run is one of these. */
+export function isRunning(status: JobStatus): boolean {
+  return status !== 'done' && status !== 'failed';
+}
+
+/** The job last started from the draft and its newest known status (11 §5.4). */
+export interface DraftRun {
+  jobId: string;
+  status: JobStatus;
+}
+
 /**
- * Draft after a successful start (11 §5.4 step 5): drops the inputs that were sent and the sent
- * specifics, keeping anything added while `jobs.start` was in flight. Staged leftovers keep the
- * old draftId because their staging lives under it; otherwise a fresh draftId is taken.
+ * The draft survives Start (11 §5.4 step 5), so the primary button either starts another document
+ * or, while the run started from this draft is queued or running, restarts it: that run is
+ * cancelled and a new one starts with the current inputs.
  */
-export function draftAfterStart(cur: InputDraft, sent: StartJobRequest, glossary: boolean): InputDraft {
-  const sentIds = new Set(sent.inputs.map((i) => i.id));
-  const rest = cur.inputs.filter((i) => !sentIds.has(i.id));
-  const fresh = newDraft(glossary);
-  return {
-    draftId: rest.some(isStaged) ? cur.draftId : fresh.draftId,
-    inputs: rest,
-    urlText: cur.urlText,
-    clarifying: cur.clarifying.trim() === sent.options.clarifyingInput ? '' : cur.clarifying,
-    glossary,
-  };
+export function startMode(run: DraftRun | null): 'start' | 'restart' {
+  return run && isRunning(run.status) ? 'restart' : 'start';
+}
+
+export const RESTART_TOOLTIP = 'Cancel the current run and start again with these inputs';
+
+/** True when Clear has something to clear. */
+export function draftHasContent(d: InputDraft): boolean {
+  return d.inputs.length > 0 || d.urlText.trim() !== '' || d.clarifying.trim() !== '';
+}
+
+/**
+ * File chips leaving the draft whose path no remaining chip still names: main may forget their
+ * registrations (`sources.release`, 06 §11). Two chips for one dropped path share one registration.
+ */
+export function filesToRelease(leaving: readonly SourceInput[], remaining: readonly SourceInput[]): SourceInput[] {
+  const kept = new Set(remaining.flatMap((i) => (i.kind === 'file' ? [i.path] : [])));
+  return leaving.filter((i) => i.kind === 'file' && !kept.has(i.path));
 }
 
 /** Inline message for a failed start (11 §5.4 step 6, 01 §6.4). */

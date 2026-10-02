@@ -38,6 +38,7 @@ The ELI5 tab rebuilds the same material in plain words, with analogies, simple d
 ## Features
 
 - **Fire-and-forget generation.** No modals and no mid-job questions. A source that fails is skipped and listed in the document's references. Jobs can be queued.
+- **Tweak and rerun.** The sources and specifics stay in the input zone after you press Start. Change them and press Restart to rerun with the edits, or Start again once it's done for another version. Clear empties the input zone.
 - **Many inputs in one job.** Drag and drop, paste (Cmd+V) or URLs:
   - PowerPoint (slide order, bullet hierarchy and speaker notes are kept)
   - Word (headings, lists and tables are kept)

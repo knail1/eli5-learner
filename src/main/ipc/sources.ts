@@ -5,7 +5,7 @@ import { discardDraft, discardInput, readClipboardInputs, stageText, type Clipbo
 import type { Registry } from '../editions';
 import type { DropRegistry } from './drops';
 import type { Register } from './handle';
-import { DiscardPayload, DraftPayload, RegisterDropPayload, StageTextPayload } from './schemas';
+import { DiscardPayload, DraftPayload, RegisterDropPayload, ReleaseDropsPayload, StageTextPayload } from './schemas';
 
 export interface SourcesIpcDeps {
   userData: string;
@@ -59,4 +59,6 @@ export function registerSourcesIpc(on: Register, d: SourcesIpcDeps): void {
     log.debug('sources.drop-registered', { count: regs.length });
     return regs;
   });
+  // The chip left the draft: its id stops naming a read target (06 §11). Unknown ids are ignored.
+  on(IPC.sources.releaseDrops, ReleaseDropsPayload, (p): void => d.drops.release(p.inputIds));
 }

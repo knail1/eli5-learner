@@ -9,6 +9,7 @@ import {
   TITLE,
   dropFiles,
   fakeCalls,
+  writeScript,
   jobText,
   libraryEntries,
   probeDocument,
@@ -215,9 +216,9 @@ test('a dropped file, pasted text and a URL become one job that uses all three s
   await expect(chips(l.win)).toHaveCount(2);
   await enterUrlsAndStart(l.win, [server.url('/article/')]);
   await waitDone(l, dirs);
-  // The draft clears and the next job can be composed at once (11 §5.4 step 5).
-  await expect(l.win.getByRole('list', { name: 'Added sources' })).toHaveCount(0);
-  await expect(l.win.getByRole('group', { name: /^Sources/ })).toBeFocused();
+  // The draft stays, ready to edit and run again (11 §5.4 step 5); focus stays in the URL field.
+  await expect(chips(l.win)).toHaveCount(3);
+  await expect(l.win.getByLabel('URL', { exact: true })).toBeFocused();
 
   const jobs = await l.win.evaluate(() => window.eli5.jobs.list());
   expect(jobs.ok && jobs.value).toHaveLength(1);
@@ -234,6 +235,61 @@ test('a dropped file, pasted text and a URL become one job that uses all three s
   };
   expect(meta.sourcesUsed).toHaveLength(3);
   expect(validateDocument(await readFile(path.join(dirs.library, slug, 'index.html'), 'utf8')).errors).toEqual([]);
+});
+
+test('the draft stays after Start: Restart reruns it with edits, Start then makes another document, Clear empties it', async () => {
+  const dirs = await tempDirs();
+  const l = await h.launch(dirs, { script: await writeScript(dirs, 'restart', { latencyMs: 1_500 }) });
+  const list = async () => {
+    const r = await l.win.evaluate(() => window.eli5.jobs.list());
+    return r.ok ? [...r.value].sort((a, b) => a.createdAt.localeCompare(b.createdAt)) : [];
+  };
+  const field = l.win.getByLabel('URL', { exact: true });
+  const specifics = l.win.getByLabel('Specifics');
+  const startButton = l.win.getByRole('button', { name: 'Start', exact: true });
+  const restartButton = l.win.getByRole('button', { name: 'Restart', exact: true });
+  await field.fill(server.url('/article/'));
+  await specifics.fill('Focus on the output figures');
+  await startButton.click();
+
+  // Everything is still there, and while the run goes the button restarts it (11 §5.4).
+  await expect(restartButton).toBeVisible();
+  await expect(restartButton).toHaveAttribute('title', 'Cancel the current run and start again with these inputs');
+  await expect(chips(l.win)).toHaveCount(1);
+  await expect(chips(l.win).first()).toContainText('127.0.0.1');
+  await expect(specifics).toHaveValue('Focus on the output figures');
+  await expect(l.win.getByText(/^Started\. Edit and Restart/)).toBeVisible();
+  await expect.poll(async () => (await list()).length).toBe(1);
+
+  // Restart with edited specifics: the first run is cancelled, a second starts with the edit.
+  await specifics.fill('Focus on the labor costs');
+  await expect(async () => {
+    if ((await list()).length < 2) await restartButton.click();
+    await expect.poll(async () => (await list()).length, { timeout: 1_000 }).toBe(2);
+  }).toPass();
+  await expect.poll(async () => (await list()).map((j) => j.status), { timeout: 30_000 }).toEqual(['failed', 'done']);
+  const [first] = await list();
+  expect(first?.statusLine).toMatch(/^Cancelled/);
+  const indepth = (await fakeCalls(l.app)).filter((c) => c.taskId === 'in-depth');
+  expect(indepth.some((c) => c.text.includes('Focus on the labor costs'))).toBe(true);
+  expect(await libraryEntries(l.win)).toHaveLength(1);
+
+  // The run is over: Start makes another document from the same draft.
+  await expect(startButton).toBeVisible();
+  await expect(chips(l.win)).toHaveCount(1);
+  await expect(specifics).toHaveValue('Focus on the labor costs');
+  await expect(async () => {
+    if ((await list()).length < 3) await startButton.click();
+    await expect.poll(async () => (await list()).length, { timeout: 1_000 }).toBe(3);
+  }).toPass();
+  await expect.poll(async () => (await libraryEntries(l.win)).length, { timeout: 30_000 }).toBe(2);
+
+  // Clear empties the zone.
+  await l.win.getByRole('button', { name: 'Clear', exact: true }).click();
+  await expect(l.win.getByRole('list', { name: 'Added sources' })).toHaveCount(0);
+  await expect(field).toHaveValue('');
+  await expect(specifics).toHaveValue('');
+  await expect(l.win.getByRole('button', { name: 'Clear', exact: true })).toBeDisabled();
 });
 
 test('E3: /article/ and the client-rendered /spa/ are both used; the SPA needed the render fallback', async () => {

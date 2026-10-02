@@ -98,8 +98,9 @@ test('E1: a dropped deck progresses through every status line to Done and opens 
   expect(lines.some((s) => /^Generating document \(in-depth/.test(s))).toBe(true);
 
   await expectDocument(l, dirs);
-  // The draft is cleared once a job starts (11 §5.4).
-  await expect(l.win.getByRole('list', { name: 'Added sources' })).toHaveCount(0);
+  // The draft stays after a start (11 §5.4); with its run done, the button starts another one.
+  await expect(l.win.getByRole('list', { name: 'Added sources' }).getByText('quarterly-review.pptx')).toBeVisible();
+  await expect(l.win.getByRole('button', { name: 'Start', exact: true })).toBeVisible();
 });
 
 test('E2: a dropped image reaches the model through the hidden render window (04 §6.3, §7.1)', async () => {

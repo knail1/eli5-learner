@@ -185,7 +185,7 @@ The overlay may register additional resolvers via the registry; they are inserte
 Invariants:
 - Every input yields at least one resolved or skipped record (unless it was a silent duplicate).
 - The chain never prompts, opens a window, or blocks on user action. Anything needing the user (for example sign-in) becomes a skip.
-- Before job start, clipboard/drag staging lives only under `<userData>/staging/drafts/<draftId>/`. On `eli5:jobs:start` the pipeline moves (same volume) or copies those files, and snapshots dropped files, into `<userData>/jobs/<jobId>/inputs/` (06 §9.2). From then on, resolvers read only snapshots, and downloads are written only under `ctx.stagingDir` (`<userData>/jobs/<jobId>/`). Deletion and retention of that directory are owned by 06 §9.
+- Before job start, clipboard/drag staging lives only under `<userData>/staging/drafts/<draftId>/`. On `eli5:jobs:start` the pipeline copies those files (an APFS clone where possible; never a move, so the draft stays usable for another start, 11 §5.4), and snapshots dropped files, into `<userData>/jobs/<jobId>/inputs/` (06 §9.2). From then on, resolvers read only snapshots, and downloads are written only under `ctx.stagingDir` (`<userData>/jobs/<jobId>/`). Deletion and retention of that directory are owned by 06 §9.
 
 ## 5. File resolver (`src/main/sources/file.ts`)
 
@@ -260,8 +260,8 @@ The clipboard is snapshotted at paste time, not at job start, because the user m
 2. The renderer calls `window.eli5.sources.readClipboard(draftId)` → IPC `eli5:sources:read-clipboard`.
 3. Main snapshots `electron.clipboard` once into a synchronous `ClipboardPort` (§6.2) and applies the routing algorithm (§6.2), staging any content under `<userData>/staging/drafts/<draftId>/`.
 4. Main returns `SourceInput[]` which the renderer shows as chips. Removing a chip calls `eli5:sources:discard` to delete its staged file.
-5. On `eli5:jobs:start`, the pipeline (06 §9.2) moves or copies the draft's staged files into `<userData>/jobs/<jobId>/inputs/`, rewrites each `stagedPath` accordingly, and deletes `<userData>/staging/drafts/<draftId>/`. The clipboard resolver (§6.4) only ever reads the `inputs/` copy.
-6. **Crash sweep.** Drafts are otherwise cleaned only on chip removal, job start, and quit, so a crash leaks them. At app startup, main deletes every `<userData>/staging/drafts/*` directory whose mtime is older than 24 hours (younger drafts may belong to a second window restored by the app shell and are left alone).
+5. On `eli5:jobs:start`, the pipeline (06 §9.2) copies the draft's staged files into `<userData>/jobs/<jobId>/inputs/` and rewrites each `stagedPath` accordingly. It leaves `<userData>/staging/drafts/<draftId>/` alone: the input zone keeps the draft after a start, so the same chips can be started again or restarted (11 §5.4), each start taking its own copy. The clipboard resolver (§6.4) only ever reads the `inputs/` copy.
+6. **Lifecycle and sweep.** A chip's folder is deleted when the chip is removed (`eli5:sources:discard`); the whole draft when it is cleared with Clear or `Cmd+N` (`eli5:sources:discard-draft`). A draft lives only in the window's memory and never survives an app restart, so a draft folder found at startup is an orphan of a quit or a crash. At app startup, main deletes every `<userData>/staging/drafts/*` directory whose mtime is before the process start (`sweepStaleDrafts(userData, {before})`). The live draft is created after launch, so the sweep never touches it.
 
 ### 6.2 Routing algorithm
 
@@ -556,6 +556,7 @@ Lifecycle rules for any enterprise implementation:
 | `eli5:sources:stage-text` | invoke | `{ draftId: string; text: string; markup: 'plain' \| 'html' }` | `SourceInput` |
 | `eli5:sources:discard` | invoke | `{ draftId: string; inputId: string }` | `void` |
 | `eli5:sources:discard-draft` | invoke | `{ draftId: string }` | `void` (input zone cleared) |
+| `eli5:sources:release-drops` | invoke | `{ inputIds: string[] }` (1 to 1000) | `void`; main forgets these drop registrations (06 §11): file chips removed or cleared |
 
 `draftId` and `inputId` are validated against `^[a-z0-9-]{1,64}$`; staged paths are always derived in main from these ids and never accepted from the renderer. File paths from drops are accepted from the renderer but only as read targets for the file resolver. Job submission (`eli5:jobs:start` with `SourceInput[]`) is defined in [06-generation-pipeline.md](./06-generation-pipeline.md).
 
@@ -597,7 +598,7 @@ Details in [13-testing-quality.md](./13-testing-quality.md). This module needs:
 - [ ] Legacy Office, encrypted Office, AVIF, RTF, and generic ZIP files are skipped with specific codes (`legacy-office-format`, `encrypted`, `unsupported-type`) and reasons; HEIC, TIFF, and BMP resolve to image formats; OOXML is classified by `[Content_Types].xml`.
 - [ ] Dropped folders expand up to depth 3, skip hidden entries, and respect `maxSourcesPerJob`.
 - [ ] Clipboard paste routes file references first, then visible text (URL list, HTML, plain), then image; a pasted screenshot becomes a `png` source sent to vision with no OCR.
-- [ ] The clipboard is snapshotted at paste time into `staging/drafts/<draftId>/`; drafts are deleted on chip removal and job start, and a startup sweep removes drafts older than 24 h. After job start, resolvers read only the 06 snapshots under `jobs/<jobId>/inputs/`, and `ref` is always the original name.
+- [ ] The clipboard is snapshotted at paste time into `staging/drafts/<draftId>/`; a start copies (never moves) staged files into the job and keeps the draft; drafts are deleted on chip removal and on Clear or `Cmd+N`, and a startup sweep removes every draft from before the launch. After job start, resolvers read only the 06 snapshots under `jobs/<jobId>/inputs/`, and `ref` is always the original name.
 - [ ] Multi-file Finder copies are read via `NSFilenamesPboardType` (plist parsed with `plist`), with `public.file-url` as the single-file fallback.
 - [ ] The URL resolver contains no network code, consumes 05's `FetchOutcome`, writes binaries to `stagingDir` before sniffing, maps every `FetchSkipCode` via the §7.2 table, and passes 05's reason strings through unchanged.
 - [ ] `SkippedSource.code` uses only the `SkipCode` union in §2 across 03, 04, and 05.

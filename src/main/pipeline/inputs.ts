@@ -2,7 +2,7 @@
 import { constants as fsConst } from 'node:fs';
 import { copyFile, mkdir, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { draftDir, draftsRoot, normalizeUrl } from '../sources';
+import { draftsRoot, normalizeUrl } from '../sources';
 import type { SourceInput } from './types';
 
 const DIR_MODE = 0o700;
@@ -69,7 +69,6 @@ export interface SnapshotOptions {
   userData: string;
   /** Files at or under this size are copied (APFS clone); larger ones are referenced (HOOK-PIPE-01). */
   copyMaxBytes: number;
-  draftId?: string;
   copyFile?: CopyFileFn;
   /** Default INLINE_COPY_MAX_BYTES. */
   inlineCopyMaxBytes?: number;
@@ -80,9 +79,10 @@ export interface SnapshotOptions {
  * clone is not possible, small files are copied inline and larger ones are returned as pending copies
  * for the queue to run in the background, so `jobs:start` never waits for a long copy (06 §5.1
  * step 2). Files over copyMaxBytes are
- * recorded by size and mtime; staged clipboard drafts move into inputs/; URLs are strings only. A
- * file that cannot be read here is left without a snapshot, so the file resolver reports why
- * (03 §5.1). Staged paths outside the drafts root are never moved.
+ * recorded by size and mtime; staged clipboard drafts are copied into inputs/ (the draft keeps its own
+ * files, so the input zone can Start or Restart it again, 11 §5.4; 03 §13 owns their deletion); URLs
+ * are strings only. A file that cannot be read here is left without a snapshot, so the file resolver
+ * reports why (03 §5.1). Staged paths outside the drafts root are never copied.
  */
 export async function snapshotInputs(inputs: readonly SourceInput[], o: SnapshotOptions): Promise<SnapshotResult> {
   const dir = path.join(o.stagingDir, 'inputs');
@@ -132,22 +132,18 @@ export async function snapshotInputs(inputs: readonly SourceInput[], o: Snapshot
       case 'text':
       case 'image': {
         if (!within(drafts, input.stagedPath)) {
-          out.push(input); // not ours to move; the clipboard resolver refuses it (03 §6.4)
+          out.push(input); // not ours to copy; the clipboard resolver refuses it (03 §6.4)
           break;
         }
+        // A copy, never a move: the draft's chip stays usable for another start. Pastes are small,
+        // and on APFS the clone is free. A failed copy leaves the target missing, and the clipboard
+        // resolver skips it with its reason (03 §6.4).
         const target = path.join(dir, snapshotName(index, input.stagedPath));
-        try {
-          await rename(input.stagedPath, target);
-        } catch {
-          await copyFile(input.stagedPath, target).catch(() => undefined);
-        }
+        await copyFile(input.stagedPath, target, fsConst.COPYFILE_FICLONE).catch(() => undefined);
         out.push({ ...input, stagedPath: target });
         break;
       }
     }
-  }
-  if (o.draftId) {
-    await rm(draftDir(o.userData, o.draftId), { recursive: true, force: true }).catch(() => undefined);
   }
   return { inputs: out, pending };
 }

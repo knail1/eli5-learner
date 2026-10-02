@@ -3,6 +3,7 @@ import { copyFile, readdir, readFile, stat, writeFile, mkdir } from 'node:fs/pro
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { LibraryError } from '../../../../src/main/library';
+import { draftDir, stageText } from '../../../../src/main/sources';
 import type { Logger, LogFields } from '../../../../src/main/security';
 import {
   PipelineFailure,
@@ -85,6 +86,27 @@ describe('enqueue (06 §5.1)', () => {
     expect(rec).toMatchObject({ id: jobId, kind: 'create', attempt: 1 });
     expect(h.events[0]).toMatchObject({ id: jobId, status: 'queued', statusLine: 'Queued' });
     await h.finished(jobId);
+  });
+
+  it('copies staged pastes into each job and keeps the draft, so the same draft can start again (03 §13)', async () => {
+    const h = await harness();
+    const draftId = 'draft-0000000a';
+    const pasted = await stageText(h.userData, { draftId, text: 'Widget margins rose in Q3.', markup: 'plain' });
+    const req = { inputs: [pasted], options: opts, draftId };
+    const first = await h.queue.start(req);
+    const second = await h.queue.start(req);
+    for (const { jobId } of [first, second]) {
+      const input = h.queue.get(jobId)?.inputs[0];
+      const copy = path.join(jobsDir(h.userData), jobId, 'inputs', `0-${path.basename(pasted.stagedPath)}`);
+      expect(input?.kind === 'text' && input.stagedPath).toBe(copy);
+      expect(await readFile(copy, 'utf8')).toBe('Widget margins rose in Q3.');
+    }
+    // The draft's own staged file is untouched; it goes when the chip is removed or the draft cleared.
+    expect(await readFile(pasted.stagedPath, 'utf8')).toBe('Widget margins rose in Q3.');
+    expect(await exists(draftDir(h.userData, draftId))).toBe(true);
+    expect((await h.finished(first.jobId)).status).toBe('done');
+    expect((await h.finished(second.jobId)).status).toBe('done');
+    expect(await exists(pasted.stagedPath)).toBe(true);
   });
 
   it('snapshots dropped files into jobs/<jobId>/inputs/ (06 §9.2)', async () => {

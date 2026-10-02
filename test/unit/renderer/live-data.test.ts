@@ -114,7 +114,7 @@ describe('InputZone against live handlers (11 §5.4)', () => {
     expect(host.querySelector('.start-error button')).toBeNull();
   });
 
-  it('a staged paste sends the draftId it was staged under, and the next draft gets a new one', async () => {
+  it('a staged paste sends the draftId it was staged under; the kept draft keeps it, a cleared one gets a new one', async () => {
     fake.api.settings.hasApiKey = async () => ok(true);
     const drafts: string[] = [];
     fake.api.sources.readClipboard = async (draftId: string) => {
@@ -143,12 +143,20 @@ describe('InputZone against live handlers (11 §5.4)', () => {
     expect(reqs[0]?.draftId).toBe(drafts[0]);
     expect(reqs[0]?.draftId).toMatch(/^draft-[0-9a-f]{8}$/);
 
+    // After a start the draft stays, so a further paste joins the same draft (11 §5.4).
     await act(async () => {
       document.body.dispatchEvent(new Event('paste', { bubbles: true, cancelable: true }));
     });
     await flush();
-    expect(drafts[1]).toMatch(/^draft-[0-9a-f]{8}$/);
-    expect(drafts[1]).not.toBe(drafts[0]);
+    expect(drafts[1]).toBe(drafts[0]);
+
+    await click(button(host, 'Clear'));
+    await act(async () => {
+      document.body.dispatchEvent(new Event('paste', { bubbles: true, cancelable: true }));
+    });
+    await flush();
+    expect(drafts[2]).toMatch(/^draft-[0-9a-f]{8}$/);
+    expect(drafts[2]).not.toBe(drafts[0]);
   });
 
   it('dropped files resolve through files.pathFor; dropped text is staged under the draft', async () => {

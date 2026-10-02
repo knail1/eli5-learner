@@ -8,16 +8,18 @@ import {
   type KeyboardEvent,
   type Ref,
 } from 'react';
-import type { ProviderId, SourceInput } from '../../../preload/contract';
+import type { JobStatus, ProviderId, SourceInput } from '../../../preload/contract';
 import { useAnnounce } from '../a11y/Announcer';
 import {
+  RESTART_TOOLTIP,
   URL_INVALID_MESSAGE,
   chipIcon,
   chipLabel,
   clarifyRows,
   commitUrlText,
-  draftAfterStart,
+  draftHasContent,
   fileInput,
+  filesToRelease,
   isHttpUrl,
   isStaged,
   isTextField,
@@ -25,13 +27,16 @@ import {
   resolveDropPaths,
   splitTokens,
   startErrorMessage,
+  startMode,
   startRequest,
+  type DraftRun,
 } from './draft';
 import type { InputDraft } from './types';
 
 /**
  * Input zone (11 §5.4): drop box, paste, URL field, chips, clarifying specifics, glossary toggle,
- * and Start. Every message is inline; nothing here opens a modal (11 §1).
+ * Clear, and Start (Restart while the draft's last run is still going). The draft stays after a
+ * start so it can be edited and run again. Every message is inline; nothing here opens a modal (11 §1).
  */
 
 export interface InputZoneHandle {
@@ -63,6 +68,12 @@ export function InputZone(p: InputZoneProps) {
   const [startError, setStartError] = useState<Hint>(null);
   const [dragDepth, setDragDepth] = useState(0);
   const [starting, setStarting] = useState(false);
+  // The job last started from this draft; Restart cancels it while it is queued or running.
+  const [run, setRun] = useState<DraftRun | null>(null);
+  const runRef = useRef(run);
+  runRef.current = run;
+  // Newest status per job from change events, for a run whose events beat jobs.start's answer.
+  const statusSeen = useRef(new Map<string, JobStatus>());
   const lastStart = useRef(0);
   // Synchronous guard: taken before the first await so a second Enter during the key check or
   // jobs.start cannot send a duplicate job (11 §5.4 debounce).
@@ -92,10 +103,23 @@ export function InputZone(p: InputZoneProps) {
     setStartError(null);
   }, []);
 
+  useEffect(
+    () =>
+      window.eli5.jobs.onChanged((s) => {
+        statusSeen.current.set(s.id, s.status);
+        setRun((r) => (r && r.jobId === s.id && r.status !== s.status ? { ...r, status: s.status } : r));
+      }),
+    [],
+  );
+
   const clearDraft = useCallback(() => {
     const d = draftRef.current;
+    // The draft's staged pastes and its file registrations go with it (03 §13, 06 §11).
     if (d.inputs.some(isStaged)) void window.eli5.sources.discardDraft(d.draftId);
+    const files = filesToRelease(d.inputs, []);
+    if (files.length > 0) void window.eli5.sources.release(files);
     setDraft(newDraft(p.glossaryDefault));
+    setRun(null);
     setGlossaryTouched(false);
     setUrlError(null);
     setHint(null);
@@ -218,8 +242,11 @@ export function InputZone(p: InputZoneProps) {
 
   const removeInput = (i: SourceInput) => {
     const d = draftRef.current;
+    const rest = d.inputs.filter((x) => x.id !== i.id);
     if (isStaged(i)) void window.eli5.sources.discard(d.draftId, i.id);
-    setDraft({ ...d, inputs: d.inputs.filter((x) => x.id !== i.id) });
+    const files = filesToRelease([i], rest);
+    if (files.length > 0) void window.eli5.sources.release(files);
+    setDraft({ ...d, inputs: rest });
   };
 
   // ---- Start algorithm (11 §5.4) ----
@@ -264,7 +291,9 @@ export function InputZone(p: InputZoneProps) {
         return;
       }
     }
-    // 4. Start.
+    // 4. Start. A Restart starts the new run first, so a failed start leaves the old run going.
+    const previous = runRef.current;
+    const restart = startMode(previous) === 'restart' ? previous : null;
     lastStart.current = Date.now();
     setStarting(true);
     const req = startRequest(draftRef.current, inputs);
@@ -272,14 +301,26 @@ export function InputZone(p: InputZoneProps) {
     lastStart.current = Date.now();
     setStarting(false);
     if (r.ok) {
-      // 5. Clear what was sent; anything added while the start was in flight stays (11 §5.4).
-      setDraft((cur) => draftAfterStart(cur, req, p.glossaryDefault));
-      setGlossaryTouched(false);
-      setHint(null);
-      announce('Started');
-      dropBox.current?.focus();
+      // 5. The draft stays as it is, for editing and another run; focus stays where it was.
+      const jobId = r.value.jobId;
+      setRun({ jobId, status: statusSeen.current.get(jobId) ?? 'queued' });
+      if (restart) {
+        const c = await window.eli5.jobs.cancel(restart.jobId);
+        showHint(
+          {
+            text: c.ok
+              ? 'Restarted with these inputs. The earlier run was cancelled'
+              : 'Started again. The earlier run could not be stopped and will finish too',
+          },
+          true,
+        );
+        announce('Restarted');
+      } else {
+        showHint({ text: 'Started. Edit and Restart to run it again with changes' }, true);
+        announce('Started');
+      }
     } else {
-      // 6. Keep the draft intact. A key missing at start time (01 §6.2) links to Settings like step 3.
+      // 6. Keep the draft intact (and any earlier run going). A key missing at start time (01 §6.2) links to Settings like step 3.
       setStartError({ text: startErrorMessage(r.error), settingsLink: r.error.code === 'E_NO_API_KEY' });
     }
   };
@@ -299,6 +340,7 @@ export function InputZone(p: InputZoneProps) {
   };
 
   const dragging = dragDepth > 0;
+  const mode = startMode(run);
 
   return (
     <form
@@ -425,9 +467,28 @@ export function InputZone(p: InputZoneProps) {
           />
           Explain domain specific terms
         </label>
-        <button type="button" className="primary" onClick={() => void start()} aria-busy={starting}>
-          Start <span aria-hidden="true">⏎</span>
-        </button>
+        <div className="input-buttons">
+          <button
+            type="button"
+            className="clear-draft"
+            disabled={!draftHasContent(draft)}
+            onClick={() => {
+              clearDraft();
+              dropBox.current?.focus();
+            }}
+          >
+            Clear
+          </button>
+          <button
+            type="button"
+            className="primary"
+            onClick={() => void start()}
+            aria-busy={starting}
+            title={mode === 'restart' ? RESTART_TOOLTIP : undefined}
+          >
+            {mode === 'restart' ? 'Restart' : 'Start'} <span aria-hidden="true">⏎</span>
+          </button>
+        </div>
       </div>
       {startError && (
         <p className="inline-error start-error" role="note">

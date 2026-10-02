@@ -98,6 +98,7 @@ export function installFakeApi(edition: EditionInfo = PUBLIC_EDITION): FakeApi {
       stageText: resolved(notImplemented),
       discard: resolved(ok(undefined)),
       discardDraft: resolved(ok(undefined)),
+      release: resolved(ok(undefined)),
       classifyText: vi.fn(async (text: string) => ok({ kind: 'invalid', label: text })),
     },
     library: {

@@ -9,7 +9,7 @@ Related: [01-architecture.md](01-architecture.md) · [02-llm-provider.md](02-llm
 1. **Secrets never touch settings JSON, logs, IPC responses, or renderers.** API keys live in the macOS Keychain. The renderer can only write a key, clear it, or ask whether one exists.
 2. **One schema, one source of truth.** `src/main/config/schema.ts` declares every settings key with zod. Types, defaults, validation, and IPC payload checks are all derived from it.
 3. **A bad setting never stops the app.** An invalid value falls back to its default, is logged by key path, and is reported in Settings. A corrupt file is moved aside, not deleted.
-4. **Every renderer is untrusted.** This includes the app UI, the document viewer, and above all the hidden fetch window. Main validates every IPC payload and grants no permissions by default.
+4. **Every renderer is untrusted.** This includes the app UI, the document viewer, and above all the hidden fetch window. Main validates every IPC payload and grants no permissions by default. A renderer never names a file to read by path: a file input carries an opaque id main minted for a trusted drop or clipboard read (06 §11). Those ids live in a bounded LRU registry and are released when their chip leaves the draft.
 5. **Generated documents are untrusted content.** They are produced by an LLM from third-party material and could carry injected script. They are rendered sandboxed with no network, and they reach the app only through a narrow, slug-bound bridge.
 6. **Source material leaves the machine only to the chosen LLM endpoint.** The only other outbound requests are the public URLs the user entered. There is no telemetry.
 

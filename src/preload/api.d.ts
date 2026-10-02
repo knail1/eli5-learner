@@ -60,6 +60,11 @@ export interface Eli5Api {
     stageText(draftId: string, text: string, markup: 'plain' | 'html'): R<SourceInput>;
     discard(draftId: string, inputId: string): R<void>;
     discardDraft(draftId: string): R<void>;
+    /**
+     * File chips that left the draft (removed, or the draft cleared): main forgets the read targets
+     * it registered for them (06 §11). Other kinds are ignored.
+     */
+    release(inputs: SourceInput[]): R<void>;
     /** Non-http tokens from the URL field (11 §5.4). */
     classifyText(text: string): R<ClassifyTextResult>;
   };

@@ -76,6 +76,8 @@ export const IPC = {
     classifyText: 'eli5:sources:classify-text',
     /** Preload-only: paths of a trusted native drop, so jobs:start can refuse forged paths (06 §11). */
     registerDrop: 'eli5:sources:register-drop',
+    /** Main's ids for file chips that were removed or cleared from the draft (06 §11). */
+    releaseDrops: 'eli5:sources:release-drops',
   },
   auth: {
     status: 'eli5:auth:status',

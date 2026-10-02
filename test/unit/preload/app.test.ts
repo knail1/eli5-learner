@@ -131,6 +131,41 @@ describe('app preload', () => {
     });
   });
 
+  it("sources.release sends main's ids for leaving file chips, then forgets dropped paths (06 §11)", async () => {
+    drop({ isTrusted: true, dataTransfer: { files: [{ fakePath: '/r/keep.md' }, { fakePath: '/r/gone.md' }] } });
+    const api = exposed.eli5 as {
+      sources: { release(i: unknown[]): Promise<unknown> };
+      jobs: { start(r: unknown): Promise<unknown> };
+    };
+    invoke.mockClear();
+    const r = await api.sources.release([
+      { id: 'chip-1', kind: 'file', origin: 'drop', path: '/r/gone.md' },
+      { id: 'drop-77', kind: 'file', origin: 'paste', path: '/c/pasted.md' },
+      { id: 'chip-2', kind: 'url', origin: 'url-field', url: 'https://example.com' },
+    ]);
+    expect(r).toEqual({ ok: true, value: undefined });
+    expect(invoke).toHaveBeenCalledWith(IPC.sources.releaseDrops, { inputIds: ['drop-2', 'drop-77'] });
+    // The released path no longer maps to an id; the kept one still does.
+    await api.jobs.start({
+      inputs: [
+        { id: 'chip-3', kind: 'file', origin: 'drop', path: '/r/keep.md' },
+        { id: 'chip-1', kind: 'file', origin: 'drop', path: '/r/gone.md' },
+      ],
+      options: {},
+    });
+    expect(invoke).toHaveBeenLastCalledWith(IPC.jobs.start, {
+      inputs: [
+        { id: 'drop-1', kind: 'file', origin: 'drop', path: '/r/keep.md' },
+        { id: 'chip-1', kind: 'file', origin: 'drop', path: '/r/gone.md' },
+      ],
+      options: {},
+    });
+    // Nothing to release: no IPC.
+    invoke.mockClear();
+    await api.sources.release([{ id: 'chip-2', kind: 'url', origin: 'url-field', url: 'https://example.com' }]);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
   it('maps the M3 methods to their channels (01 §5.3, 11 §10, 10 §6, 09 §11)', async () => {
     type Fn = (...a: unknown[]) => Promise<unknown>;
     const api = exposed.eli5 as Record<string, Record<string, Fn>>;

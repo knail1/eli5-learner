@@ -83,11 +83,29 @@ describe('eli5:jobs:* (06 §11)', () => {
     const r = await h.call(IPC.jobs.start, { inputs: [forged], options: opts });
     expect(r).toEqual({ ok: true, value: { jobId: 'job-1' } });
     expect(h.jobs.started[0]?.inputs[0]).toEqual(file(p, inputId));
-    // A registration is consumed by a successful start.
+    // A successful start does not use the id up: the kept draft can Start again or Restart (11 §5.4).
+    expect(await h.call(IPC.jobs.start, { inputs: [file(p, inputId)], options: opts })).toMatchObject({ ok: true });
+    expect(h.jobs.started[1]?.inputs[0]).toEqual(file(p, inputId));
+    // Removing the chip (or clearing the draft) releases it; then it is refused like a forged id.
+    expect(await h.call(IPC.sources.releaseDrops, { inputIds: [inputId, 'drop-unknown'] })).toEqual({
+      ok: true,
+      value: undefined,
+    });
     expect(await h.call(IPC.jobs.start, { inputs: [file(p, inputId)], options: opts })).toMatchObject({
       ok: false,
       error: { code: 'E_FORBIDDEN' },
     });
+    expect(h.jobs.started).toHaveLength(2);
+  });
+
+  it('validates release-drops payloads', async () => {
+    const h = await setup();
+    for (const bad of [undefined, { inputIds: [] }, { inputIds: ['../x'] }, { inputIds: 'drop-1' }]) {
+      expect(await h.call(IPC.sources.releaseDrops, bad)).toMatchObject({
+        ok: false,
+        error: { code: 'E_BAD_REQUEST' },
+      });
+    }
   });
 
   it('keeps a registration when the start fails, so the draft can be retried', async () => {
@@ -203,6 +221,7 @@ describe('eli5:jobs:* (06 §11)', () => {
     const h = await setup();
     expect(await h.call(IPC.jobs.list, undefined, 'viewer')).toEqual(forbidden);
     expect(await h.call(IPC.sources.registerDrop, { paths: ['/x'] }, 'viewer')).toEqual(forbidden);
+    expect(await h.call(IPC.sources.releaseDrops, { inputIds: ['drop-1'] }, 'viewer')).toEqual(forbidden);
   });
 });
 

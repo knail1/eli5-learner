@@ -63,9 +63,9 @@ export function registerJobsIpc(on: Register, d: JobsIpcDeps): void {
     if (req.inputs.length === 0) fail('E_BAD_REQUEST', 'Add at least one source');
     const resolved = authorizeInputs(req, d);
     if (!(await d.apiKeyReady())) throw new IpcFailure(NO_API_KEY);
-    const r = await d.jobs.start(resolved);
-    d.drops.consume(resolved.inputs.flatMap((i) => (i.kind === 'file' ? [i.id] : [])));
-    return r;
+    // Drop ids are not used up: the input zone keeps its draft for Start again or Restart (11 §5.4);
+    // they are released when the chip is removed or the draft cleared (`release-drops`).
+    return d.jobs.start(resolved);
   });
   on(IPC.jobs.list, NoPayload, (): JobSnapshot[] => d.jobs.list());
   on(IPC.jobs.cancel, JobIdPayload, (p) => d.jobs.cancel(p.jobId));

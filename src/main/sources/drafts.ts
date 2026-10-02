@@ -3,6 +3,12 @@
  * content is snapshotted at paste time under <userData>/staging/drafts/<draftId>/<inputId>/, one
  * directory per chip so discarding a chip removes exactly its files. Every path is derived here
  * from validated ids; nothing path-like is accepted from the renderer.
+ *
+ * Lifecycle: a job start copies the staged files into the job (06 §9.2) and leaves the draft alone,
+ * because the input zone keeps its draft for Start again or Restart (11 §5.4). A chip's folder goes
+ * when the chip is removed, the whole draft when it is cleared (Clear, Cmd+N). The draft itself lives
+ * only in the window's memory and never survives a restart, so a draft left on disk by a quit or a
+ * crash is an orphan; the startup sweep removes every draft older than this launch.
  */
 import { randomBytes } from 'node:crypto';
 import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
@@ -11,7 +17,7 @@ import type { SourceInput } from './types';
 
 /** 03 §13: draftId and inputId pattern. */
 export const DRAFT_ID_RE = /^[a-z0-9-]{1,64}$/;
-/** 03 §6.1 step 6: drafts older than this are removed at startup. */
+/** 03 §6.1 step 6: the sweep's default age when no launch time is given. */
 export const DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 /** Characters of text shown on a paste chip (03 §6.2). */
 export const PREVIEW_CHARS = 40;
@@ -122,22 +128,23 @@ export async function discardInput(userData: string, draftId: string, inputId: s
   await rm(path.join(draftDir(userData, draftId), inputId), { recursive: true, force: true });
 }
 
-/** eli5:sources:discard-draft: delete a whole draft (input zone cleared, or quit). */
+/** eli5:sources:discard-draft: delete a whole draft (input zone cleared with Clear or Cmd+N). */
 export async function discardDraft(userData: string, draftId: string): Promise<void> {
   await rm(draftDir(userData, draftId), { recursive: true, force: true });
 }
 
 /**
- * Startup crash sweep (03 §6.1 step 6): delete every drafts/* directory whose mtime is older than
- * `maxAgeMs`. Younger drafts may belong to a restored window and are kept. Returns the count removed.
+ * Startup sweep (03 §6.1 step 6): delete every drafts/* directory whose mtime is before `before`
+ * (default: `maxAgeMs`, 24 h, before `now`). Main passes the process start time, because drafts never
+ * outlive the window session: anything older is an orphan, and the live draft, created after launch,
+ * is never touched. Returns the count removed.
  */
 export async function sweepStaleDrafts(
   userData: string,
-  opts: { now?: number; maxAgeMs?: number } = {},
+  opts: { now?: number; maxAgeMs?: number; before?: number } = {},
 ): Promise<number> {
   const root = draftsRoot(userData);
-  const now = opts.now ?? Date.now();
-  const maxAge = opts.maxAgeMs ?? DRAFT_MAX_AGE_MS;
+  const cutoff = opts.before ?? (opts.now ?? Date.now()) - (opts.maxAgeMs ?? DRAFT_MAX_AGE_MS);
   let names: string[];
   try {
     names = await readdir(root);
@@ -149,7 +156,7 @@ export async function sweepStaleDrafts(
     const full = path.join(root, name);
     try {
       const st = await stat(full);
-      if (!st.isDirectory() || now - st.mtimeMs <= maxAge) continue;
+      if (!st.isDirectory() || st.mtimeMs >= cutoff) continue;
       await rm(full, { recursive: true, force: true });
       removed++;
     } catch {

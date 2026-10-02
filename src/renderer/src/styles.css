@@ -661,6 +661,12 @@ button.icon-button {
   align-items: center;
   gap: 12px;
 }
+.input-buttons {
+  display: inline-flex;
+  flex: none;
+  gap: 8px;
+  align-items: center;
+}
 .toggle {
   display: inline-flex;
   gap: 6px;
