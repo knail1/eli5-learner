@@ -13,7 +13,8 @@ import {
   type SectionJobPayload,
 } from '../../../../src/main/pipeline';
 import { validateDocument } from '../../../helpers/doc-validity';
-import { defaultScript, fileInput, harness, urlInput } from './harness';
+import type { LlmTasks } from '../../../../src/main/llm';
+import { defaultScript, fileInput, harness, urlInput, type Harness } from './harness';
 
 const opts = { clarifyingInput: 'I run a small widget shop', glossary: true };
 const exists = (p: string): Promise<boolean> =>
@@ -239,6 +240,63 @@ describe('a create job end to end (06 §3.2, §5, §6)', () => {
     const slugs = [ja, jb, jc].map((j) => j.result?.topicSlug);
     expect(new Set(slugs).size).toBe(3);
     expect(h.done.map((d) => d.jobId)).toEqual([a.jobId, b.jobId, c.jobId]);
+  });
+
+  describe('slots and queue wording (06 §4.1, §6)', () => {
+    /** Holds every in-depth generation until released, so jobs stay running. */
+    function gated() {
+      const gates: (() => void)[] = [];
+      return {
+        tasks: (t: LlmTasks): LlmTasks => ({
+          ...t,
+          generateIndepth: async (...a: Parameters<LlmTasks['generateIndepth']>) => {
+            await new Promise<void>((r) => gates.push(r));
+            return t.generateIndepth(...a);
+          },
+        }),
+        releaseAll: () => gates.splice(0).forEach((r) => r()),
+        count: () => gates.length,
+      };
+    }
+    const line = (h: Harness, id: string) => h.queue.list().find((s) => s.id === id)?.statusLine;
+    const until = async (cond: () => boolean) => {
+      for (let i = 0; i < 200 && !cond(); i++) await new Promise((r) => setTimeout(r, 5));
+      expect(cond()).toBe(true);
+    };
+    const start = (h: Harness) => h.queue.start({ inputs: [fileInput('sources/text/plain.txt')], options: opts });
+
+    it.each([
+      // slots, running, waiting: lines of the waiting jobs in order
+      [1, 1, 3, ['Queued: starts after the current run', 'Queued (2 ahead)', 'Queued (3 ahead)']],
+      [2, 2, 3, ['Queued: starts when a run finishes', 'Queued (2 ahead)', 'Queued (3 ahead)']],
+      [3, 3, 2, ['Queued: starts when a run finishes', 'Queued (2 ahead)']],
+    ] as const)('%i slot(s), %i running: waiting lines', async (slots, running, waiting, lines) => {
+      const g = gated();
+      const h = await harness({ settings: { maxConcurrentJobs: slots }, tasks: g.tasks });
+      const ids: string[] = [];
+      for (let i = 0; i < running + waiting; i++) ids.push((await start(h)).jobId);
+      await until(() => g.count() === running);
+      expect(ids.slice(running).map((id) => line(h, id))).toEqual(lines);
+      while (!ids.every((id) => h.queue.get(id)?.status === 'done')) {
+        g.releaseAll();
+        await new Promise((r) => setTimeout(r, 5));
+      }
+    });
+
+    it('raising the setting from 1 to 3 with two waiting jobs starts both at once', async () => {
+      const g = gated();
+      const h = await harness({ settings: { maxConcurrentJobs: 1 }, tasks: g.tasks });
+      const ids = [(await start(h)).jobId, (await start(h)).jobId, (await start(h)).jobId];
+      await until(() => g.count() === 1);
+      expect(line(h, ids[2] as string)).toBe('Queued (2 ahead)');
+      h.deps.settings().pipeline.maxConcurrentJobs = 3;
+      h.queue.slotsChanged();
+      await until(() => g.count() === 3);
+      while (!ids.every((id) => h.queue.get(id)?.status === 'done')) {
+        g.releaseAll();
+        await new Promise((r) => setTimeout(r, 5));
+      }
+    });
   });
 
   it('clamps pipeline.maxConcurrentJobs to the policy ceiling', async () => {

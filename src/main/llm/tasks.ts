@@ -69,7 +69,7 @@ export interface StepResult<T> {
   prompt: string; // "id@version"
 }
 
-export type SectionAction = 'expand' | 'reexplain' | 'analogy' | 'deeper' | 'eli5-tab' | 'eli5-selection';
+export type SectionAction = 'expand' | 'reexplain' | 'analogy' | 'deeper' | 'revise' | 'eli5-tab' | 'eli5-selection';
 
 export interface SectionActionInput {
   action: SectionAction;
@@ -135,6 +135,7 @@ const ACTION_PROMPT: Record<SectionAction, PromptId> = {
   reexplain: 'section-reexplain',
   analogy: 'section-analogy',
   deeper: 'section-deeper',
+  revise: 'section-revise',
   'eli5-tab': 'section-eli5-tab',
   'eli5-selection': 'selection-eli5-tab',
 };

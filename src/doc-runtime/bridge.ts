@@ -10,7 +10,7 @@ export interface DocBridge {
   regenerateSection(r: {
     tabKey: string;
     sectionId: string;
-    action: 'expand' | 'reexplain' | 'analogy' | 'deeper';
+    action: 'expand' | 'reexplain' | 'analogy' | 'deeper' | 'revise';
     selectionText: string;
     note?: string;
   }): Promise<BridgeResult>;

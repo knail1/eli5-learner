@@ -10,9 +10,10 @@ describe('registerPublic (10 §4)', () => {
     return reg;
   }
 
-  it('registers local (available) and drive/git stubs (unavailable)', () => {
+  it('registers local and markdown (available) and drive/git stubs (unavailable)', () => {
     expect(build().publishers()).toEqual([
       { id: 'local', available: true },
+      { id: 'markdown', available: true },
       { id: 'drive', available: false },
       { id: 'git', available: false },
     ]);

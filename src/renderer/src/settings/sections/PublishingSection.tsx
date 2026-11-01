@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { AccountBar } from '../../top-status/TopStatus';
 import { LockedNote, SaveNote, SettingsSectionFrame, useAction, useShownValue, type SectionProps } from '../save';
 
 /**
@@ -53,6 +54,7 @@ export function PublishingSection(p: SectionProps) {
       </label>
       <LockedNote locked={revealLocked} />
       <SaveNote s={state['publish.local.revealAfter']} />
+      <AccountBar />
       <p>
         <button
           type="button"

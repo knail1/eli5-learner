@@ -1,5 +1,7 @@
 // Public API of the publish module (10).
 export type {
+  AccountAction,
+  AccountStatus,
   GitHandoffManifest,
   GitHandoffResult,
   GitInvocationMode,
@@ -12,6 +14,7 @@ export type {
   PublishContext,
   PublishErrorCode,
   Publisher,
+  PublisherAccount,
   PublisherKind,
   PublishFile,
   PublishLink,
@@ -28,6 +31,8 @@ export { DrivePublisherStub } from './drive.stub';
 export { GitPublisherStub } from './git.stub';
 export { LocalPublisher, expandHome, abbreviateHome, isWithin } from './local';
 export type { LocalPublisherOptions } from './local';
+export { MarkdownPublisher, documentToMarkdown, blockToMarkdown } from './markdown';
+export type { MarkdownPublisherOptions } from './markdown';
 export { buildPublishFileSet, MAX_PUBLISH_BYTES } from './files';
 export { defaultPrePublishPolicy } from './policy';
 export { BaselineSecretScanner, scanText, maskPreview, shannonEntropy } from './scanner';

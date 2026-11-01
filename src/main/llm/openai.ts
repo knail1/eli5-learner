@@ -1,50 +1,66 @@
 import OpenAI from 'openai';
 import type { Settings } from '../config';
 import { BaseProvider, type ProviderDeps, type SendContext, type SendResult } from './base';
-import type { ChatMessage, GenerationRequest, GenerationResult, LLMProvider, ModelLimits } from './types';
+import { LLMError } from './errors';
+import { humanMessage } from './retry';
+import type { ChatMessage, GenerationRequest, GenerationResult, LLMErrorKind, LLMProvider, ModelLimits } from './types';
 
-type ChatParams = OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming;
-type ChatMessageParam = OpenAI.Chat.Completions.ChatCompletionMessageParam;
-type ContentPart = OpenAI.Chat.Completions.ChatCompletionContentPart;
+type ResponseParams = OpenAI.Responses.ResponseCreateParamsStreaming;
+type InputItem = OpenAI.Responses.ResponseInputItem;
+type InputContent = OpenAI.Responses.ResponseInputContent;
+type ResponseObject = OpenAI.Responses.Response;
 
-function mapStop(r: string | null | undefined): GenerationResult['stopReason'] {
-  switch (r) {
-    case 'stop':
-    case 'tool_calls':
-      return 'end';
-    case 'length':
-      return 'max_tokens';
-    case 'content_filter':
-      return 'refusal';
-    default:
-      return 'other';
-  }
-}
-
-/** Effort mapping (02 §6): xhigh/max collapse to high. */
+/** Effort mapping (02 §6): xhigh/max collapse to high, the highest every reasoning model accepts. */
 function mapEffort(e: NonNullable<GenerationRequest['effort']>): 'low' | 'medium' | 'high' {
   return e === 'xhigh' || e === 'max' ? 'high' : e;
 }
 
+/** A mid-stream `error` event's code (not an HTTP status), mapped to the shared error kinds. */
+export function kindForStreamCode(code: string | null | undefined): LLMErrorKind {
+  const c = (code ?? '').toLowerCase();
+  if (c === 'invalid_api_key' || c === 'unauthorized') return 'auth';
+  if (c.includes('rate_limit')) return 'rate_limited';
+  if (c === 'insufficient_quota') return 'rate_limited';
+  if (c.includes('context_length') || c.includes('too_large')) return 'context_overflow';
+  if (c === 'server_is_overloaded' || c === 'overloaded') return 'overloaded';
+  if (c === 'invalid_request_error' || c.startsWith('invalid_')) return 'bad_request';
+  return 'server';
+}
+
+/** A finished (or cut-short) response's status, mapped to the shared stop reasons. */
+function mapStop(r: ResponseObject | undefined): GenerationResult['stopReason'] {
+  if (!r) return 'other';
+  if (r.status === 'completed') return 'end';
+  if (r.status === 'incomplete') {
+    const why = r.incomplete_details?.reason;
+    if (why === 'max_output_tokens') return 'max_tokens';
+    if (why === 'content_filter') return 'refusal';
+  }
+  return 'other';
+}
+
 /** Text label part before each image part, then the message text (02 §6). */
-export function toOpenAIMessage(m: ChatMessage): ChatMessageParam {
+export function toOpenAIInput(m: ChatMessage): InputItem {
   if (m.role === 'assistant') return { role: 'assistant', content: m.text };
   if (!m.images?.length) return { role: 'user', content: m.text };
-  const content: ContentPart[] = [];
+  const content: InputContent[] = [];
   for (const img of m.images) {
-    content.push({ type: 'text', text: `[Image: ${img.label}]` });
+    content.push({ type: 'input_text', text: `[Image: ${img.label}]` });
     content.push({
-      type: 'image_url',
-      image_url: { url: `data:${img.mediaType};base64,${img.data.toString('base64')}`, detail: 'high' },
+      type: 'input_image',
+      image_url: `data:${img.mediaType};base64,${img.data.toString('base64')}`,
+      detail: 'high',
     });
   }
-  content.push({ type: 'text', text: m.text });
+  content.push({ type: 'input_text', text: m.text });
   return { role: 'user', content };
 }
 
 /**
- * OpenAIProvider (02 §6): Chat Completions via the official SDK, SDK retries off, always streamed
- * with usage, `fetch: llmFetch`, json_schema strict structured output.
+ * OpenAIProvider, shown as ChatGPT (02 §6): the Responses API (`POST /v1/responses`) via the
+ * official SDK, SDK retries off, always streamed, `fetch: llmFetch`. The system prompt goes in
+ * `instructions`; structured output is `text.format` json_schema strict; `store: false` keeps
+ * prompts and sources off OpenAI's stored-response history.
  */
 export class OpenAIProvider extends BaseProvider implements LLMProvider {
   readonly id = 'openai' as const;
@@ -54,29 +70,21 @@ export class OpenAIProvider extends BaseProvider implements LLMProvider {
     super('openai', settings, deps);
   }
 
-  buildParams(req: GenerationRequest, limits: ModelLimits = this.limits): ChatParams {
-    const messages: ChatMessageParam[] = [];
-    if (req.system.trim() !== '') {
-      messages.push(
-        limits.systemRole === 'developer'
-          ? { role: 'developer', content: req.system }
-          : { role: 'system', content: req.system },
-      );
-    }
-    messages.push(...req.messages.map(toOpenAIMessage));
-    const params: ChatParams = {
+  buildParams(req: GenerationRequest, limits: ModelLimits = this.limits): ResponseParams {
+    const params: ResponseParams = {
       model: this.model,
-      messages,
-      max_completion_tokens: Math.min(req.maxOutputTokens, limits.maxOutputTokens),
+      input: req.messages.map(toOpenAIInput),
+      max_output_tokens: Math.min(req.maxOutputTokens, limits.maxOutputTokens),
       stream: true,
-      stream_options: { include_usage: true },
+      store: false,
     };
+    if (req.system.trim() !== '') params.instructions = req.system;
     if (req.temperature !== undefined && limits.supportsTemperature) params.temperature = req.temperature;
-    if (req.effort && limits.supportsEffort) params.reasoning_effort = mapEffort(req.effort);
+    if (req.effort && limits.supportsEffort) params.reasoning = { effort: mapEffort(req.effort) };
     if (req.jsonSchema) {
-      params.response_format = {
-        type: 'json_schema',
-        json_schema: {
+      params.text = {
+        format: {
+          type: 'json_schema',
           name: req.jsonSchema.name,
           schema: req.jsonSchema.schema as Record<string, unknown>,
           strict: true,
@@ -88,27 +96,38 @@ export class OpenAIProvider extends BaseProvider implements LLMProvider {
 
   protected async send(req: GenerationRequest, ctx: SendContext): Promise<SendResult> {
     const client = new OpenAI({ apiKey: ctx.apiKey, fetch: ctx.fetch, maxRetries: 0, timeout: ctx.sdkTimeoutMs });
-    const stream = await client.chat.completions.create(this.buildParams(req), { signal: ctx.signal });
+    const stream = await client.responses.create(this.buildParams(req), { signal: ctx.signal });
     let text = '';
     let refusal = '';
-    let finish: string | null | undefined;
-    let model = this.model;
-    let usage: OpenAI.CompletionUsage | undefined;
-    for await (const chunk of stream) {
+    let final: ResponseObject | undefined;
+    for await (const event of stream) {
       ctx.touch();
-      if (chunk.model) model = chunk.model;
-      if (chunk.usage) usage = chunk.usage;
-      const choice = chunk.choices[0];
-      if (!choice) continue;
-      const delta = choice.delta;
-      if (delta.content) {
-        text += delta.content;
-        ctx.onDelta?.(delta.content);
+      switch (event.type) {
+        case 'response.output_text.delta':
+          text += event.delta;
+          ctx.onDelta?.(event.delta);
+          break;
+        case 'response.refusal.delta':
+          refusal += event.delta;
+          break;
+        case 'response.completed':
+        case 'response.incomplete':
+          final = event.response;
+          break;
+        case 'response.failed': {
+          // Failed after the stream started: classified by its code; the server's text is never shown.
+          const kind = kindForStreamCode(event.response.error?.code);
+          throw new LLMError(kind, humanMessage(kind, this.label), undefined, undefined, event);
+        }
+        case 'error': {
+          const kind = kindForStreamCode(event.code);
+          throw new LLMError(kind, humanMessage(kind, this.label), undefined, undefined, event);
+        }
+        default:
+          break;
       }
-      if (delta.refusal) refusal += delta.refusal;
-      if (choice.finish_reason) finish = choice.finish_reason;
     }
-    const stopReason = refusal ? 'refusal' : mapStop(finish);
+    const stopReason = refusal ? 'refusal' : mapStop(final);
     let json: unknown;
     if (req.jsonSchema && stopReason === 'end') {
       try {
@@ -117,17 +136,18 @@ export class OpenAIProvider extends BaseProvider implements LLMProvider {
         json = undefined;
       }
     }
-    const cached = usage?.prompt_tokens_details?.cached_tokens ?? 0;
+    const usage = final?.usage;
+    const cached = usage?.input_tokens_details?.cached_tokens ?? 0;
     return {
       text,
       ...(json !== undefined ? { json } : {}),
       stopReason,
       usage: {
-        inputTokens: usage?.prompt_tokens ?? 0,
-        outputTokens: usage?.completion_tokens ?? 0,
+        inputTokens: usage?.input_tokens ?? 0,
+        outputTokens: usage?.output_tokens ?? 0,
         ...(cached > 0 ? { cachedInputTokens: cached } : {}),
       },
-      model,
+      model: final?.model ?? this.model,
       provider: 'openai',
     };
   }

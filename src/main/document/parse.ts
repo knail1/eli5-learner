@@ -41,7 +41,7 @@ function resanitizeDiagrams(model: DocumentModel): void {
       if (b.type !== 'diagram') return [b];
       const idPrefix =
         DIAGRAM_PREFIX_RE.exec(b.svg)?.[1] ?? `d${sha256Hex(new TextEncoder().encode(b.svg)).slice(0, 8)}-`;
-      const svg = sanitizeSvg(b.svg, { idPrefix, ariaLabel: b.alt, rootClass: 'diagram-svg' });
+      const svg = sanitizeSvg(b.svg, { idPrefix, ariaLabel: b.alt, rootClass: 'diagram-svg', labelContrast: true });
       return svg === null ? [] : [{ ...b, svg }];
     });
   };

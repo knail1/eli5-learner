@@ -2,6 +2,7 @@
 // re-serializes only allowlisted nodes and attributes; colors become theme classes (07 §7.2 rule 11).
 import { DOMParser } from 'linkedom';
 import { attrs, esc } from './html';
+import { fixLabelContrast } from './svg-contrast';
 
 const ELEMENTS = new Set([
   'svg',
@@ -80,6 +81,8 @@ const ATTRIBUTES = new Set([
   'fx',
   'fy',
   'clip-path',
+  // the paper outline behind recoloured diagram labels (svg-contrast.ts)
+  'paint-order',
 ]);
 
 /** Palette tokens a color may map to (07 §7.3); DOC_RUNTIME_CSS defines a class for each. */
@@ -244,6 +247,8 @@ export interface SanitizeSvgOptions {
   ariaLabel: string;
   /** Extra class on the root (e.g. 'diagram-svg'). */
   rootClass?: string;
+  /** Diagrams: recolour labels that blend into the shape behind them (07 §7.3, svg-contrast.ts). */
+  labelContrast?: boolean;
 }
 
 interface El {
@@ -314,6 +319,7 @@ export function sanitizeSvg(input: string, opts: SanitizeSvgOptions): string | n
   }
   const root = doc.documentElement;
   if (!root || root.localName !== 'svg') return null;
+  if (opts.labelContrast) fixLabelContrast(root as unknown as Parameters<typeof fixLabelContrast>[0], colorToken);
 
   // Collect ids of kept elements first so references can be rewritten (or dropped when dangling).
   const ids = new Set<string>();

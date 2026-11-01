@@ -105,6 +105,7 @@ describe('cell P-stub (13 §10.1)', () => {
     expect(info.overlayName).toBeUndefined();
     expect(Object.fromEntries(info.publishers.map((p) => [p.id, p.available]))).toEqual({
       local: true,
+      markdown: true,
       drive: false,
       git: false,
     });

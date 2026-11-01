@@ -2,10 +2,14 @@
   "name": "openai/retry-after-cap",
   "interactions": [
     {
-      "request": { "path": "/v1/chat/completions" },
+      "request": {
+        "path": "/v1/responses"
+      },
       "response": {
         "status": 429,
-        "headers": { "retry-after": "Thu, 01 Jan 2099 00:00:00 GMT" },
+        "headers": {
+          "retry-after": "Thu, 01 Jan 2099 00:00:00 GMT"
+        },
         "body": {
           "error": {
             "message": "Rate limit reached.",

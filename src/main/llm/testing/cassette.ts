@@ -5,8 +5,8 @@ import fs from 'node:fs';
  * cassetteFetch (13 §6.3, 02 §16): replays recorded provider HTTP exchanges through the SDKs'
  * injectable `fetch`, so provider tests cover SDK wiring with no network. Test-only; never imported
  * by app code. Cassettes are JSON; streamed bodies are replayed event by event. Besides raw `sse`
- * events, a cassette may give a compact `claudeMessage` / `openaiCompletion` that is expanded into
- * the vendor's streaming event sequence.
+ * events, a cassette may give a compact `claudeMessage` / `openaiCompletion` / `openaiResponse`
+ * that is expanded into the vendor's streaming event sequence.
  */
 
 export interface CassetteSseEvent {
@@ -33,6 +33,17 @@ export interface OpenAICompletionSpec {
   usage: { prompt_tokens: number; completion_tokens: number; cached_tokens?: number };
 }
 
+/** A streamed OpenAI Responses API reply (`POST /v1/responses`, 02 §6). */
+export interface OpenAIResponseSpec {
+  model: string;
+  content?: string;
+  refusal?: string;
+  /** `incomplete` carries `incomplete_reason` (max_output_tokens, content_filter). */
+  status: 'completed' | 'incomplete';
+  incomplete_reason?: string;
+  usage: { input_tokens: number; output_tokens: number; cached_tokens?: number };
+}
+
 export interface CassetteResponse {
   status: number;
   headers?: Record<string, string>;
@@ -41,6 +52,7 @@ export interface CassetteResponse {
   sse?: CassetteSseEvent[];
   claudeMessage?: ClaudeMessageSpec;
   openaiCompletion?: OpenAICompletionSpec;
+  openaiResponse?: OpenAIResponseSpec;
   /** Stop sending after the events and hang until the request is aborted (idle-timeout tests). */
   stall?: boolean;
 }
@@ -228,6 +240,34 @@ export function openaiSse(c: OpenAICompletionSpec): CassetteSseEvent[] {
   return out;
 }
 
+/** The Responses API event sequence for one reply: created, deltas, then completed or incomplete. */
+export function openaiResponsesSse(c: OpenAIResponseSpec): CassetteSseEvent[] {
+  let seq = 0;
+  const ev = (type: string, data: Record<string, unknown>): CassetteSseEvent => ({
+    event: type,
+    data: { type, sequence_number: seq++, ...data },
+  });
+  const base = { id: 'resp_cassette', object: 'response', created_at: 1_700_000_000, model: c.model, output: [] };
+  const out: CassetteSseEvent[] = [ev('response.created', { response: { ...base, status: 'in_progress' } })];
+  const item = { item_id: 'msg_cassette', output_index: 0, content_index: 0 };
+  for (const p of c.content ? pieces(c.content) : []) out.push(ev('response.output_text.delta', { ...item, delta: p }));
+  if (c.refusal) out.push(ev('response.refusal.delta', { ...item, delta: c.refusal }));
+  const response = {
+    ...base,
+    status: c.status,
+    incomplete_details: c.status === 'incomplete' ? { reason: c.incomplete_reason ?? 'max_output_tokens' } : null,
+    usage: {
+      input_tokens: c.usage.input_tokens,
+      output_tokens: c.usage.output_tokens,
+      total_tokens: c.usage.input_tokens + c.usage.output_tokens,
+      input_tokens_details: { cached_tokens: c.usage.cached_tokens ?? 0 },
+      output_tokens_details: { reasoning_tokens: 0 },
+    },
+  };
+  out.push(ev(c.status === 'completed' ? 'response.completed' : 'response.incomplete', { response }));
+  return out;
+}
+
 function encodeEvent(e: CassetteSseEvent): string {
   const data = typeof e.data === 'string' ? e.data : JSON.stringify(e.data);
   return `${e.event ? `event: ${e.event}\n` : ''}data: ${data}\n\n`;
@@ -242,7 +282,13 @@ function abortError(): Error {
 function makeResponse(r: CassetteResponse, signal: AbortSignal | undefined): Response {
   const events =
     r.sse ??
-    (r.claudeMessage ? claudeSse(r.claudeMessage) : r.openaiCompletion ? openaiSse(r.openaiCompletion) : undefined);
+    (r.claudeMessage
+      ? claudeSse(r.claudeMessage)
+      : r.openaiCompletion
+        ? openaiSse(r.openaiCompletion)
+        : r.openaiResponse
+          ? openaiResponsesSse(r.openaiResponse)
+          : undefined);
   if (!events) {
     return new Response(r.body === undefined ? null : JSON.stringify(r.body), {
       status: r.status,

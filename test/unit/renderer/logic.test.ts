@@ -7,6 +7,7 @@ import { loadRenderer } from './harness';
 interface Draft {
   draftId: string;
   inputs: SourceInput[];
+  lastRun: SourceInput[];
   urlText: string;
   clarifying: string;
   glossary: boolean;
@@ -20,19 +21,23 @@ const {
   chipLabel,
   clarifyRows,
   commitUrlText,
+  draftAfterStart,
   draftHasContent,
   filesToRelease,
+  freshUrls,
   isHttpUrl,
   isTextField,
   newDraft,
+  primaryAction,
   startErrorMessage,
-  startMode,
   startRequest,
 } = await loadRenderer<{
   chipLabel(i: SourceInput): string;
   draftHasContent(d: Draft): boolean;
   filesToRelease(leaving: SourceInput[], remaining: SourceInput[]): SourceInput[];
-  startMode(run: { jobId: string; status: JobSnapshot['status'] } | null): 'start' | 'restart';
+  primaryAction(d: Draft): 'start' | 'run-again';
+  draftAfterStart(cur: Draft, sent: SourceInput[]): Draft;
+  freshUrls(inputs: SourceInput[]): SourceInput[];
   clarifyRows(t: string): number;
   commitUrlText(t: string): { added: SourceInput[]; invalid: string[] };
   isHttpUrl(s: string): boolean;
@@ -138,12 +143,49 @@ describe('input draft (11 §5.4)', () => {
     expect(chipLabel({ id: 'a', kind: 'file', origin: 'drop', path: '/Users/x/deck.pptx' })).toBe('deck.pptx');
   });
 
-  it('a start keeps the draft: Restart while its run is queued or running, else Start (11 §5.4)', () => {
-    expect(startMode(null)).toBe('start');
-    for (const status of ['queued', 'reading', 'extracting', 'generating', 'saving'] as const) {
-      expect(startMode({ jobId: 'job-1', status })).toBe('restart');
-    }
-    for (const status of ['done', 'failed'] as const) expect(startMode({ jobId: 'job-1', status })).toBe('start');
+  it('primary button: Start with chips or typed text, else Run again with a last run, else Start (11 §5.4)', () => {
+    const d = newDraft(true);
+    const u: SourceInput = { id: 'in-00000001', kind: 'url', origin: 'url-field', url: 'https://example.com/a' };
+    expect(primaryAction(d)).toBe('start');
+    expect(primaryAction({ ...d, lastRun: [u] })).toBe('run-again');
+    expect(primaryAction({ ...d, lastRun: [u], inputs: [u] })).toBe('start');
+    expect(primaryAction({ ...d, lastRun: [u], urlText: 'https://x' })).toBe('start');
+    expect(primaryAction({ ...d, lastRun: [u], urlText: '   ' })).toBe('run-again');
+  });
+
+  it('after a start: sent inputs leave, URLs become the last run, unsent staged pastes keep the draft id', () => {
+    const u = (n: number): SourceInput => ({
+      id: `in-0000000${n}`,
+      kind: 'url',
+      origin: 'url-field',
+      url: `https://e/${n}`,
+    });
+    const paste: SourceInput = {
+      id: 'in-00000009',
+      kind: 'text',
+      origin: 'paste',
+      stagedPath: '/tmp/p.txt',
+      markup: 'plain',
+      preview: 'Pasted',
+    };
+    const file: SourceInput = { id: 'in-00000008', kind: 'file', origin: 'drop', path: '/x/a.pdf' };
+    const d = { ...newDraft(true), clarifying: 'pricing', glossary: false, inputs: [u(1), u(2), paste] };
+    // A paste added mid-start (still a chip, not sent) keeps the draft id for its staging folder.
+    const kept = draftAfterStart(d, [u(1), u(2)]);
+    expect(kept.inputs).toEqual([paste]);
+    expect(kept.lastRun).toEqual([u(1), u(2)]);
+    expect(kept.draftId).toBe(d.draftId);
+    expect([kept.clarifying, kept.glossary]).toEqual(['pricing', false]);
+    // Everything sent: a new draft id.
+    expect(draftAfterStart(d, [u(1), u(2), paste]).draftId).not.toBe(d.draftId);
+    // No URLs sent: the previous last run stays.
+    const withLast = { ...d, inputs: [file], lastRun: [u(3)] };
+    expect(draftAfterStart(withLast, [file]).lastRun).toEqual([u(3)]);
+    // Fresh ids for re-sent URLs; non-URLs are never re-sent.
+    const fresh = freshUrls([u(1), file]);
+    expect(fresh).toHaveLength(1);
+    expect(fresh[0]).toMatchObject({ kind: 'url', url: 'https://e/1' });
+    expect(fresh[0]?.id).not.toBe('in-00000001');
   });
 
   it('Clear is enabled only when the draft has something in it', () => {
@@ -154,6 +196,7 @@ describe('input draft (11 §5.4)', () => {
     expect(draftHasContent({ ...d, clarifying: 'pricing' })).toBe(true);
     const url: SourceInput = { id: 'in-00000001', kind: 'url', origin: 'url-field', url: 'https://example.com' };
     expect(draftHasContent({ ...d, inputs: [url] })).toBe(true);
+    expect(draftHasContent({ ...d, lastRun: [url] })).toBe(true);
   });
 
   it('releases a file chip only when no remaining chip names the same path (06 §11)', () => {

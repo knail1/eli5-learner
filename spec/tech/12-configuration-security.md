@@ -120,7 +120,7 @@ Sibling modules own the **meaning** of their keys (02 for `llm.*`, 05 for `fetch
 | `images.stockPhotos` | boolean | `true` | 06, 07 §7.4, 11 | Settings > Documents "Use stock photos for real-world scenes". On: the writing prompts may request open-licensed stock photos, searched with short generic queries. Off: diagrams only and no photo search. An organization forces it off with a HOOK-CFG-01 managed value (the switch is then locked) or by registering a stub image provider (HOOK-DOC-03) |
 | `sources.mcp.url` | https URL or null | `null` | 03 | Dormant; ignored by `mcp.stub.ts` |
 | `fetch.network.*` | record | `{}` | 05 | Dormant (HOOK-FETCH-01) |
-| `pipeline.maxConcurrentJobs` | int 1..3 | 1 | 06 | Create-lane slots (06 §4.1) |
+| `pipeline.maxConcurrentJobs` | int 1..3 | 1 | 06, 11 | Create-lane slots (06 §4.1). Settings > Documents "Documents generated at once"; lockable like any key. A change re-evaluates the queue at once |
 | `publish.local.dir` | string | `'~/Documents/ELI5 Learner'` | 10 | Local publisher target folder (10 §5.1); `~` expanded by 10 |
 | `publish.local.revealAfter` | boolean | `true` | 10 | Reveal in Finder after a local publish (10 §5.1) |
 | `publish.drive.*` | record | `{}` | 10 | Dormant |

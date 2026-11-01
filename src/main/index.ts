@@ -146,6 +146,8 @@ async function bootstrap(): Promise<void> {
   }
   initPaths({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() });
 
+  const fakeLlm = __ELI5_TEST__ && process.env.ELI5_LLM_FAKE === '1';
+
   // 1. settings
   // The provider check needs the registry, which needs settings; resolve the cycle lazily.
   const late: { registry?: Registry } = {};
@@ -166,7 +168,14 @@ async function bootstrap(): Promise<void> {
   });
   late.registry = registry;
   registerPublicCapabilities(registry);
-  if (__ELI5_TEST__ && process.env.ELI5_LLM_FAKE === '1') {
+  // 3. overlay (enterprise only; fatal on failure)
+  await loadOverlay(registry);
+  // 4. re-validate settings against the extended schema
+  await settings.applyExtension(registry.settingsExtension());
+  // Test builds with ELI5_LLM_FAKE=1: the fake goes in after the overlay and the re-validated
+  // settings and before the freeze, so it registers under the final provider name and replaces
+  // whatever the overlay put there (13 §6.1). Packaged and dev builds never reach this.
+  if (fakeLlm) {
     const { FakeProvider, loadFakeScript } = await import('./llm/testing/fake');
     const scriptPath =
       process.env.ELI5_LLM_FAKE_SCRIPT ?? path.join(app.getAppPath(), 'test/fixtures/llm/default.json');
@@ -183,10 +192,6 @@ async function bootstrap(): Promise<void> {
     });
   }
 
-  // 3. overlay (enterprise only; fatal on failure)
-  await loadOverlay(registry);
-  // 4. re-validate settings against the extended schema
-  await settings.applyExtension(registry.settingsExtension());
   // Dev-only budget-capped real run: wraps the LLM providers before the freeze; inert unless
   // ELI5_REAL_RUN_URLS is set, and never reachable in packaged builds (scripts/real-run/README.md).
   const realRun = app.isPackaged
@@ -263,7 +268,6 @@ async function bootstrap(): Promise<void> {
   };
 
   // Generation pipeline (06 §2). Fake-LLM test runs need no Keychain key (13 §8.1).
-  const fakeLlm = __ELI5_TEST__ && process.env.ELI5_LLM_FAKE === '1';
   const pipeline = createPipelineDeps({
     registry,
     settings: () => settings.get(),
@@ -331,6 +335,10 @@ async function bootstrap(): Promise<void> {
     ...(m3.sectionRunner ? { sectionRunner: m3.sectionRunner } : {}),
   });
   jobs.on('done', (e) => log.info('pipeline.job-done', { jobId: e.jobId, kind: e.kind }));
+  // "Documents generated at once" applies immediately: waiting jobs that now fit start (06 §4.1).
+  settings.onChanged((_s, changed) => {
+    if (changed.includes('pipeline.maxConcurrentJobs')) jobs.slotsChanged();
+  });
   // 11 §14.2: one "Document ready" per finished create job, through the notifier slot.
   jobs.on(
     'done',

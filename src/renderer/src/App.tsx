@@ -19,6 +19,8 @@ import { readLastDoc, rememberDoc, resolveRoute, sameRoute, startupRoute } from 
 import { SettingsScreen, SignInIndicator } from './settings/SettingsScreen';
 import { StatusArea } from './status/StatusArea';
 import { SuggestionsPanel } from './suggestions/SuggestionsPanel';
+import { TopStatus } from './top-status/TopStatus';
+import { BottomHandle, useBottomPanel } from './layout/BottomPanel';
 import { DocHeader } from './viewer/DocHeader';
 import { FindBar, type FindBarHandle } from './viewer/FindBar';
 import { NotFound, Welcome } from './viewer/ViewerEmpty';
@@ -78,6 +80,9 @@ function Shell() {
   // override is per narrow spell and never touches the persisted collapsed flag (11 §5.2, §12).
   const [narrowOpen, setNarrowOpen] = useState(false);
   const inputZone = useRef<InputZoneHandle>(null);
+  // Resizable input zone + status row (11 §5.1).
+  const bottomRow = useRef<HTMLDivElement>(null);
+  const bottom = useBottomPanel(bottomRow);
   const filterRef = useRef<HTMLInputElement>(null);
 
   const provider = settings?.llm.provider ?? 'claude';
@@ -332,7 +337,7 @@ function Shell() {
     return () => window.removeEventListener('keydown', onKey);
   }, [leaveSettings, openDoc, openSettings, runFind]);
 
-  const layoutKey = `${collapsed ? 0 : sidebar.width}:${findOpen ? 1 : 0}`;
+  const layoutKey = `${collapsed ? 0 : sidebar.width}:${findOpen ? 1 : 0}:${bottom.height ?? 'auto'}`;
   const style = useMemo(
     () => ({ '--sidebar-w': collapsed ? '0px' : `${sidebar.width}px` }) as CSSProperties,
     [collapsed, sidebar.width],
@@ -342,6 +347,7 @@ function Shell() {
   return (
     <div className={`shell${collapsed ? ' sidebar-collapsed' : ''}`} style={style}>
       <div className="titlebar-drag" aria-hidden="true" />
+      <TopStatus />
       <aside className="sidebar" data-region="sidebar" hidden={collapsed}>
         <LibrarySidebar
           entries={catalog}
@@ -412,7 +418,12 @@ function Shell() {
             />
           )}
         </main>
-        <div className="bottom-row">
+        <BottomHandle panel={bottom} />
+        <div
+          className={`bottom-row${bottom.height === null ? '' : ' sized'}`}
+          ref={bottomRow}
+          style={bottom.height === null ? undefined : { height: `${bottom.height}px` }}
+        >
           <div data-region="input">
             <InputZone
               ref={inputZone}

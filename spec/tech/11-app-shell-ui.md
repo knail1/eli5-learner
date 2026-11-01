@@ -205,12 +205,31 @@ before display.
 │ ⚙ Settings      │ Specifics: [                  ]  │                 │
 │ [signed-in]*    │ [x] Explain terms [Clear][Start] │                 │
 └─────────────────┴──────────────────────────────────┴─────────────────┘
+(the line above the input zone and status area is the resize handle; the top-status holder sits at
+ the top right of the title strip)
 * rendered only when HOOK-UI-01 features are enabled
 ```
 
 CSS grid: `grid-template-columns: var(--sidebar-w) 1fr; grid-template-rows: auto 1fr auto`. The
-bottom row of the main column is itself a two-column grid: input zone `1fr`, status area
-`minmax(260px, 30%)`, which keeps the status area in the lower right (PRD *Status area*).
+main column has three rows: viewer, the resize handle, and the bottom panel. The bottom panel is
+itself a two-column grid: input zone `1fr`, status area `minmax(260px, 30%)`, which keeps the
+status area in the lower right (PRD *Status area*).
+
+**Resizable bottom panel.** The line above the input zone and status area is a keyboard-focusable
+separator (`role="separator"`, horizontal, `aria-valuemin` 0, `aria-valuemax` 100).
+
+- Allowed height: at least the panel's natural height, at most `min(2 × natural, 80% of the window
+  height)`. Requests are clamped and rounded to whole pixels.
+- Value: 0 at natural, 100 at the cap, linear between; 0 when there is no room to grow.
+- Drag up grows, drag down shrinks; Arrow Up / Arrow Down step 16 px; double-click resets to natural.
+- Persisted in renderer `localStorage` under `eli5.bottomPanel` as `{height, natural}`. Missing,
+  malformed or non-positive values are ignored. On restore the chosen growth over natural is
+  re-applied to the current natural height and clamped.
+- The viewer slot shrinks or grows with it and reports its new rect (below).
+
+**Top-status holder.** A shared holder at the top right of the title strip, absolutely positioned
+and not draggable, that moves no other layout. It holds the LLM credential bar (02 §14) and the
+publisher account items (10 §5.4); both render nothing in the public build.
 
 **Native layer constraint.** The viewer is a `WebContentsView` layered above the renderer (01 §2.1),
 so renderer DOM can never draw over the viewer rectangle. Therefore:
@@ -282,9 +301,10 @@ so renderer DOM can never draw over the viewer rectangle. Therefore:
 ### 5.3 Viewer and document header
 
 - `DocHeader` shows the title, "Updated {relative}", **Undo** and **Redo** icon buttons, a
-  **Reveal in Finder** button, and the publish slot. In the public build the publish slot contains only an **Export copy** button,
-  shown when `eli5:publish:targets {slug}` returns the `local` target (10). It calls
-  `eli5:publish:run {slug, targetId:'local'}` with no picker: the destination is
+  **Reveal in Finder** button, and the publish slot. In the public build the publish slot contains only the local-kind buttons
+  **Export copy** and **Export Markdown**, shown when `eli5:publish:targets {slug}` returns the
+  `local` and `markdown` targets (10 §5.1, §5.2). Each calls
+  `eli5:publish:run {slug, targetId:'local'|'markdown'}` with no picker: the destination is
   `publish.local.dir` and reveal-after-export is `publish.local.revealAfter` (10 §4). The button
   becomes a spinner, then 10's inline result chip (10 §7) appears under the header. The export
   folder is chosen in Settings > Publishing (§7).
@@ -336,8 +356,9 @@ so renderer DOM can never draw over the viewer rectangle. Therefore:
 ```ts
 // src/renderer/input/types.ts
 export interface InputDraft {
-  draftId: string;           // "draft-" + 8 hex; new one after every clear (a start keeps it)
-  inputs: SourceInput[];     // shown as chips, in the order added
+  draftId: string;           // "draft-" + 8 hex; new one after every clear (after a start, see step 5)
+  inputs: SourceInput[];     // chips, in the order added: what the next Start sends
+  lastRun: SourceInput[];    // URL inputs of the last successful start (the dimmed Last run row)
   urlText: string;           // uncommitted text in the URL field
   clarifying: string;        // optional specifics
   glossary: boolean;         // initialised from settings glossary.defaultOn
@@ -355,8 +376,12 @@ Parts (PRD *Input zone*):
    field paste as normal text, 03 §6) calls `eli5:sources:read-clipboard {draftId}`; returned inputs
    become chips labelled by their `preview` ("Pasted image 14:02"). An empty or unsupported
    clipboard shows the inline hint "Nothing to paste" under the drop box for 3 s.
-3. **URL field.** Single line. Pasting several tokens separated by whitespace commits each valid
-   one as a chip. The renderer commits `http`/`https` URLs directly. Any other token is sent to
+3. **URL field.** Single line, with an **Add** button beside it. Plain `Enter` in the field (no
+   Shift, Cmd, Ctrl or Alt, and not during IME composition) turns every valid web address in the
+   text into a chip and starts nothing; several space-separated addresses each become a chip.
+   Invalid tokens stay in the field with the inline URL error. `Enter` on an empty field starts a
+   run. **Add** does the same as `Enter` with text, is disabled while the field is empty, and
+   returns focus to the field. The renderer commits `http`/`https` URLs directly. Any other token is sent to
    main with `eli5:sources:classify-text {text}` → `{kind: 'url'|'bare'|'invalid'; label: string}`,
    which asks the lane router (`LaneRouter.routeBare()`, 03) whether it is a bare identifier (for
    example a ticket key) that a registered resolver accepts. `url` and `bare` become chips
@@ -367,22 +392,27 @@ Parts (PRD *Input zone*):
    text comes from HOOK-UI-01.
 4. **Chips.** Show icon by kind, label, and a remove button (`eli5:sources:discard` for staged
    pastes; `eli5:sources:release-drops` for a file chip when no other chip names the same file,
-   06 §11). Chips are a `list`; Backspace on a focused chip removes it.
+   06 §11). Chips are a `list`; Backspace on a focused chip removes it. A URL chip also has an
+   icon-only copy button, and `Cmd+C` on a focused URL chip copies its full URL.
+   **Last run row.** After a start, the sent URLs show as a "Last run" group of dimmed chips with no
+   remove buttons, and a **Use again** button that appends them to the chips with fresh ids and
+   empties the last run.
 5. **Clarifying specifics.** Auto-growing textarea, 1 to 6 lines, placeholder "Optional: what do
    you want to understand? What do you already know?". `Shift+Enter` inserts a newline.
 6. **Glossary toggle.** Checkbox "Explain domain specific terms", initialised from
    `glossary.defaultOn` (12) for every new draft.
-7. **Start button.** Label "Start", hint "⏎". While the job last started from this draft is queued
-   or running (any status but `done` or `failed`, from `eli5:jobs:changed`), it reads "Restart",
-   with the tooltip "Cancel the current run and start again with these inputs". Once that job is
-   done, failed or cancelled, it reads "Start" again.
-8. **Clear button.** "Clear", left of Start, enabled when the draft has chips, URL text or
-   specifics. It clears the draft like `Cmd+N`: `eli5:sources:discard-draft` for staged pastes,
-   `eli5:sources:release-drops` for its file chips, a new `draftId`, glossary back to default, and
-   no remembered job (the button reads "Start"). Focus moves to the drop box.
+7. **Primary button**, hint "⌘⏎". It reads "Start" (sends the chips; typed URL text is committed
+   first) when there are chips or typed text. Otherwise, when a last run exists, it reads
+   "Run again" with the tooltip "Send the last run's links again": it re-sends the last run's URLs
+   with fresh ids. Otherwise it reads "Start" with the usual hint.
+8. **Clear button.** "Clear", left of the primary button, enabled when anything is in the draft
+   (chips, last run, URL text or specifics). It is disabled while a start is in flight, and the
+   programmatic clear (`Cmd+N`) does nothing then. It clears everything, the last run included:
+   `eli5:sources:discard-draft` for staged pastes, `eli5:sources:release-drops` for its file chips,
+   a new `draftId`, glossary back to default, messages cleared. Focus moves to the drop box.
 
-**Start algorithm** (Enter in any input-zone field or on the drop box, or clicking Start or
-Restart):
+**Start algorithm** (`Cmd/Ctrl+Enter` anywhere in the zone; plain `Enter` on an empty URL field,
+in Specifics, on the glossary toggle or on the drop box; or clicking the primary button):
 
 1. If the URL field holds text, try to commit it as chips. If it is invalid, show the inline error,
    do not start, and keep focus on the field.
@@ -392,24 +422,20 @@ Restart):
    Show the inline hint "Add an API key in Settings to start" with a link to Settings.
 4. Call `eli5:jobs:start {inputs, options: {clarifyingInput: draft.clarifying, glossary:
    draft.glossary}}` (`JobOptions`, 06).
-5. On `ok`: **keep the draft as it is**: chips (URL text committed in step 1 stays as chips), the
-   specifics, the glossary choice and the `draftId`. Remember the returned `jobId` as the draft's
-   run. Focus stays where it was. Announce "Started" in the live region and show the transient
-   hint "Started. Edit and Restart to run it again with changes" (3 s). The status area shows the
-   new line. The user can edit the draft and run it again, or clear it to compose the next job
-   (PRD *Concurrency*).
-   **Restart:** when the button read "Restart" at step 4, the new job is started first, then the
-   earlier run is cancelled with `eli5:jobs:cancel` (so a failed start leaves the earlier run
-   going). The hint is "Restarted with these inputs. The earlier run was cancelled", or, when the
-   cancel is refused (the earlier run is already saving or has just finished), "Started again. The
-   earlier run could not be stopped and will finish too". The live region says "Restarted".
-   **Start again** after the run ended creates another document; the earlier one is kept.
-6. On error: keep the draft intact (and any earlier run going) and show `error.message` inline
+5. On `ok`: every sent input leaves the chips. The sent URLs become the last run (when none of
+   the sent inputs were URLs, the previous last run is kept). Specifics and the glossary choice
+   stay. Inputs added while the start was in flight stay as chips. If unsent staged pastes remain,
+   the draft keeps its `draftId` (their staging lives under it); otherwise it gets a new one.
+   Announce "Started" in the live region and show a transient hint ("Started", or "Started again
+   with the last run" for Run again). The status area shows the new line. A start never cancels an
+   earlier run; each start creates its own document (PRD *Concurrency*). The earlier Restart
+   button, which cancelled the running job, is gone.
+6. On error: keep the draft intact and show `error.message` inline
    under the Start button. For `E_NOT_AVAILABLE_IN_EDITION` the message is "Requires the enterprise
    edition" (01 §6.4).
 
-The start action is debounced for 400 ms against double Enter or a double click, Start and Restart
-alike. A draft survives hiding the window and any number of starts, but not an app restart: it lives
+The start action is debounced for 400 ms against double Enter or a double click, Start and Run
+again alike. A draft survives hiding the window and any number of starts, but not an app restart: it lives
 only in the window's memory. Its staging left on disk at quit is removed by the next launch's sweep
 (03 §6.1 step 6).
 
@@ -472,12 +498,12 @@ export type SettingsSection =
 
 | Section | Controls | Backing |
 | --- | --- | --- |
-| AI provider | Provider radio: Claude, OpenAI. Providers with `available:false` in `EditionInfo.llmProviders` are **not shown** (so the dormant `bedrock` value never appears in the public build) | `llm.provider` |
+| AI provider | Provider radio: Claude, "ChatGPT (OpenAI)". Providers with `available:false` in `EditionInfo.llmProviders` are **not shown** (so the dormant `bedrock` value never appears in the public build) | `llm.provider` |
 | API key | Password field + **Save**, state "Key saved in Keychain" or "No key", **Remove**, **Test connection** | `eli5:settings:set-api-key`, `has-api-key`, `clear-api-key`, `eli5:llm:test-connection` |
-| Model | Combobox: suggestions from `eli5:llm:models`, free text allowed | `llm.model` |
-| Documents | "Explain domain specific terms by default" switch; "Use stock photos for real-world scenes" switch with a one-line privacy note (07 §7.4) | `glossary.defaultOn`, `images.stockPhotos` |
+| Model | Dropdown "Model" (rules below) | `llm.model`, `eli5:llm:models` |
+| Documents | "Explain domain specific terms by default" switch; "Use stock photos for real-world scenes" switch with a one-line privacy note (07 §7.4); "Documents generated at once" (1 to 3, 06 §4.1) | `glossary.defaultOn`, `images.stockPhotos`, `pipeline.maxConcurrentJobs` |
 | Library | Location (read only), document count, read-only reason if any, + **Reveal in Finder** | `eli5:library:info` (09), `eli5:library:reveal-root` |
-| Publishing | Export folder (read-only path + **Choose…**, which opens a native open panel for directories), "Reveal in Finder after export" switch, link "How to set up a Pages repository" (10 §8) | `publish.local.dir`, `publish.local.revealAfter` (10, 12) |
+| Publishing | Export folder (read-only path + **Choose…**, which opens a native open panel for directories), "Reveal in Finder after export" switch, link "How to set up a Pages repository" (10 §8); one account item per available publisher that declares an account (10 §5.4; none in the public build) | `publish.local.dir`, `publish.local.revealAfter` (10, 12); `eli5:publish:account-status`, `eli5:publish:account-action` |
 | Notifications | See "Notifications section" below | `notifications.enabled`, `notifications.clickAction`, `notifications.preferredLink` (12 §3); `eli5:app:test-notification`, `eli5:app:open-notification-settings` |
 | About | Version (`EditionInfo.version`), edition name, links to README and help docs (HOOK-UI-02) | `eli5:edition:info` |
 | Enterprise | Rendered only when HOOK-UI-01 enables it | HOOK-UI-01, HOOK-CFG-01 |
@@ -495,6 +521,14 @@ Rules:
   Settings, outside the ingest flow. Main validates the chosen path (10 §4 step 1) and a rejection
   renders inline.
 - **Test connection** shows a spinner then "Connected ({model})" or the returned message inline.
+- **Model picker.** A dropdown labelled "Model" lists the provider's suggested models (the default
+  marked "(default)"), then "Custom…". The selection is the saved model if it is listed; the
+  provider default if nothing is saved; Custom if the saved id is not in a non-empty list, or the
+  user chose Custom. Custom reveals a text field "Custom model ID" with the default as placeholder;
+  Custom stays selected while the typed id is empty or equals a listed one. Picking a listed model
+  saves at once; typing saves debounced. While the field has focus, echoes of earlier saves do not
+  overwrite newer typing; external changes apply when it is not focused. Switching provider reloads
+  the list and leaves Custom. Locked settings disable both controls.
 - Dormant keys (`sources.mcp.url`, `publish.drive.*`, `publish.github.*`) have no controls in the
   public build. They are documented in 12 and remain editable only in the settings file.
 - Changing provider or model affects jobs started afterwards; running jobs keep their provider (06).
@@ -509,7 +543,8 @@ Rules:
     default, `'drive'`, `'site'`). The select is enabled only when this radio is chosen and a remote
     publisher is available.
   - A remote publisher is available when any `EditionInfo.publishers` entry (01 §6.2) other than
-    `local` reports `available:true`. Registered stubs report `available:false` and do not count
+    the local publishers `local` (Export copy) and `markdown` (Export Markdown) reports
+    `available:true`. Registered stubs report `available:false` and do not count
     (10). In the public edition none is available, so the second radio and the select are
     disabled with the explanation "Available when documents can be published to a cloud drive or
     GitHub Pages". A hand-set `'published-link'` value is shown selected but disabled and behaves as
@@ -554,7 +589,8 @@ where a menu item exists, so they appear in the Help menu search.
 
 | Shortcut | Action | Scope |
 | --- | --- | --- |
-| `Enter` | Start (or Restart) the job (§5.4) | Input zone (not in specifics when `Shift` held) |
+| `Cmd+Enter` / `Ctrl+Enter` | Start the job, or Run again (§5.4) | Anywhere in the input zone |
+| `Enter` | In the URL field with text: turn it into chips, start nothing. Elsewhere in the zone (empty URL field, specifics, toggle, drop box): start (§5.4) | Input zone (not in specifics when `Shift` held) |
 | `Shift+Enter` | Newline | Specifics field |
 | `Cmd+V` | Paste as source | Window, outside text fields |
 | `Cmd+L` | Focus URL field | Window |
@@ -666,7 +702,7 @@ sign-in lifecycle itself is HOOK-AUTH-01; publishers are HOOK-PUB-01..04.
 > Public behavior: `EditionInfo.uiFeatures` is empty, so every `<FeatureGate>` renders nothing: no cloud
 > drive or git publish buttons, no publish items in the Library context menu, no sign-in indicator,
 > no Settings > Enterprise section. Elements are absent from the DOM and accessibility tree, not
-> disabled. The only publish control is **Export copy** for the `local` target, and the URL field
+> disabled. The only publish controls are **Export copy** and **Export Markdown** (the local-kind `local` and `markdown` targets), and the URL field
 > placeholder is "https://…". A forged IPC call
 > still fails with `E_NOT_AVAILABLE_IN_EDITION`. Private binding supplies: which `UiFeature` flags the
 > overlay enables via `enableUiFeatures`; the button labels and ordering carried in each enterprise
@@ -890,9 +926,13 @@ click shows the main window on Settings > Notifications.
       Trash); every move offers Undo; the Trash view puts documents back and empties with one inline
       confirmation; archived and trashed documents leave the Tray recents.
 - [ ] Files can be dropped, clipboard content pasted with `Cmd+V`, and URLs entered, all combined
-      into one job; Enter starts it; the draft stays for editing, Restart reruns it while its job is
-      running, Start afterwards makes another document, and Clear (or `Cmd+N`) empties it.
-- [ ] Enter with no sources, an invalid URL, or no API key does not start a job and shows an inline
+      into one job; Enter in the URL field turns addresses into chips and starts nothing; Cmd+Enter
+      (or Enter outside the URL field) starts; sent inputs leave the chips and their URLs show as the
+      Last run, which Run again re-sends and Use again returns to the chips; Clear (or `Cmd+N`)
+      empties everything and is disabled while a start is in flight.
+- [ ] The bottom panel resizes by drag and Arrow keys between its natural height and
+      `min(2 × natural, 80%)` of the window, resets on double-click, and restores from `eli5.bottomPanel`.
+- [ ] Start with no sources, an invalid URL, or no API key does not start a job and shows an inline
       hint; no modal, alert, or sheet appears anywhere in ingest and generation, and the only native
       notification is the completion notification (§14).
 - [ ] Status area sits in the lower right, shows one pipeline-supplied line per job, and offers
@@ -905,7 +945,8 @@ click shows the main window on Settings > Notifications.
       `publish.local.dir` via the folder chooser, toggles `publish.local.revealAfter`, and links the
       Pages setup help page.
 - [ ] **Export copy** calls `eli5:publish:run {slug, targetId:'local'}` without any picker and shows
-      the 10 §7 result chip (**Copy link**, **Open**, **Show in Finder**).
+      the 10 §7 result chip (**Copy link**, **Open**, **Show in Finder**); **Export Markdown** does
+      the same for `targetId:'markdown'` and its "Open Markdown" link.
 - [ ] **Undo** and **Redo** icon buttons sit left of Reveal in Finder, show the change label in their
       tooltip, are disabled when unavailable or while a section of the document is busy, and
       `Cmd+Z` / `Shift+Cmd+Z` undo and redo the document only when focus is outside text fields.
@@ -920,7 +961,7 @@ click shows the main window on Settings > Notifications.
 - [ ] No microphone control exists in the UI, the `media` permission is denied, and the packaged
       Info.plist has no `NSMicrophoneUsageDescription`.
 - [ ] No renderer element is ever drawn under the viewer; the viewer is detached on non-doc routes.
-- [ ] In the public build, no publish (other than Export copy), sign-in, or enterprise settings
+- [ ] In the public build, no publish (other than Export copy and Export Markdown), sign-in, or enterprise settings
       element exists in the DOM (HOOK-UI-01); About shows "Public edition" (HOOK-UI-02).
 - [ ] Every shortcut in §9 works; all regions are reachable with F6; axe-core reports no serious or
       critical violations on each route in light and dark themes (13).

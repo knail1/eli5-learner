@@ -83,8 +83,10 @@ const Eli5Fields = {
 };
 
 export const SectionActionPayload = z
-  .object({ ...Eli5Fields, action: z.enum(['expand', 'reexplain', 'analogy', 'deeper']) })
-  .refine(sectionInTab, 'Section is not in that tab');
+  .object({ ...Eli5Fields, action: z.enum(['expand', 'reexplain', 'analogy', 'deeper', 'revise']) })
+  .refine(sectionInTab, 'Section is not in that tab')
+  // 08 §5.1: the note is "Edit with my note"'s only instruction; without one the request is malformed.
+  .refine((r) => r.action !== 'revise' || (r.note ?? '').trim() !== '', 'A note is required');
 /** 08 §7.5: "ELI5 this selection" takes up to 12,000 characters and names up to 40 covered sections. */
 export const MAX_SELECTION_ELI5_CHARS = 12_000;
 const MAX_COVERED_SECTIONS = 40;

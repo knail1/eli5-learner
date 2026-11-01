@@ -57,8 +57,64 @@ function destinationError(err: unknown, folder: string): PublishError {
   return new PublishError('E_PUBLISH_FAILED', 'The copy could not be exported', err);
 }
 
-const cancelled = () => new PublishError('E_PUBLISH_CANCELLED', 'Publish cancelled');
+export const cancelled = () => new PublishError('E_PUBLISH_CANCELLED', 'Publish cancelled');
 const sha256 = (buf: Uint8Array) => createHash('sha256').update(buf).digest('hex');
+
+type Mkdir = (p: string, opts: { recursive: true }) => Promise<unknown>;
+
+/**
+ * 10 §5.1 steps 1-2, shared by every local export: `<export folder>/<slug>/`, refused inside the
+ * library (it would recurse into docs/), created if missing.
+ */
+export async function prepareExportDir(
+  ctx: Pick<PublishContext, 'slug' | 'settings' | 'libraryRoot'>,
+  home: string,
+  mkdir: Mkdir,
+): Promise<{ destDir: string; shown: string }> {
+  const dir = expandHome(ctx.settings.publish.local.dir, home);
+  const destDir = join(dir, ctx.slug);
+  const shown = abbreviateHome(dir, home);
+  if (ctx.libraryRoot !== undefined) {
+    const lib = await realpathLoose(ctx.libraryRoot);
+    if (isWithin(lib, await realpathLoose(destDir))) {
+      throw new PublishError('E_PUBLISH_DESTINATION', 'Choose an export folder outside the Library');
+    }
+  }
+  try {
+    await mkdir(destDir, { recursive: true });
+  } catch (err) {
+    throw destinationError(err, shown);
+  }
+  return { destDir, shown };
+}
+
+/**
+ * 10 §5.1 steps 3-4: temp file, fsync, verify against `expectedSha256`, atomic rename. The temp is
+ * removed on any failure; filesystem errors name the folder.
+ */
+export async function writeExportFile(
+  target: string,
+  data: Uint8Array,
+  o: { expectedSha256: string; shown: string; randomHex: () => string },
+): Promise<void> {
+  const tmp = `${target}.tmp-${o.randomHex()}`;
+  try {
+    const fh = await open(tmp, 'w', 0o644);
+    try {
+      await fh.writeFile(data);
+      await fh.sync();
+    } finally {
+      await fh.close();
+    }
+    if (sha256(await readFile(tmp)) !== o.expectedSha256) {
+      throw new PublishError('E_PUBLISH_FAILED', 'The exported copy did not match the document. Try again.');
+    }
+    await rename(tmp, target);
+  } catch (err) {
+    await rm(tmp, { force: true }).catch(() => {});
+    throw err instanceof PublishError ? err : destinationError(err, o.shown);
+  }
+}
 
 export interface LocalPublisherOptions {
   /** Home directory for `~` expansion (tests). */
@@ -103,23 +159,8 @@ export class LocalPublisher implements Publisher {
     const index = ctx.files.find((f) => f.relPath === 'index.html');
     if (!index) throw new PublishError('E_PUBLISH_FAILED', 'The document has nothing to export');
 
-    // Step 1: never export into the library (it would recurse into docs/).
-    const dir = expandHome(ctx.settings.publish.local.dir, this.home);
-    const destDir = join(dir, ctx.slug);
-    const shown = abbreviateHome(dir, this.home);
-    if (ctx.libraryRoot !== undefined) {
-      const lib = await realpathLoose(ctx.libraryRoot);
-      if (isWithin(lib, await realpathLoose(destDir))) {
-        throw new PublishError('E_PUBLISH_DESTINATION', 'Choose an export folder outside the Library');
-      }
-    }
-
-    // Step 2.
-    try {
-      await this.mkdir(destDir, { recursive: true });
-    } catch (err) {
-      throw destinationError(err, shown);
-    }
+    // Steps 1-2: never export into the library (it would recurse into docs/); create the folder.
+    const { destDir, shown } = await prepareExportDir(ctx, this.home, this.mkdir);
 
     // Steps 3-4: temp copy, fsync, verify, atomic rename; temps are removed on any failure.
     for (const f of ctx.files) {
@@ -148,24 +189,13 @@ export class LocalPublisher implements Publisher {
 
   private async copyOne(f: PublishFile, destDir: string, shown: string): Promise<void> {
     const target = join(destDir, ...f.relPath.split('/'));
-    const tmp = `${target}.tmp-${this.randomHex()}`;
+    let buf: Buffer;
     try {
       if (dirname(target) !== destDir) await this.mkdir(dirname(target), { recursive: true });
-      const buf = await readFile(f.absPath);
-      const fh = await open(tmp, 'w', 0o644);
-      try {
-        await fh.writeFile(buf);
-        await fh.sync();
-      } finally {
-        await fh.close();
-      }
-      if (sha256(await readFile(tmp)) !== f.sha256) {
-        throw new PublishError('E_PUBLISH_FAILED', 'The exported copy did not match the document. Try again.');
-      }
-      await rename(tmp, target);
+      buf = await readFile(f.absPath);
     } catch (err) {
-      await rm(tmp, { force: true }).catch(() => {});
-      throw err instanceof PublishError ? err : destinationError(err, shown);
+      throw destinationError(err, shown);
     }
+    await writeExportFile(target, buf, { expectedSha256: f.sha256, shown, randomHex: this.randomHex });
   }
 }

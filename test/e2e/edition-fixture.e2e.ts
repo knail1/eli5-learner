@@ -51,6 +51,7 @@ test.describe('cell F: fixture overlay (13 §10.1)', () => {
     await expect(l.win.locator('.doc-header h1')).toHaveText(TITLE);
     await expect(l.win.locator('.publish-controls > button')).toHaveText([
       'Export copy',
+      'Export Markdown',
       'Share to cloud drive',
       'Push to Pages',
     ]);
@@ -68,8 +69,9 @@ test.describe('cell F: fixture overlay (13 §10.1)', () => {
     ] as const) {
       await l.win.locator('.publish-controls').getByRole('button', { name: label, exact: true }).click();
       const chip = l.win.getByRole('group', { name: `${label} result` });
-      // The chip truncates the link text; its title holds the full URL (10 §7 step 1).
-      await expect(chip.locator('.chip-link')).toHaveAttribute(
+      // The chip truncates the link text; its title holds the full URL (10 §7 step 1). A result with
+      // several links lists one row per link, primary first.
+      await expect(chip.locator('.chip-link').first()).toHaveAttribute(
         'title',
         new RegExp(`^https://${host.replace(/\./g, '\\.')}/`),
       );
@@ -77,6 +79,13 @@ test.describe('cell F: fixture overlay (13 §10.1)', () => {
         .poll(async () => (await uploads()).filter((u) => u.targetId === targetId && u.slug === doc.topicSlug).length)
         .toBe(1);
     }
+    // The git fixture returns Pages URL (primary) and Commit: one row each, each with its own actions.
+    const pages = l.win.getByRole('group', { name: 'Push to Pages result' });
+    await expect(pages.getByRole('group', { name: /link$/ })).toHaveCount(2);
+    await expect(pages.getByRole('group', { name: 'Commit link' }).locator('.chip-link')).toHaveAttribute(
+      'title',
+      /^https:\/\/code\.example\.test\/fixture\/pages\/commit\//,
+    );
     // The documented file set reached the fakes (10 §3.3): index.html at least, never outside the slug.
     for (const u of await uploads()) {
       expect(u.files).toContain('index.html');

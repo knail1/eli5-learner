@@ -155,11 +155,12 @@ describe('createPublishService', () => {
 });
 
 describe('targets (10 §4 listTargets)', () => {
-  it('lists local, drive, git then overlay ids alphabetically, stubs unavailable', async () => {
+  it('lists local, markdown, drive, git then overlay ids alphabetically, stubs unavailable', async () => {
     w = await world(['zeta', 'alpha']);
     const targets = await w.svc.targets(w.slug);
     expect(targets.map((t) => [t.id, t.available])).toEqual([
       ['local', true],
+      ['markdown', true],
       ['drive', false],
       ['git', false],
       ['alpha', true],
@@ -584,5 +585,62 @@ describe('never touches the exported copy of other slugs or writes files beyond 
     await writeFile(path.join(w.exportDir, 'keep.txt'), 'user file');
     await w.svc.run(w.slug, 'local');
     expect(await readFile(path.join(w.exportDir, 'keep.txt'), 'utf8')).toBe('user file');
+  });
+});
+
+describe('publisher accounts (10 §5.4)', () => {
+  /** A publisher with an account whose act() waits until released. */
+  function withAccount(id: string) {
+    const f = new FakePublisher(id);
+    let release: () => void = () => {};
+    const seen: AbortSignal[] = [];
+    const act = vi.fn(async (_a: string, signal: AbortSignal) => {
+      seen.push(signal);
+      await new Promise<void>((r) => {
+        release = r;
+        signal.addEventListener('abort', () => r());
+      });
+      return { state: 'signed-in' as const, label: 'Service: someone@example.com' };
+    });
+    Object.assign(f, {
+      account: { status: vi.fn(async () => ({ state: 'signed-out' as const, label: 'Service' })), act },
+    });
+    w.registry.registerPublisher(id, () => f);
+    return { act, seen, release: () => release() };
+  }
+
+  it('flags only account-declaring publishers; other entries keep exactly id and availability', () => {
+    withAccount('notes');
+    const list = w.registry.publishers();
+    expect(list.find((p) => p.id === 'notes')).toEqual({ id: 'notes', available: true, account: true });
+    expect(list.find((p) => p.id === 'local')).toEqual({ id: 'local', available: true });
+    expect(w.registry.info().publishers.filter((p) => p.account)).toEqual([
+      { id: 'notes', available: true, account: true },
+    ]);
+  });
+
+  it('status reports the account; unknown or account-less publishers answer E_NOT_FOUND', async () => {
+    withAccount('notes');
+    expect(await w.svc.accountStatus('notes')).toEqual({ state: 'signed-out', label: 'Service' });
+    expect(await rejection(w.svc.accountStatus('local'))).toMatchObject({ code: 'E_NOT_FOUND' });
+    expect(await rejection(w.svc.accountStatus('nope'))).toMatchObject({ code: 'E_NOT_FOUND' });
+    expect(await rejection(w.svc.accountAction('local', 'sign-in'))).toMatchObject({ code: 'E_NOT_FOUND' });
+  });
+
+  it('one action per publisher at a time: a second request returns the running one', async () => {
+    const a = withAccount('notes');
+    const first = w.svc.accountAction('notes', 'sign-in');
+    const second = w.svc.accountAction('notes', 'sign-in');
+    a.release();
+    expect(await first).toEqual(await second);
+    expect(a.act).toHaveBeenCalledTimes(1);
+  });
+
+  it('dispose aborts a running action and waits for it', async () => {
+    const a = withAccount('notes');
+    const running = w.svc.accountAction('notes', 'install');
+    await w.svc.dispose(1000);
+    expect(a.seen[0]?.aborted).toBe(true);
+    await running;
   });
 });

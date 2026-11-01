@@ -105,7 +105,7 @@ export interface Section {
   blocks: DocBlock[];             // references: [] (rendered from DocumentModel.references)
   origin: 'generated' | 'regenerated' | 'merged' | 'merge-marker' | 'placeholder';
   updatedAt: string;
-  lastAction?: 'expand' | 'reexplain' | 'analogy' | 'deeper';
+  lastAction?: 'expand' | 'reexplain' | 'analogy' | 'deeper' | 'revise';
   merge?: { fromDocId: string; fromTitle: string; mergedAt: string };   // sections a merge inserted -> data-merged-from
   enh?: SectionEnhancement;       // woven-merge highlights (6.4); dropped when the section is regenerated
   mergeMarker?: { suggestionId: string; fromDocId: string; fromTitle: string; mergedAt: string;
@@ -516,7 +516,7 @@ Parse with `linkedom` in main, walk the tree, keep only allowlisted nodes:
 - Attributes: geometry and presentation attributes (`d x y x1 y1 x2 y2 cx cy r rx ry width height
   points transform viewBox preserveAspectRatio fill stroke stroke-width stroke-dasharray
   stroke-linecap stroke-linejoin opacity fill-opacity stroke-opacity font-size font-weight
-  text-anchor dominant-baseline marker-start marker-end marker-mid offset stop-color id
+  text-anchor dominant-baseline paint-order marker-start marker-end marker-mid offset stop-color id
   role aria-label`), plus `href`/`xlink:href` on `use` only when it starts with `#`.
 - Removed: `script`, `style`, `foreignObject`, `image`, `a`, `animate*`, `set`, every `on*`
   attribute, `style` attributes, any `url(` not of the form `url(#id)`.
@@ -532,6 +532,30 @@ Parse with `linkedom` in main, walk the tree, keep only allowlisted nodes:
   with section IDs and other diagrams.
 - Root gets `role="img"`, `aria-label` from `diagram.alt`, and a `viewBox` if missing (computed
   from `width`/`height`, else the block is dropped).
+
+**Label contrast.** Every diagram sanitize (new and stored diagrams, so a stored document gets it
+the next time it is saved; never the theme logo) fixes text that would be hard to read on its
+backdrop:
+
+1. Walk the SVG in paint order and judge each `text` with explicit numeric `x` and `y`.
+2. Its backdrop is the last solid `rect`, `circle` or `ellipse` painted before it that contains its
+   anchor point. Only `translate` transforms are followed; any other transform on the text or its
+   backdrop leaves the text unjudged. A shape with fill opacity or element opacity under 0.5 counts
+   as no shape. No containing shape means the page.
+3. Palette classes: ink, paper, and the accent fills `viz-1..8`. Muted and rule backdrops are left
+   alone.
+
+| Backdrop | Text | Result |
+| --- | --- | --- |
+| paper, or none (the page) | paper-coloured | ink |
+| paper, or none | anything else | unchanged |
+| ink | anything but paper | paper |
+| accent (`viz-1..8`) | anything but paper | ink, with a 3 px round paper outline painted behind the glyphs (`viz-stroke-paper`, `stroke-width="3"`, `stroke-linejoin="round"`, `paint-order="stroke"`) |
+| accent | paper | unchanged |
+
+Recoloured text and its nested `tspan`s first lose their existing fill and stroke colours
+(attributes, style, theme classes). Faint fills, unjudged transforms and already-correct text are
+untouched, so the pass is idempotent and existing golden diagrams do not change.
 
 ### 7.4 Stock photos (`src/main/photos/`, HOOK-DOC-03)
 

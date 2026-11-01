@@ -136,12 +136,14 @@ queued ─► reading ─► extracting ─► generating ─► saving ─► d
 
 | Lane | Job kind | Default slots | Rationale |
 | --- | --- | --- | --- |
-| Create | `create` | 1 | Document generation makes several long LLM calls. One at a time keeps provider rate limits and status simple. |
-| Section | `section` | 1 | Interactive refinements (doc 08) must not wait behind a 10-minute create job. |
+| Create | `create` | `pipeline.maxConcurrentJobs` (default 1) | Document generation makes several long LLM calls. One at a time by default keeps provider rate limits and status simple; the user may allow up to 3. |
+| Section | `section` | 1 (always) | Interactive refinements (doc 08) must not wait behind a 10-minute create job. |
 
 - Each lane is FIFO in `JobId` (ULID) order.
 - The user can start any number of create jobs while one runs (PRD "Concurrency"). They wait as `queued` and show their position (§6).
-- Create-lane slots come from `pipeline.maxConcurrentJobs` (integer 1 to 3, default 1). This is a new key proposed for the schema in doc 12. Values out of range are clamped, with a log warning.
+- Create-lane slots come from `pipeline.maxConcurrentJobs` (integer 1 to 3, default 1, lockable; doc 12), shown in Settings > Documents as "Documents generated at once" (doc 11 §7). Values out of range are clamped, with a log warning. The section lane always has one slot.
+- Changing the setting re-evaluates the queue at once: waiting jobs that now fit start. Queue status lines are re-emitted only when their text changed.
+- **Position** of a waiting job = waiting jobs ahead of it in its lane + `max(1, running in lane − slots + 1)`. A job that a free slot will start immediately has position 0. §6 maps the position to the status line.
 - Within one job, the pipeline's generation steps run in the order of §5.4. Doc 02 may run the in-depth and ELI5 calls concurrently and parallelize chunk calls, all through its shared limiter. The total number of in-flight LLM requests across all jobs is bounded by `llm.maxConcurrency` (doc 02 §7.3), not by the pipeline.
 - Stage work that is not an LLM call (fetching and extraction) is not throttled across jobs beyond the lane slot. Doc 05 has its own per-host limits.
 
@@ -248,7 +250,9 @@ Doc 11 renders the status line (lower right). `status.ts` is the only producer o
 
 | Status / step | String |
 | --- | --- |
-| `queued`, position 1 behind a running job | `Queued` |
+| `queued`, position 0 (a free slot starts it now) | `Queued` |
+| `queued`, position 1, lane has one slot | `Queued: starts after the current run` |
+| `queued`, position 1, lane has more than one slot | `Queued: starts when a run finishes` |
 | `queued`, position n ≥ 2 | `Queued ({n} ahead)` |
 | `queued` after a crash resume | `Resuming` |
 | `reading` | `Reading sources ({done} of {total})`. For a single source: `Reading sources` |
@@ -263,7 +267,7 @@ Doc 11 renders the status line (lower right). `status.ts` is the only producer o
 | `done`, no warnings | `Done: {title}` |
 | `done`, with skipped sources | `Done: {title} · {k} source(s) skipped` |
 | `done`, other warnings only | `Done: {title} · with notes` |
-| `failed` / `NO_USABLE_CONTENT` | `Failed: no usable content in {n} source(s)` |
+| `failed` / `NO_USABLE_CONTENT` | `Failed: no usable content in {n} source(s)`. With exactly one input and exactly one skipped source, ` · {reason}` is appended: the skip reason on one line, first letter capitalised, trailing period dropped (e.g. `Failed: no usable content in 1 source(s) · File is larger than the supported size`). Several sources keep the count alone |
 | `failed` / `LLM_AUTH` | `Failed: API key rejected. Check Settings` |
 | `failed` / `LLM_UNAVAILABLE` | `Failed: AI service unavailable. Try again later` |
 | `failed` / `SAVE_FAILED` | `Failed: could not save the document` |
@@ -358,7 +362,7 @@ At enqueue time (§5.1), inputs are made independent of the outside world:
 | Clipboard image | Written as PNG into `inputs/` |
 | Clipboard text / rich text | Written as `.txt` / `.html` into `inputs/` |
 | Clipboard file references | Treated as dropped files |
-| Clipboard drafts staged before Enter (doc 03 §6) | Copied into `jobs/<jobId>/inputs/` (APFS clone where possible). Never moved: the draft stays in the input zone and may be started again (11 §5.4), and doc 03 §6.1 owns its deletion |
+| Clipboard drafts staged before Enter (doc 03 §6) | Copied into `jobs/<jobId>/inputs/` (APFS clone where possible). Never moved: the draft may keep its id for unsent staged pastes (11 §5.4 step 5), and doc 03 §6.1 owns its deletion |
 | URL | Stored as a string only. Fetched in the reading stage |
 
 The `SourceInput.ref` shown to the user (in references and skipped lists) is always the original name or URL, never the staging path.
@@ -446,7 +450,7 @@ All channels are registered in `src/main/ipc/jobs.ts` (with the other handlers u
 
 Section jobs are started through doc 08's `eli5:doc:regenerate-section` / `eli5:doc:create-section-eli5` channels. Those channels call `JobQueue.enqueueSection()` internally and report through `eli5:jobs:changed`.
 
-Renderer payloads are validated with a schema in the main process. Main cannot tell a preload-captured path from a forged one, so raw paths are never accepted from the renderer. Instead, `src/preload/app.ts` registers its own `drop` listener, ignores events where `event.isTrusted` is false, resolves each file with `webUtils.getPathForFile`, and sends the paths to main via `eli5:sources:register-drop`, which returns opaque input ids. The renderer keeps working with paths (`window.eli5.files.pathFor`); the preload swaps in the id main minted for each dropped path when it sends `eli5:jobs:start`, so file `SourceInput`s there carry those ids and main maps them back to paths from its own registry. An unknown id is refused with `E_FORBIDDEN`. A start does not use the ids up, because the input zone keeps its draft for Start again or Restart (11 §5.4). Instead, the renderer releases an id with `eli5:sources:release-drops` when its chip is removed (and no other chip names the same file) or the draft is cleared, and the registry is an LRU bounded at 1000 entries (the most paths one `register-drop` may carry), so ids from forgotten drafts age out. Only ids main minted for a trusted drop or a clipboard read ever resolve. Details are in doc 03 §6.3 and doc 12.
+Renderer payloads are validated with a schema in the main process. Main cannot tell a preload-captured path from a forged one, so raw paths are never accepted from the renderer. Instead, `src/preload/app.ts` registers its own `drop` listener, ignores events where `event.isTrusted` is false, resolves each file with `webUtils.getPathForFile`, and sends the paths to main via `eli5:sources:register-drop`, which returns opaque input ids. The renderer keeps working with paths (`window.eli5.files.pathFor`); the preload swaps in the id main minted for each dropped path when it sends `eli5:jobs:start`, so file `SourceInput`s there carry those ids and main maps them back to paths from its own registry. An unknown id is refused with `E_FORBIDDEN`. A start does not use the ids up, because inputs can be started again (Run again, Use again, or chips added while a start was in flight; 11 §5.4). Instead, the renderer releases an id with `eli5:sources:release-drops` when its chip is removed (and no other chip names the same file) or the draft is cleared, and the registry is an LRU bounded at 1000 entries (the most paths one `register-drop` may carry), so ids from forgotten drafts age out. Only ids main minted for a trusted drop or a clipboard read ever resolve. Details are in doc 03 §6.3 and doc 12.
 
 ## 12. Edge cases
 

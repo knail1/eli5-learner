@@ -12,8 +12,11 @@ export type SaveState = Record<string, { saved: boolean; error?: string }>;
 
 export interface SettingSaver {
   state: SaveState;
-  /** Debounced `eli5:settings:set` of `patch`; `key` is the dotted path the note belongs to. */
-  save(key: string, patch: DeepPartial<Settings>): void;
+  /**
+   * Debounced `eli5:settings:set` of `patch`; `key` is the dotted path the note belongs to.
+   * `immediate` skips the delay (a pick from a list) and still replaces any pending save of `key`.
+   */
+  save(key: string, patch: DeepPartial<Settings>, opts?: { immediate?: boolean }): void;
 }
 
 export interface SectionProps {
@@ -95,16 +98,19 @@ export function useSettingSaver(): SettingSaver {
     const t = timers.current;
     return () => t.forEach(clearTimeout);
   }, []);
-  const save = useCallback((key: string, patch: DeepPartial<Settings>) => {
+  const save = useCallback((key: string, patch: DeepPartial<Settings>, opts?: { immediate?: boolean }) => {
     clearTimeout(timers.current.get(key));
     setState((s) => ({ ...s, [key]: { saved: false } }));
     timers.current.set(
       key,
-      setTimeout(() => {
-        void window.eli5.settings.set(patch).then((r) => {
-          setState((s) => ({ ...s, [key]: r.ok ? { saved: true } : { saved: false, error: r.error.message } }));
-        });
-      }, SAVE_DEBOUNCE_MS),
+      setTimeout(
+        () => {
+          void window.eli5.settings.set(patch).then((r) => {
+            setState((s) => ({ ...s, [key]: r.ok ? { saved: true } : { saved: false, error: r.error.message } }));
+          });
+        },
+        opts?.immediate ? 0 : SAVE_DEBOUNCE_MS,
+      ),
     );
   }, []);
   return { state, save };

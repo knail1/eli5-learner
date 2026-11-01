@@ -106,7 +106,7 @@ describe('checkTrackedPaths (13 §11 rule 1, 12 §12 gate 2)', () => {
   });
 });
 
-describe('scanSecrets (13 §11 rule 2, baseline SecretScanner from 10 §5.4)', () => {
+describe('scanSecrets (13 §11 rule 2, baseline SecretScanner from 10 §5.6)', () => {
   it('reports masked findings with path, line and rule', () => {
     const key = fakeKey();
     const found = scanSecrets([{ path: 'src/a.ts', text: `ok\nconst k = "${key}";\n` }], []);

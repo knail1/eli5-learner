@@ -2,57 +2,82 @@
   "name": "openai/stream",
   "interactions": [
     {
-      "request": { "path": "/v1/chat/completions", "match": { "stream": true } },
+      "request": {
+        "path": "/v1/responses",
+        "match": {
+          "stream": true,
+          "store": false
+        }
+      },
       "response": {
         "status": 200,
         "sse": [
           {
+            "event": "response.created",
             "data": {
-              "id": "chatcmpl-1",
-              "object": "chat.completion.chunk",
-              "created": 1700000000,
-              "model": "gpt-5",
-              "choices": [{ "index": 0, "delta": { "role": "assistant", "content": "" }, "finish_reason": null }]
+              "type": "response.created",
+              "sequence_number": 0,
+              "response": {
+                "id": "resp_1",
+                "object": "response",
+                "created_at": 1700000000,
+                "model": "gpt-5",
+                "output": [],
+                "status": "in_progress"
+              }
             }
           },
           {
+            "event": "response.output_text.delta",
             "data": {
-              "id": "chatcmpl-1",
-              "object": "chat.completion.chunk",
-              "created": 1700000000,
-              "model": "gpt-5",
-              "choices": [{ "index": 0, "delta": { "content": "Widgets " }, "finish_reason": null }]
+              "type": "response.output_text.delta",
+              "sequence_number": 1,
+              "item_id": "msg_1",
+              "output_index": 0,
+              "content_index": 0,
+              "delta": "Widgets "
             }
           },
           {
+            "event": "response.output_text.delta",
             "data": {
-              "id": "chatcmpl-1",
-              "object": "chat.completion.chunk",
-              "created": 1700000000,
-              "model": "gpt-5",
-              "choices": [{ "index": 0, "delta": { "content": "are made in batches." }, "finish_reason": null }]
+              "type": "response.output_text.delta",
+              "sequence_number": 2,
+              "item_id": "msg_1",
+              "output_index": 0,
+              "content_index": 0,
+              "delta": "are made in batches."
             }
           },
           {
+            "event": "response.incomplete",
             "data": {
-              "id": "chatcmpl-1",
-              "object": "chat.completion.chunk",
-              "created": 1700000000,
-              "model": "gpt-5",
-              "choices": [{ "index": 0, "delta": {}, "finish_reason": "length" }]
+              "type": "response.incomplete",
+              "sequence_number": 3,
+              "response": {
+                "id": "resp_1",
+                "object": "response",
+                "created_at": 1700000000,
+                "model": "gpt-5",
+                "output": [],
+                "status": "incomplete",
+                "incomplete_details": {
+                  "reason": "max_output_tokens"
+                },
+                "usage": {
+                  "input_tokens": 20,
+                  "output_tokens": 7,
+                  "total_tokens": 27,
+                  "input_tokens_details": {
+                    "cached_tokens": 0
+                  },
+                  "output_tokens_details": {
+                    "reasoning_tokens": 0
+                  }
+                }
+              }
             }
-          },
-          {
-            "data": {
-              "id": "chatcmpl-1",
-              "object": "chat.completion.chunk",
-              "created": 1700000000,
-              "model": "gpt-5",
-              "choices": [],
-              "usage": { "prompt_tokens": 20, "completion_tokens": 7, "total_tokens": 27 }
-            }
-          },
-          { "data": "[DONE]" }
+          }
         ]
       },
       "repeat": true

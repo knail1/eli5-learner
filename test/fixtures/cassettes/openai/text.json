@@ -3,16 +3,23 @@
   "interactions": [
     {
       "request": {
-        "path": "/v1/chat/completions",
-        "match": { "stream": true, "stream_options": { "include_usage": true } }
+        "path": "/v1/responses",
+        "match": {
+          "stream": true,
+          "store": false
+        }
       },
       "response": {
         "status": 200,
-        "openaiCompletion": {
+        "openaiResponse": {
           "model": "gpt-5-2026-01-01",
           "content": "Example Widgets Inc. makes widgets.",
-          "finish_reason": "stop",
-          "usage": { "prompt_tokens": 42, "completion_tokens": 9, "cached_tokens": 10 }
+          "status": "completed",
+          "usage": {
+            "input_tokens": 42,
+            "output_tokens": 9,
+            "cached_tokens": 10
+          }
         }
       },
       "repeat": true

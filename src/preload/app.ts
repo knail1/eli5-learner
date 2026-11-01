@@ -121,6 +121,9 @@ const api: Eli5Api = {
   llm: {
     testConnection: (provider) => invoke(IPC.llm.testConnection, provider ? { provider } : undefined),
     models: (provider) => invoke(IPC.llm.models, { provider }),
+    credentialStatus: () => invoke(IPC.llm.credentialStatus),
+    reloadCredentials: () => invoke(IPC.llm.reloadCredentials),
+    signIn: () => invoke(IPC.llm.signIn),
   },
   settings: {
     get: () => invoke(IPC.settings.get),
@@ -143,6 +146,8 @@ const api: Eli5Api = {
     openLink: (url) => invoke(IPC.publish.openLink, { url }),
     reveal: (url) => invoke(IPC.publish.reveal, { url }),
     onProgress: on(IPC.publish.progress),
+    accountStatus: (targetId) => invoke(IPC.publish.accountStatus, { targetId }),
+    accountAction: (targetId, action) => invoke(IPC.publish.accountAction, { targetId, action }),
   },
   auth: {
     status: () => invoke(IPC.auth.status),

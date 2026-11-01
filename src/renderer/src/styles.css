@@ -108,6 +108,41 @@ body {
   -webkit-app-region: drag;
   pointer-events: none;
 }
+/* Top-status holder (02 §14, 10 §5.4): top right of the title strip; moves nothing else. */
+.top-status {
+  position: absolute;
+  top: 2px;
+  right: 10px;
+  z-index: 5;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 12px;
+  -webkit-app-region: no-drag;
+}
+.top-status:empty {
+  display: none;
+}
+.credential-bar,
+.account-bar,
+.account-item {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.credential-bar button,
+.account-item button {
+  font-size: 12px;
+  padding: 1px 8px;
+}
+.credential-bar .status-label,
+.account-item .status-label {
+  color: var(--muted);
+}
+.credential-bar.state-expired .status-label,
+.account-item.state-error .status-label {
+  color: var(--danger);
+}
 .sidebar {
   display: flex;
   flex-direction: column;
@@ -131,7 +166,8 @@ body {
 }
 .main-col {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  /* viewer, the bottom panel's resize handle, the bottom panel (11 §5.1) */
+  grid-template-rows: minmax(0, 1fr) auto auto;
   min-width: 0;
   min-height: 0;
 }
@@ -147,6 +183,20 @@ body {
   border-top: 1px solid var(--line);
   max-height: 45vh;
   min-height: 0;
+}
+.bottom-row.sized {
+  max-height: none;
+}
+.bottom-handle {
+  height: 6px;
+  margin-bottom: -3px;
+  cursor: row-resize;
+  z-index: 1;
+  position: relative;
+}
+.bottom-handle:hover,
+.bottom-handle:focus-visible {
+  background: var(--line);
 }
 .bottom-row > div {
   min-width: 0;
@@ -545,6 +595,12 @@ button.icon-button {
   justify-content: center;
   padding: 4px 7px;
 }
+.result-links {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
 .result-chip {
   display: flex;
   align-items: center;
@@ -637,6 +693,27 @@ button.icon-button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.chip-copy {
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+}
+/* Last run (11 §5.4): dimmed, no remove buttons, with Use again. */
+.last-run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.chip.dimmed {
+  opacity: 0.6;
+  padding-right: 8px;
+}
 .chip-remove {
   min-width: 24px;
   min-height: 24px;
@@ -650,6 +727,9 @@ button.icon-button {
   grid-template-columns: 72px minmax(0, 1fr);
   align-items: start;
   gap: 8px;
+}
+.field.field-with-action {
+  grid-template-columns: 72px minmax(0, 1fr) auto;
 }
 .field-label {
   color: var(--muted);

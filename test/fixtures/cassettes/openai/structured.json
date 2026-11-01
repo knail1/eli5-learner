@@ -3,16 +3,18 @@
   "interactions": [
     {
       "request": {
-        "path": "/v1/chat/completions",
-        "match": { "response_format": { "type": "json_schema", "json_schema": { "strict": true } } }
+        "path": "/v1/responses"
       },
       "response": {
         "status": 200,
-        "openaiCompletion": {
+        "openaiResponse": {
           "model": "gpt-5",
           "content": "{\"title\":\"Widget supply\",\"topicSlugHint\":\"widget-supply\",\"summary\":\"How Example Widgets Inc. plans supply.\"}",
-          "finish_reason": "stop",
-          "usage": { "prompt_tokens": 300, "completion_tokens": 40 }
+          "status": "completed",
+          "usage": {
+            "input_tokens": 300,
+            "output_tokens": 40
+          }
         }
       },
       "repeat": true

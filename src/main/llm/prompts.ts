@@ -54,6 +54,7 @@ export const PROMPT_VARS: Readonly<Record<PromptId, readonly string[]>> = {
   'section-expand': ['skills', 'tabKind', 'outline', 'section', 'prevText', 'nextText', 'selection', 'note'],
   'section-reexplain': ['skills', 'tabKind', 'outline', 'section', 'prevText', 'nextText', 'selection', 'note'],
   'section-analogy': ['skills', 'tabKind', 'outline', 'section', 'prevText', 'nextText', 'selection', 'note'],
+  'section-revise': ['skills', 'tabKind', 'outline', 'section', 'prevText', 'nextText', 'selection', 'note'],
   'section-deeper': [
     'skills',
     'tabKind',

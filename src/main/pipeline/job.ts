@@ -74,6 +74,7 @@ export function createJob(i: CreateJobInput): Job {
 /** Runtime state that is not on the record but shapes the snapshot. */
 export interface SnapshotContext {
   queuePosition?: number;
+  queueSlots?: number;
   runningSteps?: readonly JobStep[];
   /** library.commitDocument() has been called: cancel is refused from here on (06 §8.1). */
   commitStarted?: boolean;
@@ -89,6 +90,7 @@ export function snapshotOf(job: Job, ctx: SnapshotContext = {}): JobSnapshot {
     status: job.status,
     statusLine: statusLine(job, {
       ...(ctx.queuePosition !== undefined ? { queuePosition: ctx.queuePosition } : {}),
+      ...(ctx.queueSlots !== undefined ? { queueSlots: ctx.queueSlots } : {}),
       ...(ctx.runningSteps ? { runningSteps: ctx.runningSteps } : {}),
       ...(job.tabLabel ? { tabLabel: job.tabLabel } : {}),
     }),

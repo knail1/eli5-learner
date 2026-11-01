@@ -1,5 +1,5 @@
 // Selection bridge and inline action menu (08 §5). Installed only when window.eli5Doc exists
-// (08 §2 item 6): snapshot, six actions + note, submit, busy marks and inline notices.
+// (08 §2 item 6): snapshot, seven actions + note, submit, busy marks and inline notices.
 import type { DocBridge } from '../bridge';
 import type { TabsApi } from '../tabs';
 import { placeMenu } from './menu';
@@ -13,6 +13,7 @@ export const MENU_ACTIONS = [
   ['deeper', 'Go deeper'],
   ['eli5-tab', 'Create a separate ELI5 for this section'],
   ['eli5-selection', 'ELI5 this selection'],
+  ['revise', 'Edit with my note'],
 ] as const;
 export type MenuActionId = (typeof MENU_ACTIONS)[number][0];
 
@@ -84,6 +85,9 @@ export function normalizeNote(s: string): string {
 }
 
 const hasText = (s: string): boolean => s.replace(/\s/g, '').length > 0;
+
+/** "Edit with my note" needs a note: the note is its only instruction (08 §5.1). */
+const needsNote = (action: string): boolean => action === 'revise';
 
 /** The part of `range` inside `el`, or null when they do not overlap. */
 function within(range: Range, el: Element): Range | null {
@@ -230,9 +234,11 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
     menu.style.width = p.width !== undefined ? `${String(p.width)}px` : '';
   };
 
-  const focusAction = (i: number): void => {
+  /** Roving focus; arrows skip disabled actions (an empty note disables "Edit with my note"). */
+  const focusAction = (i: number, dir: 1 | -1 = 1): void => {
     const n = buttons.length;
-    const k = ((i % n) + n) % n;
+    let k = ((i % n) + n) % n;
+    for (let tries = 0; tries < n && buttons[k]?.disabled; tries++) k = (((k + dir) % n) + n) % n;
     buttons.forEach((b, j) => (b.tabIndex = j === k ? 0 : -1));
     buttons[k]?.focus();
   };
@@ -246,10 +252,13 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
       const isBusy = busy.has(s.sectionId);
       hint.textContent = isBusy ? 'This section is being updated' : s.clipped ? `Applies to: ${s.heading}` : '';
       const tooLong = s.selection.tooLong;
-      for (const b of buttons) b.disabled = isBusy || (tooLong && b.dataset.action === 'eli5-selection');
+      note.value = '';
+      for (const b of buttons) {
+        const action = b.dataset.action ?? '';
+        b.disabled = isBusy || (tooLong && action === 'eli5-selection') || needsNote(action);
+      }
       cap.textContent = tooLong && !isBusy ? TOO_LONG_NOTE : '';
       buttons.forEach((b, j) => (b.tabIndex = j === 0 ? 0 : -1));
-      note.value = '';
       menu.hidden = false;
       setHighlight(snapRange);
       place();
@@ -264,10 +273,11 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
       const s = snap;
       if (!s || busy.has(s.sectionId)) return;
       if (action === 'eli5-selection' && s.selection.tooLong) return;
+      const n = normalizeNote(rawNote ?? '');
+      if (needsNote(action) && !n) return;
       ctl.close();
       const section = doc.getElementById(s.sectionId);
       markBusy(doc, section, action);
-      const n = normalizeNote(rawNote ?? '');
       const base = { tabKey: s.tabKey, sectionId: s.sectionId, selectionText: s.text, ...(n ? { note: n } : {}) };
       let res: { ok: boolean; error?: { message?: string } };
       try {
@@ -306,12 +316,18 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
   for (const [i, b] of buttons.entries()) {
     b.addEventListener('click', () => void ctl.submit(b.dataset.action as MenuActionId, note.value));
     b.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') focusAction(i + 1);
-      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') focusAction(i - 1);
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') focusAction(i + 1, 1);
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') focusAction(i - 1, -1);
       else return;
       e.preventDefault();
     });
   }
+  // "Edit with my note" turns on as soon as the note has text (and the section is not busy).
+  note.addEventListener('input', () => {
+    const empty = !normalizeNote(note.value);
+    const isBusy = snap ? busy.has(snap.sectionId) : true;
+    for (const b of buttons) if (needsNote(b.dataset.action ?? '')) b.disabled = isBusy || empty;
+  });
   note.addEventListener('keydown', (e) => {
     // Enter never submits, so a half-typed note cannot fire the wrong action (08 §5.4).
     if (e.key === 'Enter') {

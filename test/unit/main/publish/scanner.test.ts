@@ -33,7 +33,7 @@ function rulesIn(text: string): string[] {
   return scanText('index.html', text).map((f) => f.rule);
 }
 
-describe('BaselineSecretScanner rules (10 §5.4)', () => {
+describe('BaselineSecretScanner rules (10 §5.6)', () => {
   it('private-key-block', () => {
     expect(fake.privateKey).toContain('PRIVATE KEY');
     expect(rulesIn(`<pre>${fake.privateKey}\nMIIE...\n</pre>`)).toEqual(['private-key-block']);

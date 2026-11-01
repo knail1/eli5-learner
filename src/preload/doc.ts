@@ -16,7 +16,7 @@ function currentSlug(): string {
 // 08 §3 / 07 §4: the same bounds main's zod schemas enforce (src/main/ipc/doc.ts).
 const SECTION_ID_RE = /^sec-([a-z][a-z0-9]{1,15})-[0-9a-f]{8}$/;
 const TAB_KEY_RE = /^(indepth|eli5|sx[0-9a-f]{6})$/;
-const ACTIONS = ['expand', 'reexplain', 'analogy', 'deeper'];
+const ACTIONS = ['expand', 'reexplain', 'analogy', 'deeper', 'revise'];
 /** 08 §4.3 item 4. */
 const SCROLL_BUFFER_MS = 5000;
 
@@ -65,6 +65,8 @@ function validAct(r: ActFields, needsAction: boolean): boolean {
   if (r.note !== undefined && (typeof r.note !== 'string' || r.note.length > 200 || /[\r\n]/.test(r.note)))
     return false;
   if (!needsAction) return validScope(r);
+  // "Edit with my note" is malformed without a note (08 §5.1).
+  if (r.action === 'revise' && (typeof r.note !== 'string' || r.note.trim() === '')) return false;
   return typeof r.action === 'string' && ACTIONS.includes(r.action);
 }
 

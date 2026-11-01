@@ -3,7 +3,7 @@ import { extname } from 'node:path';
 import { PublishError } from './types';
 import type { PublishFile, SecretFinding, SecretScanner } from './types';
 
-/** One pattern rule (10 §5.4). `group` selects the capture to report; `test` post-filters it. */
+/** One pattern rule (10 §5.6). `group` selects the capture to report; `test` post-filters it. */
 interface Rule {
   id: string;
   re: RegExp;
@@ -24,7 +24,7 @@ export function shannonEntropy(s: string): number {
   return h;
 }
 
-/** Rules in §5.4 table order. All regexes are global so every match on a line is reported. */
+/** Rules in §5.6 table order. All regexes are global so every match on a line is reported. */
 const RULES: readonly Rule[] = [
   { id: 'private-key-block', re: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/g },
   {
@@ -54,7 +54,7 @@ const RULES: readonly Rule[] = [
   },
 ];
 
-/** Skipped without decoding (§5.4 "binary files are skipped"). SVG is text and is scanned. */
+/** Skipped without decoding (§5.6 "binary files are skipped"). SVG is text and is scanned. */
 const BINARY_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.woff', '.woff2', '.ttf', '.otf']);
 
 /** All but the first 4 chars masked; capped so a long match never widens the UI. */
@@ -69,7 +69,7 @@ function looksBinary(buf: Uint8Array): boolean {
   return false;
 }
 
-/** Pure: scan one decoded text. Exported for tests and for log redaction (§5.3 delegate step 3). */
+/** Pure: scan one decoded text. Exported for tests and for log redaction (§5.5 delegate step 3). */
 export function scanText(relPath: string, text: string): SecretFinding[] {
   const findings: SecretFinding[] = [];
   const lines = text.split(/\r\n|\n|\r/);
@@ -97,7 +97,7 @@ export interface BaselineSecretScannerOptions {
   readFile?: (absPath: string) => Promise<Uint8Array>;
 }
 
-/** Public pattern-based scanner, no dependencies (10 §5.4). Never logs unmasked values. */
+/** Public pattern-based scanner, no dependencies (10 §5.6). Never logs unmasked values. */
 export class BaselineSecretScanner implements SecretScanner {
   readonly id = 'baseline';
   private readonly read: (absPath: string) => Promise<Uint8Array>;

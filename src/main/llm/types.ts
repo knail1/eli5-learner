@@ -4,7 +4,8 @@ import type { LLMError } from './errors';
 /** Provider ids are owned by the settings schema (12 §3); re-exported here (02 §3). */
 export type { ProviderId };
 /** IPC-facing shapes for eli5:llm:* channels (02 §14) live in the preload contract. */
-export type { TestConnectionResult, ModelsResult } from '../../preload/contract';
+export type { TestConnectionResult, ModelsResult, CredentialStatus } from '../../preload/contract';
+import type { CredentialStatus } from '../../preload/contract';
 
 /** Catalogue prompt ids (02 §9). */
 export type PromptId =
@@ -16,6 +17,7 @@ export type PromptId =
   | 'section-reexplain'
   | 'section-analogy'
   | 'section-deeper'
+  | 'section-revise'
   | 'section-eli5-tab'
   | 'selection-eli5-tab'
   | 'summary'
@@ -32,6 +34,7 @@ export const PROMPT_IDS: readonly PromptId[] = [
   'section-reexplain',
   'section-analogy',
   'section-deeper',
+  'section-revise',
   'section-eli5-tab',
   'selection-eli5-tab',
   'summary',
@@ -117,6 +120,10 @@ export interface LLMProvider {
   /** Callers pass the request through PromptPolicy.preSendFilter first (HOOK-LLM-02). */
   countTokens?(req: Pick<GenerationRequest, 'system' | 'messages' | 'signal'>): Promise<number>;
   testConnection(): Promise<ConnectionCheck>;
+  /** Optional seam for expiring credentials (02 §14); providers without it show no bar. */
+  credentialStatus?(): Promise<CredentialStatus>;
+  /** Optional interactive sign-in; resolves when done, rejects with LLMError on failure. */
+  signIn?(): Promise<void>;
 }
 
 /**

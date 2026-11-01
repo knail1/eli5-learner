@@ -254,7 +254,7 @@ describe('App layout and routes (11 §5, §6)', () => {
     const radios = Array.from(host.querySelectorAll('#settings-ai input[type="radio"]')).map(
       (r) => r.parentElement?.textContent,
     );
-    expect(radios).toEqual(['Claude', 'OpenAI']);
+    expect(radios).toEqual(['Claude', 'ChatGPT (OpenAI)']);
     // Dormant keys have no controls. Settings > Notifications may name the remote link kinds only in
     // its preferred-link select and the explanation of the disabled published-link option (11 §7);
     // just those elements are removed before the scan, so the rest of the section is still checked.
@@ -334,10 +334,16 @@ describe('SettingsScreen (11 §7)', () => {
     expect(host.textContent).toContain('3 documents');
   });
 
-  it('does not let a save echo overwrite newer typing in the model field', async () => {
+  it('does not let a save echo overwrite newer typing in the custom model field', async () => {
     const host = await render(App);
     await click(button(host, 'Settings'));
-    const field = host.querySelector<HTMLInputElement>('input[aria-label="Model"]');
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Model"]')!;
+    await act(async () => {
+      select.value = '__custom__';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await flush();
+    const field = host.querySelector<HTMLInputElement>('input[aria-label="Custom model ID"]');
     await act(async () => field?.focus());
     await type(field, 'gpt-4');
     await type(field, 'gpt-4o');
@@ -368,7 +374,7 @@ describe('DocHeader (11 §5.3)', () => {
     const local: PublishTarget = {
       id: 'local',
       kind: 'local',
-      label: 'Export',
+      label: 'Export copy',
       available: true,
       requiresSignIn: false,
     };

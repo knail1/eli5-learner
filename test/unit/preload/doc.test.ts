@@ -81,6 +81,8 @@ describe('doc preload (08 §4.3)', () => {
       { ...act, note: 'two\nlines' },
       { ...act, note: 'x'.repeat(201) },
       { ...act, selectionText: 'x'.repeat(4001) },
+      { ...act, action: 'revise' },
+      { ...act, action: 'revise', note: '  ' },
     ]) {
       expect(await api().regenerateSection(bad)).toMatchObject({ ok: false, error: { code: 'E_BAD_REQUEST' } });
     }

@@ -16,7 +16,15 @@ import { log as defaultLog, type Logger } from '../security';
 import { buildPublishFileSet } from './files';
 import { expandHome } from './local';
 import { PublishError } from './types';
-import type { PublicationRecord, PublishContext, PublishResult, PublishStage, PublishTarget } from './types';
+import type {
+  AccountStatus,
+  PublicationRecord,
+  PublishContext,
+  PublisherAccount,
+  PublishResult,
+  PublishStage,
+  PublishTarget,
+} from './types';
 
 /** A request the service refuses before publishing; the IPC boundary maps `code` as is. */
 export class PublishRequestError extends Error {
@@ -54,8 +62,8 @@ export interface PublishServiceHandle extends PublishService {
   dispose(timeoutMs?: number): Promise<void>;
 }
 
-/** 10 §4: `local`, `drive`, `git`, then overlay ids alphabetically. */
-const BUILTIN_ORDER = ['local', 'drive', 'git'];
+/** 10 §4: `local`, `markdown` (right after Export copy), `drive`, `git`, then overlay ids alphabetically. */
+const BUILTIN_ORDER = ['local', 'markdown', 'drive', 'git'];
 function orderIds(ids: string[]): string[] {
   const builtin = BUILTIN_ORDER.filter((id) => ids.includes(id));
   return [...builtin, ...ids.filter((id) => !BUILTIN_ORDER.includes(id)).sort()];
@@ -86,6 +94,16 @@ export function createPublishService(d: PublishServiceDeps): PublishServiceHandl
   const home = d.home ?? homedir();
   const listeners = new Set<(e: PublishServiceProgress) => void>();
   const running = new Map<string, { ac: AbortController; done: Promise<unknown> }>();
+  /** One account action per publisher at a time (10 §5.4); a second request joins the first. */
+  const accountRuns = new Map<string, { ac: AbortController; done: Promise<AccountStatus> }>();
+
+  /** The publisher's account seam, or E_NOT_FOUND for an unknown or account-less publisher. */
+  const accountOf = (targetId: string): PublisherAccount => {
+    const known = d.registry.publishers().some((p) => p.id === targetId);
+    const account = known ? d.registry.publisher(targetId).account : undefined;
+    if (!account) throw new PublishRequestError('E_NOT_FOUND', 'This publisher has no account');
+    return account;
+  };
 
   const emit = (e: PublishServiceProgress) => {
     for (const l of listeners) {
@@ -108,7 +126,7 @@ export function createPublishService(d: PublishServiceDeps): PublishServiceHandl
   const exportDir = () => expandHome(d.settings().publish.local.dir, home);
 
   /**
-   * 10 §7: a `file:` link names an export, `<dir>/<slug>/index.html`, and nothing else in the
+   * 10 §7: a `file:` link names an export, `<dir>/<slug>/index.html` or `<dir>/<slug>/<slug>.md`, and nothing else in the
    * folder, so Open can never launch another file (12 §7.5). Returns the path and its slug.
    */
   const exportFile = (u: URL): { abs: string; slug: string } => {
@@ -120,7 +138,9 @@ export function createPublishService(d: PublishServiceDeps): PublishServiceHandl
       throw forbidden();
     }
     const slug = path.basename(path.dirname(abs));
-    if (path.basename(abs) !== 'index.html' || !isValidSlug(slug)) throw forbidden();
+    // An export copy's index.html, or the Markdown export `<slug>.md` (10 §5.2).
+    const name = path.basename(abs);
+    if ((name !== 'index.html' && name !== `${slug}.md`) || !isValidSlug(slug)) throw forbidden();
     return { abs, slug };
   };
 
@@ -194,7 +214,7 @@ export function createPublishService(d: PublishServiceDeps): PublishServiceHandl
         signal: ac.signal,
       });
       if (!decision.allow) throw new PublishError('E_PUBLISH_FAILED', decision.message);
-      // 10 §5.3 step 4, §9: the baseline scan gates every git-kind publish (HOOK-PUB-03).
+      // 10 §5.5 step 4, §9: the baseline scan gates every git-kind publish (HOOK-PUB-03).
       if (publisher.kind === 'git') {
         progress('scanning');
         const findings = await d.registry.secretScanner().scan(files, ac.signal);
@@ -348,8 +368,23 @@ export function createPublishService(d: PublishServiceDeps): PublishServiceHandl
       return () => listeners.delete(cb);
     },
 
+    async accountStatus(targetId) {
+      return accountOf(targetId).status();
+    },
+
+    async accountAction(targetId, action) {
+      const current = accountRuns.get(targetId);
+      if (current) return current.done;
+      const account = accountOf(targetId);
+      const ac = new AbortController();
+      const done = account.act(action, ac.signal).finally(() => accountRuns.delete(targetId));
+      accountRuns.set(targetId, { ac, done });
+      return done;
+    },
+
     async dispose(timeoutMs = 5000) {
-      const all = [...running.values()];
+      // Account actions are aborted on quit too, and waited for up to the same bound (10 §5.4).
+      const all = [...running.values(), ...accountRuns.values()];
       for (const r of all) r.ac.abort();
       let timer: ReturnType<typeof setTimeout> | undefined;
       await Promise.race([Promise.all(all.map((r) => r.done)), new Promise((r) => (timer = setTimeout(r, timeoutMs)))]);

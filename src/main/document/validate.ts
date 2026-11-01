@@ -86,6 +86,7 @@ export function convertBlock(b: DraftBlock, ctx: ConvertContext, blockIndex = -1
         idPrefix: mintDiagramPrefix(ctx.idSource),
         ariaLabel: alt,
         rootClass: 'diagram-svg',
+        labelContrast: true,
       });
       if (svg === null || svg.length > MAX_DIAGRAM_BYTES) {
         ctx.warn('diagram-dropped');

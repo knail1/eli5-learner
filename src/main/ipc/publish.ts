@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import {
   IPC,
+  type AccountAction,
+  type AccountStatus,
   type PublicationRecord,
   type PublishProgressEvent,
   type PublishResult,
@@ -35,6 +37,10 @@ export interface PublishService {
   reveal(url: string): Promise<void>;
   /** Pushed to the app as `eli5:publish:progress`. */
   onProgress(cb: (e: PublishServiceProgress) => void): Unsub;
+  /** `eli5:publish:account-status` (10 §5.4): E_NOT_FOUND for an unknown or account-less publisher. */
+  accountStatus(targetId: string): Promise<AccountStatus>;
+  /** `eli5:publish:account-action`: one action per publisher at a time; returns the fresh status. */
+  accountAction(targetId: string, action: AccountAction): Promise<AccountStatus>;
 }
 
 /** Publisher ids: 'local', 'drive', 'git', or an overlay id (10 §3.1). */
@@ -53,6 +59,9 @@ function allowScheme(url: string, schemes: readonly string[]): void {
 }
 
 /** `eli5:publish:*` invokes (10 §6). The progress event is wired by registerIpc. */
+const AccountTarget = z.object({ targetId: TargetId });
+const AccountActionPayload = z.object({ targetId: TargetId, action: z.enum(['sign-in', 'install']) });
+
 export function registerPublishIpc(on: Register, d: { publish: PublishService }): void {
   on(IPC.publish.targets, SlugPayload, (p) => d.publish.targets(p.slug));
   on(IPC.publish.run, SlugTarget, (p) => d.publish.run(p.slug, p.targetId));
@@ -70,4 +79,6 @@ export function registerPublishIpc(on: Register, d: { publish: PublishService })
     allowScheme(p.url, ['file:']);
     return d.publish.reveal(p.url);
   });
+  on(IPC.publish.accountStatus, AccountTarget, (p) => d.publish.accountStatus(p.targetId));
+  on(IPC.publish.accountAction, AccountActionPayload, (p) => d.publish.accountAction(p.targetId, p.action));
 }

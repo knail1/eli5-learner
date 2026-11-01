@@ -39,6 +39,8 @@ function fakePublish() {
     copyLink: vi.fn(async () => {}),
     openLink: vi.fn(async () => {}),
     reveal: vi.fn(async () => {}),
+    accountStatus: vi.fn(async () => ({ state: 'signed-out' as const, label: 'Service' })),
+    accountAction: vi.fn(async () => ({ state: 'signed-in' as const, label: 'Service: someone@example.com' })),
     onProgress: (cb: (e: ServiceProgress) => void) => (progress.add(cb), () => progress.delete(cb)),
   } satisfies PublishService;
   return { svc, progress };

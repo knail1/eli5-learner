@@ -96,7 +96,7 @@ test('E7: jobs started while one runs wait as Queued, then all finish; the Libra
   });
   await startWith(l.win, 'text/plain.txt');
   await expect(lines(l.win)).toHaveCount(2);
-  await expect(lines(l.win).nth(1).locator('.job-text')).toHaveText('Queued');
+  await expect(lines(l.win).nth(1).locator('.job-text')).toHaveText('Queued: starts after the current run');
   await startWith(l.win, 'text/sales.csv');
   await expect(lines(l.win)).toHaveCount(3);
   await expect(lines(l.win).nth(2).locator('.job-text')).toHaveText('Queued (2 ahead)');
@@ -119,6 +119,7 @@ test('E7: jobs started while one runs wait as Queued, then all finish; the Libra
   // Every line the pipeline produced is one of the 06 §6 strings.
   const known = [
     /^Queued$/,
+    /^Queued: starts (after the current run|when a run finishes)$/,
     /^Queued \(\d+ ahead\)$/,
     /^Reading sources$/,
     /^Extracting content$/,
@@ -131,7 +132,13 @@ test('E7: jobs started while one runs wait as Queued, then all finish; the Libra
   expect(seen.filter((s) => !known.some((re) => re.test(s)))).toEqual([]);
   // ...and the recorder really saw the run: an empty capture must not pass the check above.
   expect(seen).toEqual(
-    expect.arrayContaining(['Queued', 'Queued (2 ahead)', 'Reading sources', 'Saving', `Done: ${TITLE}`]),
+    expect.arrayContaining([
+      'Queued: starts after the current run',
+      'Queued (2 ahead)',
+      'Reading sources',
+      'Saving',
+      `Done: ${TITLE}`,
+    ]),
   );
   expect(seen.some((s) => s.startsWith('Generating document'))).toBe(true);
 });

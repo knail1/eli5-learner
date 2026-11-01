@@ -199,9 +199,10 @@ const jobCount = async (win: Page): Promise<number> => {
 };
 
 /**
- * Starts the draft as one new job, then clears it so the next draft starts fresh. Start is debounced
- * 400 ms against a double Enter (11 §5.4), so a click right after the previous start is ignored by
- * design and clicked again; the input zone keeps its draft after a start, so Clear empties it.
+ * Starts the draft as one new job, then clears what is left so the next draft starts fresh. Start is
+ * debounced 400 ms against a double Enter (11 §5.4), so a click right after the previous start is
+ * ignored by design and clicked again. Sent inputs leave the chips; URLs stay as the Last run, which
+ * Clear empties (Clear is disabled when nothing is left).
  */
 export async function startDraft(win: Page): Promise<void> {
   const before = await jobCount(win);
@@ -209,8 +210,10 @@ export async function startDraft(win: Page): Promise<void> {
     if ((await jobCount(win)) === before) await win.getByRole('button', { name: 'Start', exact: true }).click();
     await expect.poll(() => jobCount(win), { timeout: 1_000 }).toBeGreaterThan(before);
   }).toPass();
-  await win.getByRole('button', { name: 'Clear', exact: true }).click();
+  const clear = win.getByRole('button', { name: 'Clear', exact: true });
+  if (await clear.isEnabled()) await clear.click();
   await expect(win.getByRole('list', { name: 'Added sources' })).toHaveCount(0);
+  await expect(win.getByRole('group', { name: 'Last run' })).toHaveCount(0);
 }
 
 /** The saved `index.html` of a Library document, under the resolved library root (09 §3). */

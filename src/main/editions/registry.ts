@@ -61,7 +61,7 @@ export interface CapabilityRegistry {
   resolvers(): readonly SourceResolver[];
   extractors(): readonly Extractor[];
   publisher(id: string): Publisher;
-  publishers(): readonly { id: string; available: boolean }[];
+  publishers(): readonly { id: string; available: boolean; account?: true }[];
   auth(): AuthBroker;
   mcp(): McpClient | undefined;
   promptPolicy(): PromptPolicy;
@@ -333,9 +333,13 @@ export class Registry implements CapabilityRegistry {
     return f(this.getSettings());
   }
 
-  publishers(): readonly { id: string; available: boolean }[] {
+  publishers(): readonly { id: string; available: boolean; account?: true }[] {
     const s = this.getSettings();
-    return [...this.publisherFactories.entries()].map(([id, f]) => ({ id, available: !isStub(f(s)) }));
+    return [...this.publisherFactories.entries()].map(([id, f]) => {
+      const p = f(s);
+      // Only account-declaring publishers gain the flag; every other entry stays byte-identical.
+      return { id, available: !isStub(p), ...(p.account ? { account: true as const } : {}) };
+    });
   }
 
   auth(): AuthBroker {

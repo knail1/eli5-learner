@@ -11,7 +11,8 @@ import { LockedNote, SaveNote, SettingsSectionFrame, type SectionProps } from '.
 /** 12 §13 E_KEYCHAIN_UNAVAILABLE text. */
 const KEYCHAIN_TEXT = 'Keychain access denied. Unlock or allow access, then retry';
 
-const PROVIDER_LABEL: Record<string, string> = { claude: 'Claude', openai: 'OpenAI', bedrock: 'Bedrock' };
+/** Claude is the default (12 §3.2); ChatGPT runs on the OpenAI API with an OpenAI platform key (02 §6). */
+const PROVIDER_LABEL: Record<string, string> = { claude: 'Claude', openai: 'ChatGPT (OpenAI)', bedrock: 'Bedrock' };
 
 export function AiSection(p: SectionProps & { onKeyChanged(): void; keychainAvailable?: boolean }) {
   const edition = useEdition();
@@ -52,7 +53,7 @@ export function AiSection(p: SectionProps & { onKeyChanged(): void; keychainAvai
         provider={s.llm.provider}
         value={s.llm.model}
         readOnly={modelLocked}
-        onChange={(v) => save('llm.model', { llm: { model: v } })}
+        onChange={(v, immediate) => save('llm.model', { llm: { model: v } }, { immediate })}
       />
       <LockedNote locked={modelLocked} />
       <SaveNote s={state['llm.model']} />
@@ -179,59 +180,105 @@ function ApiKeyPanel(p: { provider: ApiKeyProvider; onChanged(): void }) {
   );
 }
 
+const CUSTOM = '__custom__';
+
+/**
+ * Model picker (11 §7): a dropdown of the provider's suggested models, then "Custom…", which
+ * reveals a "Custom model ID" field. A listed pick saves at once; typing saves with a delay.
+ */
 function ModelField(p: {
   provider: ProviderId;
   value: string | null;
   readOnly: boolean;
-  onChange(v: string | null): void;
+  onChange(v: string | null, immediate: boolean): void;
 }) {
-  const [text, setText] = useState(p.value ?? '');
   const [suggested, setSuggested] = useState<string[]>([]);
-  const [placeholder, setPlaceholder] = useState('');
-  // While the user edits, echoes of earlier debounced saves (settings.changed) must not overwrite
-  // newer typing; external values (e.g. a provider switch) apply whenever the field is not focused.
+  const [fallback, setFallback] = useState('');
+  // The user chose Custom; it stays chosen while the typed id is empty or equals a listed one.
+  const [customChosen, setCustomChosen] = useState(false);
+  const [text, setText] = useState(p.value ?? '');
+  // While the field has focus, echoes of earlier debounced saves must not overwrite newer typing;
+  // external values (such as a provider switch) apply whenever it is not focused.
   const editing = useRef(false);
   useEffect(() => {
     if (!editing.current) setText(p.value ?? '');
   }, [p.value]);
   useEffect(() => {
     let live = true;
+    // Switching provider reloads the list and leaves Custom.
+    setCustomChosen(false);
     void window.eli5.llm.models(p.provider).then((r) => {
       if (!live || !r.ok) return;
       setSuggested(r.value.suggested);
-      setPlaceholder(r.value.default ? `Default (${r.value.default})` : 'Default');
+      setFallback(r.value.default);
     });
     return () => {
       live = false;
     };
   }, [p.provider]);
+
+  // The saved model if listed; the provider default if nothing is saved; Custom when the saved id
+  // is not in a non-empty list (or there is no list at all) or the user chose Custom.
+  const listed = p.value !== null && suggested.includes(p.value);
+  const custom = customChosen || suggested.length === 0 || (p.value !== null && !listed);
+  const selected = custom ? CUSTOM : (p.value ?? fallback);
+
   return (
-    <label className="field">
-      <span className="field-label">Model</span>
-      <input
-        type="text"
-        aria-label="Model"
-        list="model-suggestions"
-        placeholder={placeholder}
-        value={text}
-        readOnly={p.readOnly}
-        onFocus={() => {
-          editing.current = true;
-        }}
-        onBlur={() => {
-          editing.current = false;
-        }}
-        onChange={(e) => {
-          if (p.readOnly) return;
-          setText(e.target.value);
-          p.onChange(e.target.value.trim() || null);
-        }}
-      />
-      <datalist id="model-suggestions">
-        {suggested.map((m) => (
-          <option key={m} value={m} />
-        ))}
-      </datalist>
-    </label>
+    <>
+      <label className="field">
+        <span className="field-label">Model</span>
+        <select
+          aria-label="Model"
+          value={selected}
+          disabled={p.readOnly}
+          onChange={(e) => {
+            if (p.readOnly) return;
+            const v = e.target.value;
+            if (v === CUSTOM) {
+              setCustomChosen(true);
+              setText(p.value ?? '');
+              return;
+            }
+            setCustomChosen(false);
+            p.onChange(v, true);
+          }}
+        >
+          {suggested.map((m) => (
+            <option key={m} value={m}>
+              {m === fallback ? `${m} (default)` : m}
+            </option>
+          ))}
+          {/* The provider default before the list arrives, so the select never shows a blank value. */}
+          {fallback && !suggested.includes(fallback) && !custom && <option value={fallback}>{fallback}</option>}
+          <option value={CUSTOM}>Custom…</option>
+        </select>
+      </label>
+      {custom && (
+        <label className="field">
+          <span className="field-label">Custom</span>
+          <input
+            type="text"
+            aria-label="Custom model ID"
+            spellCheck={false}
+            autoComplete="off"
+            placeholder={fallback}
+            value={text}
+            disabled={p.readOnly}
+            onFocus={() => {
+              editing.current = true;
+            }}
+            onBlur={() => {
+              editing.current = false;
+            }}
+            onChange={(e) => {
+              if (p.readOnly) return;
+              setCustomChosen(true);
+              setText(e.target.value);
+              p.onChange(e.target.value.trim() || null, false);
+            }}
+          />
+        </label>
+      )}
+    </>
   );
 }

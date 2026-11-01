@@ -12,6 +12,10 @@ const TITLE_MAX = 60;
 export const STATUS_LINES = {
   queued: 'Queued',
   queuedAhead: (n: number) => `Queued (${n} ahead)`,
+  /** Position 1 with one create slot: the one running job is the one to wait for. */
+  queuedNext: 'Queued: starts after the current run',
+  /** Position 1 with several slots: no single run can be named (06 §6). */
+  queuedNextSlots: 'Queued: starts when a run finishes',
   resuming: 'Resuming',
   reading: (done: number, total: number) => `Reading sources (${done} of ${total})`,
   readingSingle: 'Reading sources',
@@ -59,6 +63,8 @@ export type StatusLineJob = Pick<
 export interface StatusLineContext {
   /** Number of jobs ahead in the lane, including a running one (06 §6 "position"). */
   queuePosition?: number;
+  /** Create-lane slots (pipeline.maxConcurrentJobs, 06 §4.1); defaults to 1. */
+  queueSlots?: number;
   /** Generation steps currently running (06 §5.4 rule 4); defaults to progress.step. */
   runningSteps?: readonly JobStep[];
   /** Label of the tab an `eli5-tab` section job added; defaults to result.title. */
@@ -87,8 +93,19 @@ function generatingLine(job: StatusLineJob, ctx: StatusLineContext): string {
 
 function failedLine(job: StatusLineJob): string {
   const code: JobFailureCode = job.failure?.code ?? 'INTERNAL';
-  if (code === 'NO_USABLE_CONTENT') return STATUS_LINES.failed.NO_USABLE_CONTENT(job.inputs.length);
+  if (code === 'NO_USABLE_CONTENT') {
+    const line = STATUS_LINES.failed.NO_USABLE_CONTENT(job.inputs.length);
+    // One source: say why it was skipped (06 §6). Several sources keep the count alone.
+    const reason = job.inputs.length === 1 && job.skipped.length === 1 ? lineReason(job.skipped[0]?.reason) : '';
+    return reason ? `${line} · ${reason}` : line;
+  }
   return STATUS_LINES.failed[code];
+}
+
+/** A skip reason as a status-line fragment: one line, sentence case, no trailing period (06 §6). */
+function lineReason(reason: string | undefined): string {
+  const r = (reason ?? '').replace(/\s+/g, ' ').trim().replace(/\.+$/, '');
+  return r ? r.charAt(0).toUpperCase() + r.slice(1) : '';
 }
 
 function sectionLine(job: StatusLineJob, ctx: StatusLineContext): string {
@@ -112,7 +129,9 @@ export function statusLine(job: StatusLineJob, ctx: StatusLineContext = {}): str
     case 'queued': {
       if (job.resuming) return STATUS_LINES.resuming;
       const n = ctx.queuePosition ?? 0;
-      return n >= 2 ? STATUS_LINES.queuedAhead(n) : STATUS_LINES.queued;
+      if (n >= 2) return STATUS_LINES.queuedAhead(n);
+      if (n < 1) return STATUS_LINES.queued;
+      return (ctx.queueSlots ?? 1) > 1 ? STATUS_LINES.queuedNextSlots : STATUS_LINES.queuedNext;
     }
     case 'reading':
       return job.progress.sourcesTotal <= 1

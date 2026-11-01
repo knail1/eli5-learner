@@ -63,6 +63,8 @@ export function notImplementedServices(): IpcServices {
       openLink: async () => notImplemented(),
       reveal: async () => notImplemented(),
       onProgress: noEvents,
+      accountStatus: async () => notImplemented(),
+      accountAction: async () => notImplemented(),
     },
     notifications: {
       test: (): TestNotificationResult => notImplemented(),

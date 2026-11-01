@@ -143,6 +143,10 @@ export function installFakeApi(edition: EditionInfo = PUBLIC_EDITION): FakeApi {
     llm: {
       testConnection: resolved(ok({ ok: true, model: 'model-x' })),
       models: resolved(ok({ suggested: ['model-x'], default: 'model-x' })),
+      // Public providers report no credentials, so the credential bar stays absent.
+      credentialStatus: resolved(ok(null)),
+      reloadCredentials: resolved(ok(null)),
+      signIn: resolved(notImplemented),
     },
     settings: {
       get: resolved(ok(settings())),
@@ -164,6 +168,8 @@ export function installFakeApi(edition: EditionInfo = PUBLIC_EDITION): FakeApi {
       copyLink: resolved(notImplemented),
       openLink: resolved(notImplemented),
       reveal: resolved(notImplemented),
+      accountStatus: resolved(notImplemented),
+      accountAction: resolved(notImplemented),
       onProgress: on('publish'),
     },
     auth: {

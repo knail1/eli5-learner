@@ -98,8 +98,9 @@ test('E1: a dropped deck progresses through every status line to Done and opens 
   expect(lines.some((s) => /^Generating document \(in-depth/.test(s))).toBe(true);
 
   await expectDocument(l, dirs);
-  // The draft stays after a start (11 §5.4); with its run done, the button starts another one.
-  await expect(l.win.getByRole('list', { name: 'Added sources' }).getByText('quarterly-review.pptx')).toBeVisible();
+  // The sent deck left the chips (11 §5.4 step 5); it was no URL, so there is no Last run either.
+  await expect(l.win.getByRole('list', { name: 'Added sources' })).toHaveCount(0);
+  await expect(l.win.getByRole('group', { name: 'Last run' })).toHaveCount(0);
   await expect(l.win.getByRole('button', { name: 'Start', exact: true })).toBeVisible();
 });
 

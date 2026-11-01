@@ -105,6 +105,7 @@ const ACTION_VERBS: Record<MenuAction, string> = {
   reexplain: 're-explained',
   analogy: 'added an analogy to',
   deeper: 'went deeper on',
+  revise: 'edited',
   'eli5-tab': 'added ELI5 tab',
   'eli5-selection': 'added ELI5 tab',
 };

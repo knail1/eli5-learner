@@ -97,7 +97,7 @@ describe('InputZone against live handlers (11 §5.4)', () => {
     const onOpenSettings = vi.fn();
     const { host, url } = await mountZone({ onOpenSettings });
     await type(url, 'https://example.com/a');
-    await key(url, 'Enter');
+    await key(url, 'Enter', { metaKey: true });
     expect(host.querySelector('.start-error')?.textContent).toContain('Add an API key in Settings');
     expect(host.querySelectorAll('.chip')).toHaveLength(1);
     await click(host.querySelector('.start-error button'));
@@ -109,12 +109,12 @@ describe('InputZone against live handlers (11 §5.4)', () => {
     fake.api.jobs.start = async () => fail('E_FORBIDDEN', 'That file is no longer available');
     const { host, url } = await mountZone();
     await type(url, 'https://example.com/a');
-    await key(url, 'Enter');
+    await key(url, 'Enter', { metaKey: true });
     expect(host.querySelector('.start-error')?.textContent).toBe('That file is no longer available');
     expect(host.querySelector('.start-error button')).toBeNull();
   });
 
-  it('a staged paste sends the draftId it was staged under; the kept draft keeps it, a cleared one gets a new one', async () => {
+  it('a staged paste sends the draftId it was staged under; once it is sent, and after Clear, a new id is taken', async () => {
     fake.api.settings.hasApiKey = async () => ok(true);
     const drafts: string[] = [];
     fake.api.sources.readClipboard = async (draftId: string) => {
@@ -143,12 +143,14 @@ describe('InputZone against live handlers (11 §5.4)', () => {
     expect(reqs[0]?.draftId).toBe(drafts[0]);
     expect(reqs[0]?.draftId).toMatch(/^draft-[0-9a-f]{8}$/);
 
-    // After a start the draft stays, so a further paste joins the same draft (11 §5.4).
+    // The sent paste left the chips and no staged input remains, so the next paste stages under a
+    // new draft id (11 §5.4 step 5); the sent copy already belongs to the job.
     await act(async () => {
       document.body.dispatchEvent(new Event('paste', { bubbles: true, cancelable: true }));
     });
     await flush();
-    expect(drafts[1]).toBe(drafts[0]);
+    expect(drafts[1]).toMatch(/^draft-[0-9a-f]{8}$/);
+    expect(drafts[1]).not.toBe(drafts[0]);
 
     await click(button(host, 'Clear'));
     await act(async () => {
@@ -156,7 +158,7 @@ describe('InputZone against live handlers (11 §5.4)', () => {
     });
     await flush();
     expect(drafts[2]).toMatch(/^draft-[0-9a-f]{8}$/);
-    expect(drafts[2]).not.toBe(drafts[0]);
+    expect(drafts[2]).not.toBe(drafts[1]);
   });
 
   it('dropped files resolve through files.pathFor; dropped text is staged under the draft', async () => {
@@ -437,7 +439,7 @@ describe('App against live data (11 §5.2, §8, §13)', () => {
     expect(toggle()?.checked).toBe(false);
   });
 
-  it('end to end: Enter starts a job, its line appears, and a done line opens the document', async () => {
+  it('end to end: Cmd+Enter starts a job, its line appears, and a done line opens the document', async () => {
     fake.api.settings.hasApiKey = async () => ok(true);
     fake.api.library.list = async () => ok([]);
     // A stateful fake main: jobs.list reflects every snapshot it has pushed.
@@ -455,7 +457,7 @@ describe('App against live data (11 §5.2, §8, §13)', () => {
     const host = await render(App);
     const url = host.querySelector<HTMLInputElement>('input[aria-label="URL"]');
     await type(url, 'https://example.com/a');
-    await key(url, 'Enter');
+    await key(url, 'Enter', { metaKey: true });
     expect(host.querySelector('.job-text')?.textContent).toBe('Queued');
 
     fake.emit('library', { entries: [entry('Topic A', '2026-01-01T00:00:00Z')] });

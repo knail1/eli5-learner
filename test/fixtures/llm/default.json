@@ -192,6 +192,15 @@
         }
       ]
     },
+    "section-revise": {
+      "heading": "How the forecast is built",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "md": "The forecast is a twelve-week moving average, as the reader's note corrected, adjusted for promotions the team already has on the calendar."
+        }
+      ]
+    },
     "section-eli5-tab": {
       "kind": "section-eli5",
       "title": "Forecasts, simply",

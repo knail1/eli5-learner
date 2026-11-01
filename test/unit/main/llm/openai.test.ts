@@ -19,8 +19,8 @@ const req = (extra: Partial<GenerationRequest> = {}): GenerationRequest => ({
 
 type Body = Record<string, unknown>;
 
-describe('OpenAIProvider (02 §6) against cassettes', () => {
-  it('(c) reasoning row: developer role, no temperature, reasoning_effort mapped, streamed usage', async () => {
+describe('OpenAIProvider / ChatGPT on the Responses API (02 §6) against cassettes', () => {
+  it('(c) reasoning row: instructions, no temperature, reasoning effort mapped, streamed usage, store off', async () => {
     const t = cassette('openai/text.json');
     const p = new OpenAIProvider(settingsFor('openai'), fastDeps(t));
     const r = await p.generate(req({ temperature: 0.4, effort: 'max' }));
@@ -31,35 +31,60 @@ describe('OpenAIProvider (02 §6) against cassettes', () => {
       model: 'gpt-5-2026-01-01',
       usage: { inputTokens: 42, outputTokens: 9, cachedInputTokens: 10 },
     });
+    expect(t.requests[0]?.path).toBe('/v1/responses');
     const body = t.requests[0]?.body as Body;
-    expect((body.messages as Body[])[0]).toEqual({ role: 'developer', content: 'You explain things.' });
+    expect(body.instructions).toBe('You explain things.');
+    expect(body.input).toEqual([{ role: 'user', content: 'Explain widgets.' }]);
     expect(body).not.toHaveProperty('temperature');
-    expect(body.reasoning_effort).toBe('high');
-    expect(body.max_completion_tokens).toBe(128_000);
+    expect(body.reasoning).toEqual({ effort: 'high' });
+    expect(body.max_output_tokens).toBe(128_000);
+    expect(body.stream).toBe(true);
+    expect(body.store).toBe(false);
     expect(t.requests[0]?.headers.authorization).toBe(`Bearer ${TEST_KEY}`);
   });
 
-  it('unknown reasoning-prefixed ids fall back to developer role; others to system with no temperature', async () => {
+  it('unknown models get fallback limits: no temperature and no reasoning effort', async () => {
     expect(new OpenAIProvider(settingsFor('openai', 'o3-pro-future'), {}).limits.systemRole).toBe('developer');
     const t = cassette('openai/text.json');
     const p = new OpenAIProvider(settingsFor('openai', 'custom-model'), fastDeps(t));
     expect(p.limits).toEqual(fallbackLimits('openai', 'custom-model'));
     await p.generate(req({ temperature: 0.4, effort: 'low' }));
     const body = t.requests[0]?.body as Body;
-    expect((body.messages as Body[])[0]?.role).toBe('system');
+    expect(body.instructions).toBe('You explain things.');
     expect(body).not.toHaveProperty('temperature');
-    expect(body).not.toHaveProperty('reasoning_effort');
+    expect(body).not.toHaveProperty('reasoning');
   });
 
-  it('chat rows send temperature and the system role', async () => {
+  it('chat rows send temperature; the system prompt is always instructions', async () => {
     const t = cassette('openai/text.json');
     await new OpenAIProvider(settingsFor('openai', 'gpt-4.1'), fastDeps(t)).generate(req({ temperature: 0.4 }));
     const body = t.requests[0]?.body as Body;
     expect(body.temperature).toBe(0.4);
-    expect((body.messages as Body[])[0]?.role).toBe('system');
+    expect(body.instructions).toBe('You explain things.');
   });
 
-  it('encodes images as labelled data-URI parts', async () => {
+  it('an empty system prompt sends no instructions; assistant turns stay in the input', async () => {
+    const t = cassette('openai/text.json');
+    await new OpenAIProvider(settingsFor('openai'), fastDeps(t)).generate(
+      req({
+        system: '  ',
+        messages: [
+          { role: 'user', text: 'a' },
+          { role: 'assistant', text: 'b' },
+          { role: 'user', text: 'c' },
+        ],
+      }),
+    );
+    const body = t.requests[0]?.body as Body;
+    expect(body).not.toHaveProperty('instructions');
+    expect(body.input).toEqual([
+      { role: 'user', content: 'a' },
+      { role: 'assistant', content: 'b' },
+      { role: 'user', content: 'c' },
+    ]);
+  });
+
+  it('encodes images as labelled input_image data-URI parts', async () => {
     const t = cassette('openai/image.json');
     const p = new OpenAIProvider(settingsFor('openai'), fastDeps(t));
     const image = {
@@ -70,20 +95,26 @@ describe('OpenAIProvider (02 §6) against cassettes', () => {
     };
     const r = await p.generateWithImages(req({ messages: [{ role: 'user', text: 'Describe.', images: [image] }] }));
     expect(r.text).toContain('two boxes');
-    const part = ((t.requests[0]?.body as Body).messages as { content: Body[] }[])[1]?.content[1];
-    expect(part).toMatchObject({
-      image_url: { url: `data:image/png;base64,${Buffer.from('png').toString('base64')}` },
-    });
+    const content = ((t.requests[0]?.body as Body).input as { content: Body[] }[])[0]?.content;
+    expect(content).toEqual([
+      { type: 'input_text', text: '[Image: diagram.png]' },
+      {
+        type: 'input_image',
+        image_url: `data:image/png;base64,${Buffer.from('png').toString('base64')}`,
+        detail: 'high',
+      },
+      { type: 'input_text', text: 'Describe.' },
+    ]);
   });
 
-  it('structured output uses response_format json_schema strict', async () => {
+  it('structured output uses text.format json_schema strict', async () => {
     const t = cassette('openai/structured.json');
     const p = new OpenAIProvider(settingsFor('openai'), fastDeps(t));
     const schema = draftJsonSchema('SummaryDraft');
     const r = await p.generate(req({ jsonSchema: { name: 'summary_draft', schema } }));
     expect(r.json).toMatchObject({ topicSlugHint: 'widget-supply' });
-    const rf = (t.requests[0]?.body as Body).response_format as Body;
-    expect(rf).toEqual({ type: 'json_schema', json_schema: { name: 'summary_draft', schema, strict: true } });
+    const text = (t.requests[0]?.body as Body).text as Body;
+    expect(text).toEqual({ format: { type: 'json_schema', name: 'summary_draft', schema, strict: true } });
   });
 
   it('schema rejection (null for a required field) then one repair', async () => {
@@ -101,7 +132,7 @@ describe('OpenAIProvider (02 §6) against cassettes', () => {
     t.assertDone();
   });
 
-  it('accumulates a raw stream and maps finish_reason length to max_tokens', async () => {
+  it('accumulates a raw event stream and maps an incomplete max_output_tokens response to max_tokens', async () => {
     const t = cassette('openai/stream.json');
     const r = await new OpenAIProvider(settingsFor('openai'), fastDeps(t)).generate(req());
     expect(r.text).toBe('Widgets are made in batches.');
@@ -136,5 +167,14 @@ describe('OpenAIProvider (02 §6) against cassettes', () => {
     });
     await new OpenAIProvider(settingsFor('openai'), deps).generate(req()).catch(() => undefined);
     expect(pauses).toEqual([DEFAULT_RETRY.maxRetryAfterMs]);
+  });
+
+  it('a mid-stream error event is classified by its code, never shown with the server text', async () => {
+    const { kindForStreamCode } = await import('../../../../src/main/llm/openai');
+    expect(kindForStreamCode('rate_limit_exceeded')).toBe('rate_limited');
+    expect(kindForStreamCode('context_length_exceeded')).toBe('context_overflow');
+    expect(kindForStreamCode('invalid_api_key')).toBe('auth');
+    expect(kindForStreamCode('server_is_overloaded')).toBe('overloaded');
+    expect(kindForStreamCode(null)).toBe('server');
   });
 });

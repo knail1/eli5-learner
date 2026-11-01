@@ -16,6 +16,7 @@ export type {
   LLMErrorKind,
   TestConnectionResult,
   ModelsResult,
+  CredentialStatus,
 } from './types';
 export { PROMPT_IDS } from './types';
 export { LLMError } from './errors';

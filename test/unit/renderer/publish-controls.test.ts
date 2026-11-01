@@ -375,3 +375,55 @@ describe('PublishControls (10 §7)', () => {
     expect(host.querySelector('[role="alert"]')?.textContent).toContain('Folder is not available.');
   });
 });
+
+describe('multi-link results (10 §7)', () => {
+  const SITE = 'https://pages.example.com/widget-pricing/';
+  const COMMIT = 'https://code.example.com/c/1';
+  const NOTES = 'https://notes.example.com/n/2';
+
+  async function published(links: PublishResult['links']) {
+    fake.api.publish.targets = vi.fn(async () => ok([local(), stub('git', true)]));
+    const host = await mount({ ...PUBLIC_EDITION, edition: 'enterprise', uiFeatures: ['publish.git'] });
+    // mount(edition) installs a fresh API; restore the link actions.
+    fake.api.publish.copyLink = vi.fn(async () => ok(undefined));
+    fake.api.publish.openLink = vi.fn(async () => ok(undefined));
+    const finish = pendingRun();
+    await click(button(host, 'Push to Pages'));
+    finish(ok(result({ targetId: 'git', kind: 'git', links })));
+    await click(host);
+    return host;
+  }
+
+  it('two or more links: one row per link, primary first, then the rest in order', async () => {
+    const host = await published([
+      { kind: 'commit', url: COMMIT, label: 'Commit', primary: false },
+      { kind: 'site', url: SITE, label: 'Pages URL', primary: true },
+      { kind: 'share', url: NOTES, label: 'Notes', primary: false },
+    ]);
+    const group = host.querySelector('[aria-label="Push to Pages result"]');
+    const rows = Array.from(group?.querySelectorAll('.result-chip') ?? []);
+    expect(rows.map((r) => r.getAttribute('aria-label'))).toEqual(['Pages URL link', 'Commit link', 'Notes link']);
+    expect(rows.map((r) => r.querySelector('.chip-link')?.getAttribute('title'))).toEqual([SITE, COMMIT, NOTES]);
+  });
+
+  it('Copy link and Open act on their own row, not the primary', async () => {
+    const host = await published([
+      { kind: 'site', url: SITE, label: 'Pages URL', primary: true },
+      { kind: 'commit', url: COMMIT, label: 'Commit', primary: false },
+    ]);
+    const commitRow = host.querySelector('[aria-label="Commit link"]') as HTMLElement;
+    await click(button(commitRow, 'Copy link'));
+    expect(fake.api.publish.copyLink).toHaveBeenCalledWith(COMMIT);
+    expect(commitRow.textContent).toContain('Copied');
+    await click(button(commitRow, 'Open'));
+    expect(fake.api.publish.openLink).toHaveBeenCalledWith(COMMIT);
+  });
+
+  it('a one-link result keeps its markup and accessible name', async () => {
+    const host = await published([{ kind: 'site', url: SITE, label: 'Pages URL', primary: true }]);
+    expect(host.querySelector('.result-links')).toBeNull();
+    const chip = host.querySelector('[aria-label="Push to Pages result"]');
+    expect(chip?.className).toBe('result-chip');
+    expect(chip?.querySelectorAll('.chip-link')).toHaveLength(1);
+  });
+});

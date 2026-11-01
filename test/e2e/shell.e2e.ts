@@ -117,7 +117,7 @@ test('application menu has no quit role and binds Cmd+Q/Cmd+W to Close Window', 
   expect(menu.find((i) => i.label === 'Quit from the menu bar icon')?.enabled).toBe(false);
 });
 
-test('Enter never starts a job without sources, with an invalid URL, or without a key', async () => {
+test('Enter in the URL field makes chips; a start is refused without sources, with an invalid URL, or without a key', async () => {
   const url = win.getByLabel('URL', { exact: true });
   await url.click();
   await url.press('Enter');
@@ -129,8 +129,12 @@ test('Enter never starts a job without sources, with an invalid URL, or without 
   await expect(url).toBeFocused();
   await expect(url).toHaveValue('not a url');
 
+  // Enter with an address makes a chip and starts nothing (11 §5.4); Cmd+Enter starts.
   await url.fill('https://example.com/article');
   await url.press('Enter');
+  await expect(url).toHaveValue('');
+  await expect(win.getByText('Add an API key in Settings to start')).toHaveCount(0);
+  await url.press('ControlOrMeta+Enter');
   await expect(win.getByText('Add an API key in Settings to start')).toBeVisible();
   await expect(win.getByRole('list', { name: 'Added sources' }).getByText('example.com/article')).toBeVisible();
 });

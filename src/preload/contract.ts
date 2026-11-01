@@ -88,6 +88,10 @@ export const IPC = {
   llm: {
     testConnection: 'eli5:llm:test-connection',
     models: 'eli5:llm:models',
+    /** Optional provider seam: credential state, reload, interactive sign-in (02 §14). */
+    credentialStatus: 'eli5:llm:credential-status',
+    reloadCredentials: 'eli5:llm:reload-credentials',
+    signIn: 'eli5:llm:sign-in',
   },
   library: {
     list: 'eli5:library:list',
@@ -172,6 +176,9 @@ export const IPC = {
     copyLink: 'eli5:publish:copy-link',
     openLink: 'eli5:publish:open-link',
     reveal: 'eli5:publish:reveal',
+    /** Optional publisher seam: who is signed in, and one fix action (10 §5.4). */
+    accountStatus: 'eli5:publish:account-status',
+    accountAction: 'eli5:publish:account-action',
   },
 } as const;
 
@@ -204,7 +211,8 @@ export interface EditionInfo {
   /** Display name supplied by the overlay (HOOK-UI-02). */
   overlayName?: string;
   llmProviders: { id: string; available: boolean }[];
-  publishers: { id: string; available: boolean }[];
+  /** `account: true` only for publishers that declare one (10 §5.4); other entries are unchanged. */
+  publishers: { id: string; available: boolean; account?: true }[];
   uiFeatures: UiFeature[];
   authAvailable: boolean;
 }
@@ -448,7 +456,7 @@ export interface MergeSuggestion {
 /** /^sec-[a-z][a-z0-9]{1,15}-[0-9a-f]{8}$/ (07 §4). */
 export type SectionId = string & { readonly __brand: 'SectionId' };
 
-export type SectionAction = 'expand' | 'reexplain' | 'analogy' | 'deeper';
+export type SectionAction = 'expand' | 'reexplain' | 'analogy' | 'deeper' | 'revise';
 /** 'eli5-tab': a separate ELI5 of the section; 'eli5-selection': a focused ELI5 of the selected text (08 §7.5). */
 export type MenuAction = SectionAction | 'eli5-tab' | 'eli5-selection';
 
@@ -590,11 +598,42 @@ export interface ModelsResult {
   default: string;
 }
 
+export type CredentialState = 'ok' | 'expiring' | 'expired' | 'unknown';
+
+/**
+ * Reported by a provider whose credentials expire (02 §14). `label` is the provider's own short
+ * display text (for example "Cloud 10h 44m"); the app never builds it and shows the state word
+ * when it is absent.
+ */
+export interface CredentialStatus {
+  state: CredentialState;
+  /** ISO 8601. */
+  expiresAt?: string;
+  label?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Publish (10)
 // ---------------------------------------------------------------------------
 
 export type PublisherKind = 'local' | 'drive' | 'git';
+
+export type AccountState = 'signed-in' | 'signed-out' | 'not-installed' | 'error';
+export type AccountAction = 'sign-in' | 'install';
+
+/** A publisher's external login (10 §5.4). `detail` is a short code, never a secret. */
+export interface AccountStatus {
+  state: AccountState;
+  /** Required display text, such as "Service: someone@example.com". */
+  label: string;
+  detail?: string;
+}
+
+/** The one action each state offers (10 §5.4): signed-in none, not-installed install, else sign-in. */
+export function accountActionFor(state: AccountState): AccountAction | null {
+  if (state === 'signed-in') return null;
+  return state === 'not-installed' ? 'install' : 'sign-in';
+}
 
 export type PublishStage =
   'preparing' | 'scanning' | 'uploading' | 'sharing' | 'committing' | 'pushing' | 'waiting-for-site' | 'done';
@@ -608,7 +647,7 @@ export type PublishErrorCode =
   | 'E_PUBLISH_CANCELLED'
   | 'E_PUBLISH_FAILED';
 
-/** One secret-scanner hit (10 §5.4); `preview` is already masked. */
+/** One secret-scanner hit (10 §5.6); `preview` is already masked. */
 export interface SecretFinding {
   relPath: string;
   /** 1-based. */

@@ -473,6 +473,15 @@ test('local publish writes the copy to publish.local.dir and the link actions wo
     path.join(dirs.library, doc.topicSlug, 'meta.json'),
   );
   expect(meta.publications?.map((p) => p.kind)).toEqual(['local']);
+
+  // Export Markdown writes <export folder>/<slug>/<slug>.md next to the copy (10 §5.2).
+  await l.win.getByRole('button', { name: 'Export Markdown' }).click();
+  const mdChip = l.win.getByRole('group', { name: 'Export Markdown result' });
+  await expect(mdChip).toBeVisible({ timeout: 30_000 });
+  const md = await readFile(path.join(exportDir, doc.topicSlug, `${doc.topicSlug}.md`), 'utf8');
+  expect(md.startsWith(`# ${TITLE}\n`)).toBe(true);
+  await mdChip.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(l.win.locator('.doc-header [role=alert]')).toHaveCount(0);
   await h.closeAll();
 });
 
@@ -486,12 +495,13 @@ test('E13/E15: settings persist across relaunch and the API key never reaches se
   const glossary = w.getByRole('switch', { name: 'Explain domain specific terms by default' });
   await expect(glossary).toBeChecked();
   await glossary.uncheck();
-  await w.getByRole('radio', { name: 'OpenAI' }).check();
+  await w.getByRole('radio', { name: 'ChatGPT (OpenAI)' }).check();
   // The key panel follows the saved provider (debounced save, then eli5:settings:changed).
   await expect(w.getByPlaceholder('OpenAI API key')).toBeVisible();
   await expect(w.getByTestId('key-state')).toHaveText('No key');
-  const model = w.getByRole('combobox', { name: 'Model' });
-  await model.fill('gpt-test-model');
+  // An unlisted model goes through Custom… (11 §7 model picker).
+  await w.getByRole('combobox', { name: 'Model' }).selectOption({ label: 'Custom…' });
+  await w.getByRole('textbox', { name: 'Custom model ID' }).fill('gpt-test-model');
   // A runtime-assembled key for the selected provider, saved through the form (12 §5.2).
   const key = TEST_KEY.replace('sk-test', 'sk-proj-test');
   await w.getByLabel('API key', { exact: true }).fill(key);
@@ -521,8 +531,9 @@ test('E13/E15: settings persist across relaunch and the API key never reaches se
   const second = await h.launch(dirs, { fake: false });
   await second.win.getByRole('button', { name: 'Settings' }).click();
   await expect(second.win.getByRole('switch', { name: 'Explain domain specific terms by default' })).not.toBeChecked();
-  await expect(second.win.getByRole('radio', { name: 'OpenAI' })).toBeChecked();
-  await expect(second.win.getByRole('combobox', { name: 'Model' })).toHaveValue('gpt-test-model');
+  await expect(second.win.getByRole('radio', { name: 'ChatGPT (OpenAI)' })).toBeChecked();
+  await expect(second.win.getByRole('combobox', { name: 'Model' })).toHaveValue('__custom__');
+  await expect(second.win.getByRole('textbox', { name: 'Custom model ID' })).toHaveValue('gpt-test-model');
   const s = await second.win.evaluate(() => window.eli5.settings.get());
   expect(s.ok && [s.value.llm.provider, s.value.llm.model, s.value.glossary.defaultOn]).toEqual([
     'openai',
@@ -542,7 +553,7 @@ test('E14: the public build shows no enterprise UI', async () => {
   await openFromLibrary(l, doc.title);
   await expect(l.win.locator('.doc-header h1')).toHaveText(TITLE);
   // Only the local export in the publish slot; no remote targets, no sign-in state (HOOK-UI-01).
-  await expect(l.win.locator('.publish-controls button')).toHaveText(['Export copy']);
+  await expect(l.win.locator('.publish-controls button')).toHaveText(['Export copy', 'Export Markdown']);
   await expect(l.win.getByRole('button', { name: /sign in|signed in/i })).toHaveCount(0);
 
   await l.win.getByRole('button', { name: 'Settings' }).click();

@@ -40,6 +40,7 @@ describe('registerPublicCapabilities (01 §6.3)', () => {
     expect(info.llmProviders.find((p) => p.id === 'bedrock')?.available).toBe(false);
     expect(Object.fromEntries(info.publishers.map((p) => [p.id, p.available]))).toEqual({
       local: true,
+      markdown: true,
       drive: false,
       git: false,
     });

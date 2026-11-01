@@ -4,6 +4,7 @@ import {
   IPC,
   VIEWER_CHANNELS,
   type AuthStatus,
+  type CredentialStatus,
   type EditionInfo,
   type FindInDocumentRequest,
   type IpcChannel,
@@ -14,7 +15,7 @@ import { ProviderIdSchema } from '../config';
 import type { SettingsStore } from '../config';
 import { account, type KeyStore } from '../config';
 import type { Registry } from '../editions';
-import { suggestedModels } from '../llm';
+import { LLMError, suggestedModels } from '../llm';
 import { ContextMenuRequest, handleContextMenu } from '../shell';
 import { safeOpenExternal } from '../security';
 import type { ClipboardPort } from '../sources';
@@ -164,6 +165,28 @@ export function registerIpc(d: IpcDeps): () => void {
     return out;
   });
   on(IPC.llm.models, z.object({ provider: ProviderIdSchema }), (p): ModelsResult => suggestedModels(p.provider));
+  // Optional credential seam (02 §14): null means the active provider does not report credentials.
+  const credentialStatus = async (): Promise<CredentialStatus | null> => {
+    const provider = d.registry.llm();
+    return provider.credentialStatus ? provider.credentialStatus() : null;
+  };
+  on(IPC.llm.credentialStatus, NoPayload, credentialStatus);
+  on(IPC.llm.reloadCredentials, NoPayload, () => {
+    // Rebuild the provider so it re-reads its credential files, then report again.
+    d.registry.invalidateLLM();
+    return credentialStatus();
+  });
+  on(IPC.llm.signIn, NoPayload, async () => {
+    const provider = d.registry.llm();
+    if (!provider.signIn) fail('E_NOT_FOUND', 'This AI service has no sign-in');
+    try {
+      await provider.signIn();
+    } catch (err) {
+      // LLMError messages carry no secrets (02 §11); anything else stays generic.
+      fail('E_LLM_UNAVAILABLE', err instanceof LLMError ? err.message : 'Sign-in failed');
+    }
+    return credentialStatus();
+  });
 
   // ---- viewer (11) ----
   on(IPC.viewer.setBounds, Bounds, (b) => d.viewer.setBounds(b));

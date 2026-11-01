@@ -3,7 +3,7 @@ import { NotAvailableInEdition } from '../editions';
 import { edition } from '../editions';
 import type { PublishContext, Publisher, PublishResult, PublishTarget } from './types';
 
-/** Public-build cloud drive stub (10 §5.2, HOOK-PUB-01). No network, no UI (HOOK-UI-01). */
+/** Public-build cloud drive stub (10 §5.3, HOOK-PUB-01). No network, no UI (HOOK-UI-01). */
 export class DrivePublisherStub implements Publisher {
   readonly stub = true;
   readonly id = 'drive';

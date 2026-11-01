@@ -100,6 +100,14 @@ export interface LLMProvider {
   stream?(req: GenerationRequest): AsyncIterable<StreamChunk>;
   countTokens?(req: Pick<GenerationRequest, 'system' | 'messages'>): Promise<number>;
   testConnection(): Promise<{ ok: true; model: string } | { ok: false; error: LLMError }>;
+  credentialStatus?(): Promise<CredentialStatus>; // optional seam for expiring credentials (section 14)
+  signIn?(): Promise<void>;  // optional, interactive; resolves when done, rejects with LLMError
+}
+
+export interface CredentialStatus {
+  state: 'ok' | 'expiring' | 'expired' | 'unknown';
+  expiresAt?: string;        // ISO 8601
+  label?: string;            // provider-chosen short text, e.g. "Cloud 10h 44m"
 }
 
 export interface ModelLimits {
@@ -109,9 +117,9 @@ export interface ModelLimits {
   maxImagesPerRequest: number;
   maxImageBytes: number;       // per image after re-encoding
   supportsTemperature: boolean; // false for models that reject sampling params (400); unknown models: false
-  supportsEffort: boolean;      // Claude output_config.effort / OpenAI reasoning_effort
+  supportsEffort: boolean;      // Claude output_config.effort / OpenAI reasoning.effort
   thinkingReserveTokens: number;// output tokens reserved for reasoning/thinking inside maxOutputTokens (0 if none)
-  systemRole: 'system' | 'developer'; // OpenAI only; Claude always uses the top-level `system` field
+  systemRole: 'system' | 'developer'; // kept in the model rows; the Responses API sends the system prompt as `instructions`
   structuredMode: 'output_config' | 'strict_tool_auto' | 'forced_tool' | 'json_schema_strict';
                                // how jsonSchema is enforced (sections 5, 6); unknown Claude models: 'output_config'
 }
@@ -176,18 +184,25 @@ export function createProvider(s: Settings, keys: KeyStore): LLMProvider
 
 ## 6. OpenAI implementation (`openai.ts`)
 
+Shown in Settings as "ChatGPT (OpenAI)". Claude stays the default provider and its implementation
+(section 5) is unchanged. Keys are OpenAI platform API keys, kept in the Keychain as before
+(section 14).
+
 | Concern | Decision |
 | --- | --- |
-| SDK | `openai` official SDK, `maxRetries: 0`, constructed with `fetch: llmFetch` (section 7.4). Chat Completions API (widest model coverage); the call site is isolated so switching to the Responses API is a local change. |
+| SDK | `openai` official SDK, `maxRetries: 0` (retries are ours, section 7), constructed with `fetch: llmFetch` (section 7.4). Responses API (`POST /v1/responses`). |
 | Model | `llm.model`, default `DEFAULT_MODELS.openai`. Same fallback limits rule as Claude. |
-| System prompt | First message with role `limits.systemRole` (`system`, or `developer` for reasoning models). Unknown models default to `developer` when the ID matches a reasoning-model prefix listed in `models.ts`, else `system`. |
+| System prompt | Sent as `instructions`. |
+| Messages | `input` items with role `user` or `assistant`. |
 | Temperature | Sent only when `limits.supportsTemperature`. Reasoning models (o-series, gpt-5 family) reject non-default values, so their rows set it false; so does the unknown-model fallback row. |
-| Effort | `reasoning_effort` when `limits.supportsEffort`, mapped from the task's effort (`xhigh`/`max` → `high`). |
-| Images | Content parts `{type:'image_url', image_url:{url:'data:<mime>;base64,<data>', detail:'high'}}`, each preceded by a text label part. |
-| Structured output | `response_format: {type:'json_schema', json_schema:{name, schema, strict:true}}`. Strict mode requires every property listed in `required` and `additionalProperties:false`; the zod-to-JSON-Schema export (section 10) emits that form, with optional fields expressed as nullable. `json` is `JSON.parse(message.content)`. A `refusal` field maps to `stopReason:'refusal'`. |
-| Max tokens | `max_completion_tokens` (includes reasoning tokens; see section 8.2). |
-| Transport | Every call uses `stream: true` with `stream_options: {include_usage: true}` and accumulates deltas into one `GenerationResult`. |
-| Stop reasons | `stop` → `end`; `length` → `max_tokens`; `content_filter` → `refusal`. |
+| Effort | `reasoning: {effort}` when `limits.supportsEffort`, mapped from the task's effort (`xhigh`/`max` → `high`). |
+| Images | Each image is an `input_text` label `[Image: <label>]` followed by `input_image` with a `data:<mime>;base64,<data>` URL and `detail: 'high'`. |
+| Structured output | `text.format = {type:'json_schema', name, schema, strict:true}`. Strict mode requires every property listed in `required` and `additionalProperties:false`; the zod-to-JSON-Schema export (section 10) emits that form, with optional fields expressed as nullable. `json` is `JSON.parse` of the accumulated output text. |
+| Max tokens | `max_output_tokens` (includes reasoning tokens; see section 8.2). |
+| Storage | `store: false`. |
+| Transport | Always streamed. Text from `response.output_text.delta`; `response.refusal.delta` marks a refusal; the call ends on `response.completed` or `response.incomplete`. `response.failed` and stream `error` events map to `LLMErrorKind`s by their code; server text is never shown. |
+| Stop reasons | `completed` → `end`; `incomplete` with reason `max_output_tokens` → `max_tokens`; `content_filter` or any refusal delta → `refusal`. |
+| Usage | From `response.usage`: `input_tokens`, `output_tokens`, `input_tokens_details.cached_tokens`. |
 | Streaming (public `stream()`) | Same stream; text deltas as above. |
 | Token counting | No API call; heuristic in section 8.1. |
 
@@ -244,7 +259,7 @@ inputBudget = floor(limits.contextTokens * 0.80)
             - 2000                     // clarifying input, source list, framing
 ```
 
-`reservedOutput` already includes thinking: `max_tokens` (Claude) and `max_completion_tokens` (OpenAI) count reasoning tokens. The visible-output budget a prompt may target is `reservedOutput - limits.thinkingReserveTokens`, and prompts state section-count limits against that figure so thinking does not push a draft into `max_tokens`.
+`reservedOutput` already includes thinking: `max_tokens` (Claude) and `max_output_tokens` (OpenAI) count reasoning tokens. The visible-output budget a prompt may target is `reservedOutput - limits.thinkingReserveTokens`, and prompts state section-count limits against that figure so thinking does not push a draft into `max_tokens`.
 
 ### 8.3 Image handling
 
@@ -305,6 +320,7 @@ Sources:
 | `section-reexplain` | `prompts/section-reexplain.md` | "This isn't clear, re-explain it" | same | `SectionDraft` |
 | `section-analogy` | `prompts/section-analogy.md` | "Give me an analogy" | same | `SectionDraft` |
 | `section-deeper` | `prompts/section-deeper.md` | "Go deeper" | same, plus original source excerpt if in `meta.json` | `SectionDraft` |
+| `section-revise` | `prompts/section-revise.md` | "Edit with my note" ([08](08-interactive-reading.md) §5.1) | same; the note is required and is the only instruction. Temperature 0.3, effort `medium`, 12,000 output tokens, same skills | `SectionDraft` |
 | `section-eli5-tab` | `prompts/section-eli5-tab.md` | "Create a separate ELI5 for this section" | selected passage, section, outline | `DocumentDraftTab` (kind `section-eli5`) |
 | `selection-eli5-tab` | `prompts/selection-eli5-tab.md` | "ELI5 this selection" ([08](08-interactive-reading.md) §7.5) | the selected text (up to 12,000 chars), brief context (covered headings, the blocks just before and after, each up to 600 chars; grounding only), outline, note | `DocumentDraftTab` (kind `section-eli5`; `title` is the topic, used as the tab label) |
 | `summary` | `prompts/summary.md` | pipeline after save | title, outline, first 2000 tokens of in-depth | `SummaryDraft` |
@@ -444,7 +460,7 @@ export async function generateGlossary(indepth: DocumentDraftTab, ctx: StepCtx)
 export async function summarize(indepth: DocumentDraftTab, ctx: StepCtx): Promise<StepResult<SummaryDraft>>;
 
 export async function runSectionAction(input: {
-  action: 'expand' | 'reexplain' | 'analogy' | 'deeper' | 'eli5-tab';
+  action: 'expand' | 'reexplain' | 'analogy' | 'deeper' | 'revise' | 'eli5-tab';
   tabKind: Tab['kind']; section: SectionDraft; outline: string[];
   prev?: SectionDraft; next?: SectionDraft; selection: string; note?: string;
   sourceExcerpt?: string; signal: AbortSignal;
@@ -509,6 +525,20 @@ IPC (handled in main, exposed via `window.eli5`, registered per [01](01-architec
 | --- | --- | --- |
 | `eli5:llm:test-connection` | `{ provider?: ProviderId }` | `{ ok: boolean; model?: string; message?: string }` |
 | `eli5:llm:models` | `{ provider: ProviderId }` | `{ suggested: string[]; default: string }` |
+| `eli5:llm:credential-status` | — | `CredentialStatus` or `null` when the active provider has no `credentialStatus` |
+| `eli5:llm:reload-credentials` | — | Drops the cached provider, rebuilds it, returns the new status (or `null`) |
+| `eli5:llm:sign-in` | — | Runs `signIn()` and returns the new status; `E_NOT_FOUND` when the provider has no `signIn`; a failed sign-in is `E_LLM_UNAVAILABLE` with the `LLMError` message |
+
+The three credential channels are app-window only, invoke style. The public providers implement
+neither optional method, so they return `null` / `E_NOT_FOUND`.
+
+**Credential bar (renderer).** It lives in the shared top-status holder at the top right of the
+title strip: absolutely positioned, not draggable, and it moves no other layout (the publisher
+account items of [10](10-publishing.md) §5.4 share it). It renders nothing until a status arrives
+and nothing for providers without the seam. It re-reads the status every 60 s, after every action,
+and when any `llm.*` setting changes. It shows the `label` (or the state word), **Reload** and
+**Sign in**. Each button disables only itself while busy. Errors show inline and clear on the next
+successful status that is not `expired`; a failed poll keeps the last status.
 
 Setting and clearing keys goes through `eli5:settings:*` channels owned by [12](12-configuration-security.md).
 
@@ -522,14 +552,14 @@ Setting and clearing keys goes through `eli5:settings:*` channels owned by [12](
 
 - `FakeProvider implements LLMProvider` in `src/main/llm/testing/fake.ts`: returns fixture JSON keyed by `taskId`, can simulate each `LLMErrorKind`, latency, and `max_tokens` truncation. Used by pipeline and e2e tests ([13](13-testing-quality.md)); selected with `ELI5_LLM_FAKE=1` in test builds only.
 - Provider contract tests run against recorded HTTP fixtures (cassettes, injected as `cassetteFetch` in place of `llmFetch`; no network in CI) for Claude and OpenAI: image encoding, structured output mapping, error classification, `retry-after` handling, streamed accumulation into one `GenerationResult`.
-- Required cassettes: (a) a Claude `forced_tool` request answered with the 400 "tool_choice ... not supported for this model" is classified `bad_request`, not retried, and triggers the `output_config` fallback resend; (b) a model row with `supportsTemperature: false` produces a request body with no `temperature`, `top_p`, or `top_k`; (c) an OpenAI reasoning-model row sends the system prompt with role `developer` and no `temperature`.
+- Required cassettes: (a) a Claude `forced_tool` request answered with the 400 "tool_choice ... not supported for this model" is classified `bad_request`, not retried, and triggers the `output_config` fallback resend; (b) a model row with `supportsTemperature: false` produces a request body with no `temperature`, `top_p`, or `top_k`; (c) an OpenAI reasoning-model row sends a Responses API body with the system prompt as `instructions`, `store: false` and no `temperature`.
 - Prompt lint test: every prompt file parses, its `output` names a schema in `schemas/draft.ts`, and all `{{vars}}` are supplied by the corresponding task function.
 
 ## Acceptance criteria
 
 - [ ] `LLMProvider` exposes `generate`, `generateWithImages`, optional `stream`, and `testConnection`; no vendor SDK is imported outside `src/main/llm/`.
-- [ ] Claude and OpenAI providers both produce schema-valid `DocumentDraftTab` JSON through native structured output (`output_config.format` json_schema and `response_format` json_schema strict mode respectively); forced tool use is only a per-model fallback and its 400 triggers the `output_config` fallback.
-- [ ] `temperature` is never sent to a model whose row has `supportsTemperature: false`, including the unknown-model fallback row; OpenAI system role follows `limits.systemRole`.
+- [ ] Claude and OpenAI providers both produce schema-valid `DocumentDraftTab` JSON through native structured output (`output_config.format` json_schema and Responses API `text.format` json_schema strict mode respectively); forced tool use is only a per-model fallback and its 400 triggers the `output_config` fallback.
+- [ ] `temperature` is never sent to a model whose row has `supportsTemperature: false`, including the unknown-model fallback row; the OpenAI provider calls the Responses API with the system prompt as `instructions` and `store: false`.
 - [ ] Every Claude and OpenAI call streams internally; only the 120 s idle timeout and the 30 min total cap apply; effort is set explicitly per task; thinking tokens are budgeted inside `reservedOutput`.
 - [ ] Both SDK clients use `llmFetch` (the `eli5-llm` session configured by `configureSession()`), so the system proxy, PAC, Keychain trust, and HOOK-FETCH-01 configuration apply to LLM traffic.
 - [ ] Images from files, clipboard, and scanned PDF pages reach the model as native vision input with labels; oversized images are re-encoded; unsendable images are recorded as skipped with a reason.

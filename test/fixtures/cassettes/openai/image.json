@@ -3,16 +3,23 @@
   "interactions": [
     {
       "request": {
-        "path": "/v1/chat/completions",
+        "path": "/v1/responses",
         "match": {
-          "messages": [
-            { "role": "developer" },
+          "input": [
             {
               "role": "user",
               "content": [
-                { "type": "text", "text": "[Image: diagram.png]" },
-                { "type": "image_url", "image_url": { "detail": "high" } },
-                { "type": "text" }
+                {
+                  "type": "input_text",
+                  "text": "[Image: diagram.png]"
+                },
+                {
+                  "type": "input_image",
+                  "detail": "high"
+                },
+                {
+                  "type": "input_text"
+                }
               ]
             }
           ]
@@ -20,11 +27,14 @@
       },
       "response": {
         "status": 200,
-        "openaiCompletion": {
+        "openaiResponse": {
           "model": "gpt-5",
           "content": "The diagram shows two boxes joined by an arrow.",
-          "finish_reason": "stop",
-          "usage": { "prompt_tokens": 900, "completion_tokens": 12 }
+          "status": "completed",
+          "usage": {
+            "input_tokens": 900,
+            "output_tokens": 12
+          }
         }
       },
       "repeat": true

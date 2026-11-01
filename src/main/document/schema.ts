@@ -51,7 +51,7 @@ const SectionSchema = z.object({
   blocks: z.array(DocBlockSchema),
   origin: z.enum(['generated', 'regenerated', 'merged', 'merge-marker', 'placeholder']),
   updatedAt: z.string(),
-  lastAction: z.enum(['expand', 'reexplain', 'analogy', 'deeper']).optional(),
+  lastAction: z.enum(['expand', 'reexplain', 'analogy', 'deeper', 'revise']).optional(),
   merge: z.object({ fromDocId: z.string(), fromTitle: z.string(), mergedAt: z.string() }).optional(),
   enh: z.object({ added: z.string().optional(), blocks: z.array(BlockEnhancementSchema) }).optional(),
   mergeMarker: z

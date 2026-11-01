@@ -1,11 +1,11 @@
-import type { IpcError, JobStatus, SourceInput, SourceOrigin, StartJobRequest } from '../../../preload/contract';
+import type { IpcError, SourceInput, SourceOrigin, StartJobRequest } from '../../../preload/contract';
 import { newDraftId, newInputId } from '../ids';
 import type { InputDraft } from './types';
 
 /** Pure input-zone helpers (11 §5.4). */
 
 export function newDraft(glossary: boolean): InputDraft {
-  return { draftId: newDraftId(), inputs: [], urlText: '', clarifying: '', glossary };
+  return { draftId: newDraftId(), inputs: [], lastRun: [], urlText: '', clarifying: '', glossary };
 }
 
 export function isHttpUrl(s: string): boolean {
@@ -116,31 +116,66 @@ export function startRequest(d: InputDraft, inputs: SourceInput[]): StartJobRequ
   return req;
 }
 
-/** A job that can still be cancelled: Restart applies while the draft's last run is one of these. */
-export function isRunning(status: JobStatus): boolean {
-  return status !== 'done' && status !== 'failed';
+/**
+ * The primary button (11 §5.4): **Start** sends the chips when there are chips or typed text;
+ * otherwise **Run again** re-sends the last run's URLs; otherwise Start, which shows the usual hint.
+ */
+export function primaryAction(d: InputDraft): 'start' | 'run-again' {
+  if (d.inputs.length > 0 || d.urlText.trim() !== '') return 'start';
+  return d.lastRun.length > 0 ? 'run-again' : 'start';
 }
 
-/** The job last started from the draft and its newest known status (11 §5.4). */
-export interface DraftRun {
-  jobId: string;
-  status: JobStatus;
+export const RUN_AGAIN_TOOLTIP = "Send the last run's links again";
+
+/** URL inputs only, each with a fresh id, so a re-sent link is a new input (11 §5.4). */
+export function freshUrls(inputs: readonly SourceInput[]): SourceInput[] {
+  return inputs.flatMap((i) => (i.kind === 'url' ? [{ ...i, id: newInputId() }] : []));
 }
 
 /**
- * The draft survives Start (11 §5.4 step 5), so the primary button either starts another document
- * or, while the run started from this draft is queued or running, restarts it: that run is
- * cancelled and a new one starts with the current inputs.
+ * The draft after a successful start (11 §5.4 step 5). Every sent input leaves the chips, and
+ * anything added while the start was in flight stays. The sent URLs become the last run (when none
+ * were URLs, the previous last run is kept). Specifics and the glossary choice stay. Unsent staged
+ * pastes keep the old draft id so their staging folder stays valid; otherwise a new id is taken.
  */
-export function startMode(run: DraftRun | null): 'start' | 'restart' {
-  return run && isRunning(run.status) ? 'restart' : 'start';
+export function draftAfterStart(cur: InputDraft, sent: readonly SourceInput[]): InputDraft {
+  const sentIds = new Set(sent.map((i) => i.id));
+  const inputs = cur.inputs.filter((i) => !sentIds.has(i.id));
+  const urls = sent.filter((i) => i.kind === 'url');
+  return {
+    ...cur,
+    inputs,
+    lastRun: urls.length > 0 ? urls : cur.lastRun,
+    draftId: inputs.some(isStaged) ? cur.draftId : newDraftId(),
+  };
 }
-
-export const RESTART_TOOLTIP = 'Cancel the current run and start again with these inputs';
 
 /** True when Clear has something to clear. */
 export function draftHasContent(d: InputDraft): boolean {
-  return d.inputs.length > 0 || d.urlText.trim() !== '' || d.clarifying.trim() !== '';
+  return d.inputs.length > 0 || d.lastRun.length > 0 || d.urlText.trim() !== '' || d.clarifying.trim() !== '';
+}
+
+/**
+ * Copies text from the renderer, which has no clipboard permission (12 §7): a one-shot `copy`
+ * handler fills the event's clipboardData while execCommand fires it. False when refused.
+ */
+export function copyText(text: string, doc: Document = document): boolean {
+  let done = false;
+  const onCopy = (e: ClipboardEvent) => {
+    if (!e.clipboardData) return;
+    e.clipboardData.setData('text/plain', text);
+    e.preventDefault();
+    done = true;
+  };
+  doc.addEventListener('copy', onCopy, true);
+  try {
+    doc.execCommand('copy');
+  } catch {
+    // reported by the return value
+  } finally {
+    doc.removeEventListener('copy', onCopy, true);
+  }
+  return done;
 }
 
 /**

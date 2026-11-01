@@ -3,8 +3,14 @@
   "interactions": [
     {
       "request": {
-        "path": "/v1/chat/completions",
-        "match": { "messages": [{}, { "content": "contract:error:auth" }] }
+        "path": "/v1/responses",
+        "match": {
+          "input": [
+            {
+              "content": "contract:error:auth"
+            }
+          ]
+        }
       },
       "response": {
         "status": 401,
@@ -21,8 +27,14 @@
     },
     {
       "request": {
-        "path": "/v1/chat/completions",
-        "match": { "messages": [{}, { "content": "contract:error:bad_request" }] }
+        "path": "/v1/responses",
+        "match": {
+          "input": [
+            {
+              "content": "contract:error:bad_request"
+            }
+          ]
+        }
       },
       "response": {
         "status": 400,
@@ -39,12 +51,20 @@
     },
     {
       "request": {
-        "path": "/v1/chat/completions",
-        "match": { "messages": [{}, { "content": "contract:error:rate_limited" }] }
+        "path": "/v1/responses",
+        "match": {
+          "input": [
+            {
+              "content": "contract:error:rate_limited"
+            }
+          ]
+        }
       },
       "response": {
         "status": 429,
-        "headers": { "retry-after-ms": "1500" },
+        "headers": {
+          "retry-after-ms": "1500"
+        },
         "body": {
           "error": {
             "message": "Rate limit reached.",
@@ -58,8 +78,14 @@
     },
     {
       "request": {
-        "path": "/v1/chat/completions",
-        "match": { "messages": [{}, { "content": "contract:error:overloaded" }] }
+        "path": "/v1/responses",
+        "match": {
+          "input": [
+            {
+              "content": "contract:error:overloaded"
+            }
+          ]
+        }
       },
       "response": {
         "status": 503,
@@ -76,19 +102,38 @@
     },
     {
       "request": {
-        "path": "/v1/chat/completions",
-        "match": { "messages": [{}, { "content": "contract:error:server" }] }
+        "path": "/v1/responses",
+        "match": {
+          "input": [
+            {
+              "content": "contract:error:server"
+            }
+          ]
+        }
       },
       "response": {
         "status": 502,
-        "body": { "error": { "message": "Bad gateway.", "type": "server_error", "param": null, "code": null } }
+        "body": {
+          "error": {
+            "message": "Bad gateway.",
+            "type": "server_error",
+            "param": null,
+            "code": null
+          }
+        }
       },
       "repeat": true
     },
     {
       "request": {
-        "path": "/v1/chat/completions",
-        "match": { "messages": [{}, { "content": "contract:error:context_overflow" }] }
+        "path": "/v1/responses",
+        "match": {
+          "input": [
+            {
+              "content": "contract:error:context_overflow"
+            }
+          ]
+        }
       },
       "response": {
         "status": 400,

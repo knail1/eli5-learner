@@ -29,8 +29,13 @@ const done = (over: Partial<StatusLineJob> = {}) =>
 
 describe('statusLine (06 §6)', () => {
   it('queued', () => {
-    expect(statusLine(job(), { queuePosition: 1 })).toBe('Queued');
     expect(statusLine(job())).toBe('Queued');
+    expect(statusLine(job(), { queuePosition: 0 })).toBe('Queued');
+    // 06 §6: position 1 names the run to wait for only when there is a single slot.
+    expect(statusLine(job(), { queuePosition: 1 })).toBe('Queued: starts after the current run');
+    expect(statusLine(job(), { queuePosition: 1, queueSlots: 1 })).toBe('Queued: starts after the current run');
+    expect(statusLine(job(), { queuePosition: 1, queueSlots: 3 })).toBe('Queued: starts when a run finishes');
+    expect(statusLine(job(), { queuePosition: 2, queueSlots: 3 })).toBe('Queued (2 ahead)');
     expect(statusLine(job(), { queuePosition: 3 })).toBe('Queued (3 ahead)');
     expect(statusLine(job({ resuming: true }), { queuePosition: 3 })).toBe('Resuming');
   });
@@ -67,6 +72,24 @@ describe('statusLine (06 §6)', () => {
     expect(statusLine(done({ skipped }))).toBe('Done: How DNS works · 2 source(s) skipped');
     expect(statusLine(done({ warnings: [{ kind: 'glossary-omitted', message: 'x' }] }))).toBe(
       'Done: How DNS works · with notes',
+    );
+  });
+
+  it('failed with no usable content: one source appends its skip reason, several keep the count (06 §6)', () => {
+    const f = (inputs: StatusLineJob['inputs'], skipped: StatusLineJob['skipped']) =>
+      statusLine(job({ status: 'failed', inputs, skipped, failure: { code: 'NO_USABLE_CONTENT', message: '' } }));
+    const skip = (reason: string) => ({ ref: 'memo.pdf', reason, code: 'too-large' as const });
+    expect(f([url(1)], [skip('File is larger than the supported size.')])).toBe(
+      'Failed: no usable content in 1 source(s) · File is larger than the supported size',
+    );
+    expect(f([url(1)], [skip('page could not be fetched')])).toBe(
+      'Failed: no usable content in 1 source(s) · Page could not be fetched',
+    );
+    // One source without a reason, and several sources, keep the count alone.
+    expect(f([url(1)], [])).toBe('Failed: no usable content in 1 source(s)');
+    expect(f([url(1)], [skip('  ')])).toBe('Failed: no usable content in 1 source(s)');
+    expect(f([url(1), url(2)], [skip('File not found.'), skip('File not found.')])).toBe(
+      'Failed: no usable content in 2 source(s)',
     );
   });
 

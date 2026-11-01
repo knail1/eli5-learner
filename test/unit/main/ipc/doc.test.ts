@@ -58,6 +58,14 @@ describe('eli5:doc:regenerate-section / create-section-eli5 (08 §3, §6.1)', ()
     expect(svc.createSectionEli5).toHaveBeenCalledWith(eli5);
   });
 
+  it('accepts "Edit with my note" (revise) with a note (08 §5.1)', async () => {
+    const { svc } = fakeActions();
+    const h = await setup({ services: { sectionActions: svc } });
+    const r = req({ action: 'revise', note: 'The average is twelve weeks' });
+    expect(await h.call(IPC.doc.regenerateSection, r, 'viewer')).toMatchObject({ ok: true });
+    expect(svc.regenerateSection).toHaveBeenCalledWith(r);
+  });
+
   it('accepts section ELI5 tab keys and sections inside them', async () => {
     const { svc } = fakeActions();
     const h = await setup({ services: { sectionActions: svc } });
@@ -103,6 +111,9 @@ describe('eli5:doc:regenerate-section / create-section-eli5 (08 §3, §6.1)', ()
       req({ note: 'x'.repeat(201) }),
       req({ note: 'two\nlines' }),
       req({ slug: '../etc' }),
+      // 08 §5.1: "Edit with my note" without a note is malformed.
+      req({ action: 'revise' }),
+      req({ action: 'revise', note: '   ' }),
     ]) {
       expect(await h.call(IPC.doc.regenerateSection, bad, 'viewer')).toMatchObject({
         ok: false,

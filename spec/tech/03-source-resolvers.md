@@ -185,7 +185,7 @@ The overlay may register additional resolvers via the registry; they are inserte
 Invariants:
 - Every input yields at least one resolved or skipped record (unless it was a silent duplicate).
 - The chain never prompts, opens a window, or blocks on user action. Anything needing the user (for example sign-in) becomes a skip.
-- Before job start, clipboard/drag staging lives only under `<userData>/staging/drafts/<draftId>/`. On `eli5:jobs:start` the pipeline copies those files (an APFS clone where possible; never a move, so the draft stays usable for another start, 11 §5.4), and snapshots dropped files, into `<userData>/jobs/<jobId>/inputs/` (06 §9.2). From then on, resolvers read only snapshots, and downloads are written only under `ctx.stagingDir` (`<userData>/jobs/<jobId>/`). Deletion and retention of that directory are owned by 06 §9.
+- Before job start, clipboard/drag staging lives only under `<userData>/staging/drafts/<draftId>/`. On `eli5:jobs:start` the pipeline copies those files (an APFS clone where possible; never a move, so the staging stays usable while the draft keeps its id, 11 §5.4 step 5), and snapshots dropped files, into `<userData>/jobs/<jobId>/inputs/` (06 §9.2). From then on, resolvers read only snapshots, and downloads are written only under `ctx.stagingDir` (`<userData>/jobs/<jobId>/`). Deletion and retention of that directory are owned by 06 §9.
 
 ## 5. File resolver (`src/main/sources/file.ts`)
 

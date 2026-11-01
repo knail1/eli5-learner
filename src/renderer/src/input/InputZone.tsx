@@ -8,35 +8,38 @@ import {
   type KeyboardEvent,
   type Ref,
 } from 'react';
-import type { JobStatus, ProviderId, SourceInput } from '../../../preload/contract';
+import type { ProviderId, SourceInput } from '../../../preload/contract';
 import { useAnnounce } from '../a11y/Announcer';
 import {
-  RESTART_TOOLTIP,
+  RUN_AGAIN_TOOLTIP,
   URL_INVALID_MESSAGE,
   chipIcon,
   chipLabel,
   clarifyRows,
   commitUrlText,
+  copyText,
+  draftAfterStart,
   draftHasContent,
   fileInput,
   filesToRelease,
+  freshUrls,
   isHttpUrl,
   isStaged,
   isTextField,
   newDraft,
+  primaryAction,
   resolveDropPaths,
   splitTokens,
   startErrorMessage,
-  startMode,
   startRequest,
-  type DraftRun,
 } from './draft';
 import type { InputDraft } from './types';
 
 /**
- * Input zone (11 §5.4): drop box, paste, URL field, chips, clarifying specifics, glossary toggle,
- * Clear, and Start (Restart while the draft's last run is still going). The draft stays after a
- * start so it can be edited and run again. Every message is inline; nothing here opens a modal (11 §1).
+ * Input zone (11 §5.4): drop box, paste, URL field with Add, chips, a dimmed Last run row,
+ * clarifying specifics, glossary toggle, Clear, and Start (Run again when only a last run is left).
+ * Enter in the URL field makes chips and starts nothing; Cmd/Ctrl+Enter starts from anywhere in the
+ * zone. Every message is inline; nothing here opens a modal (11 §1).
  */
 
 export interface InputZoneHandle {
@@ -68,12 +71,7 @@ export function InputZone(p: InputZoneProps) {
   const [startError, setStartError] = useState<Hint>(null);
   const [dragDepth, setDragDepth] = useState(0);
   const [starting, setStarting] = useState(false);
-  // The job last started from this draft; Restart cancels it while it is queued or running.
-  const [run, setRun] = useState<DraftRun | null>(null);
-  const runRef = useRef(run);
-  runRef.current = run;
-  // Newest status per job from change events, for a run whose events beat jobs.start's answer.
-  const statusSeen = useRef(new Map<string, JobStatus>());
+  const [copiedChip, setCopiedChip] = useState<string | null>(null);
   const lastStart = useRef(0);
   // Synchronous guard: taken before the first await so a second Enter during the key check or
   // jobs.start cannot send a duplicate job (11 §5.4 debounce).
@@ -103,23 +101,15 @@ export function InputZone(p: InputZoneProps) {
     setStartError(null);
   }, []);
 
-  useEffect(
-    () =>
-      window.eli5.jobs.onChanged((s) => {
-        statusSeen.current.set(s.id, s.status);
-        setRun((r) => (r && r.jobId === s.id && r.status !== s.status ? { ...r, status: s.status } : r));
-      }),
-    [],
-  );
-
   const clearDraft = useCallback(() => {
+    // Disabled while a start is in flight; the programmatic clear (Cmd+N) does nothing then either.
+    if (inFlight.current) return;
     const d = draftRef.current;
     // The draft's staged pastes and its file registrations go with it (03 §13, 06 §11).
     if (d.inputs.some(isStaged)) void window.eli5.sources.discardDraft(d.draftId);
     const files = filesToRelease(d.inputs, []);
     if (files.length > 0) void window.eli5.sources.release(files);
     setDraft(newDraft(p.glossaryDefault));
-    setRun(null);
     setGlossaryTouched(false);
     setUrlError(null);
     setHint(null);
@@ -249,6 +239,24 @@ export function InputZone(p: InputZoneProps) {
     setDraft({ ...d, inputs: rest });
   };
 
+  // ---- URL field: Enter and Add make chips and start nothing (11 §5.4) ----
+  const addUrlText = (): boolean => {
+    const d = draftRef.current;
+    if (!d.urlText.trim()) return false;
+    const { added, invalid } = commitUrlText(d.urlText);
+    append(added);
+    setDraft((cur) => ({ ...cur, urlText: invalid.join(' ') }));
+    setUrlError(invalid.length ? URL_INVALID_MESSAGE : null);
+    return true;
+  };
+
+  const onUrlKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter' || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey || e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    // An empty field starts a run, as Enter always did.
+    if (!addUrlText()) void start();
+  };
+
   // ---- Start algorithm (11 §5.4) ----
   const start = async () => {
     if (inFlight.current) return;
@@ -265,9 +273,10 @@ export function InputZone(p: InputZoneProps) {
     if (Date.now() - lastStart.current < START_DEBOUNCE_MS) return;
     setStartError(null);
     const d = draftRef.current;
-    let inputs = d.inputs;
-    // 1. Commit URL field text; invalid text blocks the start and keeps focus there.
-    if (d.urlText.trim()) {
+    const again = primaryAction(d) === 'run-again';
+    let inputs = again ? freshUrls(d.lastRun) : d.inputs;
+    // 1. Start turns typed URL text into chips first; invalid text blocks the start and keeps focus there.
+    if (!again && d.urlText.trim()) {
       const { added, invalid } = commitUrlText(d.urlText);
       inputs = [...inputs, ...added];
       setDraft({ ...d, inputs, urlText: invalid.join(' ') });
@@ -291,40 +300,43 @@ export function InputZone(p: InputZoneProps) {
         return;
       }
     }
-    // 4. Start. A Restart starts the new run first, so a failed start leaves the old run going.
-    const previous = runRef.current;
-    const restart = startMode(previous) === 'restart' ? previous : null;
+    // 4. Start.
     lastStart.current = Date.now();
     setStarting(true);
-    const req = startRequest(draftRef.current, inputs);
-    const r = await window.eli5.jobs.start(req);
+    const r = await window.eli5.jobs.start(startRequest(draftRef.current, inputs));
     lastStart.current = Date.now();
     setStarting(false);
     if (r.ok) {
-      // 5. The draft stays as it is, for editing and another run; focus stays where it was.
-      const jobId = r.value.jobId;
-      setRun({ jobId, status: statusSeen.current.get(jobId) ?? 'queued' });
-      if (restart) {
-        const c = await window.eli5.jobs.cancel(restart.jobId);
-        showHint(
-          {
-            text: c.ok
-              ? 'Restarted with these inputs. The earlier run was cancelled'
-              : 'Started again. The earlier run could not be stopped and will finish too',
-          },
-          true,
-        );
-        announce('Restarted');
-      } else {
-        showHint({ text: 'Started. Edit and Restart to run it again with changes' }, true);
-        announce('Started');
-      }
+      // 5. Sent inputs leave the chips and their URLs become the last run; anything added while the
+      //    start was in flight stays, and so do Specifics and the glossary choice.
+      setDraft((cur) => draftAfterStart(cur, inputs));
+      showHint({ text: again ? 'Started again with the last run' : 'Started' }, true);
+      announce('Started');
     } else {
-      // 6. Keep the draft intact (and any earlier run going). A key missing at start time (01 §6.2) links to Settings like step 3.
+      // 6. Keep the draft intact. A key missing at start time (01 §6.2) links to Settings like step 3.
       setStartError({ text: startErrorMessage(r.error), settingsLink: r.error.code === 'E_NO_API_KEY' });
     }
   };
 
+  /** Use again: the last run's URLs go back to the chips with fresh ids, and the last run empties. */
+  const useAgain = () => {
+    setDraft((d) => ({ ...d, inputs: [...d.inputs, ...freshUrls(d.lastRun)], lastRun: [] }));
+    setHint(null);
+    setStartError(null);
+  };
+
+  /** Cmd+C on a focused URL chip, and its copy button, copy the full URL, not the label. */
+  const copyChip = (i: SourceInput): void => {
+    if (i.kind !== 'url') return;
+    if (copyText(i.url)) {
+      setCopiedChip(i.id);
+      announce('Link copied');
+    } else {
+      showHint({ text: 'Could not copy the link' }, true);
+    }
+  };
+
+  /** Plain Enter elsewhere in the zone still starts (Specifics, toggle, drop box). */
   const enterStarts = (e: KeyboardEvent<HTMLElement>) => {
     if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return;
     e.preventDefault();
@@ -332,6 +344,13 @@ export function InputZone(p: InputZoneProps) {
   };
 
   const onZoneKey = (e: KeyboardEvent<HTMLElement>) => {
+    // Cmd/Ctrl+Enter starts from anywhere in the zone (11 §5.4).
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      e.stopPropagation();
+      void start();
+      return;
+    }
     if (e.key === 'Escape' && (hint || urlError || startError)) {
       e.stopPropagation();
       setHint(null);
@@ -340,7 +359,7 @@ export function InputZone(p: InputZoneProps) {
   };
 
   const dragging = dragDepth > 0;
-  const mode = startMode(run);
+  const action = primaryAction(draft);
 
   return (
     <form
@@ -359,8 +378,10 @@ export function InputZone(p: InputZoneProps) {
           if (e.target === e.currentTarget) enterStarts(e);
         }}
       >
-        {draft.inputs.length === 0 ? (
+        {draft.inputs.length === 0 && draft.lastRun.length === 0 ? (
           <span className="muted">Drop files or paste here</span>
+        ) : draft.inputs.length === 0 ? (
+          <span className="muted">Drop files, paste, or add a URL for the next run</span>
         ) : (
           <ul className="chips" aria-label="Added sources">
             {draft.inputs.map((i) => (
@@ -368,6 +389,14 @@ export function InputZone(p: InputZoneProps) {
                 key={i.id}
                 className="chip"
                 tabIndex={0}
+                onCopy={(e) => {
+                  // Cmd+C (the Edit menu's copy) on a focused URL chip copies the full URL.
+                  if (e.target !== e.currentTarget || i.kind !== 'url') return;
+                  e.preventDefault();
+                  e.clipboardData.setData('text/plain', i.url);
+                  setCopiedChip(i.id);
+                }}
+                onBlur={() => setCopiedChip((c) => (c === i.id ? null : c))}
                 onKeyDown={(e) => {
                   if (e.target === e.currentTarget && (e.key === 'Backspace' || e.key === 'Delete')) {
                     e.preventDefault();
@@ -379,7 +408,20 @@ export function InputZone(p: InputZoneProps) {
                 <span className="chip-icon" aria-hidden="true">
                   {chipIcon(i)}
                 </span>
-                <span className="chip-label">{chipLabel(i)}</span>
+                <span className="chip-label" title={i.kind === 'url' ? i.url : undefined}>
+                  {chipLabel(i)}
+                </span>
+                {i.kind === 'url' && (
+                  <button
+                    type="button"
+                    className="chip-copy"
+                    aria-label={`Copy ${chipLabel(i)}`}
+                    title={copiedChip === i.id ? 'Copied' : 'Copy link'}
+                    onClick={() => copyChip(i)}
+                  >
+                    <span aria-hidden="true">{copiedChip === i.id ? '✓' : '⧉'}</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   className="chip-remove"
@@ -391,6 +433,26 @@ export function InputZone(p: InputZoneProps) {
               </li>
             ))}
           </ul>
+        )}
+        {draft.lastRun.length > 0 && (
+          <div className="last-run" role="group" aria-label="Last run">
+            <span className="muted">Last run:</span>
+            <ul className="chips" aria-label="Last run sources">
+              {draft.lastRun.map((i) => (
+                <li key={i.id} className="chip dimmed">
+                  <span className="chip-icon" aria-hidden="true">
+                    {chipIcon(i)}
+                  </span>
+                  <span className="chip-label" title={i.kind === 'url' ? i.url : undefined}>
+                    {chipLabel(i)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <button type="button" className="link" onClick={useAgain}>
+              Use again
+            </button>
+          </div>
         )}
         {dragging && (
           <div className="drop-overlay" aria-hidden="true">
@@ -411,7 +473,7 @@ export function InputZone(p: InputZoneProps) {
           )}
         </p>
       )}
-      <label className="field">
+      <label className="field field-with-action">
         <span className="field-label">URL</span>
         <input
           ref={urlField}
@@ -430,8 +492,19 @@ export function InputZone(p: InputZoneProps) {
             setUrlError(null);
           }}
           onPaste={onUrlPaste}
-          onKeyDown={enterStarts}
+          onKeyDown={onUrlKey}
         />
+        <button
+          type="button"
+          className="add-url"
+          disabled={!draft.urlText.trim()}
+          onClick={() => {
+            addUrlText();
+            urlField.current?.focus();
+          }}
+        >
+          Add
+        </button>
       </label>
       {urlError && (
         <p id="url-error" className="inline-error">
@@ -471,7 +544,7 @@ export function InputZone(p: InputZoneProps) {
           <button
             type="button"
             className="clear-draft"
-            disabled={!draftHasContent(draft)}
+            disabled={starting || !draftHasContent(draft)}
             onClick={() => {
               clearDraft();
               dropBox.current?.focus();
@@ -484,9 +557,9 @@ export function InputZone(p: InputZoneProps) {
             className="primary"
             onClick={() => void start()}
             aria-busy={starting}
-            title={mode === 'restart' ? RESTART_TOOLTIP : undefined}
+            title={action === 'run-again' ? RUN_AGAIN_TOOLTIP : undefined}
           >
-            {mode === 'restart' ? 'Restart' : 'Start'} <span aria-hidden="true">⏎</span>
+            {action === 'run-again' ? 'Run again' : 'Start'} <span aria-hidden="true">⌘⏎</span>
           </button>
         </div>
       </div>

@@ -42,6 +42,7 @@ const LEAVES = [
   'llm.model',
   'glossary.defaultOn',
   'images.stockPhotos',
+  'pipeline.maxConcurrentJobs',
   'publish.local.dir',
   'publish.local.revealAfter',
   'notifications.enabled',
@@ -64,6 +65,15 @@ function description(o: { locked?: string[]; issues?: SettingsDescription['loadI
 const fail = (code: string, message: string) => ({ ok: false, error: { code, message } }) as IpcResult<never>;
 const section = (host: HTMLElement, id: string) => host.querySelector<HTMLElement>(`#settings-${id}`)!;
 const wait = (ms: number) => act(async () => new Promise((r) => setTimeout(r, ms)));
+/** Picks an option of a select the way React observes it. */
+async function choose(el: Element | null, value: string) {
+  const select = el as HTMLSelectElement;
+  await act(async () => {
+    select.value = value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await flush();
+}
 
 describe('load issues (12 §4.2)', () => {
   it('shows one non-modal line when settings were reset to defaults', async () => {
@@ -110,7 +120,7 @@ describe('locked keys are read-only (HOOK-CFG-01)', () => {
     const radios = Array.from(host.querySelectorAll<HTMLInputElement>('#settings-ai input[type="radio"]'));
     expect(radios.length).toBeGreaterThan(0);
     expect(radios.every((r) => r.disabled)).toBe(true);
-    expect(host.querySelector<HTMLInputElement>('input[aria-label="Model"]')?.readOnly).toBe(true);
+    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Model"]')?.disabled).toBe(true);
     expect(section(host, 'documents').querySelector<HTMLInputElement>('input[role="switch"]')?.disabled).toBe(true);
     expect(button(section(host, 'publishing'), 'Choose…')?.disabled).toBe(true);
     // revealAfter is not locked.
@@ -134,11 +144,28 @@ describe('locked keys are read-only (HOOK-CFG-01)', () => {
     expect(switches.find((i) => i !== photos)?.disabled).toBe(false);
   });
 
+  it('"Documents generated at once" saves pipeline.maxConcurrentJobs and can be locked (06 §4.1)', async () => {
+    description();
+    let host = await mount();
+    const select = section(host, 'documents').querySelector<HTMLSelectElement>('#parallel-runs')!;
+    expect(Array.from(select.options).map((o) => o.value)).toEqual(['1', '2', '3']);
+    expect(select.value).toBe('1');
+    await act(async () => {
+      select.value = '3';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await wait(350);
+    expect(fake.api.settings.set).toHaveBeenCalledWith({ pipeline: { maxConcurrentJobs: 3 } });
+    description({ locked: ['pipeline.maxConcurrentJobs'] });
+    host = await mount();
+    expect(section(host, 'documents').querySelector<HTMLSelectElement>('#parallel-runs')?.disabled).toBe(true);
+  });
+
   it('no managed notes in the public build (nothing locked)', async () => {
     description();
     const host = await mount();
     expect(host.textContent).not.toContain('managed by your organization');
-    expect(host.querySelector<HTMLInputElement>('input[aria-label="Model"]')?.readOnly).toBe(false);
+    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Model"]')?.disabled).toBe(false);
   });
 });
 
@@ -159,7 +186,8 @@ describe('E_SETTINGS_* errors render inline (12 §13)', () => {
   it('shows an invalid model inline under the model field', async () => {
     fake.api.settings.set = vi.fn(async () => fail('E_SETTINGS_INVALID', "That value isn't valid: llm.model"));
     const host = await mount();
-    await type(host.querySelector('input[aria-label="Model"]'), 'x');
+    await choose(host.querySelector('select[aria-label="Model"]'), '__custom__');
+    await type(host.querySelector('input[aria-label="Custom model ID"]'), 'x');
     await wait(350);
     await flush();
     expect(section(host, 'ai').textContent).toContain("That value isn't valid: llm.model");
@@ -173,13 +201,47 @@ describe('AI section (11 §7)', () => {
     expect(section(host, 'ai').textContent).toContain('Keychain access denied. Unlock or allow access, then retry');
   });
 
-  it('offers model suggestions from llm.models for the selected provider', async () => {
+  it("Model is a dropdown of the provider's suggested models, then Custom… (11 §7)", async () => {
+    fake.api.llm.models = vi.fn(async () => ok({ suggested: ['model-x', 'model-y'], default: 'model-x' }));
     const host = await mount();
     expect(fake.api.llm.models).toHaveBeenCalledWith('claude');
-    const list = host.querySelector('input[aria-label="Model"]')?.getAttribute('list');
-    expect(Array.from(host.querySelectorAll(`#${list} option`)).map((o) => o.getAttribute('value'))).toEqual([
-      'model-x',
-    ]);
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Model"]')!;
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['model-x (default)', 'model-y', 'Custom…']);
+    // Nothing saved: the provider default is selected; every suggestion stays visible.
+    expect(select.value).toBe('model-x');
+    expect(host.querySelector('input[aria-label="Custom model ID"]')).toBeNull();
+  });
+
+  it('a listed pick saves at once; Custom reveals the ID field, which saves with a delay', async () => {
+    fake.api.llm.models = vi.fn(async () => ok({ suggested: ['model-x', 'model-y'], default: 'model-x' }));
+    const host = await mount();
+    await choose(host.querySelector('select[aria-label="Model"]'), 'model-y');
+    await wait(20);
+    expect(fake.api.settings.set).toHaveBeenCalledWith({ llm: { model: 'model-y' } });
+    vi.mocked(fake.api.settings.set).mockClear();
+
+    await choose(host.querySelector('select[aria-label="Model"]'), '__custom__');
+    const field = host.querySelector<HTMLInputElement>('input[aria-label="Custom model ID"]')!;
+    expect(field.placeholder).toBe('model-x');
+    // Custom stays selected while the typed id is empty or equals a listed model.
+    await type(field, 'model-x');
+    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Model"]')?.value).toBe('__custom__');
+    await type(field, 'my-fine-tune');
+    await wait(20);
+    expect(fake.api.settings.set).not.toHaveBeenCalled();
+    await wait(350);
+    expect(fake.api.settings.set).toHaveBeenLastCalledWith({ llm: { model: 'my-fine-tune' } });
+  });
+
+  it('a saved id that is not listed shows Custom with the id; locked settings disable both controls', async () => {
+    description({ locked: ['llm.model'] });
+    const s = settings();
+    s.llm.model = 'my-fine-tune';
+    const host = await mount(s);
+    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Model"]')?.value).toBe('__custom__');
+    const field = host.querySelector<HTMLInputElement>('input[aria-label="Custom model ID"]');
+    expect(field?.value).toBe('my-fine-tune');
+    expect(field?.disabled).toBe(true);
   });
 
   it('shows the key-format error inline and never echoes the key', async () => {

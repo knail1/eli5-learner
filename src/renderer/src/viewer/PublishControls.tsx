@@ -60,7 +60,13 @@ export function linkText(url: string): string {
 }
 
 const isFileLink = (url: string) => url.startsWith('file:');
-const buttonLabel = (t: PublishTarget) => (t.kind === 'local' ? 'Export copy' : t.label);
+
+/** The primary link first, then the rest in their original order (10 §7). */
+export function orderedLinks(links: readonly PublishLink[], primary: PublishLink): PublishLink[] {
+  return [primary, ...links.filter((l) => l !== primary)];
+}
+/** The publisher's own label ("Export copy", "Export Markdown", …); Export copy if it sends none. */
+const buttonLabel = (t: PublishTarget) => t.label || (t.id === 'local' ? 'Export copy' : t.id);
 
 interface Outcome {
   targetId: string;
@@ -150,7 +156,7 @@ export function PublishControls(p: { slug: string; onOpenSettings?: () => void }
         setBusy((b) => (b?.targetId === e.targetId ? null : b));
         if (stage === 'done' && e.result) {
           const t = targetsRef.current.find((x) => x.id === e.targetId);
-          const label = t ? buttonLabel(t) : e.result.kind === 'local' ? 'Export copy' : e.targetId;
+          const label = t ? buttonLabel(t) : e.targetId === 'local' ? 'Export copy' : e.targetId;
           setOutcome({ targetId: e.targetId, label, result: e.result });
           refresh(e.slug);
         } else if (stage === 'failed' && e.error) {
@@ -209,6 +215,7 @@ export function PublishControls(p: { slug: string; onOpenSettings?: () => void }
   const onAct = (a: 'copy' | 'open' | 'reveal', url: string) => void act(a, url);
 
   const primary: PublishLink | undefined = outcome?.result.links.find((l) => l.primary) ?? outcome?.result.links[0];
+  const links = outcome && primary ? orderedLinks(outcome.result.links, primary) : [];
   const history = visible.filter((t) => t.lastPublished && t.id !== outcome?.targetId);
 
   return (
@@ -251,13 +258,27 @@ export function PublishControls(p: { slug: string; onOpenSettings?: () => void }
           )}
         </div>
       )}
-      {outcome && primary && (
+      {outcome && primary && links.length === 1 && (
         <div className="result-chip" role="group" aria-label={`${outcome.label} result`}>
           <span className="muted">{outcome.label}:</span>
           <span className="chip-link" title={primary.url}>
             {truncateMiddle(linkText(primary.url))}
           </span>
           <LinkActions url={primary.url} copied={copied === primary.url} act={onAct} />
+        </div>
+      )}
+      {outcome && links.length > 1 && (
+        // 10 §7: several links, one row each, primary first; every action works on its own row's link.
+        <div className="result-links" role="group" aria-label={`${outcome.label} result`}>
+          {links.map((l) => (
+            <div key={l.url} className="result-chip" role="group" aria-label={`${l.label} link`}>
+              <span className="muted">{l.label}:</span>
+              <span className="chip-link" title={l.url}>
+                {truncateMiddle(linkText(l.url))}
+              </span>
+              <LinkActions url={l.url} copied={copied === l.url} act={onAct} />
+            </div>
+          ))}
         </div>
       )}
       {outcome?.result.warnings.map((w) => (

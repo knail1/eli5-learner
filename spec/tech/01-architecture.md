@@ -291,6 +291,9 @@ this table is corrected. Channel **names** are fixed here.
 | --- | --- | --- | --- | --- |
 | `eli5:llm:test-connection` | R→M | `{provider?: ProviderId}` | `{ok: boolean; model?: string; message?: string}` | 02 §14 |
 | `eli5:llm:models` | R→M | `{provider: ProviderId}` | `{suggested: string[]; default: string}` | 02 §14 |
+| `eli5:llm:credential-status` | R→M | — | `CredentialStatus` or `null` when the active provider has no credential seam. App window only | 02 §14 |
+| `eli5:llm:reload-credentials` | R→M | — | `CredentialStatus \| null`: main drops the cached provider, rebuilds it and returns its new status. App window only | 02 §14 |
+| `eli5:llm:sign-in` | R→M | — | `CredentialStatus \| null` after the provider's `signIn()`; `E_NOT_FOUND` when the provider has no `signIn`; a failed sign-in is `E_LLM_UNAVAILABLE` with the `LLMError` message. App window only | 02 §14 |
 
 **Library and suggestions (09)**
 
@@ -378,6 +381,8 @@ this table is corrected. Channel **names** are fixed here.
 | `eli5:publish:copy-link` | R→M | `{url}` | `void` (clipboard written in main) | 10 §6 |
 | `eli5:publish:open-link` | R→M | `{url}` | `void` (`https:` via `safeOpenExternal`; `file:` inside the export folder via `shell.openPath`) | 10 §6 |
 | `eli5:publish:reveal` | R→M | `{url}` (`file:` only) | `void` (`shell.showItemInFolder`) | 10 §6 |
+| `eli5:publish:account-status` | R→M | `{targetId}` | `AccountStatus`; `E_NOT_FOUND` for an unknown publisher or one without `account`. App window only | 10 §5.4 |
+| `eli5:publish:account-action` | R→M | `{targetId; action: 'sign-in' \| 'install'}` | `AccountStatus` after the action; `E_NOT_FOUND` as above. App window only | 10 §5.4 |
 
 This table is the complete v1 registry: channels not in it do not exist. A spec that needs a new
 channel adds a row here (and the constant to `contract.ts`) in the same change; defining a channel
@@ -637,8 +642,13 @@ Rules:
    The overlay may replace stubs and policy defaults, add resolvers, register auth, extend
    settings, enable UI features (hook index, §6.1).
 4. `config/` re-validates settings against the (possibly extended) schema.
-5. `registry.freeze()`.
-6. IPC handlers are registered; windows and Tray are created.
+5. Test builds only: if `__ELI5_TEST__` is true **and** `ELI5_LLM_FAKE=1`, install the fake LLM
+   provider (13 §6.1). It reads the active `llm.provider` at this moment (after the overlay and the
+   re-validation) and replaces whatever provider is registered under that name. No stored API key
+   is needed with it. Without both conditions this step does not exist; production order is
+   unchanged.
+6. `registry.freeze()`.
+7. IPC handlers are registered; windows and Tray are created.
 
 A failure in step 3 is fatal in an enterprise build: the app shows a single error window with the
 message and the overlay path, and does not start with a partial capability set.

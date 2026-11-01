@@ -42,6 +42,23 @@ describe('history state (08 §6.7)', () => {
     });
   });
 
+  it('"Edit with my note" replaces only its section, is labelled "edited", and undo restores (08 §5.1)', async () => {
+    const s = await setup();
+    const before = parseDocument(await s.read()).model;
+    const heading = before.tabs[0]?.sections[0]?.heading ?? '';
+    await runAction(s, { action: 'revise', note: 'The average is twelve weeks' });
+    const after = parseDocument(await s.read()).model;
+    // The scripted revise response replaced the first section; every other section is unchanged.
+    expect(after.tabs[0]?.sections[0]?.lastAction).toBe('revise');
+    expect(after.tabs[0]?.sections.slice(1)).toEqual(before.tabs[0]?.sections.slice(1));
+    expect(await s.ir.history.state(s.slug)).toMatchObject({
+      canUndo: true,
+      undoLabel: `edited '${quoteLabel(heading)}'`,
+    });
+    await s.ir.history.undo(s.slug);
+    expect(parseDocument(await s.read()).model.tabs[0]?.sections[0]).toEqual(before.tabs[0]?.sections[0]);
+  });
+
   it('labels an ELI5 tab add and a tab close', async () => {
     const s = await setup();
     await runAction(s, { action: 'eli5-tab' });

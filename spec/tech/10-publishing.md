@@ -26,8 +26,8 @@ targets and repo layout").
 1. **Publishing is always user triggered.** Nothing is published as a side effect of generation,
    regeneration, or merge. There is no auto-publish and no scheduled publish in any edition.
 2. **The document already lives locally.** Generation saves `docs/<slug>/index.html` (09). The
-   public build's only publisher, `local`, exports a copy outside the app; it never moves or mutates
-   the library copy.
+   public build's publishers, `local` (Export copy) and `markdown` (Export Markdown), export a copy
+   outside the app; they never move or mutate the library copy.
 3. **Only `index.html` is a publishable artifact.** `meta.json` records local file paths and the
    user's clarifying input; `catalog.json` lists every document. Neither is ever uploaded or
    committed by any publisher. Publishers operate on an explicit file list (§3.3).
@@ -47,6 +47,7 @@ src/main/publish/
   secret-scan.ts      SecretScanner interface + BaselineSecretScanner (pattern based, public)
   links.ts            copy / open / reveal helpers (clipboard, shell.openExternal, shell.showItemInFolder)
   local.ts            LocalPublisher (v1, available)
+  markdown.ts         MarkdownPublisher "Export Markdown" (v1, available, §5.2)
   drive.stub.ts       DrivePublisherStub  -> NotAvailableInEdition(HOOK-PUB-01)
   git.stub.ts         GitPublisherStub    -> NotAvailableInEdition(HOOK-PUB-03)
 resources/help/
@@ -101,6 +102,8 @@ export interface Publisher {
   describe(slug: string, settings: Settings): Promise<PublishTarget>;
   /** Performs the publish. Throws PublishError or NotAvailableInEdition. */
   publish(ctx: PublishContext): Promise<PublishResult>;
+  /** Optional external login (§5.4); publishers without one show nothing. */
+  readonly account?: PublisherAccount;
 }
 ```
 
@@ -180,6 +183,7 @@ specified files", and it applies to every publisher, not only git.
 // src/main/publish/index.ts
 export function registerPublicPublishers(reg: CapabilityRegistry): void {
   reg.registerPublisher('local', () => new LocalPublisher());
+  reg.registerPublisher('markdown', () => new MarkdownPublisher());
   reg.registerPublisher('drive', () => new DrivePublisherStub());
   reg.registerPublisher('git',   () => new GitPublisherStub());
 }
@@ -188,10 +192,10 @@ export function runPublish(slug: string, targetId: string): Promise<PublishResul
 ```
 
 `listTargets` calls `describe()` on every registered publisher and returns targets in the order
-`local`, `drive`, `git`, then overlay ids alphabetically. In the public build it returns stubs too
+`local`, `markdown`, `drive`, `git`, then overlay ids alphabetically. In the public build it returns stubs too
 (with `available: false`) so the UI layer, not the service, decides visibility; the renderer shows
 only targets whose feature flag is enabled (`publish.drive`, `publish.git`, 01 §6.2; HOOK-UI-01).
-`local` has no feature flag and is always shown.
+`local` and `markdown` have no feature flag and are always shown.
 
 `runPublish(slug, targetId)`:
 
@@ -251,7 +255,48 @@ Edge cases:
   in §4 step 3 serializes them; whichever runs second sees the final state (a merged-away slug
   → `E_NOT_FOUND`).
 
-### 5.2 Organization cloud drive publisher (stub in public build)
+### 5.2 Markdown export publisher (v1, available)
+
+A second local publisher: id `markdown`, kind `local`, label "Export Markdown", always available,
+no sign-in. It is listed right after Export copy (§4).
+
+Algorithm (`MarkdownPublisher.publish`):
+
+1. Prepare the export folder exactly as §5.1 steps 1 and 2 (same `publish.local.dir`; a folder
+   inside the Library is refused with `E_PUBLISH_DESTINATION`).
+2. Convert the stored document model to Markdown (below) and write `<dir>/<slug>/<slug>.md` with
+   the same temp file, fsync, verify, rename sequence as §5.1 steps 3 and 4. Export copy itself is
+   unchanged.
+3. Return one primary link `{kind:'file', url: file://<dir>/<slug>/<slug>.md, label:'Open Markdown'}`.
+   If `publish.local.revealAfter`, reveal the file in Finder.
+
+It never touches the library copy. The Open / Copy link / Show in Finder check (§7 step 3) accepts
+a `file:` link to `<slug>/index.html` or `<slug>/<slug>.md` inside the export folder.
+
+Conversion (`markdown.ts`), in reading order:
+
+- Title as `#`; the subtitle (dek) as a paragraph.
+- Each tab as `##` (placeholder tabs are skipped); each content section as `###` with its blocks.
+- Then `## Glossary` as a list, then one `## Sources` list built from the references. Reference
+  sections are not rendered inline.
+- Literal `<` and `>` in text are escaped.
+
+| Block | Markdown |
+| --- | --- |
+| paragraph | its text |
+| list | bullets or numbers |
+| pull quote | quote, then `— attribution` |
+| callout | quote prefixed `**Note:**`, `**Warning:**` or `**Key point:**` |
+| analogy | quote prefixed `**Think of it like:**` |
+| table | pipe table; pipes in cells escaped, line breaks flattened; optional italic caption |
+| chart | italic title line, a data table (missing values as `-`), then the highlight and a `Source:` note |
+| diagram, figure | one italic line: title or caption, then the alt text |
+| stepper | bold title, then a numbered list of bold step labels with their text |
+
+For completion notifications (11 §14) Export copy and Export Markdown are both local publishers;
+neither counts as a remote published link.
+
+### 5.3 Organization cloud drive publisher (stub in public build)
 
 Public build: `drive.stub.ts` registers `id:'drive'`, `kind:'drive'`, `stub: true`.
 `describe()` returns `{available:false, unavailableReason:'Available in the enterprise edition',
@@ -293,7 +338,41 @@ Contract the enterprise implementation must satisfy (PRD *Organization cloud dri
 > `PublishResult.sharing.description` shown to the user, and any audit or approval step required
 > before an organization-wide share. Binding lives in the private spec under "HOOK-PUB-02".
 
-### 5.3 Git publisher (stub in public build)
+### 5.4 Publisher account status
+
+Any publisher may declare an optional `account` for an external login it depends on. The public
+publishers declare none, so in the public build nothing renders.
+
+```ts
+export type AccountState = 'signed-in' | 'signed-out' | 'not-installed' | 'error';
+export interface AccountStatus {
+  state: AccountState;
+  label: string;        // required display text
+  detail?: string;      // short code, never a secret
+}
+export type AccountAction = 'sign-in' | 'install';
+export interface PublisherAccount {
+  status(): Promise<AccountStatus>;                                   // cheap, safe to poll
+  act(action: AccountAction, signal: AbortSignal): Promise<AccountStatus>;
+}
+```
+
+- **Action per state:** `signed-in` none; `signed-out` and `error` → `sign-in`; `not-installed`
+  → `install`.
+- **Channels:** `eli5:publish:account-status {targetId}` and
+  `eli5:publish:account-action {targetId; action}` (01 §5.2). An unknown publisher or one without
+  `account` → `E_NOT_FOUND`.
+- **One action per publisher at a time:** a second request while one runs returns the running one's
+  result. Actions are aborted on app quit, and dispose waits for them up to the normal 5 s bound
+  (§11).
+- **Edition info:** `EditionInfo.publishers` entries carry `account: true` only for publishers that
+  declare one; other entries are unchanged.
+- **Renderer:** one item per available account publisher, in the top-status holder (02 §14) and in
+  Settings > Publishing. Each refreshes every 60 s and after each action. Button text is "Sign in" /
+  "Signing in…" or "Install" / "Installing…"; errors show inline. Without an account publisher
+  nothing renders.
+
+### 5.5 Git publisher (stub in public build)
 
 Public build: `git.stub.ts` registers `id:'git'`, `kind:'git'`, `stub: true`, same shape as the
 drive stub, throwing `NotAvailableInEdition('publisher:git', 'HOOK-PUB-03', edition)`.
@@ -343,7 +422,7 @@ are replaced by the delegate protocol that follows the numbered list.
 3. **Copy.** Copy exactly `ctx.files` into `destDir`. Delete files in `destDir` that are not in
    `ctx.files` only if they were recorded in a previous `PublicationRecord` for this slug; never
    touch other paths.
-4. **Scan.** `progress('scanning')`: run the secret scanner (§5.4) over every file in `ctx.files`.
+4. **Scan.** `progress('scanning')`: run the secret scanner (§5.6) over every file in `ctx.files`.
    Any finding → abort with `E_PUBLISH_SECRET_FOUND`; reset the working copy; nothing is committed.
 5. **Stage explicitly.** `git add -- <each destDir/relPath>`; never `git add .`, `-A`, or a
    directory path.
@@ -400,7 +479,7 @@ are replaced by the delegate protocol that follows the numbered list.
    using the argument vector from the binding, with the manifest path as an argument. Environment
    is the sanitized git environment below; no token is passed. If the executor binary is not found
    → `E_PUBLISH_NOT_CONFIGURED` with the binding's install/fallback text.
-3. **Progress.** Stream stdout/stderr lines into the job log (redacted by the §5.4 scanner before
+3. **Progress.** Stream stdout/stderr lines into the job log (redacted by the §5.6 scanner before
    logging) and poll for `resultPath` every 2 s. Cancellation kills the process tree and yields
    `E_PUBLISH_CANCELLED`. Exceeding `delegateTimeoutMs` kills it and yields `E_PUBLISH_FAILED`
    ("The publishing agent did not finish in time").
@@ -457,7 +536,7 @@ this repository."
 <!-- hook:HOOK-PUB-03 -->
 > **Private hook · HOOK-PUB-03 · Git publisher: secret-scanning push tool integration and
 > invocation mode.** Public behavior: `git` is a stub throwing `NotAvailableInEdition('publisher:git',
-> 'HOOK-PUB-03')`; the public baseline scanner (§5.4) and explicit file set (§3.3) exist and are
+> 'HOOK-PUB-03')`; the public baseline scanner (§5.6) and explicit file set (§3.3) exist and are
 > tested but no git process is ever spawned. Private binding supplies: the organization's
 > secret-scanning push tool, how it is located and version-checked, and whether it replaces or runs
 > in addition to the baseline scanner; the `invocationMode` chosen (`direct`, `push-tool`, or
@@ -486,13 +565,13 @@ this repository."
 > docs directory layout (flat by slug, or grouped by owner/topic), the Pages URL pattern including
 > any custom domain, whether a site index page listing published documents is maintained and by
 > whom, retention/unpublish policy, whether the repository's Pages site is private to the
-> organization, and, if it is access-controlled, how site readiness (§5.3 step 10) is detected:
+> organization, and, if it is access-controlled, how site readiness (§5.5 step 10) is detected:
 > `readinessCheck` set to `none` (disable the wait), `redirect-is-deployed` (a redirect to the
 > identity provider counts as deployed), or `code-host-status` (with the readiness function that
 > queries deployment status through the code host via the MCP lane). This closes the PRD open item "Define the enterprise publishing targets and repo
 > layout". Binding lives in the private spec under "HOOK-PUB-04".
 
-### 5.4 Secret scanner
+### 5.6 Secret scanner
 
 ```ts
 // src/main/publish/secret-scan.ts
@@ -550,9 +629,15 @@ The PRD requires the returned link to be "one click to copy or open in the defau
 1. After a successful publish the renderer shows an inline, non-modal result chip in the document
    header area (11 owns placement): target label, primary link text truncated in the middle, and
    three buttons: **Copy link**, **Open**, and (for `file:` links) **Show in Finder**.
+   A single-link result keeps this markup with the accessible name "<target> result". A result
+   with two or more links shows one row per link, the primary first and then the rest in order;
+   each row has its label, Copy link, Open and (for `file:` links) Show in Finder, acting on that
+   row's own link. The rows sit in a group named "<target> result" and each row is named
+   "<link label> link".
 2. **Copy link** calls `eli5:publish:copy-link` with the primary URL; main writes it with
-   `clipboard.writeText` and the chip shows "Copied" for 2 s. Copying happens in main because the
-   sandboxed renderer's clipboard access is not guaranteed without focus.
+   `clipboard.writeText` and the chip shows "Copied" for 2 s. In a multi-link row, Copy link copies
+   that row's URL the same way. Copying always goes through main because web content has no
+   clipboard permission.
 3. **Open** calls `eli5:publish:open-link`. Main validates the URL: `https:` always allowed;
    `file:` allowed only if it resolves inside `publish.local.dir`; everything else →
    `E_FORBIDDEN`. An `https:` link opens through `safeOpenExternal` (12 §7.5, which accepts
@@ -679,7 +764,7 @@ Schema, defaults and validation live in 12; this is the publish namespace summar
 | `publish.github.branch` | enterprise (dormant) | `"main"` | HOOK-PUB-04 |
 | `publish.github.docsPath` | enterprise (dormant) | `"docs"` | HOOK-PUB-04 |
 | `publish.github.pagesUrlPattern` | enterprise (dormant) | `https://{owner}.github.io/{repo}/{path}/{slug}/` | HOOK-PUB-04 |
-| `publish.github.waitForSite` | enterprise (dormant) | `true` | §5.3 step 10 |
+| `publish.github.waitForSite` | enterprise (dormant) | `true` | §5.5 step 10 |
 
 No publish key ever holds a credential. Setting any dormant key in the public build has no effect
 beyond being preserved in the settings file.
@@ -705,8 +790,8 @@ clean up before exiting.
 - [ ] `Publisher`, `PublishTarget`, `PublishResult`, `PublishContext`, `PublishLink`,
       `PublicationRecord`, `PublishError`, `SecretScanner`, `SecretFinding` exist in
       `src/main/publish/` with the shapes above; `tsc --strict` passes.
-- [ ] Public build registers `local` (available) and `drive`, `git` stubs (`stub: true`,
-      `available:false`); `eli5:edition:info` lists all three with correct availability.
+- [ ] Public build registers `local` and `markdown` (available) and `drive`, `git` stubs (`stub: true`,
+      `available:false`); `eli5:edition:info` lists all four with correct availability.
 - [ ] Invoking `eli5:publish:run` with `drive` or `git` in the public build returns
       `E_NOT_AVAILABLE_IN_EDITION` with `hookId` `HOOK-PUB-01` / `HOOK-PUB-03` and performs no
       network or git process spawn (asserted in 13).
@@ -714,9 +799,15 @@ clean up before exiting.
 - [ ] Local export writes `<publish.local.dir>/<slug>/index.html` atomically, byte-identical to the
       library copy, never writes `meta.json` or `catalog.json`, and returns a `file:` primary link.
 - [ ] Exporting into the app's own `docs/` directory is rejected.
+- [ ] Export Markdown writes `<publish.local.dir>/<slug>/<slug>.md` atomically per §5.2, never
+      touches the library copy, and returns an "Open Markdown" `file:` primary link.
+- [ ] A publisher with `account` gets `account: true` in `EditionInfo.publishers`; account channels
+      return `E_NOT_FOUND` for others, and concurrent actions on one publisher share one run.
+- [ ] A result with two or more links renders one row per link, primary first, each acting on its
+      own link.
 - [ ] `buildPublishFileSet` returns only allowlisted files, rejects symlinks and path traversal, and
       is the only source of files for every publisher.
-- [ ] `BaselineSecretScanner` flags each rule in §5.4 on fixture files and never logs unmasked
+- [ ] `BaselineSecretScanner` flags each rule in §5.6 on fixture files and never logs unmasked
       matches; clean fixtures produce no findings.
 - [ ] A successful publish appends a `PublicationRecord` to `meta.json`; "Changed since last
       publish" appears after a section regeneration.

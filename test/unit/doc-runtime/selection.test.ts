@@ -51,6 +51,7 @@ describe('selection bridge (08 §5)', () => {
       'Go deeper',
       'Create a separate ELI5 for this section',
       'ELI5 this selection',
+      'Edit with my note',
     ]);
     const note = h.selection?.root.querySelector('input');
     if (note) note.value = '  shorter please  ';
@@ -64,6 +65,40 @@ describe('selection bridge (08 §5)', () => {
       note: 'shorter please',
     });
     expect(section?.getAttribute('data-eli5-busy')).toBe('expand');
+  });
+
+  it('"Edit with my note" is disabled until the note has text, then sends revise with the note (08 §5.1)', async () => {
+    const bridge = fakeBridge();
+    const { win, doc } = loadGolden('with-tab', { bridge });
+    const h = boot(win, doc);
+    const section = doc.querySelector('#tab-indepth > section');
+    selectText(doc, '#tab-indepth > section p');
+    doc.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true }));
+    vi.advanceTimersByTime(200);
+    const revise = Array.from(h.selection?.root.querySelectorAll('button') ?? []).find(
+      (b) => b.textContent === 'Edit with my note',
+    );
+    const note = h.selection?.root.querySelector('input');
+    expect(revise?.disabled).toBe(true);
+    // Whitespace is not a note.
+    if (note) note.value = '   ';
+    note?.dispatchEvent(new win.Event('input', { bubbles: true }));
+    expect(revise?.disabled).toBe(true);
+    await h.selection?.submit('revise', '   ');
+    expect(bridge.regenerateSection).not.toHaveBeenCalled();
+    if (note) note.value = '  The average is twelve weeks, not eight  ';
+    note?.dispatchEvent(new win.Event('input', { bubbles: true }));
+    expect(revise?.disabled).toBe(false);
+    revise?.click();
+    await vi.runAllTimersAsync();
+    expect(bridge.regenerateSection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sectionId: section?.id,
+        action: 'revise',
+        note: 'The average is twelve weeks, not eight',
+      }),
+    );
+    expect(section?.getAttribute('data-eli5-busy')).toBe('revise');
   });
 
   it('creates a section ELI5 tab from the fifth action', async () => {
@@ -124,7 +159,9 @@ describe('selection bridge (08 §5)', () => {
     const buttons = Array.from(h.selection?.root.querySelectorAll('button') ?? []);
     const eli5Sel = buttons.find((b) => b.textContent === 'ELI5 this selection');
     expect(eli5Sel?.disabled).toBe(true);
-    expect(buttons.filter((b) => b !== eli5Sel).every((b) => !b.disabled)).toBe(true);
+    // "Edit with my note" waits for a note; every other action stays available.
+    const revise = buttons.find((b) => b.textContent === 'Edit with my note');
+    expect(buttons.filter((b) => b !== eli5Sel && b !== revise).every((b) => !b.disabled)).toBe(true);
     expect(h.selection?.root.querySelector('.cap')?.textContent).toBe(
       'Too long to ELI5 as a selection (12,000 characters max)',
     );

@@ -1,5 +1,7 @@
 import type { Settings } from '../config';
 import type {
+  AccountAction,
+  AccountStatus,
   PublicationRecord,
   PublishErrorCode,
   PublisherKind,
@@ -13,6 +15,8 @@ import type {
 
 // Wire types are owned by the preload contract; re-exported here so publish code has one import site.
 export type {
+  AccountAction,
+  AccountStatus,
   PublicationRecord,
   PublishErrorCode,
   PublisherKind,
@@ -62,6 +66,16 @@ export interface Publisher {
   describe(slug: string, settings: Settings): Promise<PublishTarget>;
   /** Performs the publish. Throws PublishError or NotAvailableInEdition. */
   publish(ctx: PublishContext): Promise<PublishResult>;
+  /** Optional external login (10 §5.4); publishers without one show nothing. */
+  readonly account?: PublisherAccount;
+}
+
+/** Optional account seam on a publisher (10 §5.4). */
+export interface PublisherAccount {
+  /** Cheap and safe to poll every minute. */
+  status(): Promise<AccountStatus>;
+  /** Runs the action and returns the fresh status; honours `signal` (aborted on app quit). */
+  act(action: AccountAction, signal: AbortSignal): Promise<AccountStatus>;
 }
 
 /**
@@ -81,7 +95,7 @@ export class PublishError extends Error {
 }
 
 // ---------------------------------------------------------------------------
-// Secret scanning (10 §5.4)
+// Secret scanning (10 §5.6)
 // ---------------------------------------------------------------------------
 
 /** Scanner seam (HOOK-PUB-03 may replace the baseline). */
@@ -111,7 +125,7 @@ export type PrePublishDecision = { allow: true } | { allow: false; message: stri
 export type PrePublishPolicy = (input: PrePublishInput) => Promise<PrePublishDecision>;
 
 // ---------------------------------------------------------------------------
-// Git publisher contract (10 §5.3; bound by HOOK-PUB-03/04, unused in the public build)
+// Git publisher contract (10 §5.5; bound by HOOK-PUB-03/04, unused in the public build)
 // ---------------------------------------------------------------------------
 
 export type GitInvocationMode = 'direct' | 'push-tool' | 'delegate';
@@ -129,18 +143,18 @@ export interface GitPublisherConfig {
   pushTimeoutMs: number;
   /** Default 900_000 (delegate). */
   delegateTimeoutMs: number;
-  /** §5.3 step 10; default 'head-poll'. */
+  /** §5.5 step 10; default 'head-poll'. */
   readinessCheck?: GitReadinessCheck;
 }
 
-/** Binding-supplied readiness function for `readinessCheck: 'code-host-status'` (§5.3 step 10). */
+/** Binding-supplied readiness function for `readinessCheck: 'code-host-status'` (§5.5 step 10). */
 export type SiteReadinessFn = (ctx: {
   siteUrl: string;
   commitSha: string;
   signal: AbortSignal;
 }) => Promise<'deployed' | 'pending' | 'failed'>;
 
-/** Delegate hand-off manifest; never contains a credential (§5.3 delegate protocol). */
+/** Delegate hand-off manifest; never contains a credential (§5.5 delegate protocol). */
 export interface GitHandoffManifest {
   schema: 1;
   publicationId: string;

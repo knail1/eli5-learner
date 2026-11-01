@@ -3,33 +3,55 @@
   "interactions": [
     {
       "request": {
-        "path": "/v1/chat/completions",
-        "match": { "messages": [{ "role": "developer" }, { "role": "user" }] }
+        "path": "/v1/responses",
+        "match": {
+          "input": [
+            {
+              "role": "user"
+            }
+          ]
+        }
       },
       "response": {
         "status": 200,
-        "openaiCompletion": {
+        "openaiResponse": {
           "model": "gpt-5",
           "content": "{\"title\":\"Widget supply\",\"topicSlugHint\":\"widget-supply\",\"summary\":null}",
-          "finish_reason": "stop",
-          "usage": { "prompt_tokens": 300, "completion_tokens": 20 }
+          "status": "completed",
+          "usage": {
+            "input_tokens": 300,
+            "output_tokens": 20
+          }
         }
       }
     },
     {
       "request": {
-        "path": "/v1/chat/completions",
+        "path": "/v1/responses",
         "match": {
-          "messages": [{ "role": "developer" }, { "role": "user" }, { "role": "assistant" }, { "role": "user" }]
+          "input": [
+            {
+              "role": "user"
+            },
+            {
+              "role": "assistant"
+            },
+            {
+              "role": "user"
+            }
+          ]
         }
       },
       "response": {
         "status": 200,
-        "openaiCompletion": {
+        "openaiResponse": {
           "model": "gpt-5",
           "content": "{\"title\":\"Widget supply\",\"topicSlugHint\":\"widget-supply\",\"summary\":\"Now valid.\"}",
-          "finish_reason": "stop",
-          "usage": { "prompt_tokens": 350, "completion_tokens": 25 }
+          "status": "completed",
+          "usage": {
+            "input_tokens": 350,
+            "output_tokens": 25
+          }
         }
       }
     }

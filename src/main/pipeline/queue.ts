@@ -102,7 +102,7 @@ export class JobQueue {
   private snapshot(job: Job): JobSnapshot {
     const rt = this.running.get(job.id);
     return snapshotOf(job, {
-      ...(job.status === 'queued' ? { queuePosition: this.position(job) } : {}),
+      ...(job.status === 'queued' ? { queuePosition: this.position(job), queueSlots: this.slotsFor(job.kind) } : {}),
       ...(rt ? { runningSteps: rt.runningSteps, commitStarted: rt.commitStarted } : {}),
     });
   }
@@ -178,12 +178,32 @@ export class JobQueue {
     while (this.runs.size || this.copies.size) await Promise.all([...this.runs.values(), ...this.copies.values()]);
   }
 
+  private slotsFor(kind: Job['kind']): number {
+    return kind === 'create' ? this.createSlots() : 1;
+  }
+
+  /**
+   * Jobs that must finish before this one starts (06 §6): the waiting jobs ahead in its lane, plus
+   * at least one run, or more when the lane has more running jobs than slots. With one slot this
+   * is running + waiting ahead, as before.
+   */
   private position(job: Job): number {
     const lane = this.lanes[job.kind];
     const i = lane.indexOf(job.id);
     if (i < 0) return 0;
     const runningInLane = [...this.running.keys()].filter((id) => this.jobs.get(id)?.kind === job.kind).length;
-    return runningInLane + i;
+    const slots = this.slotsFor(job.kind);
+    // A free slot is waiting for it: the next pump starts it, so it waits for nothing (plain "Queued").
+    if (i < slots - runningInLane) return 0;
+    return i + Math.max(1, runningInLane - slots + 1);
+  }
+
+  /**
+   * pipeline.maxConcurrentJobs changed (06 §4.1): waiting jobs that now fit start at once, and
+   * queue lines are re-emitted only where their text changed.
+   */
+  slotsChanged(): void {
+    this.pump();
   }
 
   // ---- lifecycle ----
@@ -361,7 +381,7 @@ export class JobQueue {
   private pump(): void {
     if (this.closed) return;
     for (const kind of ['create', 'section'] as const) {
-      const slots = kind === 'create' ? this.createSlots() : 1;
+      const slots = this.slotsFor(kind);
       const lane = this.lanes[kind];
       while (lane.length && [...this.running.keys()].filter((id) => this.jobs.get(id)?.kind === kind).length < slots) {
         const id = lane.shift() as JobId;

@@ -1,4 +1,6 @@
 import type {
+  AccountAction,
+  AccountStatus,
   AppNavigateEvent,
   CycleRegionEvent,
   FindCommandEvent,
@@ -9,6 +11,7 @@ import type {
   ChooseFolderResult,
   ClassifyTextResult,
   CreateSectionEli5Request,
+  CredentialStatus,
   DeepPartial,
   DocHistoryChangedEvent,
   DocHistoryState,
@@ -118,6 +121,12 @@ export interface Eli5Api {
   llm: {
     testConnection(provider?: ProviderId): R<TestConnectionResult>;
     models(provider: ProviderId): R<ModelsResult>;
+    /** null: the active provider does not report credentials (02 §14). */
+    credentialStatus(): R<CredentialStatus | null>;
+    /** Rebuilds the provider from its current credential files, then reports again. */
+    reloadCredentials(): R<CredentialStatus | null>;
+    /** Runs the provider's interactive sign-in, then reports again. */
+    signIn(): R<CredentialStatus | null>;
   };
   settings: {
     get(): R<Settings>;
@@ -141,6 +150,9 @@ export interface Eli5Api {
     copyLink(url: string): R<void>;
     openLink(url: string): R<void>;
     reveal(url: string): R<void>;
+    /** Publisher account (10 §5.4); E_NOT_FOUND when the publisher declares none. */
+    accountStatus(targetId: string): R<AccountStatus>;
+    accountAction(targetId: string, action: AccountAction): R<AccountStatus>;
     onProgress(cb: (e: PublishProgressEvent) => void): Unsub;
   };
   auth: {

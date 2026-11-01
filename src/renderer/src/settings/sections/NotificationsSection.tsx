@@ -14,9 +14,12 @@ const LINK_OPTIONS: { value: PreferredLink; label: string }[] = [
 
 const UNSUPPORTED = "Notifications aren't supported on this system";
 
-/** 11 §7: any publisher other than `local` reporting available (stubs report false). */
+/** Publishers that write to this Mac (10 §5): Export copy and Export Markdown. */
+const LOCAL_PUBLISHERS = new Set(['local', 'markdown']);
+
+/** 11 §7: any publisher other than the local ones reporting available (stubs report false). */
 function hasRemotePublisher(info: EditionInfo | null): boolean {
-  return !!info?.publishers.some((p) => p.id !== 'local' && p.available);
+  return !!info?.publishers.some((p) => !LOCAL_PUBLISHERS.has(p.id) && p.available);
 }
 
 function testMessage(r: TestNotificationResult): string {

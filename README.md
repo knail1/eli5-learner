@@ -5,9 +5,18 @@ macOS app that turns decks, docs, PDFs, screenshots and URLs into interactive HT
 > **Status:** v1 is feature-complete (milestones M0 to M4): generation, interactive reading, the library, local publishing, completion notifications, and test, CI and packaging hardening. Builds are unsigned.
 > Full requirements: [spec/ELI5 Learner Product Requirements Document.md](spec/ELI5%20Learner%20Product%20Requirements%20Document.md)
 
+## Download
+
+**Latest release: [v0.1.0](https://github.com/knail1/eli5-learner/releases/tag/v0.1.0)**, an
+unsigned build for Apple silicon Macs. Download `ELI5 Learner-0.1.0-arm64.dmg` from the
+[release page](https://github.com/knail1/eli5-learner/releases/latest), open it and drag the app to
+Applications. The build is unsigned, so on first launch macOS may block it: open **System Settings >
+Privacy & Security** and click **Open Anyway**. Then add a Claude (default) or ChatGPT (OpenAI) API key
+in **Settings > AI**. To build it yourself, see [Packaging (macOS)](#packaging-macos).
+
 ## What it does
 
-Drop in source material, optionally type a few clarifying specifics, hit Enter, and walk away. ELI5 Learner builds one self-contained `index.html` learning document with two views:
+Drop in source material, optionally type a few clarifying specifics, press Start (⌘⏎), and walk away. ELI5 Learner builds one self-contained `index.html` learning document with two views:
 
 - **In depth.** Wall Street Journal-grade explanatory writing, with charts, diagrams, annotated figures, pull quotes and light interactivity. An optional in-context glossary explains jargon and acronyms in the right margin, next to where each one first appears.
 - **ELI5.** The same material, rebuilt from scratch for comprehension, in plain words. It doesn't follow the structure of the source.
@@ -38,7 +47,8 @@ The ELI5 tab rebuilds the same material in plain words, with analogies, simple d
 ## Features
 
 - **Fire-and-forget generation.** No modals and no mid-job questions. A source that fails is skipped and listed in the document's references. Jobs can be queued.
-- **Tweak and rerun.** The sources and specifics stay in the input zone after you press Start. Change them and press Restart to rerun with the edits, or Start again once it's done for another version. Clear empties the input zone.
+- **Queue links, then run.** Enter in the URL field (or Add) turns each link into a chip and starts nothing, so you can collect several first; Start (⌘⏎) sends them all. The sent links move to a dimmed *Last run* row: **Run again** re-sends them, **Use again** puts them back as chips, and your specifics stay. Clear empties the input zone. The panel above the input zone can be dragged taller.
+- **Several documents at once.** Settings > Documents > *Documents generated at once* (1 to 3); waiting jobs say what they're waiting for.
 - **Many inputs in one job.** Drag and drop, paste (Cmd+V) or URLs:
   - PowerPoint (slide order, bullet hierarchy and speaker notes are kept)
   - Word (headings, lists and tables are kept)
@@ -55,8 +65,10 @@ The ELI5 tab rebuilds the same material in plain words, with analogies, simple d
   - *Create a separate ELI5 for this section*
   - *ELI5 this selection*: a focused ELI5 tab about exactly what you selected, from one phrase to
     several paragraphs
+  - *Edit with my note*: type a correction or instruction in the note field, and only that passage
+    (and where it repeats in the section) is rewritten to follow it
 
-  The first four regenerate only that section, in place. Selecting body text never picks up the
+  The first four, and *Edit with my note*, regenerate only that section, in place. Selecting body text never picks up the
   glossary notes in the margin, and a selection inside a note stays inside it.
 
   <img src="images/highlight_expander.png" alt="Selecting a passage opens a small menu: Expand this, re-explain it, Give me an analogy, Go deeper, Create a separate ELI5, and an optional note" width="560">
@@ -102,6 +114,8 @@ The ELI5 tab rebuilds the same material in plain words, with analogies, simple d
   to the opening section:
 
   <img src="images/merged_docs_with_highlights.png" alt="The merged document 'Arizona court system hacked: what was stolen and who's at risk': a legend 'Enhanced on 28 Sep 2026 with material from Arizona Court System Hit by Cyberattack' with a Hide highlights button, and the opening paragraph with the added words and sentences highlighted in violet" width="820">
+- **Export.** *Export copy* writes the self-contained `index.html` to your export folder; *Export Markdown* writes the same document as a `.md` file next to it, with every chart, table and diagram rendered as text.
+- **Claude or ChatGPT.** Claude is the default. Settings > AI also offers ChatGPT (OpenAI, on the Responses API); pick a suggested model or type any model ID under *Custom…*.
 - **Completion notifications.** A native macOS notification tells you when a document is ready. Clicking it opens the document in the app, or, if you choose, its published link in your browser.
 
 ## How it works
@@ -125,9 +139,9 @@ Every external capability sits behind an interface, so other backends can be swa
 
 | Interface | Ships with | Documented stubs |
 | --- | --- | --- |
-| `LLMProvider` | Claude API, OpenAI API | AWS Bedrock |
+| `LLMProvider` | Claude API (default), OpenAI Responses API (ChatGPT) | AWS Bedrock |
 | `SourceResolver` | Local files, clipboard, public URLs | MCP-brokered authenticated sources |
-| `Publisher` | Local directory | Organization cloud drive, GitHub Pages |
+| `Publisher` | Local directory (copy and Markdown) | Organization cloud drive, GitHub Pages |
 
 The public build needs nothing but an API key: no accounts, no logins and no other keyed services. The optional stock photo search is anonymous.
 

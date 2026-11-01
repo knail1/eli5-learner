@@ -15,7 +15,7 @@ function ctx(): PublishContext {
   };
 }
 
-describe('publisher stubs (10 §5.2, §5.3)', () => {
+describe('publisher stubs (10 §5.3, §5.5)', () => {
   const cases: [Publisher, string, string, string, boolean][] = [
     [new DrivePublisherStub(), 'drive', 'publisher:drive', 'HOOK-PUB-01', true],
     [new GitPublisherStub(), 'git', 'publisher:git', 'HOOK-PUB-03', false],
