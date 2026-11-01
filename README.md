@@ -8,9 +8,10 @@ macOS app that turns decks, docs, PDFs, screenshots and URLs into interactive HT
 ## Download
 
 **Latest release: [v0.1.0](https://github.com/knail1/eli5-learner/releases/tag/v0.1.0)**, an
-unsigned build for Apple silicon Macs. Download `ELI5 Learner-0.1.0-arm64.dmg` from the
-[release page](https://github.com/knail1/eli5-learner/releases/latest), open it and drag the app to
-Applications. The build is unsigned, so on first launch macOS may block it: open **System Settings >
+unsigned build for Apple silicon Macs. Download
+[`ELI5.Learner-0.1.0-arm64.dmg`](https://github.com/knail1/eli5-learner/releases/download/v0.1.0/ELI5.Learner-0.1.0-arm64.dmg)
+from the [release page](https://github.com/knail1/eli5-learner/releases/latest), open it and drag the
+app to Applications. The build is unsigned, so on first launch macOS may block it: open **System Settings >
 Privacy & Security** and click **Open Anyway**. Then add a Claude (default) or ChatGPT (OpenAI) API key
 in **Settings > AI**. To build it yourself, see [Packaging (macOS)](#packaging-macos).
 
