@@ -177,15 +177,22 @@ Each directory has one public entry (`index.ts`) that is the only import path ot
    and shows the inline action menu (only if `window.eli5Doc` exists; in a plain browser the menu is
    not shown).
 2. On action, the runtime calls `eli5Doc.regenerateSection({tabKey, sectionId, action,
-   selectionText, note})` or `eli5Doc.createSectionEli5(...)` → `eli5:doc:regenerate-section` or
+   selectionText, note})`, `eli5Doc.askQuestion({tabKey, sectionId, selectionText, question})` or
+   `eli5Doc.createSectionEli5(...)` → `eli5:doc:regenerate-section`, `eli5:doc:ask-section` or
    `eli5:doc:create-section-eli5` (the preload adds `slug`). These are jobs too; they enter the same
    queue, report on `eli5:jobs:changed`, and main pushes `eli5:doc:section-busy` to the viewer.
 3. `document/` loads the file, regenerates only that section with its neighbors as context,
-   replaces the `<section>` node by ID (or appends a new tab), writes atomically, updates
-   `meta.json` and `catalog.json.updatedAt`.
-4. Main emits `eli5:doc:updated {slug, sectionId|tabKey}`; main reloads the viewer and, after
-   `did-finish-load` with a matching `loadSeq`, sends `eli5:doc:scroll-to` (`ScrollToEvent`) to the
-   viewer. Details in 08.
+   replaces the `<section>` node by ID (or, for Ask, inserts an answer box after the selection; or
+   appends a new tab), writes atomically through the library, which records the change as a new
+   version (09 §4.1), and updates `meta.json` and `catalog.json.updatedAt`.
+4. Main emits `eli5:doc:updated {slug, sectionId?, tabKey?, anchorId?}`; main reloads the viewer
+   and, after `did-finish-load` with a matching `loadSeq`, sends `eli5:doc:scroll-to`
+   (`ScrollToEvent`) to the viewer, which lands on the section or the new answer box. Details in 08.
+5. Undo, Redo and the Versions panel (app window) call `eli5:doc:undo`, `eli5:doc:redo` or
+   `eli5:doc:checkout`; 08 refuses them while a section is busy, the library checks the chosen
+   version out as the live files (09 §4.1), and main reloads the viewer and scrolls to where that
+   version changed. `eli5:doc:history-changed` and `eli5:doc:versions-changed` keep the header and
+   the panel current.
 
 ### 4.3 Publish (PRD *Enterprise publishing*)
 
@@ -208,9 +215,10 @@ HOOK-PUB-03). Publish UI visibility is HOOK-UI-01.
 - Main validates every payload with the schema in `src/main/ipc/schemas.ts` (zod). Invalid →
   `{ok:false, error:{code:'E_BAD_REQUEST'}}`.
 - Handlers check `event.senderFrame` origin: app channels accept only the app renderer; D→M
-  channels (the `eli5:doc:*` section invokes, `eli5:viewer:open-external`) accept only the viewer.
-  `eli5:doc:history`, `eli5:doc:undo` and `eli5:doc:redo` are R→M: the app window only, never the
-  viewer. Anything else → `E_FORBIDDEN`.
+  channels (the `eli5:doc:*` section invokes including `eli5:doc:ask-section`,
+  `eli5:viewer:open-external`) accept only the viewer, and only for the document it shows.
+  `eli5:doc:history`, `eli5:doc:undo`, `eli5:doc:redo`, `eli5:doc:versions` and
+  `eli5:doc:checkout` are R→M: the app window only, never the viewer. Anything else → `E_FORBIDDEN`.
 - The "Response" column in §5.2 is the `value` of `IpcResult<T>`. Where an owning spec writes a
   response as `{ok:boolean}` or `{ok:false, reason}` (06 §11), the wire form is still
   `IpcResult<T>`: success is `{ok:true, value}` and the reason travels as an `IpcError`.
@@ -325,15 +333,19 @@ this table is corrected. Channel **names** are fixed here.
 | Channel | Dir | Request | Response / event payload | Spec |
 | --- | --- | --- | --- | --- |
 | `eli5:doc:regenerate-section` | D→M | `SectionActionRequest {slug; tabKey; sectionId; action: SectionAction; selectionText; note?}` | `{jobId}` | 08 §3 |
+| `eli5:doc:ask-section` | D→M | `AskSectionRequest {slug; tabKey; sectionId; selectionText; question}` (question 3..500 chars, one line) | `{jobId}` | 08 §3, §6.8 |
 | `eli5:doc:create-section-eli5` | D→M | `CreateSectionEli5Request` (06's `eli5:doc:section-eli5` is this channel) | `{jobId}` | 08 §3 |
 | `eli5:doc:close-tab` | D→M | `CloseTabRequest {slug; tabKey}` (section ELI5 tabs only) | `void` | 08 §3 |
-| `eli5:doc:updated` | M→R | — | `{slug; sectionId?: SectionId; tabKey?: string}` | 08 |
-| `eli5:doc:scroll-to` | M→D | — | `ScrollToEvent {sectionId?; tabKey?; flash: boolean; loadSeq: number}` | 08 §3 |
+| `eli5:doc:updated` | M→R | — | `{slug; sectionId?: SectionId; tabKey?: string; anchorId?: string}` | 08 |
+| `eli5:doc:scroll-to` | M→D | — | `ScrollToEvent {sectionId?; tabKey?; anchorId?; flash: boolean; loadSeq: number}` | 08 §3 |
 | `eli5:doc:section-busy` | M→D | — | `SectionBusyEvent` (full busy list for the loaded document; optional `notices` for failed jobs, 08 §9) | 08 §4.1 |
 | `eli5:doc:history` | R→M | `{slug}` | `DocHistoryState {canUndo; canRedo; undoLabel?; redoLabel?; busy?}` | 08 §6.7, 09 §4.1 |
-| `eli5:doc:undo` | R→M | `{slug}` | `DocHistoryState` after the swap; `E_CONFLICT` while a section of the document is busy or with nothing to undo | 08 §6.7, 09 §4.1 |
-| `eli5:doc:redo` | R→M | `{slug}` | `DocHistoryState` after the swap; `E_CONFLICT` as for undo | 08 §6.7, 09 §4.1 |
+| `eli5:doc:undo` | R→M | `{slug}` | `DocHistoryState` after checking out the parent version; `E_CONFLICT` while a section of the document is busy or with nothing to undo | 08 §6.7, 09 §4.1 |
+| `eli5:doc:redo` | R→M | `{slug}` | `DocHistoryState` after checking out the redo child; `E_CONFLICT` as for undo | 08 §6.7, 09 §4.1 |
 | `eli5:doc:history-changed` | M→R | — | `DocHistoryChangedEvent {slug; state: DocHistoryState}` after any library change or busy change for that document | 08 §6.7 |
+| `eli5:doc:versions` | R→M | `{slug}` | `DocVersionTree` | 08 §6.7, 09 §4.1 |
+| `eli5:doc:checkout` | R→M | `CheckoutVersionRequest {slug; versionId}` (`/^v-[0-9a-f]{12}$/`) | `DocVersionTree` after the checkout; `E_CONFLICT` while busy, `E_NOT_FOUND` for an unknown or pruned version, `E_IO` for an unreadable one | 08 §6.7, 09 §4.1 |
+| `eli5:doc:versions-changed` | M→R | — | `DocVersionsChangedEvent {slug; tree: DocVersionTree}`, pushed right after `history-changed` on the same chain | 08 §6.7 |
 | `eli5:viewer:set-bounds` | R→M | `{x; y; width; height}` | `void` | 11 |
 | `eli5:viewer:set-visible` | R→M | `{visible: boolean}` | `void` | 11 §10 |
 | `eli5:viewer:open-external` | D→M | `{url}` (`http`/`https` only) | `void` | 12 |
@@ -410,7 +422,11 @@ export interface Eli5Api {
     move(slug, to, opts?: { undo?: boolean }); putBack(trashId); deletePermanently(trashId); emptyTrash();
     onOrganizationChanged(cb): Unsub; onMoved(cb): Unsub };
   suggestions: { list(); accept(id: string); dismiss(id: string); onChanged(cb): Unsub };
-  doc: { onUpdated(cb): Unsub };
+  doc: {
+    onUpdated(cb): Unsub;
+    history(slug: string); undo(slug: string); redo(slug: string); onHistoryChanged(cb): Unsub;
+    versions(slug: string); checkout(slug: string, versionId: string); onVersionsChanged(cb): Unsub;
+  };
   viewer: { setBounds(r: { x: number; y: number; width: number; height: number }); setVisible(v: boolean); focus() };
   llm: { testConnection(provider?: ProviderId); models(provider: ProviderId) };
   settings: {
@@ -429,6 +445,7 @@ export interface Eli5Api {
     onNavigate(cb: (e: AppNavigateEvent) => void): Unsub; contextMenu(r: { kind: 'library-item'; slug: string });
     testNotification(); openNotificationSettings();
     onCycleRegion(cb: (e: CycleRegionEvent) => void): Unsub;
+    onFindCommand(cb: (e: FindCommandEvent) => void): Unsub;
   };
   files: { pathFor(file: File): string };   // webUtils.getPathForFile; the single drop-path helper
 }
@@ -437,11 +454,27 @@ export interface Eli5Api {
 export interface Eli5DocApi {
   regenerateSection(r: Omit<SectionActionRequest, 'slug'>): Promise<IpcResult<{ jobId: string }>>;
   createSectionEli5(r: Omit<CreateSectionEli5Request, 'slug'>): Promise<IpcResult<{ jobId: string }>>;
+  askQuestion(r: Omit<AskSectionRequest, 'slug'>): Promise<IpcResult<{ jobId: string }>>; // user activation required
   closeTab(tabKey: string): Promise<IpcResult<void>>;
   openExternal(url: string): Promise<IpcResult<void>>;
   onScrollTo(cb: (e: ScrollToEvent) => void): Unsub;
   onSectionBusy(cb: (e: SectionBusyEvent) => void): Unsub;
 }
+```
+
+The version types that cross IPC live in `contract.ts` (08 §3, 09 §4.1):
+
+```ts
+export type VersionChangeKind = MenuAction | 'close-tab' | 'merge' | 'outside' | 'initial';
+export interface VersionTarget { tabKey?: string; sectionId?: SectionId; anchorId?: string }
+export interface DocVersionNode { id: string; parentId: string | null; createdAt: string; kind: VersionChangeKind;
+  label: string; topic: string; heading?: string; question?: string; target?: VersionTarget;
+  available: boolean; published: boolean }
+export interface DocVersionPending { sectionId: SectionId; action: MenuAction; heading: string }
+export interface DocVersionTree { slug: string; nodes: DocVersionNode[]; currentId: string; redoId?: string;
+  detached: boolean; busy: boolean; pending: DocVersionPending[]; readOnly: boolean; degraded?: boolean }
+export interface CheckoutVersionRequest { slug: string; versionId: string }
+export interface DocVersionsChangedEvent { slug: string; tree: DocVersionTree }
 ```
 
 Every method without an explicit return type returns `Promise<IpcResult<T>>` with `T` from §5.2.
@@ -929,7 +962,7 @@ work plugs into:
 | Cloud drive and git (GitHub Pages) publishing | Documented stubs only (HOOK-PUB-01..04); `local` export works | Enterprise overlay publishers (10) |
 | Google Drive publishing | Not built | A new `Publisher` implementation registered with `registerPublisher` (10 §3.1) |
 | NotebookLM linking | Not built | A new `Publisher` implementation (10 §3.1) |
-| Git style version history per section (view, diff, roll back) | Not built | `SectionId` stability plus the per-document actions log (08 §10) |
+| Diff between two versions of a document | Not built; versions can be opened and stepped through (08 §6.7, 09 §4.1) | The version tree's snapshots (09 §4.1) |
 | Moving documents into other monorepo projects / choosing a destination project per document | Single library root | `resolveLibraryRoot` (09 §3) |
 | Any authentication or login flows | Permanent in v1 (public build) | Enterprise only, through the MCP server (HOOK-AUTH-01) |
 | Speech to text and audio input | Removed in all editions | None |

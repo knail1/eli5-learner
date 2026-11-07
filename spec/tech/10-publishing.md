@@ -219,6 +219,16 @@ Publishing never mutates `index.html`. If the user regenerates a section after p
 published copy is stale; the UI shows "Changed since last publish" by comparing the current
 `index.html` sha256 with `lastPublished.contentSha256`. Republishing is a manual action.
 
+Versions (09 §4.1) do not change this. Publishing always takes the live `index.html` (the current
+version); `<slug>/.versions/` is a dot-folder and never part of the file set (§3.3 rule 3). After a
+checkout, Undo or Redo the comparison runs as before, so going back to the published version clears
+"Changed since last publish" again, unless that version's snapshot was since re-rendered with a newer
+runtime (08 §5.1, §6.7), which gives it new bytes. A version whose snapshot sha equals the last publication's
+`contentSha256` carries a **Published** chip in the Versions panel (11 §5.7). The one-time runtime
+refresh on open (08 §5.1, 07 §5.5) rewrites `index.html` with the same content and a newer runtime,
+so a published document opened in a newer build shows "Changed since last publish" once. This is
+accepted: republishing gives readers the newer runtime.
+
 ## 5. Publishers
 
 ### 5.1 Local publisher (v1, available)

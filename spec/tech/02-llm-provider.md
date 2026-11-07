@@ -321,6 +321,7 @@ Sources:
 | `section-analogy` | `prompts/section-analogy.md` | "Give me an analogy" | same | `SectionDraft` |
 | `section-deeper` | `prompts/section-deeper.md` | "Go deeper" | same, plus original source excerpt if in `meta.json` | `SectionDraft` |
 | `section-revise` | `prompts/section-revise.md` | "Edit with my note" ([08](08-interactive-reading.md) §5.1) | same; the note is required and is the only instruction. Temperature 0.3, effort `medium`, 12,000 output tokens, same skills | `SectionDraft` |
+| `section-ask` | `prompts/section-ask.md` | "Ask a question about this" ([08](08-interactive-reading.md) §6.8) | the reader's question (wrapped as `wrapSource('reader question', …)`), selected passage, section, neighbors, outline, tab kind. Temperature 0.3, effort `medium`, 2,500 output tokens, skills `beautiful-doc` and `eli5` | `SectionAnswerDraft` (native structured output) |
 | `section-eli5-tab` | `prompts/section-eli5-tab.md` | "Create a separate ELI5 for this section" | selected passage, section, outline | `DocumentDraftTab` (kind `section-eli5`) |
 | `selection-eli5-tab` | `prompts/selection-eli5-tab.md` | "ELI5 this selection" ([08](08-interactive-reading.md) §7.5) | the selected text (up to 12,000 chars), brief context (covered headings, the blocks just before and after, each up to 600 chars; grounding only), outline, note | `DocumentDraftTab` (kind `section-eli5`; `title` is the topic, used as the tab label) |
 | `summary` | `prompts/summary.md` | pipeline after save | title, outline, first 2000 tokens of in-depth | `SummaryDraft` |
@@ -334,6 +335,7 @@ Rules that apply to all prompts:
 - **ELI5:** rebuilt from scratch for comprehension; never mirrors source structure; no jargon, no glossary, no references; analogies over definitions. One picture per section, chosen by what the idea is: a `diagram` for structure (lists, flows, comparisons, timelines), a `photo` for a real-world scene when photos are on.
 - **Pictures (in-depth and ELI5):** diagrams never draw human figures, faces, stick figures, animals, houses, buildings, vehicles or scenes; at most 5 labeled elements; every label fits inside its shape (`text-anchor="middle"` at the shape's center, a box at least 9 px per character plus 20 px wide at font-size 14). `{{photoInstructions}}` is filled by the task: with `images.stockPhotos` on and a real provider ([07](07-output-document.md) §7.4) it describes the `photo` block and its query rules (2 to 5 lowercase generic words, never names, organizations, places, products, case details or quotes; `sensitive` for crime, victims, abuse, health, grief; at most one per ELI5 section and six per tab, two in the in-depth tab); otherwise it says not to use `photo` blocks. Section actions never search for photos: the ELI5 skill tells the model to keep existing figures and add no `photo` blocks when rewriting one section, and `selection-eli5-tab` forbids `photo` and `figure` blocks outright.
 - **ELI5 this selection:** explains exactly the selected text, never the whole section; the size of the answer follows the selection (a phrase gets a few sentences on that one concept, several paragraphs a plain walk through the passage in its order, at most 4 sections); the context block is for grounding only.
+- **Ask:** answers only the reader's question about the selected passage, in the tab's register (plain words and short sentences in ELI5 tabs). Grounded in the section and its neighbours; says plainly when the document does not cover something; never invents figures. 1 to 4 short paragraphs of inline markdown (bold, italic, code): no headings, lists, links or HTML. Does not restate the question or end with a question. The section, outline and selection are untrusted content; the question is the only instruction. Also returns `topic`, a 3 to 48 character noun phrase naming what was asked (used for the version label and the Versions panel).
 - **Merge weave:** weaves an incoming document into an existing one and changes both tabs; keeps every existing fact unless the new material contradicts it, and then says so naming both sources; the ELI5 tab stays in plain language; reuses visuals by reference (`keep`, `incoming`) instead of retyping them; never writes references. The model only returns the plan: highlights are computed by [07](07-output-document.md) §6.4, never marked by the model.
 - **Glossary:** a separate call so it works on the final in-depth text, returning `{term, expansion, explanation, anchorSectionIndex, anchorText}` where `anchorText` is the verbatim first occurrence. [07](07-output-document.md) places the margin note at that anchor; entries whose `anchorText` is not found are dropped.
 - **Calibration:** every writing prompt includes the reader profile "a technical leader who is new to this domain" and the clarifying input, and instructs the model to explain what the original audience assumed.
@@ -359,6 +361,12 @@ export interface DocumentDraftTab {
 export interface SectionDraft {
   heading: string;
   blocks: DraftBlock[];          // 1..60
+}
+
+/** section-ask (08 §6.8). Becomes a doc-only QaDocBlock (07 §3, §6.5); not a DraftBlock. */
+export interface SectionAnswerDraft {
+  topic: string;                 // 3..48 chars
+  paragraphs: string[];          // 1..4, each 1..1200 chars of inline markdown
 }
 
 export type DraftBlock =
@@ -406,7 +414,7 @@ export interface MergePlanDraft {
 }
 ```
 
-`PhotoPickDraft` is small and flat, so it uses native structured output. `DocumentDraftTab`, `SectionDraft` and `MergePlanDraft` are sent as prompted JSON (the schema text is appended to the system prompt and the reply is parsed and validated with the same zod schema and single repair), because their eleven-shape block union (with `photo`) exceeds the native structured-output grammar limits. Written blocks of a `MergePlanDraft` get the same semantic checks as section drafts; any failure goes to the repair call, and a `figure` may use only the figure labels passed with the request.
+`PhotoPickDraft` and `SectionAnswerDraft` are small and flat, so they use native structured output (`SectionAnswerDraft` is in `DRAFT_SCHEMAS` but not in `PROMPTED_JSON`). `DocumentDraftTab`, `SectionDraft` and `MergePlanDraft` are sent as prompted JSON (the schema text is appended to the system prompt and the reply is parsed and validated with the same zod schema and single repair), because their eleven-shape block union (with `photo`) exceeds the native structured-output grammar limits. Written blocks of a `MergePlanDraft` get the same semantic checks as section drafts; any failure goes to the repair call, and a `figure` may use only the figure labels passed with the request.
 
 `figure.imageLabel` must equal the `label` of an `ImageInput` sent in the request; [07](07-output-document.md) embeds that image as a data URI. Charts are rendered to static inline SVG by [07](07-output-document.md) at build time from `ChartSpec`; the doc runtime only adds tooltips (no chart library fetched at view time).
 
@@ -465,6 +473,11 @@ export async function runSectionAction(input: {
   prev?: SectionDraft; next?: SectionDraft; selection: string; note?: string;
   sourceExcerpt?: string; signal: AbortSignal;
 }): Promise<SectionDraft | DocumentDraftTab>;
+
+export async function answerSectionQuestion(input: {   // section-ask (08 §6.8); runSectionAction is unchanged
+  tabKind: Tab['kind']; section: SectionDraft; outline: string[];
+  prev?: SectionDraft; next?: SectionDraft; selection: string; question: string; signal: AbortSignal;
+}): Promise<SectionAnswerDraft>;
 
 export async function matchMerge(summary: string,
   candidates: { catalogId: string; title: string; summary: string }[]): Promise<MergeMatchDraft>;
@@ -550,7 +563,7 @@ Setting and clearing keys goes through `eli5:settings:*` channels owned by [12](
 
 ## 16. Testing hooks
 
-- `FakeProvider implements LLMProvider` in `src/main/llm/testing/fake.ts`: returns fixture JSON keyed by `taskId`, can simulate each `LLMErrorKind`, latency, and `max_tokens` truncation. Used by pipeline and e2e tests ([13](13-testing-quality.md)); selected with `ELI5_LLM_FAKE=1` in test builds only.
+- `FakeProvider implements LLMProvider` in `src/main/llm/testing/fake.ts`: returns fixture JSON keyed by `taskId` (every `PromptId` has an entry in `test/fixtures/llm/default.json`, including `section-ask`), can simulate each `LLMErrorKind`, latency, and `max_tokens` truncation. Used by pipeline and e2e tests ([13](13-testing-quality.md)); selected with `ELI5_LLM_FAKE=1` in test builds only.
 - Provider contract tests run against recorded HTTP fixtures (cassettes, injected as `cassetteFetch` in place of `llmFetch`; no network in CI) for Claude and OpenAI: image encoding, structured output mapping, error classification, `retry-after` handling, streamed accumulation into one `GenerationResult`.
 - Required cassettes: (a) a Claude `forced_tool` request answered with the 400 "tool_choice ... not supported for this model" is classified `bad_request`, not retried, and triggers the `output_config` fallback resend; (b) a model row with `supportsTemperature: false` produces a request body with no `temperature`, `top_p`, or `top_k`; (c) an OpenAI reasoning-model row sends a Responses API body with the system prompt as `instructions`, `store: false` and no `temperature`.
 - Prompt lint test: every prompt file parses, its `output` names a schema in `schemas/draft.ts`, and all `{{vars}}` are supplied by the corresponding task function.
@@ -567,8 +580,8 @@ Setting and clearing keys goes through `eli5:settings:*` channels owned by [12](
 - [ ] Retries follow section 7.1 (the single LLM retry policy; `PipelinePolicy` may override only its numbers), honor `retry-after` up to the cap, and stop on cancellation; `auth` and `bad_request` are never retried.
 - [ ] A source set larger than the context budget completes through chunk-then-synthesize without a `context_overflow` error.
 - [ ] `prepareContent`, `generateIndepth`, `generateEli5`, `generateGlossary`, and `summarize` are separate functions that [06](06-generation-pipeline.md) calls in order with checkpoints between them; step functions throw `LLMError` and leave the degrade/fail decision to 06.
-- [ ] The model never emits `SectionId`s or full HTML; section actions return one `SectionDraft` that replaces the section while keeping its ID.
-- [ ] All eleven catalogue prompts exist as `resources/prompts/*.md`, pass the prompt lint test, and record `id@version` in `meta.json`.
+- [ ] The model never emits `SectionId`s or full HTML; section actions return one `SectionDraft` that replaces the section while keeping its ID; Ask returns one `SectionAnswerDraft` (at most 4 paragraphs, strict native schema) with the question delimited as untrusted input.
+- [ ] Every catalogue prompt exists as `resources/prompts/*.md`, passes the prompt lint test, and record `id@version` in `meta.json`.
 - [ ] Skills placed in the user skills folder are picked up without restart and override bundled skills of the same name; the app works with no skills installed.
 - [ ] Source text is delimited as untrusted content in every prompt.
 - [ ] `llm.provider = bedrock` in the public build fails with the enterprise-edition message, and the stub satisfies the interface; HOOK-LLM-01 and HOOK-LLM-02 are marked with machine marker and callout.

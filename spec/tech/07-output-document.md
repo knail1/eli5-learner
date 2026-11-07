@@ -105,7 +105,7 @@ export interface Section {
   blocks: DocBlock[];             // references: [] (rendered from DocumentModel.references)
   origin: 'generated' | 'regenerated' | 'merged' | 'merge-marker' | 'placeholder';
   updatedAt: string;
-  lastAction?: 'expand' | 'reexplain' | 'analogy' | 'deeper' | 'revise';
+  lastAction?: SectionChange;     // 'expand' | 'reexplain' | 'analogy' | 'deeper' | 'revise' | 'ask' (08 §3)
   merge?: { fromDocId: string; fromTitle: string; mergedAt: string };   // sections a merge inserted -> data-merged-from
   enh?: SectionEnhancement;       // woven-merge highlights (6.4); dropped when the section is regenerated
   mergeMarker?: { suggestionId: string; fromDocId: string; fromTitle: string; mergedAt: string;
@@ -119,11 +119,23 @@ export type BlockEnhancement =
   | { block: number; kind: 'text'; parts: EnhRange[][] };           // per inline string of the block
 export interface SectionEnhancement { added?: string; blocks: BlockEnhancement[] }  // added: whole section new
 
-// DraftBlock (02 §10) with figures resolved to assets; every other variant is identical.
+// DraftBlock (02 §10) with figures resolved to assets, plus the doc-only answer box; every other
+// variant is identical. Photos become figures at build time (7.4).
 export type DocBlock =
-  | Exclude<DraftBlock, { type: 'figure' }>
-  | { type: 'figure'; assetId: string; caption: string; alt: string;
-      annotations?: { x: number; y: number; text: string }[] };
+  | Exclude<DraftBlock, { type: 'figure' } | { type: 'photo' }>
+  | FigureDocBlock               // { type: 'figure'; assetId; caption; alt; annotations? }
+  | QaDocBlock;
+
+/** A reader's question and its answer (08 §6.8, 6.5). Never a DraftBlock: the model cannot emit it. */
+export interface QaDocBlock {
+  type: 'qa';
+  id: string;                     // 'q-' + 8 hex (4.2)
+  question: string;               // the reader's question, one line, 1..500 chars
+  topic: string;                  // 1..48 chars, a short name for what was asked (from the model)
+  quote: string;                  // <= 160 chars, excerpt of the selection it answers
+  paragraphs: string[];           // 1..4 inline-markdown paragraphs, each <= 1200 chars
+  askedAt: string;
+}
 
 export interface AssetRef { id: string; mime: 'image/png' | 'image/jpeg' | 'image/webp';
                             width: number; height: number; sha256: string; label: string }
@@ -179,6 +191,10 @@ contain a bare number as the whole name (PRD "Section ELI5 tabs").
 3. Emitted twice on each `<section>`: `id="…"` and `data-section-id="…"`, with identical values.
 4. The model never supplies or sees IDs ([02](02-llm-provider.md) §9). Section actions pass the
    `SectionId`; the reply is a `SectionDraft` that is written back under the same ID.
+5. Answer boxes (6.5) get `"q-" + 8 lowercase hex` from `mintQaId(src, taken)`, where `taken` is
+   every section ID, glossary note ID, answer-box ID and `retiredIds` entry of the document. The ID
+   is the box's `id` attribute, so `index.html#q-1a2b3c4d` deep-links to it. It never carries
+   `data-section-id`.
 
 ### 4.3 Stability guarantees
 
@@ -191,6 +207,9 @@ contain a bare number as the whole name (PRD "Section ELI5 tabs").
 | Woven merge ([09](09-library-storage.md) §10.3) | Target IDs unchanged: a revised section keeps its ID. Every inserted section gets a freshly minted SectionId under the target tab key (`sec-<tabkey>-<8 hex>`), checked against the whole target document and its `retiredIds`, and carries `data-merged-from="<sourceDocId>"`. Source SectionIds never enter the target |
 | Re-render with a newer runtime | IDs unchanged |
 | Glossary re-anchor | IDs unchanged |
+| Ask ([08](08-interactive-reading.md) §6.8) | Section ID unchanged; a new answer-box ID (4.2 rule 5) |
+| Section rewritten after an Ask | Answer boxes keep their IDs; they move to the end of the section (8) |
+| Checkout of another version ([09](09-library-storage.md) §4.1) | The checked-out version's IDs are restored; every ID that exists in the live document or either version's `retiredIds` but not in the target is added to `retiredIds`, so an ID is never reused across branches ([08](08-interactive-reading.md) §6.7) |
 
 An ID never moves to a different section and never changes while its section exists. Deep links
 `index.html#sec-indepth-3f9a1c2e` therefore survive every edit.
@@ -268,6 +287,22 @@ attribute order, fixed whitespace, canonical JSON (sorted keys) for the embedded
 reads during render. Required properties: `render(parse(render(m))) === render(m)`, and a mutation
 of one section changes only that section's bytes, the embedded model JSON, `updatedAt`, and (if
 the runtime changed) the runtime blocks.
+
+**Runtime upgrades.** A document keeps its embedded runtime (`generator.runtimeVersion`, the
+`eli5-css` and `eli5-runtime` blocks) until one of these explicit exceptions re-renders the same
+model with the bundled runtime (`bundledDocRuntime()`, `DOC_RUNTIME_VERSION`, currently `1.1.0`):
+
+1. **On open** ([08](08-interactive-reading.md) §5.1): when a document with an older runtime is
+   opened in the app's viewer, the library is writable, the document parses and nothing in it is
+   busy. Same model, same version node ([09](09-library-storage.md) §4.1 `refreshRuntime`).
+2. **On mutation**: every mutation in 08 renders with `runtimeFor(parsed)`, which picks the bundled
+   runtime (and sets `generator.runtimeVersion`) when the stored one is older.
+3. **On checkout** of an older version snapshot (08 §6.7).
+
+The runtime is never swapped at serve time and never by string surgery: always parse → render.
+A refreshed published document reads as "changed since publish" once ([10](10-publishing.md)).
+Documents that hold an answer box (6.5) fail model validation in builds older than the `qa` block
+(`invalid_model`): they stay viewable there but are not editable. `formatVersion` stays 1.
 
 ### 5.6 Images
 
@@ -416,6 +451,42 @@ keeps the marks (`print-color-adjust: exact`) and hides the toggle. Highlights a
 JS; the runtime shows the toggle, which sets `data-hide-enh` on `<html>` and remembers the choice
 per document in `localStorage` (`eli5.enh.<docId>`, access wrapped in try/catch).
 
+### 6.5 Answer boxes (reader questions)
+
+An Ask ([08](08-interactive-reading.md) §6.8) adds a `QaDocBlock` to the section, after the block
+that holds the end of the selection. It is static markup: no script, no handlers, CSP-safe, and it
+works without JS and in print. Rendered by `render/blocks.ts` (`case 'qa'`), fixed attribute order,
+every text escaped, the answer paragraphs through `renderInline` (the question is escaped plain
+text; markdown in it is not rendered):
+
+```html
+<aside class="qa" id="q-1a2b3c4d" aria-label="Answer to a reader question">
+  <details class="qa-q"><summary class="qa-chip"><span class="qa-mark" aria-hidden="true">?</span><span class="qa-cap">You asked</span></summary>
+    <p class="qa-q-text">{question}</p><p class="qa-q-about">About: “{quote}”</p></details>
+  <div class="qa-a"><p>…</p><p>…</p></div>
+</aside>
+```
+
+- No `data-section-id` ([08](08-interactive-reading.md) §11 contract), a unique `id`, not `data-eli5-noact`, so it prints.
+  Merge block marks (6.4) still apply to it like any block.
+- **Style** (`index.css`, "Reader questions", after the enhancements). No new color tokens: it
+  reuses `--rule`, `--paper`, `--paper-2`, `--muted` and `--accent`, so dark mode needs no extra
+  selectors. The box has a 1 px `--rule` border, 10 px radius and a `--paper-2` tint mixed toward
+  `--paper`. The chip is the perimeter affordance: absolutely placed on the top border at the right,
+  a pill on `--paper` that notches the border like a fieldset legend, at least 24 px hit area, no
+  disclosure marker. At rest it shows only `?`; on hover, focus-visible and open the "You asked"
+  caption widens (a `max-width` transition, none under `prefers-reduced-motion`). Open adds the
+  accent color and a ▾ glyph, so color is never the only cue; focus shows a 2 px ring. The open
+  question is an italic strip with a 3 px accent left rule; the "About" line is muted and small.
+- **Flash:** the runtime's landing flash is the class `.eli5-flash` (generalized from sections),
+  a static outline under reduced motion.
+- **No JS:** the `<details>` works natively; the answer is always visible.
+- **Print:** the question shows as a static "You asked: …" line (the `<details>` content is
+  forced visible and the chip is hidden); `.qa` keeps its tint (`print-color-adjust: exact`).
+- "Hide highlights" (6.4) does not hide answers; they are content.
+- The drop-cap rule (`section:first-of-type > p:first-of-type`) matches direct children only, so
+  answer paragraphs never get one.
+
 ## 7. Visual components catalogue
 
 The quality bar is WSJ explanatory journalism (PRD "In depth tab: visual quality bar"). The model
@@ -439,6 +510,7 @@ translated into those choices by the prompt, never into raw HTML. Adding a compo
 | `photo` | A credited `<figure class="annotated stock-photo">` (7.4), or nothing when no photo fits | A real-world scene: people, places, objects, what an experience looks like; never data or structure | Credit links open in a new tab |
 | `stepper` | `<div class="stepper">` with ordered steps | A process with 3–8 stages | Prev/next buttons and step dots; all steps visible without JS and in print |
 | `analogy` | `<aside class="analogy">` with a "Think of it like" label | Mainly ELI5 and "Give me an analogy" actions | None |
+| `qa` (doc-only, not a DraftBlock) | `<aside class="qa">` answer box with a question reveal (6.5) | Never: only the reader's Ask adds it | Native `<details>`; opened when the app lands on it |
 
 Page-level elements the renderer adds (not model blocks): kicker, `h1`, dek, meta line, merge
 legend (6.4), tab bar, references section, footer.
@@ -650,6 +722,10 @@ export function addSectionEli5Tab(model: DocumentModel, from: SectionId, selecti
   // selectionOf: an "ELI5 this selection" tab (08 §7.5): labelled "ELI5: " + draft.title (first 6
   // words of the selection when empty), origin gets scope 'selection' and sectionIds.
 export function removeTab(model: DocumentModel, tabKey: string, now: string): DocumentModel;
+export function insertAnswer(model: DocumentModel, id: SectionId, afterBlock: number | null,
+  answer: { question: string; topic: string; quote: string; paragraphs: string[] }, now: string,
+  opts?: MutationOptions): { model: DocumentModel; qaId: string };
+export function mintQaId(src: IdSource, taken: TakenIds): string;    // 'q-' + 8 hex (4.2)
 // src/main/document/merge.ts (contract required by 09 §10.3; TabRecord and DocumentMeta from 09)
 export function prepareMergeWeave(input: { targetHtml; targetMeta; sourceHtml; sourceMeta }): MergeWeavePrep;
 export function applyMergePlan(prep: MergeWeavePrep, plan: MergePlanDraft, opts: {
@@ -679,6 +755,19 @@ All mutators are pure (return a new model); the caller renders and writes under
 - `replaceSection` throws on `kind === 'references'` and on unknown IDs. After replacing, it
   re-anchors glossary notes of that section (9.3).
 - `removeTab` accepts only `section-eli5` tabs; `indepth` and `eli5` cannot be removed.
+- `insertAnswer` (08 §6.8) is pure. It inserts a `qa` block after `afterBlock`, skipping any answer
+  boxes that already follow it, so answers stack in the order asked; with no `afterBlock` it goes
+  at the end of the section. Paragraphs are filtered with `isUserQuestion` (5.2, exported from
+  `validate.ts`); the question never is. It shifts `glossary[].blockIndex` (same section, at or
+  after the insertion point) and `enh.blocks[].block` by one and keeps `enh`, sets the section's
+  `updatedAt` and `lastAction: 'ask'` and the model's `updatedAt`, and leaves `origin` and the
+  `SectionId` unchanged.
+- `toDraftBlock`, `sectionToDraft` and `getSectionContext` omit `qa` blocks, so the model never
+  sees or echoes earlier answers. Glossary placement and merge enhancement diffs skip them.
+- `carryAnswers(old, newBlocks)` re-appends a section's answer boxes, in order and with their IDs,
+  at the end of its new blocks. `replaceSection` and the woven merge (8.1) use it, so a rewrite
+  never drops an answer and deep links survive; the box's `quote` keeps its context. In the merge
+  serialization a box is the line `Reader Q&A: <topic>`, and boxes the plan drops are re-appended.
 - `weaveMergedDocument` (called by [09](09-library-storage.md) §10.6 on accept) takes and returns
   HTML and makes the one `merge-weave` call through the injected planner. `prepareMergeWeave` and
   `applyMergePlan` are its pure halves (golden documents use them directly). See 8.1.
@@ -918,7 +1007,8 @@ disk changes at its next re-render.
 - External links print their URL after the link text (`a[href^="http"]::after`).
 - `break-inside: avoid` on figures, charts, tables ≤ 30 rows, callouts, pull quotes; `h2` has
   `break-after: avoid`. Page margins 18 mm, body 11 pt.
-- `print.ts` listens to `beforeprint` to open notes and restore state on `afterprint`.
+- `print.ts` listens to `beforeprint` to open notes (`details.gl-note`) and answer-box questions
+  (`details.qa-q`) and restore state on `afterprint`. Answer boxes print with their question (6.5).
 
 ## 14. Runtime boot order (`src/doc-runtime/index.ts`)
 
@@ -929,6 +1019,9 @@ disk changes at its next re-render.
    buttons, `scroll.init()`, link interception.
 4. Every module is wrapped in `try/catch`; a failing module logs to the console and leaves the
    no-JS fallback in place for its components.
+
+The order is unchanged by answer boxes and the grouped menu: answer boxes need no module (their
+open-on-landing is part of `scroll.init()`, 08 §7.4), and the menu is part of `selection.init()`.
 
 ## 15. Edge cases and errors
 
@@ -947,6 +1040,8 @@ disk changes at its next re-render.
 | Opening a document with an older `formatVersion` | Rendered as stored; on first mutation the model is migrated and the file re-rendered with the current runtime |
 | Opening a document with a newer `formatVersion` | View-only, action menu disabled, message in status area |
 | `#eli5-model` hand-edited to invalid JSON | View-only; `DocumentFormatError('invalid_model')` logged |
+| Document with an answer box opened by a build older than `qa` | View-only there (`invalid_model`); the box still renders and prints (5.5) |
+| Document with an older embedded runtime opened in the app | Re-rendered once with the bundled runtime, same model (5.5) |
 | `localStorage` unavailable | Theme choice not remembered; no error |
 | Two section ELI5 tabs from the same heading | Labels suffixed ` (2)` |
 | User closes a tab that has an in-flight section job | [08](08-interactive-reading.md) decides; `replaceSection` on a removed ID throws and nothing is written |
@@ -964,7 +1059,15 @@ disk changes at its next re-render.
 - [ ] `replaceSection` changes only the target section's bytes, the model JSON and `updatedAt`
       (byte diff test), and the section keeps its ID.
 - [ ] Adding and closing section ELI5 tabs never changes any other section's ID; closed IDs are not
-      reused.
+      reused, also across version branches (4.3).
+- [ ] `insertAnswer` adds one `aside.qa` after the selected block (stacking after earlier boxes),
+      changes only that section's bytes, the model JSON and `updatedAt`, keeps the `SectionId`,
+      shifts glossary and enhancement indexes, and mints a unique `q-` ID; the question is escaped
+      and its markdown is not rendered; a later `replaceSection` keeps the box at the section's end.
+- [ ] An answer box is readable without JS, prints with its question, passes axe in both themes,
+      and is never sent to the model in section context.
+- [ ] Opening, mutating or checking out a document with an older runtime re-renders it with the
+      bundled runtime via parse → render (5.5), never by string replacement.
 - [ ] Tab order is In depth, ELI5, then section ELI5 tabs by creation; In depth opens first;
       labels read "ELI5: <heading>".
 - [ ] Every `DraftBlock` variant renders per 7.1, and every chart kind renders per 7.2 in both

@@ -278,6 +278,9 @@ Doc 11 renders the status line (lower right). `status.ts` is the only producer o
 | section job done | `Updated: {heading}` |
 | section job running, action `eli5-tab` | `Adding ELI5 tab: {heading}` |
 | section job done, action `eli5-tab` | `Added tab: {label}` |
+| section job running, action `eli5-selection` | `Adding ELI5 tab for a selection: {heading}` (done: `Added tab: {label}`) |
+| section job running, action `ask` | `Answering a question: {heading}` |
+| section job done, action `ask` | `Answered: {heading}` |
 | `failed` / `SECTION_TOO_LARGE` | `Failed: section too long to rewrite` |
 | `failed` / `SECTION_GONE` | `Failed: section no longer exists` |
 | `failed` / `SECTION_CHANGED` | `Failed: section changed, try again` |
@@ -336,11 +339,11 @@ The Retry action (`eli5:jobs:retry`) moves a `failed` job back to `queued`, incr
 
 ### 8.2 Section jobs
 
-Interactive reading actions (doc 08: expand, re-explain, analogy, go deeper, section ELI5) run as `kind: 'section'` jobs in the Section lane. They reuse the same `Job` record (with `section: SectionJobPayload` set), persistence and status line; LLM retries are doc 02's. They use a reduced stage set, which doc 08 defines in full:
+Interactive reading actions (doc 08: expand, re-explain, analogy, go deeper, edit with my note, ask a question, section ELI5 and ELI5 this selection) run as `kind: 'section'` jobs in the Section lane. They reuse the same `Job` record (with `section: SectionJobPayload` set), persistence and status line; LLM retries are doc 02's. They use a reduced stage set, which doc 08 defines in full:
 
 `queued → generating (one step) → saving → done | failed`
 
-These jobs skip `reading` and `extracting` (a JobStatus is skipped by a direct legal transition `queued → generating`, which `assertTransition()` allows only for `kind === 'section'`). A section job's saving stage writes back into the existing `index.html` under that document's lock. It does **not** trigger a merge check. A failed section job leaves the document unchanged.
+These jobs skip `reading` and `extracting` (a JobStatus is skipped by a direct legal transition `queued → generating`, which `assertTransition()` allows only for `kind === 'section'`). A section job's saving stage writes back into the existing `index.html` under that document's lock, which records the change as a new version (doc 09 §4.1). It does **not** trigger a merge check. A failed section job leaves the document unchanged and creates no version.
 
 ## 9. Persistence and crash recovery
 

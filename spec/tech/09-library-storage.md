@@ -1,6 +1,6 @@
 # Library, storage, and merge suggestions
 
-This file specifies how finished learnings are stored on disk and how the app lists, updates and merges them. It covers where the library root lives in development and in a packaged app, the directory layout (`catalog.json`, `<topic-slug>/index.html` and `meta.json`, plus hidden housekeeping folders), the JSON schemas for `CatalogEntry` and `DocumentMeta` with versioning and migrations, slug rules and collisions, atomic writes and locking, rebuilding the catalog from folders, the menu bar recents list, and the post-generation merge suggestion feature (matching algorithm, threshold, `MergeSuggestion` lifecycle and persistence, accept and dismiss). It implements PRD "Library, storage, and merge suggestions" and the Library-related parts of PRD "App shell and layout" (Library sidebar, menu bar list, suggestions area) and "Build editions and swap seams" (Document location row). Code lives in `src/main/library/`. HTML mechanics (rendering, section IDs, splicing) belong to [07](07-output-document.md) and [08](08-interactive-reading.md); this module owns the files, the catalog and the merge flow.
+This file specifies how finished learnings are stored on disk and how the app lists, updates and merges them. It covers where the library root lives in development and in a packaged app, the directory layout (`catalog.json`, `<topic-slug>/index.html` and `meta.json`, plus hidden housekeeping folders), the per-document version tree (§4.1), the JSON schemas for `CatalogEntry` and `DocumentMeta` with versioning and migrations, slug rules and collisions, atomic writes and locking, rebuilding the catalog from folders, the menu bar recents list, and the post-generation merge suggestion feature (matching algorithm, threshold, `MergeSuggestion` lifecycle and persistence, accept and dismiss). It implements PRD "Library, storage, and merge suggestions" and the Library-related parts of PRD "App shell and layout" (Library sidebar, menu bar list, suggestions area) and "Build editions and swap seams" (Document location row). Code lives in `src/main/library/`. HTML mechanics (rendering, section IDs, splicing) belong to [07](07-output-document.md) and [08](08-interactive-reading.md); this module owns the files, the catalog and the merge flow.
 
 Related: [01-architecture.md](01-architecture.md) · [02-llm-provider.md](02-llm-provider.md) · [03-source-resolvers.md](03-source-resolvers.md) · [04-extraction.md](04-extraction.md) · [05-url-fetching.md](05-url-fetching.md) · [06-generation-pipeline.md](06-generation-pipeline.md) · [07-output-document.md](07-output-document.md) · [08-interactive-reading.md](08-interactive-reading.md) · [10-publishing.md](10-publishing.md) · [11-app-shell-ui.md](11-app-shell-ui.md) · [12-configuration-security.md](12-configuration-security.md) · [13-testing-quality.md](13-testing-quality.md)
 
@@ -24,7 +24,8 @@ Related: [01-architecture.md](01-architecture.md) · [02-llm-provider.md](02-llm
 | `src/main/library/slug.ts` | `slugify`, `allocateSlug`, reservations |
 | `src/main/library/catalog.ts` | Load, validate, upsert, remove, rebuild and reconcile |
 | `src/main/library/library.ts` | `Library` facade used by the pipeline, document, publish and tray modules |
-| `src/main/library/prior.ts` | The single prior version per document: stage, install, read, labels (§4.1) |
+| `src/main/library/versions.ts` | The version tree per document: constants, pure tree functions, blob and node I/O, pruning (§4.1) |
+| `src/main/library/prior.ts` | Change labels (`cleanChangeLabel`, `quoteLabel`) and read-only access to a legacy `.prev/` slot for migration (§4.1) |
 | `src/main/library/organization.ts` | Folders, Archive and Trash: `organization.json` schema, name rules, trash ids (§4.2); `FsLibrary` does the I/O |
 | `src/main/library/merge/similarity.ts` | Lexical prefilter (`SimilarityScorer`) |
 | `src/main/library/merge/check.ts` | `runMergeCheck(docId)` |
@@ -47,7 +48,7 @@ The PRD puts documents in "the app's own project directory" in both editions (PR
 The resolved root is shown read-only in Settings with a "Reveal in Finder" button ([11](11-app-shell-ui.md), channel `eli5:library:info`). Choosing a different destination per document (monorepo projects) is PRD future work and not in v1.
 
 <!-- hook:HOOK-LIB-01 -->
-> **Private hook · HOOK-LIB-01 · Enterprise library storage policy.** Public behavior: the library root is resolved as in §3.1; documents are plain files protected only by the user account and the operating system's disk encryption; trash and resolved suggestions are kept 30 days (§9). Private binding supplies: whether the enterprise build pins or restricts the library root, required at-rest protection for documents built from organization sources, retention periods for `.trash/` and staging, and whether `meta.json` may record source URLs or only redacted forms. Binding lives in the private spec under "HOOK-LIB-01".
+> **Private hook · HOOK-LIB-01 · Enterprise library storage policy.** Public behavior: the library root is resolved as in §3.1; documents are plain files protected only by the user account and the operating system's disk encryption; trash and resolved suggestions are kept 30 days (§9); each document keeps its version history in `<slug>/.versions/` under the same protection, capped at 60 snapshots, 48 MiB of compressed snapshots and 300 version records per document, with side-branch snapshots pruned first (§4.1). Private binding supplies: whether the enterprise build pins or restricts the library root, required at-rest protection for documents built from organization sources, retention periods for `.trash/`, staging and version snapshots, and whether `meta.json` may record source URLs or only redacted forms. Binding lives in the private spec under "HOOK-LIB-01".
 
 ### 3.2 Opt-in: library inside the repo's `docs/`
 
@@ -68,7 +69,7 @@ Everything the library writes there is covered by the existing `docs/*` rule in 
   <topic-slug>/                     # one folder per learning
     index.html                      # self-contained document (07)
     meta.json                       # DocumentMeta (§5.2)
-    .prev/                          # the single prior version: index.html, meta.json, state.json (§4.1)
+    .versions/                      # the version tree: tree.json, nodes/<versionId>.json, blobs/<sha256>.html.gz (§4.1)
   .staging/<jobId>/                 # save staging, owned by the pipeline (06 §5.7)
   .trash/<slug>--<yyyymmddThhmmss>/ # the Trash: trashed documents and merged-away sources (§4.2)
   .trash/<slug>--<ts>-premerge/     # pre-merge backups (§10.6); housekeeping, never listed
@@ -85,17 +86,59 @@ Rules:
 - `.staging/` and `.trash/` live under the root so the final `rename` stays on one volume and is atomic.
 - Temporary files use the suffix `.tmp-<pid>-<8 hex>` next to their target (§8.1). Reconciliation deletes leftover temp files that are older than 1 hour.
 
-### 4.1 One prior version per document (undo/redo)
+### 4.1 Version tree per document
 
-The PRD's full per-section history is future work. v1 keeps exactly **one** prior version of each document, which is enough for a word-processor-style Undo and Redo of the last change ([08](08-interactive-reading.md) §6.7, [11](11-app-shell-ui.md) §5.3). No git, no diffs, no version list.
+Every change to a document's html is kept as a **version**, and the versions of one document form a tree: a change made after an undo starts a sibling branch and keeps the old one. This backs Undo and Redo and the Versions panel ([08](08-interactive-reading.md) §6.7, [11](11-app-shell-ui.md) §5.3, §5.7). No git and no diffs.
 
-- **Where.** `<slug>/.prev/` holds `index.html`, `meta.json` and `state.json` `{schemaVersion: 1, slot: 'undo' | 'redo', label, pairedUpdatedAt}`. Like every dot-name it is never listed, served by `eli5doc://` (the handler serves only `/<slug>/` and `/<slug>/index.html` and rejects any segment starting with `.`), published (10 §3.3 takes only `index.html` and `assets/`), or read by reconcile. Trashing or merging a document away moves its folder, so `.prev/` goes with it.
-- **When it is written.** Whenever an existing document's `index.html` changes through `updateDocument` / `writeDocumentFiles` (section actions, section ELI5 tab add and close, the merge append into a target), the library first stages the current `index.html` and `meta.json` in a `.prev.tmp-<pid>-<8 hex>/` folder with `slot: 'undo'`, the change's `label`, and `pairedUpdatedAt` = the new meta's `updatedAt`. After the new `meta.json` is written (the commit point) it installs the staged folder: rename the old `.prev/` aside, rename the staged folder to `.prev/`, remove the old one. A failed write discards the staged folder and keeps the old slot. `commitDocument` (a new document) writes no prior version, nor does a meta-only write (`touch`, `appendPublication`).
-- **Labels.** `label` names the change between the two versions, for example `re-explained 'The particular…'`, `added ELI5 tab 'ELI5: Pricing'`, `merged 'Widget pricing' in` (08 §6.7 lists them). Without one it is `last change`. At most 200 characters, one line.
-- **Pairing.** A slot counts only while `pairedUpdatedAt` equals the live `meta.json` `updatedAt`. Any other rewrite of the live meta (a reconcile patch, an edit by hand, a crash between the commit point and the install) voids it: history reports nothing to undo.
-- **Swap** (`undo(slug)` / `redo(slug)`, under `withDocLock(slug)`): undo needs `slot: 'undo'`, redo `slot: 'redo'`, otherwise `HISTORY_EMPTY`. Stage the live `index.html` and `meta.json` as the new slot with the opposite `slot` and the same `label`; write the slot's `index.html`, then its `meta.json` with `id`, `topicSlug`, `createdAt` and `publications` taken from the live meta (they must not travel back in time) and `updatedAt` = now; install the staged slot; upsert the catalog entry (`title`, `updatedAt`, `tabCount`, `mergedFromCount`) and write `catalog.json`; emit `changed {reason:'updated'}`. Everything else in `meta.json` (`tabs`, `retiredIds`, `actions`, `merges`, sources) travels with the content. A new change after an undo overwrites the slot, so redo is lost.
-- **Crash safety.** Each file write is atomic (§8.1). A crash between the two renames leaves no `.prev/` (nothing to undo), never a mixed one; reconcile's housekeeping deletes `.prev.tmp-*` folders older than 1 hour (§7 step 8).
-- Undoing a merge restores the target's pre-merge content; the merged-away source stays in the Trash (§10.6). Undo does not restore it; Put Back does (§4.2).
+**Checkout model.** The live `<slug>/index.html` and `meta.json` are always the *current* version, and they are the only files that are served, published, edited or parsed. Opening a version *checks it out*: its snapshot is written as the live files under `withDocLock`. The `eli5doc://` protocol, the viewer's navigation guard, publishing and `baseHash` are unchanged. A new change forks from the current version.
+
+**Layout.**
+
+```
+<slug>/.versions/
+  tree.json                 {schemaVersion: 1, rootId, currentId, nodes: VersionNodeRecord[]}   rebuildable index
+  nodes/<versionId>.json    {schemaVersion: 1, node: VersionNodeRecord, meta: DocumentMeta}     source of truth per version
+  blobs/<sha256>.html.gz    gzip (level 6, mtime 0) of the exact index.html bytes; named by the sha256 of the uncompressed bytes
+  *.tmp-<pid>-<8 hex>       staging, housekept after 1 hour
+```
+
+`VersionNodeRecord` (zod in `schema.ts`): `id` (`/^v-[0-9a-f]{12}$/`), `parentId` (`null` for the root), `createdAt`, `kind` (`VersionChangeKind = MenuAction | 'close-tab' | 'merge' | 'outside' | 'initial'`), `label` (≤ 200, from `cleanChangeLabel`, e.g. `expanded 'Why the plan matters'`), `topic` (≤ 48, a short branch title), `heading?` (≤ 80), `question?` (≤ 500), `target?` and `undoTarget?` (`{tabKey?, sectionId?, anchorId?}`, where to land when the version is opened or undone, 08 §6.7), `sha256` (`null` when the snapshot was pruned: the version is a *stub*), `bytes` (compressed size), `forwardId?` (the child Redo follows) and `jobId?`.
+
+- Like every dot-name, `.versions/` is never listed, served by `eli5doc://`, published (10 §3.3 takes only `index.html` and `assets/`) or read by reconcile. Trash, Put Back, Delete Permanently and a merge moving a source away move or remove the whole folder, so history travels with the document. The tree is keyed by neither slug nor document id.
+- `tree.json` is read with `readVersioned` (§5.3) and its own empty migration chain; a newer tree schema makes only that document's history read-only.
+- The root id is `'v-' + sha256(liveHtml).slice(0, 12)`, so a tree synthesized in memory matches the one materialized later.
+- Constants in `versions.ts`: `VERSIONS_DIR = '.versions'`, `MAX_SNAPSHOTS = 60`, `MAX_STORE_BYTES = 48 MiB` (compressed), `MAX_NODES = 300` (stubs included), `TREE_SCHEMA_VERSION = 1`, `VERSION_ID_RE`.
+
+**Current version.** The current version is the node whose id is the live `meta.versionId` (§5.2) and whose blob sha equals sha256 of the live `index.html`. Any mismatch means the document is **detached** (edited by hand or by an older build). `touch`, `appendPublication`, reconcile patches and Put Back no longer void history.
+
+**Reads never write.** `versions()` and `history()` take no lock and have no side effects: they read `tree.json`, the node files and the live files and resolve in memory. Everything that writes (seeding, adoption, the detached snapshot, orphan cleanup) happens in `materialize(slug)`, which runs only on write paths, under the doc lock, and is idempotent:
+
+1. Load `tree.json`, rebuilding it from `nodes/*.json` if it is missing or corrupt (a corrupt one is renamed `tree.json.corrupt-<ts>` first). With no tree at all, seed it (legacy migration below).
+2. Compare the live `versionId` and sha: (a) the id is in the tree and the sha matches: that node is current (fix a stale `currentId`); (b) the id is not in the tree but `nodes/<id>.json` exists and its blob matches: **adopt** that record into the tree (a crash after the commit point, below); (c) otherwise the document is detached: snapshot the live files as a `kind: 'outside'` node labelled `changed outside the app`, parent = `currentId`, and rewrite the live meta with only `versionId` changed (keeping `updatedAt`).
+3. Delete orphans: node files in neither the tree nor the live `versionId`, blobs no node references, and `*.tmp-*` files under `.versions/`.
+
+**Write order** (`writeDocumentFiles(slug, patch)` with `patch.html`, the only html writer: section actions, Ask, tab close and merge all go through it, so every change becomes a version):
+
+1. `materialize`; `parent = tree.currentId` (read under the lock, at commit time).
+2. Mint `newId` (6 random bytes as hex; redraw on a clash).
+3. Write the blob (skipped if it exists: identical content is stored once), then `nodes/<newId>.json` with the node record and the new meta (`versionId = newId`). If this fails, log `library.version-save-failed`, drop `versionId` from the meta, mark history **degraded** (surfaced in the Versions panel) and continue. The user's edit is never blocked by history.
+4. Write `index.html`, then `meta.json` (§8.1). **This is the commit point**, unchanged. On failure remove the new node file and rethrow; the live files and the tree are unchanged.
+5. Update the tree: append the node, set `parent.forwardId = newId` and `currentId = newId`, prune (below), write `tree.json`, then delete pruned blobs and node files. A failure here is only logged: the next `materialize` adopts the node with its real label (step 2b) and sweeps orphans.
+
+A write without `patch.change` is recorded as `kind: 'outside'` with `patch.label`. Meta-only writes (`touch`, `appendPublication`) and `commitDocument` (a new document) create no version; a new document's first version is created lazily as the root.
+
+**Checkout** (`checkout(slug, id, {retiredIds, html?})`, caller holds `withDocLock`): `assertWritable`, `materialize`. An unknown id fails with `VERSION_NOT_FOUND`, a stub with `VERSION_NOT_FOUND {detail: 'pruned'}`, and a blob whose sha does not match stubs the node and fails with `VERSION_CORRUPT`. Checking out the current version is a no-op. The new live meta is the node's meta with `id`, `topicSlug`, `createdAt` and `publications` pinned from the live meta (they must not travel back in time), `updatedAt` = now, `versionId = id` and `retiredIds` from the caller (08 §6.7 computes them so IDs are never reused across branches). Everything else travels with the version: `tabs`, `actions`, `asks`, `merges`, sources. If `html` is given (a runtime upgrade of an old snapshot, same model), its blob is written and becomes the node's `sha256`; the old blob is collected. Write `index.html`, then `meta.json`, set `currentId = id`; when moving to an ancestor, set `forwardId` along the path back down to the previous current, so Redo retraces it. Write the tree, upsert the catalog entry under the catalog lock (`title`, `updatedAt`, `tabCount`, `mergedFromCount`), and emit `changed {reason: 'updated'}`.
+
+**History.** `history(slug)` derives `DocHistoryState` from the tree: `canUndo` when the current node's parent exists and has a snapshot, `canRedo` when a redo child is available (`forwardId` if available, else the newest available child), `undoLabel` = the current node's label, `redoLabel` = the redo child's label. `undo` checks out the parent and `redo` the redo child; both throw `HISTORY_EMPTY` without a target. In the app, 08's service drives them (busy refusal, scroll targets); the library methods are used by tests.
+
+**Runtime refresh** (`refreshRuntime(slug, html)`, under the lock): runs `materialize` first (so a legacy or detached document gets its node before its bytes change), then writes new live html for the *current* node and points the node's `sha256` at the new blob. The meta is unchanged, `updatedAt` included. Used when a document with an older embedded runtime is opened (08 §5.1).
+
+**Pruning** (`planPrune`, after every write): the root, the current node, its ancestors and its redo child are protected. Other nodes are stubbed (snapshot removed, record kept with its label and place in the tree), oldest first, until there are at most `MAX_SNAPSHOTS` snapshots and `MAX_STORE_BYTES` of blobs; then stub *leaves* are dropped while there are more than `MAX_NODES` records. A text document is about 30 KB compressed per version, about 1.8 MB at the cap; an image-heavy one reaches the byte cap first and its side branches become stubs. Retention follows HOOK-LIB-01.
+
+**Legacy `.prev/` migration.** Builds before versions kept one prior version in `<slug>/.prev/` (`index.html`, `meta.json`, `state.json {slot, label, pairedUpdatedAt}`). It is migrated lazily on the first write path (an html write or a checkout): a paired `undo` slot becomes the root (`kind: 'initial'`, topic and label `Earlier version`) with the live document as its child (`kind: 'outside'`, keeping the slot's label) and current; a paired `redo` slot makes the live document the root with the slot as its child (`forwardId` set) and the root current; an unpaired or missing slot gives a single root labelled `Original`. Blobs, node files and `tree.json` are each written atomically and fsynced, and `.prev/` is removed only after `tree.json` is durable. Until a tree exists, `history()` answers from `.prev/` read-only. Older builds that find no `.prev/` report nothing to undo, which is safe.
+
+- **Crash safety.** Each file write is atomic (§8.1); the node record and blob are durable before the commit point, so a crash at any step leaves either the old document with an orphan (swept later) or the new document with a node that is adopted.
+- Undoing a merge restores the target's pre-merge content and `meta.merges`; the merged-away source stays in the Trash (§10.6). Undo does not restore it; Put Back does (§4.2).
 
 ### 4.2 Folders, Archive and Trash
 
@@ -104,7 +147,7 @@ A long Library is organized without touching document folders or slugs: folder m
 - **`.eli5/organization.json`** `{schemaVersion: 1, folders: LibraryFolder[], placement: {[docId]: 'archive' | FolderId}, trashed: {[trashId]: TrashRecord}}`. Keyed by document id, so a catalog rebuild (§7) never touches it and folder membership survives a deleted or corrupt `catalog.json`. Missing file: every document is unfiled; that is the whole migration of a flat library, and nothing is written until the first change. Read with §5.3 (a corrupt file is renamed `.corrupt-<ts>` and the Library opens with everything unfiled; a newer version is read-only mode). Written atomically (§8.1), always under `withCatalogLock`, by `FsLibrary` only.
 - **Folders** are one level deep: `{id: 'f-' + 8 hex, name, createdAt}`. Names are trimmed to one line, 1..60 characters, unique ignoring case, and never `Archive` or `Trash` (`FOLDER_NAME_INVALID`, `FOLDER_NAME_TAKEN`). Deleting a folder moves each of its documents to the Trash (each record keeps the folder's name) and then drops the folder.
 - **Archive** is the built-in placement `'archive'`: not renamable or deletable. Archived documents stay catalogued and openable; `recents()` (§9.1) leaves them out, so they leave the menu bar list.
-- **Trash** is `.trash/`. `trashDocument(slug)` (and `moveDocument(slug, 'trash')`) takes `withDocLock(slug)` then the catalog lock, renames the folder to `.trash/<slug>--<ts>[-n]` (the *trash id*), drops the catalog entry, removes its placement, and records `{docId, trashedAt, reason: 'trashed', from, fromName?}`. The files, `.prev/` included, stay intact. The merge flow's step 8 (§10.6) records the source as `reason: 'merged'` with the target's title (`noteMergedAway`), so merged-away sources are listed and can be put back too. Pre-merge backups (`…-premerge`) are merge housekeeping: never listed, emptied or put back. A trash folder with no record (trashed before this existed) lists as trashed from unfiled at its name's timestamp.
+- **Trash** is `.trash/`. `trashDocument(slug)` (and `moveDocument(slug, 'trash')`) takes `withDocLock(slug)` then the catalog lock, renames the folder to `.trash/<slug>--<ts>[-n]` (the *trash id*), drops the catalog entry, removes its placement, and records `{docId, trashedAt, reason: 'trashed', from, fromName?}`. The files, `.versions/` included, stay intact. The merge flow's step 8 (§10.6) records the source as `reason: 'merged'` with the target's title (`noteMergedAway`), so merged-away sources are listed and can be put back too. Pre-merge backups (`…-premerge`) are merge housekeeping: never listed, emptied or put back. A trash folder with no record (trashed before this existed) lists as trashed from unfiled at its name's timestamp.
 - **Slugs of trashed documents are not reused.** `allocateSlug` (§6.2) counts `.trash/` entries as taken, so Put Back normally restores the same slug (and the same `eli5doc://` URL and publication records). If the name was taken anyway (a folder copied in by hand), Put Back picks a fresh slug with `chooseSlug` and rewrites `meta.topicSlug`; if the document's id is live again, it gets a new id (as §7 step 4 would).
 - **Put Back** `putBack(trashId)`: under `withDocLock(oldSlug)` then the catalog lock, rename `.trash/<trashId>` back to `<root>/<slug>`, upsert the catalog entry, place it where its record says when that still exists (a folder or the Archive), else unfiled, and drop the record. Emits `changed {reason: 'restored'}`.
 - **Delete Permanently / Empty Trash** remove one or every Trash entry (`rm -r`) and their records. They are the only irreversible library operations; the app asks once before each (11 §5.2). Retention still applies: entries older than `trashRetentionDays` (HOOK-LIB-01) are purged at startup (§7 step 8), which also drops records of entries that are gone.
@@ -171,17 +214,29 @@ export interface DocumentMeta {
   warnings: JobWarning[];          // {kind, message} from 06, e.g. kind 'glossary-omitted'
   merges: MergeRecord[];           // [] unless other documents were merged in (§10)
   actions?: ActionRecord[];        // section-action log, owned by 08 §6.6; stores no content
+  asks?: AskRecord[];              // Ask log, owned by 08 §6.6, §6.8; stores no answer text
+  versionId?: string;              // id of the version these live files are (§4.1), 'v-' + 12 hex
   publications: PublicationRecord[]; // from 10 §3.2; default []
 }
 
 export interface ActionRecord {    // shape owned by 08 §6.6
   at: string;
-  action: MenuAction;              // from 08
+  action: LoggedAction;            // Exclude<MenuAction, 'ask'> from 08; a strict enum
   sectionId: SectionId;
   tabKey: string;
+  sectionIds?: SectionId[];        // 'eli5-selection' only: every covered section (08 §7.5)
   note?: string;
   jobId: string;
-  resultTabKey?: string;           // set for 'eli5-tab'
+  resultTabKey?: string;           // set for 'eli5-tab' and 'eli5-selection'
+}
+
+export interface AskRecord {       // shape owned by 08 §6.8
+  at: string;
+  sectionId: SectionId;
+  tabKey: string;
+  question: string;                // ≤ 500, user text like ActionRecord.note
+  qaId: string;                    // id of the answer box (07 §4.2)
+  jobId: string;
 }
 
 export interface SourceRecord {
@@ -217,12 +272,13 @@ Schema ownership and strictness:
 - The library owns the file, the zod schema and every write. Sibling modules own the meaning of their fields: `retiredIds` ([07](07-output-document.md) §4.3), `actions` and `TabRecord.sourceSectionId` / `createdAt` ([08](08-interactive-reading.md) §6.6), `publications` ([10](10-publishing.md) §3.2), `warnings` ([06](06-generation-pipeline.md) `JobWarning`), `sourcesSkipped` ([03](03-source-resolvers.md) `SkippedSource`).
 - The zod object for `DocumentMeta` is **not strict**: it uses `.passthrough()`, so an unknown field written by a sibling or a newer minor build is preserved on read-modify-write, never rejected or dropped. Array fields with defaults (`retiredIds`, `publications`) use `.default([])`, so a file that lacks them still validates.
 - These are all v1 fields. Adding a new required field or changing a field's shape bumps `META_SCHEMA_VERSION` and adds a migration (§5.3).
+- `asks` and `versionId` are optional fields added without a bump: builds that predate them keep them on read-modify-write and still parse `meta.json`. Ask records are kept out of `actions` on purpose, because `ActionRecord.action` is a strict enum in those builds. **Downgrade:** a document holding an answer box parses as an invalid document model in an older build (07 §5.5), so it stays viewable there but cannot be edited; and an older build finds no `.prev/` and reports nothing to undo. The README and release notes say so.
 
 Privacy rules for `meta.json`:
 
 - Local file paths are stored as **basename only**. An absolute path would leak the user's home folder name if the folder is ever shared or published ([10](10-publishing.md)).
 - URLs are stored without fragment. Query strings are kept only for the public lane. Anything the MCP lane resolved is recorded as its display reference ([03](03-source-resolvers.md)), subject to HOOK-LIB-01 and HOOK-SRC-03.
-- No source text, extracted content or credentials are ever written to `meta.json`.
+- No source text, extracted content or credentials are ever written to `meta.json`. A reader's question (`asks[].question`) is user text like `note` and may be stored; the answer text is not.
 
 `meta.json` is written by the library only. The pipeline, section jobs and merge flow pass a `DocumentMeta` or a patch function. Every write updates `updatedAt` in both `meta.json` and the catalog entry.
 
@@ -292,7 +348,7 @@ Reservations are in memory only. After a crash, pipeline recovery re-derives the
    - A folder with no entry is added. This covers the crash window between the folder rename and the catalog upsert ([06](06-generation-pipeline.md) §5.7 step 4).
    - Where both exist, meta wins for every field.
 7. If anything changed, write `catalog.json` atomically, then emit `changed`.
-8. Delete `.tmp-*` files, and `.prev.tmp-*` folders inside document folders (§4.1), older than 1 hour. Purge `.trash/` entries older than the retention period (§9) and drop the Trash records of entries that no longer exist (§4.2). Run suggestion validation (§9.4). `organization.json` is not read here and is never rebuilt from folders.
+8. Delete `.tmp-*` files, `.prev.tmp-*` folders inside document folders, and `.versions/**/*.tmp-*` files (§4.1), older than 1 hour (by age, without a lock). Purge `.trash/` entries older than the retention period (§9) and drop the Trash records of entries that no longer exist (§4.2). Run suggestion validation (§9.4). `organization.json` is not read here and is never rebuilt from folders.
 
 Complexity is O(n) small JSON reads. It runs in under 200 ms for 1,000 documents on a local SSD, which is acceptable at startup. v1 has no file watcher. External edits are picked up on the next launch.
 
@@ -324,7 +380,8 @@ All writers run in the main process. [01](01-architecture.md) ensures a single a
 
 | Lock | Key | Held by |
 | --- | --- | --- |
-| `withDocLock(slug, fn)` | per slug, exclusive | commit, section regenerate/ELI5 tab/close tab ([08](08-interactive-reading.md)), `touch`, merge accept, publish ([10](10-publishing.md)), undo/redo swap (§4.1) |
+| `withDocLock(slug, fn)` | per slug, exclusive | commit, section regenerate/Ask/ELI5 tab/close tab ([08](08-interactive-reading.md)), `touch`, merge accept, publish ([10](10-publishing.md)), checkout, undo, redo, runtime refresh and `materialize` (§4.1) |
+| — (no lock) | — | `versions()`, `history()` and `readVersion()`: read-only, side-effect free (§4.1) |
 | `withCatalogLock(fn)` | global | slug allocation, catalog upsert/remove, reconcile |
 | `withSuggestionsLock(fn)` | global | every `suggestions.json` read-modify-write |
 
@@ -334,7 +391,7 @@ All writers run in the main process. [01](01-architecture.md) ensures a single a
 
 There is no read/write lock in v1. Where [10](10-publishing.md) §4 says "read lock", it means `withDocLock(slug)`, which is exclusive: a publish holds it for the whole file-set build and upload, and a regenerate requested meanwhile waits. Publishing is rare and short compared with generation, so exclusive locking costs nothing noticeable. Appending the `PublicationRecord` happens inside the same held lock via `updateDocument`.
 
-Readers (`list`, `recents`, `getMeta`, the `eli5doc://` handler) do not lock. Atomic rename guarantees they see a whole old file or a whole new one.
+Readers (`list`, `recents`, `getMeta`, `versions`, `history`, `readVersion`, the `eli5doc://` handler) do not lock. Atomic rename guarantees they see a whole old file or a whole new one.
 
 ### 8.4 Process lock
 
@@ -370,15 +427,16 @@ export interface Library {
   // writes
   allocateSlug(title: string, hint?: string): Promise<SlugReservation>;
   commitDocument(r: SlugReservation, stagingDir: string, meta: DocumentMeta): Promise<CatalogEntry>;
-  updateDocument(slug: string, patch: {
-    html?: string;                                         // full new index.html; keeps the old files as the prior version (§4.1)
-    meta: (m: DocumentMeta) => DocumentMeta;               // pure patch; library sets updatedAt
-    label?: string;                                        // Undo label of this change (§4.1)
-  }): Promise<CatalogEntry>;                               // caller must hold withDocLock(slug)
+  updateDocument(slug: string, patch: DocumentPatch): Promise<CatalogEntry>; // caller must hold withDocLock(slug)
   touch(slug: string): Promise<CatalogEntry>;              // bump updatedAt in meta.json and the catalog; caller holds withDocLock(slug)
-  history(slug: string): Promise<DocHistoryState>;         // {canUndo, canRedo, undoLabel?, redoLabel?} (§4.1)
-  undo(slug: string): Promise<DocHistoryState>;            // swap with .prev/; takes withDocLock itself
-  redo(slug: string): Promise<DocHistoryState>;
+  history(slug: string): Promise<DocHistoryState>;         // {canUndo, canRedo, undoLabel?, redoLabel?} from the tree (§4.1)
+  undo(slug: string): Promise<DocHistoryState>;            // checkout(parent); takes withDocLock itself (tests; the app goes through 08)
+  redo(slug: string): Promise<DocHistoryState>;            // checkout(redo child)
+  versions(slug: string): Promise<VersionTreeView>;        // lock-free, no writes; a synthesized root when there is no tree
+  readVersion(slug: string, id: string): Promise<{ html: Buffer; meta: DocumentMeta; node: VersionNodeRecord }>;
+  checkout(slug: string, id: string, opts: { retiredIds: string[]; html?: Buffer }):
+    Promise<{ tree: VersionTreeView; node: VersionNodeRecord; previousId: string }>; // caller holds withDocLock(slug)
+  refreshRuntime(slug: string, html: Buffer): Promise<void>; // new runtime for the current version (§4.1)
   withDocLock<T>(slug: string, fn: () => Promise<T>): Promise<T>;
   withDocLocks<T>(slugs: string[], fn: () => Promise<T>): Promise<T>;
   reconcile(): Promise<void>;
@@ -411,9 +469,25 @@ export type LibraryErrorCode =
   | 'WRITE_FAILED' | 'SLUG_TAKEN' | 'NOT_FOUND' | 'META_INVALID' | 'LIBRARY_READ_ONLY'
   | 'LOCK_REENTRY' | 'LOCK_NOT_HELD' | 'SUGGESTION_STALE' | 'MERGE_FAILED' | 'PATH_OUTSIDE_ROOT'
   | 'HISTORY_EMPTY'                                        // undo/redo with nothing in that direction (§4.1)
+  | 'VERSION_NOT_FOUND'                                    // unknown version, or {detail:'pruned'} for a stub (§4.1); IPC E_NOT_FOUND
+  | 'VERSION_CORRUPT'                                      // snapshot fails its sha check (§4.1); IPC E_IO
   | 'FOLDER_NOT_FOUND' | 'FOLDER_NAME_INVALID' | 'FOLDER_NAME_TAKEN' | 'TRASH_ITEM_NOT_FOUND'; // §4.2
 export class LibraryError extends Error { constructor(public code: LibraryErrorCode, public detail?: object) { super(code); } }
 ```
+
+```ts
+export interface DocumentPatch {
+  html?: string;                                           // full new index.html; recorded as a new version (§4.1)
+  meta: (m: DocumentMeta) => DocumentMeta;                 // pure patch; library sets updatedAt
+  label?: string;                                          // Undo label of this change (§4.1)
+  change?: {                                               // fork metadata (08 §6.7); absent = kind 'outside'
+    kind: VersionChangeKind; topic: string; heading?: string; question?: string;
+    target?: VersionTarget; undoTarget?: VersionTarget; jobId?: string;
+  };
+}
+```
+
+`VersionTreeView` is the tree with each node's availability, the current id, the redo id, `detached`, `readOnly` and `degraded`; 08 turns it into the wire `DocVersionTree` (01 §5.3). A node is `published` when its `sha256` equals the `contentSha256` of the live meta's last `PublicationRecord` ([10](10-publishing.md) §3.2). `VERSION_NOT_FOUND` maps to `E_NOT_FOUND` "That version is no longer available" and `VERSION_CORRUPT` to `E_IO` "That version can't be read" in `ipc/handle.ts`.
 
 `touch(slug)` is used by [08](08-interactive-reading.md) after a write that did not otherwise go through `updateDocument` (for example, tab close). It is `updateDocument(slug, {meta: m => m})`: it writes `meta.json` with a new `updatedAt`, updates the catalog entry's `updatedAt` and `tabCount` under `withCatalogLock`, and emits `changed {reason:'updated'}`. Calling it without holding the doc lock throws `LOCK_NOT_HELD` in dev builds.
 
@@ -560,7 +634,7 @@ export interface SuggestionsFile {
 3. Check that both catalog entries exist, and that `mergeEligibility(targetMeta, sourceMeta)` holds (HOOK-LIB-02). On failure → `stale` (missing) or back to `pending` with `lastError` (ineligible). Release and emit.
 4. Read both `index.html` and both `meta.json` files.
 5. `weaveMergedDocument(...)` (§10.3): one `merge-weave` call, then the plan is applied and rendered. Any error (LLM failure, budget exhausted, invalid output after the repair pass, unreadable document) → `MERGE_FAILED`, go to step 11. There is no fallback to appending. Quitting aborts the call.
-6. **Backup:** copy the target's `index.html` and `meta.json` to `.trash/<target.slug>--<ts>-premerge/`. This makes a bad merge recoverable by hand. The step 7 write also keeps the pre-merge target as its prior version (§4.1, label `merged '<source title>' in`), so one Undo restores the pre-merge document. Per-section history is future work.
+6. **Backup:** copy the target's `index.html` and `meta.json` to `.trash/<target.slug>--<ts>-premerge/`. This makes a bad merge recoverable by hand. The step 7 write also records the merge as a version (§4.1, `change.kind: 'merge'`, topic the source title, target and undo target the first anchor section, label `merged '<source title>' in`), so one Undo restores the pre-merge document.
 7. Write the target `index.html` atomically, then the target `meta.json` atomically, with `tabs` from the result, `sourcesUsed` / `sourcesSkipped` unioned (source items tagged `origin: 'merge:<sourceId>'`, dedup by `ref` + `sha256`), and a new `MergeRecord` appended. **This `meta.json` write is the commit point.**
 8. `rename(root/source.slug, .trash/<source.slug>--<ts>)`, then record it in `organization.json` as merged into the target (§4.2), so it is listed in the Trash and can be put back.
 9. `withCatalogLock`: remove the source entry. Update the target entry (`updatedAt`, `tabCount`, `mergedFromCount`). Write atomically.
@@ -606,7 +680,7 @@ Channels are registered in `src/main/ipc/library.ts`. Payloads are validated in 
 | `eli5:suggestions:dismiss` | R→M invoke | `{suggestionId}` → `void` |
 | `eli5:suggestions:changed` | M→R event | `{suggestions: MergeSuggestion[]}`. This is the event [06](06-generation-pipeline.md) §10 step 5 refers to as the library's suggestion event |
 
-Undo/redo of a document (§4.1) is exposed through 08's service as `eli5:doc:history`, `eli5:doc:undo`, `eli5:doc:redo` and `eli5:doc:history-changed` ([01](01-architecture.md) §5.2, [08](08-interactive-reading.md) §6.7), because only 08 knows which sections are busy.
+Versions of a document (§4.1) are exposed through 08's service as `eli5:doc:history`, `eli5:doc:undo`, `eli5:doc:redo`, `eli5:doc:history-changed`, `eli5:doc:versions`, `eli5:doc:checkout` and `eli5:doc:versions-changed` ([01](01-architecture.md) §5.2, [08](08-interactive-reading.md) §6.7), because only 08 knows which sections are busy and where to scroll.
 
 The organization channels are app-window only (the viewer gets `E_FORBIDDEN`, like `eli5:doc:history`). Folder ids and trash ids are matched against their patterns in the zod schemas, so a path never reaches the library. Refusals map to `E_NOT_FOUND` (folder or Trash item gone), `E_CONFLICT` (name taken), `E_BAD_REQUEST` (name invalid) and `E_LIBRARY_READ_ONLY`.
 
@@ -635,25 +709,31 @@ The renderer never sends file paths. It only sends slugs and IDs, and main resol
 | A trashed document is opened from a notification or a stale link | Not catalogued, so not served; the app shows it is in the Trash with Put Back (11 §8) |
 | Put Back while a new document took the slug | Restored under a fresh slug with `meta.topicSlug` rewritten (§4.2) |
 | A folder is deleted while one of its documents is trashed | Put Back returns that document unfiled |
-| Undo requested while a section job for the document runs | Refused with `E_CONFLICT` by 08 §6.7; the files are untouched |
-| Crash during an undo, redo or update | Each file is old or new (§8.1); at worst the prior version is voided (§4.1 pairing) and Undo is unavailable |
+| Undo, redo or checkout requested while a section job for the document runs | Refused with `E_CONFLICT` by 08 §6.7; the files are untouched |
+| Crash during an update, between the commit point and the `tree.json` write | The node record is already durable; the next write adopts it with its real label (§4.1) |
+| Crash during a checkout | Each file is old or new (§8.1); a mismatch of `versionId` and content is detached and saved as an `outside` version on the next write |
+| `tree.json` deleted or corrupt | Rebuilt from `nodes/*.json` on the next write; the corrupt file is renamed `.corrupt-<ts>` |
+| Document edited by hand in a text editor | Detached; saved as a `changed outside the app` version before the next change or checkout (§4.1) |
+| A version's snapshot was pruned, or its blob fails the sha check | Its row stays (marked "snapshot removed"); opening it fails with `VERSION_NOT_FOUND` / `VERSION_CORRUPT`, shown inline (11 §5.7) |
+| Node or blob write fails before an update | The change still commits; history is marked degraded and the panel says so (§4.1 step 3) |
+| Document trashed and put back | `.versions/` travels with the folder; history is intact |
 | Second process on the same root | Read-only mode (§8.4) |
 | Empty library | Merge check stops at step 2. Recents is empty and the tray shows only Open and Quit |
 | Very large library (5,000 docs) | Catalog about 2 MB, loaded into memory once. Prefilter under 50 ms. Reconcile under 1 s at startup |
 
 ## 13. Testing notes
 
-Unit (Vitest, temp dir via `ELI5_LIBRARY_DIR`): slugify table tests; allocate under concurrency (100 parallel allocations, all distinct); `writeFileAtomic` crash simulation (kill between write and rename leaves the old file); migrations per fixture; reconcile scenarios from §12; prefilter ranking on a fixed corpus; accept/dismiss state machine with a fake `weaveMergedDocument` and a fake `matchMerge` (including a failing and a budget-exhausted weave that leave both documents untouched); accept end to end with the real weave and a mocked planner, then one Undo; recovery of `accepting` at each step boundary. E2E (Playwright `_electron`): generate two related documents with a stubbed provider, see the suggestion, accept, and verify one Library entry, highlights and the legend in both tabs, Undo, and the tray recents; a first failing weave shows Try again. Details are in [13](13-testing-quality.md).
+Unit (Vitest, temp dir via `ELI5_LIBRARY_DIR`): the version tree (§4.1): the pure functions (`resolveCurrent`, `historyFromTree`, redo child, scroll targets, `planPrune` protected set and caps), blob round-trip and dedupe, a corrupt blob stubbing its node, a node per html write with the parent resolved at commit time and none for meta-only writes, branching after undo and `forwardId` retrace, checkout pinning and `retiredIds`, fault injection at each write step (adoption after a crash, rebuild of a corrupt `tree.json`, degraded history), detached hand edits, legacy `.prev/` seeding for each slot, `versions()` performing no writes, housekeeping; slugify table tests; allocate under concurrency (100 parallel allocations, all distinct); `writeFileAtomic` crash simulation (kill between write and rename leaves the old file); migrations per fixture; reconcile scenarios from §12; prefilter ranking on a fixed corpus; accept/dismiss state machine with a fake `weaveMergedDocument` and a fake `matchMerge` (including a failing and a budget-exhausted weave that leave both documents untouched); accept end to end with the real weave and a mocked planner, then one Undo; recovery of `accepting` at each step boundary. E2E (Playwright `_electron`): generate two related documents with a stubbed provider, see the suggestion, accept, and verify one Library entry, highlights and the legend in both tabs, Undo, and the tray recents; a first failing weave shows Try again. Details are in [13](13-testing-quality.md).
 
 ## Acceptance criteria
 
 - [ ] Library root resolves to the gitignored `<repo>/.library/` in dev, `<userData>/docs/` when packaged, and `ELI5_LIBRARY_DIR` (absolute) when set; the repo's `docs/` is used only by explicit opt-in; the root is created on first run and shown in Settings.
 - [ ] Each finished learning is `<root>/<topic-slug>/index.html` + `meta.json`, and `<root>/catalog.json` has one entry per document with id, title, topic slug, created/updated timestamps and a 1–2 sentence summary.
-- [ ] `meta.json` records sources used, sources skipped with reason and code, clarifying input, tab list, retired IDs, `JobWarning`s, generation info, action log, publications and merge history, validated by a non-strict v1 schema that preserves unknown fields; it never contains absolute local paths, source text or credentials.
+- [ ] `meta.json` records sources used, sources skipped with reason and code, clarifying input, tab list, retired IDs, `JobWarning`s, generation info, action log, ask log, current version id, publications and merge history, validated by a non-strict v1 schema that preserves unknown fields; it never contains absolute local paths, source text or credentials.
 - [ ] Library sidebar, menu bar recents and merge matching never read `index.html`.
 - [ ] Slugs follow §6: ASCII, at most 60 chars, case-insensitive collision suffixes, reserved names avoided; concurrent saves never collide.
 - [ ] Every file write is temp + fsync + rename; killing the app at any point never leaves a truncated `index.html`, `meta.json`, `catalog.json` or `suggestions.json`.
-- [ ] Each in-place change of an existing document keeps exactly one prior version in `<slug>/.prev/` (none for a new document); undo and redo swap it under `withDocLock`, keep `id`, `createdAt`, `topicSlug` and `publications` from the live meta, update the catalog, and a new change after an undo drops the redo. `.prev/` is never served, listed, published or read by reconcile.
+- [ ] Every html change of an existing document is recorded as a version in `<slug>/.versions/` (§4.1), with its node record and snapshot durable before the commit point; a change after an undo starts a branch and keeps the old one; checkout, undo and redo run under `withDocLock`, keep `id`, `createdAt`, `topicSlug` and `publications` from the live meta, and update the catalog; reads of the tree never write; a legacy `.prev/` is migrated without loss; retention stays within 60 snapshots, 48 MiB and 300 records per document. `.versions/` is never served, listed, published or read by reconcile, and travels with the document to the Trash and back.
 - [ ] All document writes and publishes serialize through the exclusive `withDocLock`; lock order is doc(s) → catalog → suggestions.
 - [ ] `commitDocument` fails with `SLUG_TAKEN` when anything (including an empty directory) exists at the target path, checked with `lstat` under `withCatalogLock`.
 - [ ] A stale process lock whose PID was reused by an unrelated process is detected by start time and does not force read-only mode.

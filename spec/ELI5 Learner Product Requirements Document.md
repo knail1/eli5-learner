@@ -165,26 +165,41 @@ Each learning produces one self contained `index.html` with tabs across the top.
 
 ## Interactive reading
 
-Any document in the Library, new or months old, can be refined in place from the viewer. Documents are never frozen.
+Any document in the Library, new or months old, can be refined in place from the viewer. Documents are never frozen: opening an older document upgrades its built-in reading features (such as the action menu) to the current ones without changing its content.
 
 **Select and act**
 
-- Selecting text in the viewer shows a small inline action menu anchored to the selection. Not a modal, not a new window.
-- Actions:
-  - Expand this
-  - This isn't clear, re explain it
-  - Give me an analogy
-  - Go deeper
-  - Create a separate ELI5 for this section
-  - ELI5 this selection
-- An optional one line text field lets the user add a note to the action.
-- Selecting text in the body never picks up the glossary margin notes next to it, and a selection that starts inside a note stays inside that note, so each can be copied on its own.
+- Selecting text in the viewer shows a small inline action menu anchored to the selection. Not a modal, not a new window. It never covers the selection.
+- The menu is grouped so it stays short:
+  - **Ask a question about this:** a one line question field with an Ask button, always visible at the top of the menu.
+  - **Explain:** Expand this; This isn't clear, re explain it; Give me an analogy; Go deeper.
+  - **ELI5:** Create a separate ELI5 for this section; ELI5 this selection.
+  - **Edit with my note:** rewrites the section following the note (enabled once a note is typed).
+- An optional one line text field lets the user add a note to the Explain, ELI5 and Edit actions.
+- Everything is reachable from the keyboard; Cmd+. focuses the note, and Enter in the note opens Explain with Expand this ready, so Cmd+. then Enter twice expands the section.
+- Selecting text in the body never picks up the glossary margin notes or the question of an answer box next to it, and a selection that starts inside a note stays inside that note, so each can be copied on its own.
+
+**Ask a question**
+
+- The reader types a question about the selected passage and presses Enter or Ask. The question is fire-and-forget like every other action: no dialog, and the reader can keep reading.
+- The answer is grounded in the section and its neighbours, written in the tab's register (plain words in an ELI5 tab), and says plainly when the document does not cover something.
+- The answer is added to the document as an **answer box** right after the selected passage, in the same `index.html`. Nothing else in the document changes.
+- The box shows the answer. A small "?" chip on its border reveals the question that was asked and a short quote of the passage it was about. Landing on a new answer opens the question.
+- Several questions about the same passage stack in the order they were asked. A follow-up can be asked by selecting text inside an answer.
+- Answer boxes are part of the document: they work without JavaScript, print with the question shown, and are kept when the section is later rewritten (they move to the end of the rewritten section, still quoting the passage they were about).
 
 **Regenerate in place**
 
 - The app identifies the enclosing section by its stable ID, regenerates only that section with the surrounding context, and writes it back into the same `index.html`.
-- v1 replaces the original text outright, but keeps exactly one prior version of each document: Undo and Redo buttons (and Cmd+Z / Shift+Cmd+Z) in the document header swap back to the previous version and forward again, like a word processor. A new change after an undo replaces the saved version, so there is one level only. Full per-section history remains future work.
-- The viewer refreshes and scrolls to the updated section.
+- The viewer refreshes and scrolls to the updated section (or to the new answer box).
+
+**Versions**
+
+- Every change is a version: each section action, each question asked, closing a section ELI5 tab and accepting a merge suggestion. Nothing is ever thrown away by making a change.
+- Undo and Redo buttons (and Cmd+Z / Shift+Cmd+Z) in the document header step back to the previous version and forward again. A new change after an undo starts a branch; the version you left stays available, so revert is always lossless.
+- A **Versions** panel (toggled from the document header, with Cmd+Y, or View > Show Versions) shows the document's history as a tree: one row per version, named by what changed ("Expanded: Why the plan matters", "Asked: pricing"), with branches indented. Clicking any version opens it and lands on the place where it changed; clicking the current version just scrolls there.
+- Versions are kept per document, inside the document's folder, and travel with it to the Trash and back. Very old versions on side branches may have their saved copy removed to bound disk use; their row stays, marked "snapshot removed".
+- A document edited outside the app is saved as a version on the next change.
 
 **Section ELI5 tabs**
 
@@ -205,10 +220,11 @@ All documents live inside the Electron app's own project directory, one folder p
     <topic-slug>/
       index.html
       meta.json
+      .versions/      (the document's version history; never published)
 ```
 
 - `catalog.json` holds one entry per document: id, title, topic slug, created and updated timestamps, and a one or two sentence summary generated at creation.
-- `meta.json` records the sources used, sources skipped, the clarifying input, and the tab list.
+- `meta.json` records the sources used, sources skipped, the clarifying input, the tab list, the actions taken and the questions asked.
 - The catalog powers the Library sidebar, the menu bar list, and merge matching, so no document is re read to list or compare.
 
 **Organizing the Library**
@@ -274,7 +290,7 @@ The public build saves locally only and pushes nothing. The enterprise edition a
 
 **Future enhancements**
 
-- Git style version history per section: view, diff, and roll back regenerations. (v1 keeps exactly one prior version per document with undo/redo.)
+- Side by side diff between two versions of a document.
 - Google Drive publishing and NotebookLM linking.
 - Choosing a destination project in the monorepo per document.
 

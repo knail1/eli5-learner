@@ -55,7 +55,7 @@ hidden in the public build), *Configuration, scope, and open items* (settings sc
 | `src/main/shell/find.ts` | main | Find in document: `findInPage` on the viewer, results and resets to the app (§5.3) |
 | `src/renderer/App.tsx` | renderer | Top-level layout grid and route switch |
 | `src/renderer/library/` | renderer | `LibrarySidebar`, `LibraryItem`, `LibraryFilter` |
-| `src/renderer/viewer/` | renderer | `ViewerSlot`, `DocHeader`, `FindBar`, `ViewerEmpty` |
+| `src/renderer/viewer/` | renderer | `ViewerSlot`, `DocHeader`, `HistoryButtons`, `FindBar`, `ViewerEmpty`, `VersionTreePanel`, `version-tree-layout.ts` (pure tree layout), `PanelHandle` |
 | `src/renderer/input/` | renderer | `InputZone`, `DropBox`, `SourceChip`, `UrlField`, `ClarifyField`, `GlossaryToggle` |
 | `src/renderer/status/` | renderer | `StatusArea`, `JobLine` |
 | `src/renderer/suggestions/` | renderer | `SuggestionsPanel`, `SuggestionCard` |
@@ -191,13 +191,13 @@ before display.
 
 ```
 ┌─────────────────┬────────────────────────────────────────────────────┐
-│ LIBRARY         │ DocHeader: title · updated · Reveal · [publish]*  │
-│ [filter      ]  ├────────────────────────────────────────────────────┤
-│ ● Topic A  2m   │                                                    │
-│   Topic B  3d   │            ViewerSlot (WebContentsView)            │
-│   Topic C  1w   │                                                    │
-│   …             │                                                    │
-│─────────────────│                                                    │
+│ LIBRARY         │ DocHeader: title · ↶ ↷ Versions · Reveal · [pub]*  │
+│ [filter      ]  ├──────────────────────────────────┬─────────────────┤
+│ ● Topic A  2m   │                                  ┆ VERSIONS (opt.) │
+│   Topic B  3d   │   ViewerSlot (WebContentsView)   ┆ ● Original      │
+│   Topic C  1w   │                                  ┆ │ Expanded …    │
+│   …             │                                  ┆ ├ Asked …       │
+│─────────────────│                                  ┆                 │
 │ SUGGESTIONS (1) ├──────────────────────────────────┬─────────────────┤
 │ Related to X…   │ INPUT ZONE                       │ STATUS          │
 │ [Merge in][Keep]│ [chip][chip]  drop / paste here  │ ◌ Reading (2/5) │
@@ -206,7 +206,8 @@ before display.
 │ [signed-in]*    │ [x] Explain terms [Clear][Start] │                 │
 └─────────────────┴──────────────────────────────────┴─────────────────┘
 (the line above the input zone and status area is the resize handle; the top-status holder sits at
- the top right of the title strip)
+ the top right of the title strip; ┆ is the Versions panel's resize handle, shown only while the
+ panel is open)
 * rendered only when HOOK-UI-01 features are enabled
 ```
 
@@ -244,6 +245,11 @@ so renderer DOM can never draw over the viewer rectangle. Therefore:
   on sidebar drag (throttled to one per animation frame), and after the window's `resize`.
 - The find bar (§5.3) is a row between the document header and `ViewerSlot`, never an overlay: the
   slot shrinks while the bar is open and reports its new rect.
+- The Versions panel (§5.7) is a right-hand layout column, never an overlay. `App.tsx` wraps the slot
+  in `div.viewer-body` (`display: flex; flex: 1; min-height: 0`) holding `ViewerSlot`, a
+  `PanelHandle` and the panel; the find bar stays a row above it. Opening the panel shrinks the
+  slot, which reports its new rect; the layout key includes the panel width. Opening it never
+  collapses the Library sidebar or any other panel.
 
 ### 5.2 Library sidebar
 
@@ -300,28 +306,36 @@ so renderer DOM can never draw over the viewer rectangle. Therefore:
 
 ### 5.3 Viewer and document header
 
-- `DocHeader` shows the title, "Updated {relative}", **Undo** and **Redo** icon buttons, a
-  **Reveal in Finder** button, and the publish slot. In the public build the publish slot contains only the local-kind buttons
+- `DocHeader` shows the title, "Updated {relative}", **Undo** and **Redo** icon buttons, the
+  **Versions** toggle, a **Reveal in Finder** button, and the publish slot. In the public build the publish slot contains only the local-kind buttons
   **Export copy** and **Export Markdown**, shown when `eli5:publish:targets {slug}` returns the
   `local` and `markdown` targets (10 §5.1, §5.2). Each calls
   `eli5:publish:run {slug, targetId:'local'|'markdown'}` with no picker: the destination is
   `publish.local.dir` and reveal-after-export is `publish.local.revealAfter` (10 §4). The button
   becomes a spinner, then 10's inline result chip (10 §7) appears under the header. The export
   folder is chosen in Settings > Publishing (§7).
-- **Undo / Redo** (`viewer/HistoryButtons.tsx`, 09 §4.1, 08 §6.7) sit left of Reveal in Finder and
-  Export copy. They are small inline SVG curved arrows (↶ and its mirror ↷) drawn in
+- **Undo / Redo** (`viewer/HistoryButtons.tsx`, 09 §4.1, 08 §6.7) sit left of the Versions toggle,
+  Reveal in Finder and Export copy. They are small inline SVG curved arrows (↶ and its mirror ↷) drawn in
   `currentColor` in the normal button style, with `aria-label` "Undo" / "Redo". Tooltips:
   `Undo: <label> (⌘Z)` / `Redo: <label> (⇧⌘Z)`, "Nothing to undo" / "Nothing to redo" when
   unavailable, "Wait for the section update to finish" while busy. Each is disabled (greyed) when
-  unavailable, while the document has a busy section, and while a swap is in flight. State comes
+  unavailable, while the document has a busy section, and while a checkout is in flight. State comes
   from `eli5:doc:history {slug}` on open and follows `eli5:doc:history-changed`; a click calls
-  `eli5:doc:undo` / `eli5:doc:redo` and shows the returned state. Main reloads the viewer after a
-  swap (08 §7.4) and the Library sidebar updates from `eli5:library:changed`. A refusal shows its
-  message inline. Only one of the two is enabled at a time: the document keeps one prior version.
+  `eli5:doc:undo` / `eli5:doc:redo` and shows the returned state. Undo opens the previous version
+  and Redo the next one on the branch last visited (08 §6.7). Main reloads the viewer after a
+  checkout and scrolls to the change that was undone or redone (08 §7.4), and the Library sidebar
+  updates from `eli5:library:changed`. A refusal shows its message inline. Both buttons may be
+  enabled at once: a version can have both a parent and a child.
+- **Versions toggle** (after the history buttons): a small branch glyph and the text "Versions",
+  with a count badge when the document has more than one version. It has `aria-expanded`,
+  `aria-controls="version-panel"` and `aria-keyshortcuts="Meta+Y"`, and toggles the panel (§5.7),
+  as do `Cmd+Y` and View > **Show Versions** (§9). When the window is too narrow for the panel
+  (below), the toggle does not open it and shows an inline hint under the header instead: "Widen the
+  window or hide the library to show versions."
 - The document's own tabs (In depth, ELI5, section ELI5 tabs) render inside the viewer (07, 08).
   The shell adds no tab strip.
-- On `eli5:doc:updated {slug, sectionId?, tabKey?}` for the open document, main reloads the viewer
-  and sends `eli5:doc:scroll-to` (08). If the updated slug is not the open document, the shell does
+- On `eli5:doc:updated {slug, sectionId?, tabKey?, anchorId?}` for the open document, main reloads
+  the viewer and sends `eli5:doc:scroll-to` (08 §7.4). If the updated slug is not the open document, the shell does
   nothing beyond the Library update.
 - **Find in document** (`viewer/FindBar.tsx`, `src/main/shell/find.ts`). `Cmd+F` (Edit > Find >
   Find in Document…) with a document shown opens a find bar above the viewer slot (it takes layout
@@ -340,7 +354,7 @@ so renderer DOM can never draw over the viewer rectangle. Therefore:
   - Main runs `webContents.findInPage` on the viewer and forwards each `found-in-page` result of the
     latest request as `eli5:viewer:find-result {kind: 'result', activeMatchOrdinal, matches,
     finalUpdate}`; results of superseded or stopped requests are dropped.
-  - While a search is active, a reload of the viewer (section update, undo, merge) sends
+  - While a search is active, a reload of the viewer (section update, Ask, undo, checkout, merge) sends
     `{kind: 'reset', reason: 'reload'}`: the bar clears its count and the next `Enter` starts a new
     search, so the post-update scroll to the changed section is not overridden. A switch between
     the document's tabs (the runtime's `#tab=<key>` in-page navigation) sends `{kind: 'reset',
@@ -467,6 +481,55 @@ only in the window's memory. Its staging left on disk at quit is removed by the 
   target document scrolled to the appended section if the removed document was open.
 - Suggestions never interrupt: no focus steal, no sound, only a polite live-region announcement
   "New suggestion" and the count badge.
+
+### 5.7 Versions panel
+
+`viewer/VersionTreePanel.tsx` shows the open document's versions as a tree (PRD *Versions*, 09 §4.1,
+08 §6.7). It is `<aside id="version-panel" data-region="versions" aria-label="Versions">`, the right
+column of `div.viewer-body` (§5.1).
+
+- **Size and state.** Closed by default, 300 px wide, clamped to 220..420 px, persisted in
+  `localStorage` under `eli5.versionPanel` as `{open, width}` (access in try/catch; malformed values
+  ignored). The `PanelHandle` before it is a `role="separator"` with `aria-orientation="vertical"`,
+  Arrow Left/Right step 16 px, and pointer drag (as the sidebar handle). The width clamps so the
+  viewer slot keeps at least 360 px; if even 220 px does not fit, the toggle shows the narrow-window
+  hint (§5.3) and the panel stays closed. No other panel is collapsed automatically.
+- **Header:** "Versions" (`h2`), **← Back** and **Forward →** (the same actions as Undo and Redo,
+  accessible names "Back to previous version" / "Forward to next version", the version labels in
+  their tooltips, disabled at the ends), and **Close**.
+- **Tree:** `ul role="tree" aria-label="Document versions"`, laid out by the pure
+  `layoutVersionTree(tree, collapsed)` in `viewer/version-tree-layout.ts`: chronological top to
+  bottom with the original first; children sorted by `createdAt`; the oldest child continues its
+  parent's lane and each later child starts an indented branch (a nested `role="group"`). Branches
+  that contain the current version are always expanded. Each row is an `li role="treeitem"` with
+  `aria-level`, `aria-setsize`, `aria-posinset`, `aria-expanded` on branch points only,
+  `aria-current="true"` on the current version, and `aria-disabled` while busy or when the snapshot
+  was removed.
+- **Row:** a CSS rail and dot (a solid accent rail on the path from the original to the current
+  version, dashed on other branches, a filled dot with a ring for the current one). Line 1: the
+  topic (2-line clamp). Line 2: verb · relative time, with the verbs Expanded, Re-explained, Analogy
+  added, Went deeper, Edited with note, Asked, ELI5 tab, ELI5 of a selection, Closed tab, Merged,
+  Changed outside the app, Original. Line 3, for Ask: the question in quotes (1-line clamp). Chips:
+  **Current**, **Published** (10 §4), **(snapshot removed)**. A detail strip at the panel foot
+  shows the focused row's full label, heading and question; native `title` tooltips are not used.
+- **Pending rows.** While a section job runs, a muted provisional row appears under the current
+  version (for example "Answering… · Pricing"), from `tree.pending`; the real row replaces it when
+  `eli5:doc:versions-changed` arrives. New rows fade in over 1 s (none under reduced motion).
+- **Banners** (inline, polite live region): `detached` → "This document changed outside the app;
+  it will be saved as a version on the next change." `degraded` → "Version history couldn't be saved
+  for the last change."
+- **Interaction.** Click, Enter or Space on a row calls `eli5:doc:checkout {slug, versionId}`; the
+  row shows a spinner while it runs. Main reloads the viewer and lands on where that version changed
+  (08 §6.7); the current row only scrolls there. While busy every row is disabled with the inline
+  line "Wait for the update to finish". Refusals and errors ("That version is no longer available",
+  "That version can't be read") show inline in the panel footer. There are no confirms and no
+  modals: every version is kept, so opening one is lossless. With a read-only library the rows and
+  Back/Forward are disabled.
+- **Keyboard** (WAI-ARIA tree): Up/Down move, Right expands or moves to the first child, Left
+  collapses or moves to the parent, Home/End, type-ahead on the topic.
+- **Data.** `eli5:doc:versions {slug}` on open and on slug change, then `eli5:doc:versions-changed`
+  filtered by the open slug; responses for a previous slug are dropped (the `HistoryButtons`
+  pattern).
 
 ## 6. Routes
 
@@ -603,11 +666,12 @@ where a menu item exists, so they appear in the Help menu search.
 | `Option+Cmd+F` | Focus Library filter (Find in Library) | Window |
 | `Cmd+[` / `Cmd+]` | Previous / next document in Library order | Window |
 | `Cmd+1`…`Cmd+9` | Open the nth Library document | Window |
-| `F6` / `Shift+F6` | Cycle focus regions: sidebar → viewer → input zone → status → suggestions | Window |
+| `F6` / `Shift+F6` | Cycle focus regions: sidebar → viewer → versions (when open) → input zone → status → suggestions | Window |
+| `Cmd+Y` | Show or hide the Versions panel (§5.7); View > **Show Versions** | Window, and the viewer (menu accelerator) |
 | `Cmd+W`, `Cmd+Q` | Close window (hide) | Window (§3.2) |
 | `Escape` | Clear filter / close the find bar / leave settings / close inline hint | Context |
 | `Cmd+R` | Reload viewer (not the app) | Viewer focused |
-| `Cmd+Z` / `Shift+Cmd+Z` | Undo / redo the open document's last change (09 §4.1); `Cmd+Z` first undoes a pending Library move (below) | Window, outside text fields |
+| `Cmd+Z` / `Shift+Cmd+Z` | Undo / redo the open document's last change: back to the previous version, forward along the last-visited branch (09 §4.1); `Cmd+Z` first undoes a pending Library move (below) | Window, outside text fields |
 | `Cmd+Backspace` | Move the focused Library row to the Trash (§5.2) | Library row |
 
 The find shortcuts are items of the Edit menu's **Find** submenu (macOS convention): **Find in
@@ -618,6 +682,11 @@ document or the viewer's `before-input-event` handoff, so the menu items fire; t
 `eli5:app:find-command {command}` to the app renderer (not a forwarded key, because Option changes
 the key an Option+Cmd+F event reports). Find in Document and Find in Library bring the window
 forward and focus the app renderer; Find Next and Find Previous leave focus where it is.
+
+**Show Versions** (`Cmd+Y`) is a View menu item in `app-menu.ts`, mirrored like Toggle Sidebar: a
+`MenuShortcutId` (`toggle-versions`, key `Y`) that shows the window and forwards the key to the app
+renderer, so it works while the viewer has focus. `shortcuts.ts` maps it to the same toggle as the
+header button. No new IPC channel is needed.
 
 `Cmd+R` never reloads the React app in production builds; the default `reload` role is not in the
 application menu. Shortcuts inside the document (selection menu) are owned by 08.
@@ -660,6 +729,9 @@ Additions to the 01 §5.2 baseline, same conventions (`IpcResult<T>`, zod valida
 | `eli5:app:open-notification-settings` | R→M | shell/notifications | — | `void` (main opens the fixed System Settings URL, §14.6) |
 
 All of these channels are in the 01 §5.2 IPC table and their constants are in `contract.ts`. The
+Versions panel uses 08's app-only channels `eli5:doc:versions`, `eli5:doc:checkout` and the
+`eli5:doc:versions-changed` event (08 §6.7, 01 §5.2), exposed as `window.eli5.doc.versions(slug)`,
+`doc.checkout(slug, versionId)` and `doc.onVersionsChanged(cb)`. The
 folders, Archive and Trash channels (`eli5:library:organization`, `create-folder`, `rename-folder`,
 `delete-folder`, `move`, `put-back`, `delete-permanently`, `empty-trash`, and the
 `organization-changed` and `moved` events) are owned by 09 §11.
@@ -724,9 +796,10 @@ sign-in lifecycle itself is HOOK-AUTH-01; publishers are HOOK-PUB-01..04.
 
 ## 12. Accessibility
 
-- **Landmarks.** Sidebar `nav` ("Library"), viewer region `main`, input zone `form` ("New
-  explainer"), status area `region` ("Jobs"), suggestions `region` ("Suggestions"). F6 cycles them
-  (§9). The find bar, when open, is a `search` landmark ("Find in document") inside the viewer
+- **Landmarks.** Sidebar `nav` ("Library"), viewer region `main`, Versions panel `complementary`
+  ("Versions", when open), input zone `form` ("New explainer"), status area `region` ("Jobs"),
+  suggestions `region` ("Suggestions"). F6 cycles them (§9), with the Versions panel after the
+  viewer while it is open. The version tree follows the WAI-ARIA tree pattern (§5.7). The find bar, when open, is a `search` landmark ("Find in document") inside the viewer
   region, with its match count as a polite live region (§5.3).
 - **Live regions.** One polite announcer (`aria-live="polite"`) for: job started, job done ("Done:
   {title}"), job failed (assertive only for `failed`), new suggestion. Intermediate stage changes are
@@ -947,9 +1020,18 @@ click shows the main window on Settings > Notifications.
 - [ ] **Export copy** calls `eli5:publish:run {slug, targetId:'local'}` without any picker and shows
       the 10 §7 result chip (**Copy link**, **Open**, **Show in Finder**); **Export Markdown** does
       the same for `targetId:'markdown'` and its "Open Markdown" link.
-- [ ] **Undo** and **Redo** icon buttons sit left of Reveal in Finder, show the change label in their
-      tooltip, are disabled when unavailable or while a section of the document is busy, and
-      `Cmd+Z` / `Shift+Cmd+Z` undo and redo the document only when focus is outside text fields.
+- [ ] **Undo** and **Redo** icon buttons sit left of the Versions toggle and Reveal in Finder, show
+      the change label in their tooltip, may both be enabled at once, are disabled when unavailable
+      or while a section of the document is busy, and `Cmd+Z` / `Shift+Cmd+Z` undo and redo the
+      document only when focus is outside text fields; the viewer lands on the change undone.
+- [ ] The Versions panel opens from the header toggle, `Cmd+Y` (also while the viewer has focus) and
+      View > Show Versions; it shrinks the viewer (never overlaps it, never collapses another
+      panel), persists its width and open state, and shows the narrow-window hint when it cannot fit.
+- [ ] The panel lists every version as a tree with branches, the current, Published and snapshot
+      removed chips, pending rows while a job runs, and the detached and degraded banners; clicking
+      or pressing Enter on a version opens it and lands on its change with no confirm or modal;
+      rows are disabled while busy; the tree is fully keyboard operable (§5.7) and passes axe in
+      both themes.
 - [ ] With a document open, `Cmd+F` opens the find bar above the viewer (the viewer shrinks), typing
       shows "x of y" or "No matches", `Cmd+G` / `Shift+Cmd+G` and `Enter` / `Shift+Enter` step
       through matches, `Escape` closes the bar, clears the highlight and focuses the viewer; the Edit
