@@ -35,7 +35,7 @@ import type {
 export const MAX_JUDGE_SOURCE_CHARS = 300_000;
 const NEIGHBOUR_CHARS = 1_500;
 
-const MENU_ACTION: Record<EvalSectionAction, MenuAction> = {
+const MENU_ACTION: Record<EvalSectionAction, Exclude<MenuAction, 'ask'>> = {
   expand: 'expand',
   reexplain: 'reexplain',
   analogy: 'analogy',

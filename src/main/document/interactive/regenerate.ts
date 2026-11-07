@@ -96,6 +96,7 @@ async function generate(
   signal: AbortSignal,
 ): Promise<{ draft: SectionDraft | DocumentDraftTab; currentHash: string }> {
   const d = env.deps;
+  if (p.action === 'ask') throw new PipelineFailure('INTERNAL', 'ask_unsupported');
   const { model } = await readDoc(d, p.slug);
   let ctx: SectionContext;
   try {
@@ -174,6 +175,7 @@ async function plan(
   now: string,
 ): Promise<Planned> {
   const d = env.deps;
+  if (p.action === 'ask') throw new PipelineFailure('INTERNAL', 'ask_unsupported');
   const parsed = await readDoc(d, p.slug);
   const { model, assets } = parsed;
   const hit = findSection(model, p.sectionId);

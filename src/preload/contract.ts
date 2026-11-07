@@ -130,6 +130,12 @@ export const IPC = {
     undo: 'eli5:doc:undo',
     redo: 'eli5:doc:redo',
     historyChanged: 'eli5:doc:history-changed',
+    /** Viewer-only (08 §6.8): ask a question about the selection; the answer box lands in the section. */
+    askSection: 'eli5:doc:ask-section',
+    /** App-only (01 §5.2): the version tree of a document (09 §4.1). */
+    versions: 'eli5:doc:versions',
+    checkout: 'eli5:doc:checkout',
+    versionsChanged: 'eli5:doc:versions-changed',
   },
   viewer: {
     setBounds: 'eli5:viewer:set-bounds',
@@ -193,6 +199,7 @@ export const VIEWER_CHANNELS: readonly IpcChannel[] = [
   IPC.doc.regenerateSection,
   IPC.doc.createSectionEli5,
   IPC.doc.closeTab,
+  IPC.doc.askSection,
   IPC.viewer.openExternal,
 ];
 
@@ -457,8 +464,13 @@ export interface MergeSuggestion {
 export type SectionId = string & { readonly __brand: 'SectionId' };
 
 export type SectionAction = 'expand' | 'reexplain' | 'analogy' | 'deeper' | 'revise';
-/** 'eli5-tab': a separate ELI5 of the section; 'eli5-selection': a focused ELI5 of the selected text (08 §7.5). */
-export type MenuAction = SectionAction | 'eli5-tab' | 'eli5-selection';
+/**
+ * 'eli5-tab': a separate ELI5 of the section; 'eli5-selection': a focused ELI5 of the selected text (08 §7.5);
+ * 'ask': an answer box for a question about the selection (08 §6.8).
+ */
+export type MenuAction = SectionAction | 'eli5-tab' | 'eli5-selection' | 'ask';
+/** What last changed a section in place (Section.lastAction). */
+export type SectionChange = SectionAction | 'ask';
 
 export interface SectionActionRequest {
   /** Filled by the doc preload from the loaded URL, never by the page. */
@@ -480,6 +492,16 @@ export type CreateSectionEli5Request = Omit<SectionActionRequest, 'action'> & {
   sectionIds?: SectionId[];
 };
 
+/** `eli5:doc:ask-section` (08 §6.8): `selectionText` is 3..4000 chars, `question` 3..500 chars on one line. */
+export interface AskSectionRequest {
+  /** Filled by the doc preload from the loaded URL, never by the page. */
+  slug: string;
+  tabKey: string;
+  sectionId: SectionId;
+  selectionText: string;
+  question: string;
+}
+
 /** `eli5:doc:close-tab` (08 §3): Section ELI5 tabs only. */
 export interface CloseTabRequest {
   slug: string;
@@ -489,6 +511,8 @@ export interface CloseTabRequest {
 export interface ScrollToEvent {
   sectionId?: SectionId;
   tabKey?: string;
+  /** An element inside the section to land on, e.g. a new answer box (`qa-…`). */
+  anchorId?: string;
   flash: boolean;
   loadSeq: number;
 }
@@ -503,6 +527,7 @@ export interface DocUpdatedEvent {
   slug: string;
   sectionId?: SectionId;
   tabKey?: string;
+  anchorId?: string;
 }
 
 /**
@@ -523,6 +548,73 @@ export interface DocHistoryState {
 export interface DocHistoryChangedEvent {
   slug: string;
   state: DocHistoryState;
+}
+
+/** What made a version (09 §4.1): a menu action, a tab close, a merge, an outside edit or the first version. */
+export type VersionChangeKind = MenuAction | 'close-tab' | 'merge' | 'outside' | 'initial';
+
+/** Where a version's change is, so opening it lands there. */
+export interface VersionTarget {
+  tabKey?: string;
+  sectionId?: SectionId;
+  anchorId?: string;
+}
+
+/**
+ * One node of a document's version tree. `available: false`: the snapshot was pruned, so the node
+ * stays as a stub that cannot be opened. `published`: its content is what was last published.
+ */
+export interface DocVersionNode {
+  id: string;
+  parentId: string | null;
+  createdAt: string;
+  kind: VersionChangeKind;
+  /** E.g. "expanded 'Why the plan matters'". */
+  label: string;
+  /** Short branch title. */
+  topic: string;
+  heading?: string;
+  question?: string;
+  target?: VersionTarget;
+  available: boolean;
+  published: boolean;
+}
+
+/** A section job that will add a version when it finishes. */
+export interface DocVersionPending {
+  sectionId: SectionId;
+  action: MenuAction;
+  heading: string;
+}
+
+/**
+ * `eli5:doc:versions` (09 §4.1). `detached`: the live file matches no version (an outside edit); it
+ * becomes a version before the next change. `readOnly`: the tree was written by a newer app.
+ * `degraded`: the tree could not be read in full.
+ */
+export interface DocVersionTree {
+  slug: string;
+  nodes: DocVersionNode[];
+  currentId: string;
+  /** The version Redo would open. */
+  redoId?: string;
+  detached: boolean;
+  busy: boolean;
+  pending: DocVersionPending[];
+  readOnly: boolean;
+  degraded?: boolean;
+}
+
+/** `eli5:doc:checkout`: make a version the live document. */
+export interface CheckoutVersionRequest {
+  slug: string;
+  versionId: string;
+}
+
+/** `eli5:doc:versions-changed` (M→R). */
+export interface DocVersionsChangedEvent {
+  slug: string;
+  tree: DocVersionTree;
 }
 
 export interface ViewerBounds {

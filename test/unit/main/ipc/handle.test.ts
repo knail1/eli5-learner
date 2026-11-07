@@ -105,6 +105,8 @@ describe('IPC envelope (01 §5.1, 12 §7.2)', () => {
     expect(chans).toContain(IPC.viewer.openExternal);
     expect(chans).not.toContain(IPC.jobs.changed);
     expect(chans).not.toContain(IPC.test.trayClick);
+    expect(chans).toEqual(expect.arrayContaining([IPC.doc.askSection, IPC.doc.versions, IPC.doc.checkout]));
+    expect(chans).not.toContain(IPC.doc.versionsChanged);
     for (const c of chans) expect(c).toMatch(/^eli5:[a-z]+:[a-z0-9-]+$/);
   });
 });

@@ -228,6 +228,7 @@ export function registerIpc(d: IpcDeps): () => void {
     svc.sectionActions.onScrollTo((e) => d.sendToViewer(IPC.doc.scrollTo, e)),
     svc.sectionActions.onSectionBusy((e) => d.sendToViewer(IPC.doc.sectionBusy, e)),
     svc.docHistory.onChanged((e) => d.sendToApp(IPC.doc.historyChanged, e)),
+    svc.docHistory.onVersionsChanged((e) => d.sendToApp(IPC.doc.versionsChanged, e)),
     svc.suggestions.onChanged((suggestions) => d.sendToApp(IPC.suggestions.changed, { suggestions })),
     svc.suggestions.onDocUpdated((e) => d.sendToApp(IPC.doc.updated, e)),
     svc.publish.onProgress(({ error, ...e }) =>
@@ -248,6 +249,7 @@ const EVENT_CHANNELS = new Set<string>([
   IPC.library.moved,
   IPC.suggestions.changed,
   IPC.doc.updated,
+  IPC.doc.versionsChanged,
   IPC.doc.scrollTo,
   IPC.doc.sectionBusy,
   IPC.doc.historyChanged,

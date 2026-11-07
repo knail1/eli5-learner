@@ -60,7 +60,13 @@ export interface Harness {
   /** One section job on a saved document (08 §6); resolves with the job and the rewritten document. */
   sectionAction(
     slug: string,
-    r: { tabKey: string; sectionId: SectionId; action: MenuAction; selectionText: string; note?: string },
+    r: {
+      tabKey: string;
+      sectionId: SectionId;
+      action: Exclude<MenuAction, 'ask'>;
+      selectionText: string;
+      note?: string;
+    },
   ): Promise<{ job: Job; doc: SavedDoc }>;
   sections(html: string, tabKey: string): SectionInfo[];
   read(slug: string): Promise<SavedDoc>;

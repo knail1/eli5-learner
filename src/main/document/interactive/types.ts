@@ -108,6 +108,7 @@ const ACTION_VERBS: Record<MenuAction, string> = {
   revise: 'edited',
   'eli5-tab': 'added ELI5 tab',
   'eli5-selection': 'added ELI5 tab',
+  ask: 'asked about',
 };
 
 /**

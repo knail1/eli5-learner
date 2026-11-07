@@ -2,11 +2,15 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { z } from 'zod';
 import {
   IPC,
+  type AskSectionRequest,
+  type CheckoutVersionRequest,
   type CloseTabRequest,
   type CreateSectionEli5Request,
   type DocHistoryChangedEvent,
   type DocHistoryState,
   type DocUpdatedEvent,
+  type DocVersionTree,
+  type DocVersionsChangedEvent,
   type ScrollToEvent,
   type SectionActionRequest,
   type SectionBusyEvent,
@@ -30,6 +34,8 @@ export interface SectionActions {
   createSectionEli5(r: CreateSectionEli5Request): Promise<{ jobId: string }>;
   /** `eli5:doc:close-tab`: deletes a Section ELI5 tab (08 §7.2). */
   closeTab(r: CloseTabRequest): Promise<void>;
+  /** `eli5:doc:ask-section`: enqueues a job that inserts an answer box (08 §6.8). */
+  askSection(r: AskSectionRequest): Promise<{ jobId: string }>;
   /** Pushed to the app renderer as `eli5:doc:updated`. */
   onUpdated(cb: (e: DocUpdatedEvent) => void): Unsub;
   /** Pushed to the viewer as `eli5:doc:scroll-to` (08 §7.4); the service times it by loadSeq. */
@@ -52,6 +58,12 @@ export interface DocHistory {
   redo(slug: string): Promise<DocHistoryState>;
   /** Pushed to the app renderer as `eli5:doc:history-changed`. */
   onChanged(cb: (e: DocHistoryChangedEvent) => void): Unsub;
+  /** `eli5:doc:versions`: the version tree (09 §4.1). */
+  versions(slug: string): Promise<DocVersionTree>;
+  /** `eli5:doc:checkout`: makes a version the live document; returns the new tree. */
+  checkout(r: CheckoutVersionRequest): Promise<DocVersionTree>;
+  /** Pushed to the app renderer as `eli5:doc:versions-changed`. */
+  onVersionsChanged(cb: (e: DocVersionsChangedEvent) => void): Unsub;
 }
 
 const Slug = SlugPayload.shape.slug;

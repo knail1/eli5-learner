@@ -3,6 +3,8 @@ import type { DocHistory, SectionActions } from '../../../../src/main/ipc';
 import type {
   DocHistoryChangedEvent,
   DocUpdatedEvent as DocEvent,
+  DocVersionTree,
+  DocVersionsChangedEvent,
   ScrollToEvent as ScrollTo,
   SectionBusyEvent as Busy,
 } from '../../../../src/preload/contract';
@@ -17,6 +19,9 @@ const { setup } = await import('./harness');
 
 /** `eli5:doc:*` (08 §3, 01 §5.2). The harness viewer shows eli5doc://doc/solar-power/index.html. */
 
+const notWired = (): never => {
+  throw new Error('not used here');
+};
 const forbidden = { ok: false, error: { code: 'E_FORBIDDEN', message: 'Forbidden' } };
 const req = (over: Record<string, unknown> = {}) => ({
   slug: 'solar-power',
@@ -34,6 +39,7 @@ function fakeActions() {
     regenerateSection: vi.fn(async () => ({ jobId: 'job-s1' })),
     createSectionEli5: vi.fn(async () => ({ jobId: 'job-s2' })),
     closeTab: vi.fn(async () => {}),
+    askSection: vi.fn(async () => ({ jobId: 'job-s3' })),
     onUpdated: (cb: (e: DocEvent) => void) => (subs.updated.add(cb), () => subs.updated.delete(cb)),
     onScrollTo: (cb: (e: ScrollTo) => void) => (subs.scroll.add(cb), () => subs.scroll.delete(cb)),
     onSectionBusy: (cb: (e: Busy) => void) => (busy.add(cb), () => busy.delete(cb)),
@@ -255,6 +261,7 @@ describe('doc events (08 §4.1, §7.4)', () => {
 describe('eli5:doc:history / undo / redo (09 §4.1, 01 §5.2)', () => {
   function fakeHistory() {
     const subs = new Set<(e: DocHistoryChangedEvent) => void>();
+    const versionSubs = new Set<(e: DocVersionsChangedEvent) => void>();
     const state = { canUndo: true, canRedo: false, undoLabel: "expanded 'Panels'", busy: false };
     const svc = {
       state: vi.fn(async (_slug: string) => state),
@@ -266,8 +273,14 @@ describe('eli5:doc:history / undo / redo (09 §4.1, 01 §5.2)', () => {
       })),
       redo: vi.fn(async (_slug: string) => state),
       onChanged: (cb: (e: DocHistoryChangedEvent) => void) => (subs.add(cb), () => subs.delete(cb)),
+      versions: vi.fn(async (_slug: string): Promise<DocVersionTree> => notWired()),
+      checkout: vi.fn(async (): Promise<DocVersionTree> => notWired()),
+      onVersionsChanged: (cb: (e: DocVersionsChangedEvent) => void) => (
+        versionSubs.add(cb),
+        () => versionSubs.delete(cb)
+      ),
     } satisfies DocHistory;
-    return { svc, subs, state };
+    return { svc, subs, versionSubs, state };
   }
 
   it('answers the app window with the service result for a validated slug', async () => {
@@ -327,6 +340,36 @@ describe('eli5:doc:history / undo / redo (09 §4.1, 01 §5.2)', () => {
     expect(h.viewerSent).toEqual([]);
     h.dispose();
     expect(subs.size).toBe(0);
+  });
+
+  it('pushes eli5:doc:versions-changed to the app renderer only', async () => {
+    const { svc, versionSubs } = fakeHistory();
+    const h = await setup({ services: { docHistory: svc } });
+    const tree: DocVersionTree = {
+      slug: 'solar-power',
+      nodes: [],
+      currentId: 'v-000000000000',
+      detached: false,
+      busy: false,
+      pending: [],
+      readOnly: false,
+    };
+    versionSubs.forEach((cb) => cb({ slug: 'solar-power', tree }));
+    expect(h.sent).toContainEqual({ channel: IPC.doc.versionsChanged, payload: { slug: 'solar-power', tree } });
+    expect(h.viewerSent).toEqual([]);
+    h.dispose();
+    expect(versionSubs.size).toBe(0);
+  });
+
+  it('keeps versions and checkout app-only and ask-section viewer-only until they are wired', async () => {
+    const h = await setup();
+    const notYet = { ok: false, error: { code: 'E_INTERNAL', message: 'Not implemented yet' } };
+    for (const ch of [IPC.doc.versions, IPC.doc.checkout]) {
+      expect(await h.call(ch, { slug: 'solar-power' }, 'viewer')).toEqual(forbidden);
+      expect(await h.call(ch, { slug: 'solar-power' })).toEqual(notYet);
+    }
+    expect(await h.call(IPC.doc.askSection, req(), 'app')).toEqual(forbidden);
+    expect(await h.call(IPC.doc.askSection, req(), 'viewer')).toEqual(notYet);
   });
 
   it('answers "Not implemented yet" without a service', async () => {

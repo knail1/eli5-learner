@@ -12,9 +12,9 @@ import type { MergeSuggestions } from './suggestions';
  * E_INTERNAL "Not implemented yet" and never emits, so the app still runs.
  */
 export interface IpcServices {
-  /** 08: `eli5:doc:regenerate-section`, `create-section-eli5`, `close-tab`, doc events. */
+  /** 08: `eli5:doc:regenerate-section`, `create-section-eli5`, `close-tab`, `ask-section`, doc events. */
   sectionActions: SectionActions;
-  /** 09 §4.1, 08 §6.7: `eli5:doc:history`, `undo`, `redo`, `history-changed`. */
+  /** 09 §4.1, 08 §6.7: `eli5:doc:history`, `undo`, `redo`, `history-changed`, `versions`, `checkout`, `versions-changed`. */
   docHistory: DocHistory;
   /** 09 §10: `eli5:suggestions:*`. */
   suggestions: MergeSuggestions;
@@ -37,6 +37,7 @@ export function notImplementedServices(): IpcServices {
       regenerateSection: async () => notImplemented(),
       createSectionEli5: async () => notImplemented(),
       closeTab: async () => notImplemented(),
+      askSection: async () => notImplemented(),
       onUpdated: noEvents,
       onScrollTo: noEvents,
       onSectionBusy: noEvents,
@@ -46,6 +47,9 @@ export function notImplementedServices(): IpcServices {
       undo: async () => notImplemented(),
       redo: async () => notImplemented(),
       onChanged: noEvents,
+      versions: async () => notImplemented(),
+      checkout: async () => notImplemented(),
+      onVersionsChanged: noEvents,
     },
     suggestions: {
       list: async () => notImplemented(),

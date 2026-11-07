@@ -339,17 +339,24 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
     return { ...next, busy: busyFor(slug) };
   };
 
+  // The version tree and Ask (09 §4.1, 08 §6.8) are not wired yet: they answer E_INTERNAL.
+  const notYet = async (): Promise<never> => refuse('E_INTERNAL', 'Not implemented yet');
+
   const history: DocHistory = {
     state: historyState,
     undo: (slug) => swap(slug, 'undo'),
     redo: (slug) => swap(slug, 'redo'),
     onChanged: (cb) => historyChanged.on(cb),
+    versions: notYet,
+    checkout: notYet,
+    onVersionsChanged: () => () => {},
   };
 
   const actions: SectionActions = {
     regenerateSection: (r) => request(r, r.action),
     createSectionEli5: (r) => request(r, r.scope === 'selection' ? 'eli5-selection' : 'eli5-tab'),
     closeTab,
+    askSection: notYet,
     onUpdated: (cb) => updated.on(cb),
     onScrollTo: (cb) => scroll.on(cb),
     onSectionBusy: (cb) => busy.on(cb),

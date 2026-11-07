@@ -49,10 +49,13 @@ export interface CatalogFile {
   entries: CatalogEntry[];
 }
 
+/** A menu action that goes in the action log; Ask records go in `meta.asks` instead (09 §5.2). */
+export type LoggedAction = Exclude<MenuAction, 'ask'>;
+
 /** Section-action log entry; shape owned by 08 §6.6. Stores no content. */
 export interface ActionRecord {
   at: string;
-  action: MenuAction;
+  action: LoggedAction;
   sectionId: SectionId;
   /** 'eli5-selection': every section the selection covered, first = sectionId (08 §7.5). */
   sectionIds?: SectionId[];
