@@ -31,18 +31,36 @@ import {
   withPlacement,
 } from './organization';
 import { defaultLibraryPolicy } from './policy';
+import { PREV_DIR, PREV_TMP_RE, cleanChangeLabel, quoteLabel } from './prior';
 import {
-  PREV_DIR,
-  PREV_TMP_RE,
-  cleanChangeLabel,
-  discardStaged,
-  historyOf,
-  installPrior,
-  readPriorState,
-  stagePrior,
-} from './prior';
-import { CATALOG_SCHEMA_VERSION, CatalogFileSchema, DocumentMetaSchema, META_SCHEMA_VERSION } from './schema';
+  CATALOG_SCHEMA_VERSION,
+  CatalogFileSchema,
+  DocumentMetaSchema,
+  META_SCHEMA_VERSION,
+  VersionNodeRecordSchema,
+} from './schema';
 import { chooseSlug, isValidSlug } from './slug';
+import {
+  cleanTopic,
+  historyFromTree,
+  isAvailable,
+  nodeOf,
+  pathToRoot,
+  planPrune,
+  planVersions,
+  readBlob,
+  readNodeFile,
+  redoChild,
+  removeBlob,
+  removeNodeFile,
+  sweepOrphans,
+  versionPaths,
+  writeBlob,
+  writeNodeFile,
+  writeTree,
+  type VersionPaths,
+  type VersionPlan,
+} from './versions';
 import {
   LibraryError,
   type CatalogEntry,
@@ -67,9 +85,14 @@ import {
   type ProcessProbe,
   type PublicationRecord,
   type ReadOnlyReason,
+  type SectionId,
   type SlugReservation,
   type TrashItem,
   type TrashRecord,
+  type VersionNodeFile,
+  type VersionNodeRecord,
+  type VersionTreeFile,
+  type VersionTreeView,
 } from './types';
 
 /** Hidden housekeeping folders and files (09 §4). */
@@ -272,6 +295,8 @@ export class FsLibrary implements Library {
   private merge: MergeDelegate | undefined;
   /** `.eli5/organization.json` (09 §4.2); replaced whole on every write, under the catalog lock. */
   private org: OrganizationFile = emptyOrganization();
+  /** Slugs whose last html write could not save its version (09 §4.1); cleared by the next one. */
+  private readonly degraded = new Set<string>();
 
   constructor(deps: FsLibraryDeps) {
     this.d = deps;
@@ -508,8 +533,10 @@ export class FsLibrary implements Library {
    * the commit point, 09 §10.6 step 7). No catalog write, no event; the merge flow (09 §10.6) does
    * those itself in step 9. Caller holds `withDocLock(slug)`.
    *
-   * With `html`, the current files become the single prior version (09 §4.1): staged before the
-   * writes and installed only after the commit point, so a failed write keeps the old slot.
+   * With `html`, the new files become a version node whose parent is the current one (09 §4.1):
+   * the tree is materialized, the blob and node file are written before the commit, the tree after
+   * it. Saving the version is best effort: when it fails the edit still commits, without a
+   * versionId, and the document's history is flagged degraded until the next saved change.
    */
   async writeDocumentFiles(slug: string, patch: DocumentPatch): Promise<DocumentMeta> {
     this.assertWritable();
@@ -528,128 +555,389 @@ export class FsLibrary implements Library {
     });
     if (!parsed.success) throw new LibraryError('META_INVALID', { slug });
     const clean = sanitizeMeta(parsed.data, this.d.policy.sourceUrls);
-    const staged =
-      patch.html === undefined
-        ? undefined
-        : await this.stageCurrent(slug, current, {
-            schemaVersion: 1,
-            slot: 'undo',
-            label: cleanChangeLabel(patch.label),
-            pairedUpdatedAt: clean.updatedAt,
-          });
-    try {
-      if (patch.html !== undefined) await writeFileAtomic(this.docPath(slug, INDEX_FILE), patch.html);
+    if (patch.html === undefined) {
       await writeJsonAtomic(this.docPath(slug, META_FILE), clean);
+      return clean;
+    }
+
+    const vp = this.versionPaths(slug);
+    let saved: { tree: VersionTreeFile; node: VersionNodeRecord } | undefined;
+    try {
+      const { tree } = await this.materialize(slug);
+      const blob = await writeBlob(vp, patch.html);
+      const node = nodeRecordFor(this.mintVersionId(tree), tree.currentId, clean.updatedAt, patch, blob);
+      await writeNodeFile(vp, node, { ...clean, versionId: node.id });
+      saved = { tree, node };
     } catch (err) {
-      if (staged) await discardStaged(staged);
+      this.d.logger.warn('library.version-save-failed', {
+        slug,
+        errno: errnoOf(err),
+        ...(err instanceof LibraryError ? { kind: err.code } : {}),
+      });
+    }
+    // The version store may have found the library newer than this app (read-only): never commit then.
+    this.assertWritable();
+    const { versionId: _was, ...rest } = clean;
+    const committed: DocumentMeta = saved ? { ...rest, versionId: saved.node.id } : rest;
+    try {
+      await writeFileAtomic(this.docPath(slug, INDEX_FILE), patch.html);
+      await writeJsonAtomic(this.docPath(slug, META_FILE), committed);
+    } catch (err) {
+      if (saved) await removeNodeFile(vp, saved.node.id);
       throw err;
     }
-    if (staged) await this.installStaged(slug, staged);
-    return clean;
+    if (saved) {
+      this.degraded.delete(slug);
+      await this.indexNode(slug, saved.tree, saved.node);
+    } else {
+      this.degraded.add(slug);
+    }
+    return committed;
   }
 
-  // ---- one prior version: undo / redo (09 §4.1) ----
+  // ---- the version tree (09 §4.1) ----
+
+  private versionPaths(slug: string): VersionPaths {
+    return versionPaths(path.dirname(this.docPath(slug)));
+  }
+
+  /** 6 random bytes as 'v-' + 12 hex, redrawn on a clash. */
+  private mintVersionId(tree: VersionTreeFile): string {
+    let id: string;
+    do id = `v-${this.d.ids.hex(12)}`;
+    while (nodeOf(tree, id));
+    return id;
+  }
+
+  /** After the commit: the node joins the tree as the current one. Only logged on failure (adopted later). */
+  private async indexNode(slug: string, tree: VersionTreeFile, node: VersionNodeRecord): Promise<void> {
+    try {
+      const parent = nodeOf(tree, node.parentId);
+      tree.nodes.push(node);
+      if (parent) parent.forwardId = node.id;
+      tree.currentId = node.id;
+      await this.saveTree(slug, tree);
+    } catch (err) {
+      this.d.logger.warn('library.version-index-failed', { slug, errno: errnoOf(err) });
+    }
+  }
+
+  /** Prunes (09 §4.1 retention), writes tree.json, then drops what the pruning released. */
+  private async saveTree(slug: string, tree: VersionTreeFile): Promise<VersionTreeFile> {
+    const vp = this.versionPaths(slug);
+    const plan = planPrune(tree);
+    await writeTree(vp, plan.tree);
+    for (const id of plan.removed) await removeNodeFile(vp, id);
+    for (const sha of plan.unreferencedBlobs) await removeBlob(vp, sha);
+    if (plan.stubbed.length + plan.removed.length > 0) {
+      this.d.logger.debug('library.versions-pruned', { slug, count: plan.stubbed.length + plan.removed.length });
+    }
+    return plan.tree;
+  }
+
+  /** Live meta and index.html as one consistent pair (re-read when a commit raced the read). */
+  private async readLive(slug: string): Promise<{ plan: VersionPlan; meta: DocumentMeta }> {
+    const docDir = path.dirname(this.docPath(slug));
+    for (let attempt = 0; ; attempt++) {
+      const meta = await this.getMeta(slug);
+      let html: Buffer;
+      try {
+        html = await fsp.readFile(this.docPath(slug, INDEX_FILE));
+      } catch (err) {
+        if (isErrno(err, 'ENOENT')) throw new LibraryError('NOT_FOUND', { slug });
+        throw err;
+      }
+      const plan = await planVersions(docDir, { html, meta }, () => this.d.clock.now());
+      if (!plan.detached || attempt >= 2) return { plan, meta };
+      const again = await this.getMeta(slug);
+      if (again.updatedAt === meta.updatedAt && again.versionId === meta.versionId) return { plan, meta };
+    }
+  }
 
   /**
-   * Stages the live index.html and `live` meta as the next `.prev/`. Best effort: a failure is
-   * logged and yields no slot (the stale one no longer pairs with the new meta, so it offers nothing).
+   * Write paths only, under the doc lock; idempotent (09 §4.1). Persists what `planVersions`
+   * resolved: seeds a first tree (from a legacy `.prev/` slot when paired), adopts a node the index
+   * missed, snapshots detached content as an `outside` node, points live meta at the current node
+   * (keeping updatedAt), removes `.prev/` once tree.json is durable, and sweeps orphans.
    */
-  private async stageCurrent(
-    slug: string,
-    live: DocumentMeta,
-    state: { schemaVersion: 1; slot: 'undo' | 'redo'; label: string; pairedUpdatedAt: string },
-  ): Promise<string | undefined> {
-    try {
-      const html = await fsp.readFile(this.docPath(slug, INDEX_FILE));
-      return await stagePrior(path.dirname(this.docPath(slug)), { html, meta: live }, state);
-    } catch (err) {
-      this.d.logger.warn('library.prior-save-failed', { slug, errno: errnoOf(err) });
-      return undefined;
+  private async materialize(slug: string): Promise<{ tree: VersionTreeFile; live: DocumentMeta }> {
+    if (!this.holdsDocLock(slug)) throw new LibraryError('LOCK_NOT_HELD', { slug });
+    const docDir = path.dirname(this.docPath(slug));
+    const vp = versionPaths(docDir);
+    // A symlinked or non-directory `.versions` would write outside the document: refuse.
+    const st = await fsp.lstat(vp.dir).catch(() => undefined);
+    if (st && !st.isDirectory()) throw new LibraryError('WRITE_FAILED', { slug, kind: 'versions-not-dir' });
+    const { plan, meta } = await this.readLive(slug);
+    this.assertWritable();
+    if (plan.readOnly) throw new LibraryError('LIBRARY_READ_ONLY', { slug, kind: 'newer-tree' });
+    for (const n of plan.newNodes) {
+      const blob = await writeBlob(vp, n.html);
+      n.node.bytes = blob.bytes;
+      await writeNodeFile(vp, n.node, n.meta);
     }
+    if (plan.corruptTree) {
+      const aside = `${vp.tree}.corrupt-${compactTimestamp(this.d.clock.now())}`;
+      await fsp.rename(vp.tree, aside).catch(() => {});
+      this.d.logger.warn('library.version-tree-invalid', { slug });
+    }
+    // The node files are written, so a failed index write is recovered by the next write path
+    // (adoption); only `.prev/` must wait for a durable tree.json.
+    let tree = plan.tree;
+    let durable = !plan.dirty;
+    if (plan.dirty) {
+      try {
+        tree = await this.saveTree(slug, plan.tree);
+        durable = true;
+      } catch (err) {
+        this.d.logger.warn('library.version-index-failed', { slug, errno: errnoOf(err) });
+      }
+    }
+    let live = meta;
+    if (meta.versionId !== tree.currentId) {
+      const parsed = DocumentMetaSchema.safeParse({ ...meta, versionId: tree.currentId });
+      if (!parsed.success) throw new LibraryError('META_INVALID', { slug });
+      live = sanitizeMeta(parsed.data, this.d.policy.sourceUrls);
+      await writeJsonAtomic(this.docPath(slug, META_FILE), live);
+    }
+    if (plan.removePrev && durable) {
+      await fsp.rm(path.join(docDir, PREV_DIR), { recursive: true, force: true });
+      await fsyncDir(docDir);
+    }
+    await sweepOrphans(vp, tree, tree.currentId);
+    if (plan.newNodes.length > 0) {
+      this.d.logger.info('library.versions-saved', { slug, count: plan.newNodes.length });
+    }
+    return { tree, live };
   }
 
-  private async installStaged(slug: string, staged: string): Promise<void> {
-    try {
-      await installPrior(path.dirname(this.docPath(slug)), staged);
-    } catch (err) {
-      this.d.logger.warn('library.prior-save-failed', { slug, errno: errnoOf(err) });
-      await discardStaged(staged);
-    }
+  private viewOf(slug: string, tree: VersionTreeFile, live: DocumentMeta): VersionTreeView {
+    const last = live.publications.at(-1);
+    return {
+      slug,
+      tree,
+      detached: false,
+      readOnly: this.readOnly,
+      degraded: this.degraded.has(slug),
+      ...(last ? { publishedSha: last.contentSha256 } : {}),
+    };
   }
 
-  /** What the prior version offers for `slug` right now (no `busy`; 08 adds it). */
-  async history(slug: string): Promise<DocHistoryState> {
-    const dir = path.dirname(this.docPath(slug));
+  /** The version tree right now (09 §4.1): lock-free, and never writes (D5). */
+  async versions(slug: string): Promise<VersionTreeView> {
+    this.docPath(slug);
     if (!this.hasSlug(slug)) throw new LibraryError('NOT_FOUND', { slug });
-    const live = await this.getMeta(slug);
-    return historyOf(await readPriorState(dir), live.updatedAt);
+    const { plan, meta } = await this.readLive(slug);
+    return {
+      ...this.viewOf(slug, plan.tree, meta),
+      detached: plan.detached,
+      readOnly: this.readOnly || plan.readOnly,
+    };
+  }
+
+  /** A version's exact index.html and meta snapshot. Lock-free; never writes. */
+  async readVersion(slug: string, id: string): Promise<{ html: Buffer; meta: DocumentMeta; node: VersionNodeRecord }> {
+    this.docPath(slug);
+    if (!this.hasSlug(slug)) throw new LibraryError('NOT_FOUND', { slug });
+    const { plan } = await this.readLive(slug);
+    const node = nodeOf(plan.tree, id);
+    if (!node) throw new LibraryError('VERSION_NOT_FOUND', { slug });
+    if (!node.sha256) throw new LibraryError('VERSION_NOT_FOUND', { slug, kind: 'pruned' });
+    const planned = plan.newNodes.find((n) => n.node.id === id);
+    if (planned) return { html: planned.html, meta: planned.meta, node: { ...node } };
+    const vp = this.versionPaths(slug);
+    const file = await readNodeFile(vp, id);
+    if (!file) throw new LibraryError('VERSION_CORRUPT', { slug });
+    return { html: await readBlob(vp, node.sha256), meta: file.meta, node: { ...node } };
+  }
+
+  /**
+   * Makes version `id` the live document (09 §4.1, D1). Caller holds `withDocLock(slug)` (same rule
+   * as updateDocument). The meta is the version's own, except id, topicSlug, createdAt and
+   * publications, which stay as they are live; updatedAt is now and `retiredIds` is the caller's
+   * (08 works out the IDs no version may reuse). With `html` (a runtime upgrade of the same
+   * model) that html is written and becomes the node's snapshot. Checking out the current node
+   * writes nothing.
+   */
+  async checkout(
+    slug: string,
+    id: string,
+    opts: { retiredIds: SectionId[]; html?: string | Uint8Array },
+  ): Promise<{ tree: VersionTreeView; node: VersionNodeRecord; previousId: string }> {
+    this.assertWritable();
+    this.docPath(slug);
+    if (!this.holdsDocLock(slug)) {
+      if (this.d.devChecks) throw new LibraryError('LOCK_NOT_HELD', { slug });
+      return this.withDocLock(slug, () => this.checkout(slug, id, opts));
+    }
+    const out = await this.checkoutLocked(slug, id, opts);
+    if (out.previousId !== id) this.emitChanged('updated', [slug]);
+    return out;
+  }
+
+  private async checkoutLocked(
+    slug: string,
+    id: string,
+    opts: { retiredIds: SectionId[]; html?: string | Uint8Array },
+  ): Promise<{ tree: VersionTreeView; node: VersionNodeRecord; previousId: string }> {
+    if (!this.hasSlug(slug)) throw new LibraryError('NOT_FOUND', { slug });
+    const { tree, live } = await this.materialize(slug);
+    const node = nodeOf(tree, id);
+    if (!node) throw new LibraryError('VERSION_NOT_FOUND', { slug });
+    const previousId = tree.currentId;
+    if (id === previousId) return { tree: this.viewOf(slug, tree, live), node: { ...node }, previousId };
+    if (!node.sha256) throw new LibraryError('VERSION_NOT_FOUND', { slug, kind: 'pruned' });
+
+    const vp = this.versionPaths(slug);
+    let html: Buffer;
+    let file: VersionNodeFile | undefined;
+    try {
+      file = await readNodeFile(vp, id);
+      if (!file) throw new LibraryError('VERSION_CORRUPT', { slug });
+      html = await readBlob(vp, node.sha256);
+    } catch (err) {
+      if (err instanceof LibraryError && err.code === 'VERSION_CORRUPT') {
+        // The snapshot is unusable: keep the node as a stub so it is never offered again.
+        node.sha256 = null;
+        node.bytes = 0;
+        await this.saveTree(slug, tree).catch(() => {});
+        this.d.logger.warn('library.version-corrupt', { slug });
+      }
+      throw err;
+    }
+    const parsed = DocumentMetaSchema.safeParse({
+      ...file.meta,
+      id: live.id,
+      topicSlug: slug,
+      createdAt: live.createdAt,
+      publications: live.publications,
+      updatedAt: this.d.clock.now().toISOString(),
+      versionId: id,
+      retiredIds: opts.retiredIds,
+    });
+    if (!parsed.success) throw new LibraryError('META_INVALID', { slug, kind: 'version' });
+    const clean = sanitizeMeta(parsed.data, this.d.policy.sourceUrls);
+
+    let body: string | Uint8Array = html;
+    const before = { ...node };
+    if (opts.html !== undefined) {
+      const blob = await writeBlob(vp, opts.html);
+      node.sha256 = blob.sha256;
+      node.bytes = blob.bytes;
+      await writeNodeFile(vp, node, file.meta);
+      body = opts.html;
+    }
+    try {
+      await writeFileAtomic(this.docPath(slug, INDEX_FILE), body);
+      await writeJsonAtomic(this.docPath(slug, META_FILE), clean);
+    } catch (err) {
+      // The node keeps its old snapshot: put its record back as it was.
+      if (opts.html !== undefined) await writeNodeFile(vp, before, file.meta).catch(() => {});
+      throw err;
+    }
+
+    // Back to an ancestor: point forwardId down the path just left, so Redo retraces it.
+    tree.currentId = id;
+    const up = pathToRoot(tree, previousId);
+    for (let i = up.findIndex((n) => n.id === id); i > 0; i--) {
+      const above = up[i];
+      const below = up[i - 1];
+      if (above && below) above.forwardId = below.id;
+    }
+    let saved = tree;
+    try {
+      saved = await this.saveTree(slug, tree);
+      const oldSha = before.sha256;
+      if (oldSha && oldSha !== node.sha256 && !saved.nodes.some((n) => n.sha256 === oldSha)) {
+        await removeBlob(vp, oldSha);
+      }
+    } catch (err) {
+      this.d.logger.warn('library.version-index-failed', { slug, errno: errnoOf(err) });
+    }
+    await this.withCatalogLock(async () => {
+      const e = entryFromMeta(clean);
+      this.entries.set(e.id, e);
+      await this.writeCatalog();
+    });
+    this.d.logger.info('library.version-checkout', { slug });
+    return { tree: this.viewOf(slug, saved, clean), node: { ...(nodeOf(saved, id) ?? node) }, previousId };
+  }
+
+  /**
+   * Rewrites the current version's index.html (a runtime upgrade of the same model, 07 §5.5): the
+   * node keeps its id and takes the new snapshot; meta.json is untouched. Caller holds the lock.
+   */
+  async refreshRuntime(slug: string, html: string | Uint8Array): Promise<void> {
+    this.assertWritable();
+    this.docPath(slug);
+    if (!this.holdsDocLock(slug)) {
+      if (this.d.devChecks) throw new LibraryError('LOCK_NOT_HELD', { slug });
+      return this.withDocLock(slug, () => this.refreshRuntime(slug, html));
+    }
+    if (!this.hasSlug(slug)) throw new LibraryError('NOT_FOUND', { slug });
+    const { tree } = await this.materialize(slug);
+    const node = nodeOf(tree, tree.currentId);
+    if (!node) throw new LibraryError('VERSION_NOT_FOUND', { slug });
+    const vp = this.versionPaths(slug);
+    const file = await readNodeFile(vp, node.id);
+    const before = { ...node };
+    const oldSha = node.sha256;
+    const blob = await writeBlob(vp, html);
+    node.sha256 = blob.sha256;
+    node.bytes = blob.bytes;
+    // The node record names the new snapshot before the commit, so a crash before tree.json is
+    // recovered as the same node (not an outside edit).
+    if (file) await writeNodeFile(vp, node, file.meta);
+    try {
+      await writeFileAtomic(this.docPath(slug, INDEX_FILE), html);
+    } catch (err) {
+      if (file) await writeNodeFile(vp, before, file.meta).catch(() => {});
+      throw err;
+    }
+    try {
+      await this.saveTree(slug, tree);
+      if (oldSha && !tree.nodes.some((n) => n.sha256 === oldSha)) await removeBlob(vp, oldSha);
+    } catch (err) {
+      this.d.logger.warn('library.version-index-failed', { slug, errno: errnoOf(err) });
+    }
+    this.d.logger.info('library.runtime-refreshed', { slug });
+  }
+
+  /** What Undo and Redo offer for `slug` right now (no `busy`; 08 adds it). Lock-free. */
+  async history(slug: string): Promise<DocHistoryState> {
+    return historyFromTree((await this.versions(slug)).tree);
   }
 
   undo(slug: string): Promise<DocHistoryState> {
-    return this.swap(slug, 'undo');
+    return this.step(slug, 'undo');
   }
 
   redo(slug: string): Promise<DocHistoryState> {
-    return this.swap(slug, 'redo');
+    return this.step(slug, 'redo');
   }
 
   /**
-   * 09 §4.1: under the doc lock, exchange the live files with `.prev/` and flip the slot. The older
-   * meta comes back except for fields that must not travel in time (id, topicSlug, createdAt,
-   * publications); updatedAt is now. Then the catalog entry follows and `changed` is emitted.
+   * Undo checks out the parent, Redo the redo child (09 §4.1); HISTORY_EMPTY when there is none.
+   * Takes the doc lock unless the caller holds it. The library cannot parse documents, so the
+   * retired IDs are the union of both versions' (08 refines this when it checks out itself).
    */
-  private async swap(slug: string, want: 'undo' | 'redo'): Promise<DocHistoryState> {
+  private async step(slug: string, dir: 'undo' | 'redo'): Promise<DocHistoryState> {
     this.assertWritable();
-    const dir = path.dirname(this.docPath(slug));
-    const out = await this.withDocLock(slug, async () => {
+    this.docPath(slug);
+    const run = async () => {
       if (!this.hasSlug(slug)) throw new LibraryError('NOT_FOUND', { slug });
-      const live = await this.getMeta(slug);
-      this.assertWritable();
-      const state = await readPriorState(dir);
-      if (!state || state.slot !== want || state.pairedUpdatedAt !== live.updatedAt) {
-        throw new LibraryError('HISTORY_EMPTY', { slug });
-      }
-      const prevDir = path.join(dir, PREV_DIR);
-      const html = await fsp.readFile(path.join(prevDir, INDEX_FILE));
-      const r = await this.readMeta(path.join(prevDir, META_FILE), false).catch(() => undefined);
-      if (r?.status !== 'ok') throw new LibraryError('META_INVALID', { slug, kind: 'prior' });
-      const now = this.d.clock.now().toISOString();
-      const parsed = DocumentMetaSchema.safeParse({
-        ...r.data,
-        id: live.id,
-        topicSlug: slug,
-        createdAt: live.createdAt,
-        publications: live.publications,
-        updatedAt: now,
-      });
-      if (!parsed.success) throw new LibraryError('META_INVALID', { slug, kind: 'prior' });
-      const clean = sanitizeMeta(parsed.data, this.d.policy.sourceUrls);
-      const next = {
-        schemaVersion: 1 as const,
-        slot: want === 'undo' ? 'redo' : 'undo',
-        label: state.label,
-        pairedUpdatedAt: now,
-      } as const;
-      const staged = await this.stageCurrent(slug, live, next);
-      if (!staged) throw new LibraryError('WRITE_FAILED', { slug, kind: 'prior' });
-      try {
-        await writeFileAtomic(this.docPath(slug, INDEX_FILE), html);
-        await writeJsonAtomic(this.docPath(slug, META_FILE), clean);
-      } catch (err) {
-        await discardStaged(staged);
-        throw err;
-      }
-      await this.installStaged(slug, staged);
-      await this.withCatalogLock(async () => {
-        const e = entryFromMeta(clean);
-        this.entries.set(e.id, e);
-        await this.writeCatalog();
-      });
-      return historyOf(next, now);
-    });
-    this.d.logger.info('library.swapped', { slug, kind: want });
+      const { tree, live } = await this.materialize(slug);
+      const parent = nodeOf(tree, nodeOf(tree, tree.currentId)?.parentId);
+      const target =
+        dir === 'undo' ? (parent && isAvailable(parent) ? parent : undefined) : redoChild(tree, tree.currentId);
+      if (!target) throw new LibraryError('HISTORY_EMPTY', { slug });
+      const old = await readNodeFile(this.versionPaths(slug), target.id);
+      const retiredIds = [...new Set([...live.retiredIds, ...(old?.meta.retiredIds ?? [])])];
+      return (await this.checkoutLocked(slug, target.id, { retiredIds })).tree;
+    };
+    const view = this.holdsDocLock(slug) ? await run() : await this.withDocLock(slug, run);
+    this.d.logger.info('library.history-step', { slug, kind: dir });
     this.emitChanged('updated', [slug]);
-    return out;
+    return historyFromTree(view.tree);
   }
 
   /**
@@ -1228,13 +1516,21 @@ export class FsLibrary implements Library {
     }
   }
 
-  /** 09 §7 step 8: stale temp files and expired trash (HOOK-LIB-01 retention). */
+  /**
+   * 09 §7 step 8: stale temp files (also under each `.versions/`, 09 §4.1) and expired trash
+   * (HOOK-LIB-01 retention). By age only, so no doc lock is needed.
+   */
   private async housekeeping(): Promise<void> {
     const now = this.d.clock.now().getTime();
+    const docDirs = [...this.entries.values()].map((e) => path.join(this.root, e.topicSlug));
     const dirs = [
       this.root,
       path.join(this.root, ELI5_DIR),
-      ...[...this.entries.values()].map((e) => path.join(this.root, e.topicSlug)),
+      ...docDirs,
+      ...docDirs.flatMap((d) => {
+        const v = versionPaths(d);
+        return [v.dir, v.nodes, v.blobs];
+      }),
     ];
     let removed = 0;
     for (const dir of dirs) {
@@ -1355,6 +1651,38 @@ export function trashTime(name: string): number | undefined {
   const [, y, mo, d, h, mi, s] = m;
   const t = Date.parse(`${y}-${mo}-${d}T${h}:${mi}:${s}Z`);
   return Number.isNaN(t) ? undefined : t;
+}
+
+/** The node a write creates (09 §4.1); a patch without `change` is an `outside` change. */
+function nodeRecordFor(
+  id: string,
+  parentId: string | null,
+  createdAt: string,
+  patch: DocumentPatch,
+  blob: { sha256: string; bytes: number },
+): VersionNodeRecord {
+  const c = patch.change;
+  const base: VersionNodeRecord = {
+    id,
+    parentId,
+    createdAt,
+    kind: c?.kind ?? 'outside',
+    label: cleanChangeLabel(patch.label),
+    topic: cleanTopic(c?.topic ?? patch.label),
+    sha256: blob.sha256,
+    bytes: blob.bytes,
+  };
+  const question = c?.question?.replace(/\s+/g, ' ').trim().slice(0, 500);
+  const full: VersionNodeRecord = {
+    ...base,
+    ...(c?.heading ? { heading: quoteLabel(c.heading, 80) } : {}),
+    ...(question ? { question } : {}),
+    ...(c?.target ? { target: { ...c.target } } : {}),
+    ...(c?.undoTarget ? { undoTarget: { ...c.undoTarget } } : {}),
+    ...(c?.jobId ? { jobId: c.jobId } : {}),
+  };
+  // A malformed target must not make tree.json unreadable: drop the extras rather than the node.
+  return VersionNodeRecordSchema.safeParse(full).success ? full : base;
 }
 
 async function exists(p: string): Promise<boolean> {

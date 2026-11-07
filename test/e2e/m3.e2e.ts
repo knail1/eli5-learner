@@ -237,7 +237,7 @@ test.describe('reading a finished document', () => {
     await plain.close();
   });
 
-  test('Undo and Redo swap the one prior version; a new change after an undo drops the redo (09 §4.1)', async () => {
+  test('Undo and Redo move through the version tree; a new change after an undo starts a branch (09 §4.1)', async () => {
     const undo = l.win.getByRole('button', { name: 'Undo', exact: true });
     const redo = l.win.getByRole('button', { name: 'Redo', exact: true });
     const id = (await sectionsOf(viewer, 'indepth')).find((s) => s.heading === 'Why the plan matters')?.id ?? '';
@@ -266,8 +266,9 @@ test.describe('reading a finished document', () => {
     await expect(heading).toHaveText('Why the plan matters', { timeout: 30_000 });
     expect(await readFile(docFile(), 'utf8')).toBe(original);
     await expect(redo).toBeEnabled();
-    await expect(undo).toBeDisabled();
-    expect(await readdir(path.join(dirs.library, slug))).toContain('.prev');
+    // Every change is a version (09 §4.1): the earlier E8/E9 changes are still there to undo.
+    await expect(undo).toBeEnabled();
+    expect(await readdir(path.join(dirs.library, slug))).toContain('.versions');
 
     // Redo: the new text is back.
     await redo.click();
@@ -282,7 +283,7 @@ test.describe('reading a finished document', () => {
     expect(await readFile(docFile(), 'utf8')).toBe(original);
     await expect(redo).toBeEnabled();
 
-    // A new section action after the undo replaces the slot: Redo is gone, Undo undoes the new action.
+    // A new section action after the undo starts a branch: Redo is gone, Undo undoes the new action.
     await expand();
     await expect(redo).toBeDisabled();
     await expect(undo).toBeEnabled();

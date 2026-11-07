@@ -18,6 +18,9 @@ beforeEach(async () => {
   await mkdir(path.join(root, 'widget-pricing'), { recursive: true });
   await writeFile(path.join(root, 'widget-pricing', 'index.html'), '<h1>Widgets</h1>');
   await writeFile(path.join(root, 'widget-pricing', 'meta.json'), '{"clarifyingInput":"private"}');
+  await mkdir(path.join(root, 'widget-pricing', '.versions', 'blobs'), { recursive: true });
+  await writeFile(path.join(root, 'widget-pricing', '.versions', 'tree.json'), '{}');
+  await writeFile(path.join(root, 'widget-pricing', '.versions', 'blobs', `${'a'.repeat(64)}.html.gz`), 'gz');
   await mkdir(path.join(root, 'uncatalogued'));
   await writeFile(path.join(root, 'uncatalogued', 'index.html'), 'x');
   await mkdir(path.join(root, '.staging', 'job-1'), { recursive: true });
@@ -84,6 +87,9 @@ describe('eli5doc:// handler (12 §7.7)', () => {
     ['NUL', 'eli5doc://doc/widget-pricing/index.html%00'],
     ['dot-path', 'eli5doc://doc/.staging/job-1/index.html'],
     ['dot-file', 'eli5doc://doc/widget-pricing/.index.html'],
+    ['version tree', 'eli5doc://doc/widget-pricing/.versions/tree.json'],
+    ['version blob', `eli5doc://doc/widget-pricing/.versions/blobs/${'a'.repeat(64)}.html.gz`],
+    ['encoded version dir', 'eli5doc://doc/widget-pricing/%2Eversions/tree.json'],
     ['uncatalogued slug', 'eli5doc://doc/uncatalogued/index.html'],
     ['symlink escape', 'eli5doc://doc/escaper/index.html'],
     ['symlink into a dot-path', 'eli5doc://doc/dot-link/index.html'],

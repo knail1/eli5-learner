@@ -15,6 +15,8 @@ export const metaMigrations: Migration[] = [];
 export const catalogMigrations: Migration[] = [];
 export const suggestionsMigrations: Migration[] = [];
 export const organizationMigrations: Migration[] = [];
+/** `.versions/tree.json` (09 §4.1); a newer tree makes only that document's tree read-only. */
+export const treeMigrations: Migration[] = [];
 
 export interface ReadVersionedOptions<T> {
   schema: z.ZodType<T>;

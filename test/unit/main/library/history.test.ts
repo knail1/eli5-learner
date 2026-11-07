@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   LibraryError,
   PREV_DIR,
+  VERSIONS_DIR,
   createDocProtocolHandler,
   type CatalogFile,
   type DocumentMeta,
@@ -11,7 +12,7 @@ import {
 } from '../../../../src/main/library';
 import { HTML, createDoc, testLibrary } from './fixtures';
 
-/** One prior version per document with undo/redo by swap (09 §4.1). */
+/** Undo/redo over the version tree, through the unchanged history API (09 §4.1, 08 §6.7). */
 
 const SLUG = 'widget-pricing';
 const readJson = async <T>(p: string): Promise<T> => JSON.parse(await readFile(p, 'utf8')) as T;
@@ -36,25 +37,28 @@ function change(lib: FsLibrary, html: string, label?: string, meta: (m: Document
 }
 
 const html = (lib: FsLibrary) => readFile(lib.docPath(SLUG), 'utf8');
-const prevDir = (lib: FsLibrary) => path.join(lib.root, SLUG, PREV_DIR);
+const versionsDir = (lib: FsLibrary) => path.join(lib.root, SLUG, VERSIONS_DIR);
 
-describe('prior version slot (09 §4.1)', () => {
-  it('a new document has no prior version', async () => {
+describe('history state over the version tree (09 §4.1)', () => {
+  it('a new document has no versions folder and offers nothing', async () => {
     const { lib } = await testLibrary();
     await createDoc(lib, 'Widget Pricing');
-    expect(await exists(prevDir(lib))).toBe(false);
+    expect(await exists(versionsDir(lib))).toBe(false);
     expect(await lib.history(SLUG)).toEqual({ canUndo: false, canRedo: false });
   });
 
-  it('an update saves the previous index.html and meta.json in .prev/ with the change label', async () => {
+  it('an update keeps the original as the root version and offers Undo with the change label', async () => {
     const { lib } = await testLibrary();
     await createDoc(lib, 'Widget Pricing');
-    const before = await readJson<DocumentMeta>(lib.docPath(SLUG, 'meta.json'));
     await change(lib, '<p>v2</p>', "re-explained 'Pricing'");
-    expect(await readFile(path.join(prevDir(lib), 'index.html'), 'utf8')).toBe(HTML);
-    expect(await readJson<DocumentMeta>(path.join(prevDir(lib), 'meta.json'))).toEqual(before);
     expect(await html(lib)).toBe('<p>v2</p>');
     expect(await lib.history(SLUG)).toEqual({ canUndo: true, canRedo: false, undoLabel: "re-explained 'Pricing'" });
+    const { tree } = await lib.versions(SLUG);
+    expect(tree.nodes.map((n) => [n.kind, n.label])).toEqual([
+      ['initial', 'Original'],
+      ['outside', "re-explained 'Pricing'"],
+    ]);
+    expect((await lib.getMeta(SLUG)).versionId).toBe(tree.currentId);
   });
 
   it('uses a generic label when the change has none', async () => {
@@ -64,25 +68,27 @@ describe('prior version slot (09 §4.1)', () => {
     expect(await lib.history(SLUG)).toMatchObject({ canUndo: true, undoLabel: 'last change' });
   });
 
-  it('keeps exactly one prior version: a later change replaces it', async () => {
+  it('keeps every version: two changes make a chain of three', async () => {
     const { lib } = await testLibrary();
     await createDoc(lib, 'Widget Pricing');
     await change(lib, '<p>v2</p>', 'first');
     await change(lib, '<p>v3</p>', 'second');
-    expect(await readFile(path.join(prevDir(lib), 'index.html'), 'utf8')).toBe('<p>v2</p>');
     expect(await lib.history(SLUG)).toMatchObject({ canUndo: true, undoLabel: 'second' });
-    // No leftover staging folders next to it.
-    expect((await readdir(path.join(lib.root, SLUG))).sort()).toEqual([PREV_DIR, 'index.html', 'meta.json']);
+    expect((await lib.versions(SLUG)).tree.nodes).toHaveLength(3);
+    // Only the live files and the versions folder; no staging leftovers.
+    expect((await readdir(path.join(lib.root, SLUG))).sort()).toEqual([VERSIONS_DIR, 'index.html', 'meta.json']);
+    expect((await readdir(versionsDir(lib))).sort()).toEqual(['blobs', 'nodes', 'tree.json']);
   });
 
-  it('a meta-only write (no html) records no prior version', async () => {
+  it('a meta-only write (no html) records no version', async () => {
     const { lib } = await testLibrary();
     await createDoc(lib, 'Widget Pricing');
     await lib.withDocLock(SLUG, () => lib.touch(SLUG));
+    expect(await exists(versionsDir(lib))).toBe(false);
     expect(await lib.history(SLUG)).toEqual({ canUndo: false, canRedo: false });
   });
 
-  it('a failed write leaves the files and the prior version unchanged', async () => {
+  it('a refused write leaves the files and the history unchanged', async () => {
     const { lib } = await testLibrary();
     await createDoc(lib, 'Widget Pricing');
     await change(lib, '<p>v2</p>', 'first');
@@ -91,30 +97,30 @@ describe('prior version slot (09 §4.1)', () => {
       'META_INVALID',
     );
     expect(await html(lib)).toBe('<p>v2</p>');
-    expect(await readFile(path.join(prevDir(lib), 'index.html'), 'utf8')).toBe(HTML);
-    expect(await lib.history(SLUG)).toMatchObject({ canUndo: true, undoLabel: 'first' });
+    expect(await lib.history(SLUG)).toEqual({ canUndo: true, canRedo: false, undoLabel: 'first' });
+    expect((await lib.versions(SLUG)).tree.nodes).toHaveLength(2);
   });
 
-  it('a slot that no longer pairs with the live meta (external rewrite) offers nothing', async () => {
+  it('a meta-only rewrite outside the library no longer voids the history (D4)', async () => {
     const { lib, clock } = await testLibrary();
     await createDoc(lib, 'Widget Pricing');
     await change(lib, '<p>v2</p>', 'first');
     const p = lib.docPath(SLUG, 'meta.json');
     clock.advance(1000);
     await writeFile(p, JSON.stringify({ ...(await readJson<object>(p)), updatedAt: clock.now().toISOString() }));
-    expect(await lib.history(SLUG)).toEqual({ canUndo: false, canRedo: false });
-    await expectCode(lib.undo(SLUG), 'HISTORY_EMPTY');
+    expect(await lib.history(SLUG)).toEqual({ canUndo: true, canRedo: false, undoLabel: 'first' });
+    await lib.undo(SLUG);
+    expect(await html(lib)).toBe(HTML);
   });
 });
 
-describe('undo / redo swap (09 §4.1)', () => {
-  it('undo swaps current and prior and flips the slot to redo; redo swaps back', async () => {
+describe('undo / redo (09 §4.1)', () => {
+  it('undo opens the parent version and redo the child again', async () => {
     const { lib } = await testLibrary();
     await createDoc(lib, 'Widget Pricing');
     await change(lib, '<p>v2</p>', "expanded 'Pricing'");
     expect(await lib.undo(SLUG)).toEqual({ canUndo: false, canRedo: true, redoLabel: "expanded 'Pricing'" });
     expect(await html(lib)).toBe(HTML);
-    expect(await readFile(path.join(prevDir(lib), 'index.html'), 'utf8')).toBe('<p>v2</p>');
     await expectCode(lib.undo(SLUG), 'HISTORY_EMPTY');
 
     expect(await lib.redo(SLUG)).toEqual({ canUndo: true, canRedo: false, undoLabel: "expanded 'Pricing'" });
@@ -122,7 +128,21 @@ describe('undo / redo swap (09 §4.1)', () => {
     await expectCode(lib.redo(SLUG), 'HISTORY_EMPTY');
   });
 
-  it('with no prior version both refuse with HISTORY_EMPTY', async () => {
+  it('walks back through several versions and forward again', async () => {
+    const { lib } = await testLibrary();
+    await createDoc(lib, 'Widget Pricing');
+    await change(lib, '<p>v2</p>', 'first');
+    await change(lib, '<p>v3</p>', 'second');
+    expect(await lib.undo(SLUG)).toEqual({ canUndo: true, canRedo: true, undoLabel: 'first', redoLabel: 'second' });
+    expect(await html(lib)).toBe('<p>v2</p>');
+    await lib.undo(SLUG);
+    expect(await html(lib)).toBe(HTML);
+    await lib.redo(SLUG);
+    await lib.redo(SLUG);
+    expect(await html(lib)).toBe('<p>v3</p>');
+  });
+
+  it('with no earlier version both refuse with HISTORY_EMPTY', async () => {
     const { lib } = await testLibrary();
     await createDoc(lib, 'Widget Pricing');
     await expectCode(lib.undo(SLUG), 'HISTORY_EMPTY');
@@ -130,14 +150,17 @@ describe('undo / redo swap (09 §4.1)', () => {
     await expectCode(lib.undo('not-there'), 'NOT_FOUND');
   });
 
-  it('a new change after an undo overwrites the slot, so redo is lost', async () => {
+  it('a new change after an undo starts a branch; the old future is kept', async () => {
     const { lib } = await testLibrary();
     await createDoc(lib, 'Widget Pricing');
     await change(lib, '<p>v2</p>', 'first');
     await lib.undo(SLUG);
     await change(lib, '<p>v2b</p>', 'second');
     expect(await lib.history(SLUG)).toEqual({ canUndo: true, canRedo: false, undoLabel: 'second' });
-    expect(await readFile(path.join(prevDir(lib), 'index.html'), 'utf8')).toBe(HTML);
+    const { tree } = await lib.versions(SLUG);
+    expect(tree.nodes.filter((n) => n.parentId === tree.rootId).map((n) => n.label)).toEqual(['first', 'second']);
+    // Back at the root, Redo follows the branch just left.
+    expect(await lib.undo(SLUG)).toMatchObject({ canRedo: true, redoLabel: 'second' });
   });
 
   it('restores the older meta but keeps id, createdAt, topicSlug and publications from the live one', async () => {
@@ -179,7 +202,7 @@ describe('undo / redo swap (09 §4.1)', () => {
     const cat = await readJson<CatalogFile>(path.join(lib.root, 'catalog.json'));
     expect(cat.entries[0]).toMatchObject({ title: created.title, tabCount: 2, updatedAt: m.updatedAt });
     expect(lib.getEntry(SLUG)).toMatchObject({ title: created.title, tabCount: 2 });
-    expect(events).toEqual([{ reason: 'updated', slugs: [SLUG] }]);
+    expect(events.at(-1)).toEqual({ reason: 'updated', slugs: [SLUG] });
 
     // Redo brings the newer content back, still with the live publications.
     await lib.redo(SLUG);
@@ -189,7 +212,7 @@ describe('undo / redo swap (09 §4.1)', () => {
     expect(lib.getEntry(SLUG)).toMatchObject({ title: 'Widget pricing, revised', tabCount: 3 });
   });
 
-  it('swaps under the document lock: a writer holding it delays the undo', async () => {
+  it('runs under the document lock: a writer holding it delays the undo', async () => {
     const { lib } = await testLibrary();
     await createDoc(lib, 'Widget Pricing');
     await change(lib, '<p>v2</p>', 'first');
@@ -206,28 +229,30 @@ describe('undo / redo swap (09 §4.1)', () => {
     expect(await html(lib)).toBe(HTML);
   });
 
-  it('refuses in read-only mode', async () => {
+  it('refuses in read-only mode, while history still answers', async () => {
     const { lib, open } = await testLibrary({ processLock: false });
     await createDoc(lib, 'Widget Pricing');
     await change(lib, '<p>v2</p>', 'first');
     const ro = await open();
     ro.enterReadOnly('locked');
     await expectCode(ro.undo(SLUG), 'LIBRARY_READ_ONLY');
+    expect(await ro.history(SLUG)).toMatchObject({ canUndo: true, undoLabel: 'first' });
+    expect((await ro.versions(SLUG)).readOnly).toBe(true);
   });
 });
 
-describe('.prev/ stays private (09 §4 rules)', () => {
-  it('eli5doc:// never serves anything under .prev/', async () => {
+describe('.versions/ stays private and travels with the document (09 §4 rules)', () => {
+  it('eli5doc:// never serves anything under .versions/', async () => {
     const { lib } = await testLibrary();
     await createDoc(lib, 'Widget Pricing');
     await change(lib, '<p>v2</p>', 'first');
     const handler = createDocProtocolHandler({ root: lib.root, isCatalogued: (s) => lib.hasSlug(s) });
     for (const u of [
-      `eli5doc://doc/${SLUG}/.prev/index.html`,
-      `eli5doc://doc/${SLUG}/%2Eprev/index.html`,
-      `eli5doc://doc/${SLUG}/.prev/meta.json`,
-      `eli5doc://doc/${SLUG}/.prev/`,
-      `eli5doc://doc/${SLUG}/.prev%2Findex.html`,
+      `eli5doc://doc/${SLUG}/.versions/tree.json`,
+      `eli5doc://doc/${SLUG}/%2Eversions/tree.json`,
+      `eli5doc://doc/${SLUG}/.versions/`,
+      `eli5doc://doc/${SLUG}/.versions%2Ftree.json`,
+      `eli5doc://doc/${SLUG}/.versions/blobs/`,
     ]) {
       expect((await handler(new Request(u))).status, u).toBe(404);
     }
@@ -235,18 +260,19 @@ describe('.prev/ stays private (09 §4 rules)', () => {
     expect(await live.text()).toBe('<p>v2</p>');
   });
 
-  it('reconcile rebuilds the catalog from the live meta only and ignores .prev/', async () => {
+  it('reconcile rebuilds the catalog from the live meta only and leaves .versions/ alone', async () => {
     const { lib, open } = await testLibrary({ processLock: false });
     await createDoc(lib, 'Widget Pricing');
     await change(lib, '<p>v2</p>', 'first', (m) => ({ ...m, title: 'Live title' }));
+    const before = await readFile(path.join(versionsDir(lib), 'tree.json'), 'utf8');
     await writeFile(path.join(lib.root, 'catalog.json'), '{}');
     const again = await open();
     expect(again.list().map((e) => [e.topicSlug, e.title])).toEqual([[SLUG, 'Live title']]);
-    // .prev/ was not touched by reconcile.
-    expect(await readFile(path.join(prevDir(again), 'index.html'), 'utf8')).toBe(HTML);
+    expect(await readFile(path.join(versionsDir(again), 'tree.json'), 'utf8')).toBe(before);
+    expect(await again.history(SLUG)).toMatchObject({ canUndo: true, undoLabel: 'first' });
   });
 
-  it('housekeeping removes stale .prev staging folders left by a crash', async () => {
+  it('housekeeping removes stale .prev staging folders an older build left behind', async () => {
     const { lib, open, clock } = await testLibrary({ processLock: false });
     await createDoc(lib, 'Widget Pricing');
     const stale = path.join(lib.root, SLUG, `${PREV_DIR}.tmp-123-0badc0de`);
@@ -258,13 +284,17 @@ describe('.prev/ stays private (09 §4 rules)', () => {
     expect(await exists(stale)).toBe(false);
   });
 
-  it('trashing a document takes .prev/ with it', async () => {
+  it('trashing a document takes .versions/ with it, and Put Back brings the history back', async () => {
     const { lib } = await testLibrary();
     await createDoc(lib, 'Widget Pricing');
     await change(lib, '<p>v2</p>', 'first');
-    await lib.trashDocument(SLUG);
+    const receipt = await lib.trashDocument(SLUG);
     expect(await exists(path.join(lib.root, SLUG))).toBe(false);
-    const [trashed] = await readdir(path.join(lib.root, '.trash'));
-    expect(await exists(path.join(lib.root, '.trash', trashed ?? '', PREV_DIR, 'index.html'))).toBe(true);
+    const trashId = receipt.trashId ?? '';
+    expect(await exists(path.join(lib.root, '.trash', trashId, VERSIONS_DIR, 'tree.json'))).toBe(true);
+    await lib.putBack(trashId);
+    expect(await lib.history(SLUG)).toEqual({ canUndo: true, canRedo: false, undoLabel: 'first' });
+    await lib.undo(SLUG);
+    expect(await html(lib)).toBe(HTML);
   });
 });

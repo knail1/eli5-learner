@@ -35,6 +35,21 @@ export {
 } from './library';
 export type { OpenLibraryOptions } from './library';
 export { PREV_DIR, PREV_STATE_FILE, DEFAULT_CHANGE_LABEL, cleanChangeLabel, quoteLabel } from './prior';
+export {
+  VERSIONS_DIR,
+  MAX_SNAPSHOTS,
+  MAX_STORE_BYTES,
+  MAX_NODES,
+  childrenOf,
+  pathToRoot,
+  resolveCurrent,
+  historyFromTree,
+  redoChild,
+  scrollTargetFor,
+  planPrune,
+  toWire,
+} from './versions';
+export type { PruneLimits, PrunePlan } from './versions';
 export { writeFileAtomic, writeJsonAtomic, fsyncDir, renameDirAtomic } from './fs-atomic';
 export { AsyncMutex, acquireProcessLock, releaseProcessLock, defaultProcessProbe } from './locks';
 export type { ProcessLockRecord, ProcessLockResult } from './locks';
@@ -44,6 +59,7 @@ export {
   catalogMigrations,
   suggestionsMigrations,
   organizationMigrations,
+  treeMigrations,
 } from './migrations';
 export {
   ORGANIZATION_FILE,

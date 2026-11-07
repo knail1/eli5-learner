@@ -109,6 +109,10 @@ function libraryError(code: LibraryErrorCode): IpcError {
       return { code: 'E_CONFLICT', message: 'A folder with that name already exists' };
     case 'TRASH_ITEM_NOT_FOUND':
       return { code: 'E_NOT_FOUND', message: 'That document is no longer in the Trash' };
+    case 'VERSION_NOT_FOUND':
+      return { code: 'E_NOT_FOUND', message: 'That version is no longer available' };
+    case 'VERSION_CORRUPT':
+      return { code: 'E_IO', message: "That version can't be read" };
     default:
       return { code: 'E_IO', message: 'Could not access the Library' };
   }

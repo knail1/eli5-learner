@@ -6,7 +6,10 @@ import {
   DocumentMetaSchema,
   META_SCHEMA_VERSION,
   SuggestionsFileSchema,
+  VersionNodeRecordSchema,
+  VersionTreeFileSchema,
 } from '../../../../src/main/library/schema';
+import type { LoggedAction, MenuAction } from '../../../../src/main/library';
 
 const ID = '0b7f1c2e-3d4a-4b5c-8d9e-0f1a2b3c4d5e';
 const TS = '2026-09-27T12:34:56.789Z';
@@ -155,6 +158,81 @@ describe('DocumentMetaSchema (09 §5.2)', () => {
     ],
   ])('rejects %s', (_name, patch) => {
     expect(DocumentMetaSchema.safeParse({ ...meta, ...patch }).success).toBe(false);
+  });
+});
+
+describe('meta.versionId and meta.asks (09 §5.2, no schema bump)', () => {
+  const ask = {
+    at: TS,
+    sectionId: 'sec-indepth-9b04e1aa',
+    tabKey: 'indepth',
+    question: 'Why does the price move?',
+    qaId: 'q-0a1b2c3d',
+    jobId: 'j4',
+  };
+
+  it('accepts both, and a meta without them still parses at the same schemaVersion', () => {
+    const out = DocumentMetaSchema.parse({ ...meta, versionId: 'v-0123456789ab', asks: [ask] });
+    expect(out.versionId).toBe('v-0123456789ab');
+    expect(out.asks).toEqual([ask]);
+    expect(out.schemaVersion).toBe(META_SCHEMA_VERSION);
+    expect(META_SCHEMA_VERSION).toBe(1);
+    expect(DocumentMetaSchema.parse(meta).versionId).toBeUndefined();
+  });
+
+  it.each([
+    ['bad versionId', { versionId: 'v-xyz' }],
+    ['bad qaId', { asks: [{ ...ask, qaId: 'q-1' }] }],
+    ['question > 500', { asks: [{ ...ask, question: 'x'.repeat(501) }] }],
+    ['empty question', { asks: [{ ...ask, question: '' }] }],
+  ])('rejects %s', (_name, patch) => {
+    expect(DocumentMetaSchema.safeParse({ ...meta, ...patch }).success).toBe(false);
+  });
+
+  it('keeps ask out of the action log: the strict action enum still refuses it', () => {
+    expect(DocumentMetaSchema.safeParse({ ...meta, actions: [{ ...meta.actions[0], action: 'ask' }] }).success).toBe(
+      false,
+    );
+    // LoggedAction is MenuAction without 'ask' (compile-time drift check).
+    const same: [LoggedAction] extends [Exclude<MenuAction, 'ask'>]
+      ? [Exclude<MenuAction, 'ask'>] extends [LoggedAction]
+        ? true
+        : false
+      : false = true;
+    expect(same).toBe(true);
+  });
+});
+
+describe('version tree schemas (09 §4.1)', () => {
+  const node = {
+    id: 'v-0123456789ab',
+    parentId: null,
+    createdAt: TS,
+    kind: 'initial',
+    label: 'Original',
+    topic: 'Original',
+    sha256: 'a'.repeat(64),
+    bytes: 10,
+  };
+
+  it('accepts nodes, stubs and a tree', () => {
+    expect(VersionNodeRecordSchema.parse(node)).toEqual(node);
+    expect(VersionNodeRecordSchema.parse({ ...node, sha256: null }).sha256).toBeNull();
+    const child = { ...node, id: 'v-0123456789ac', parentId: node.id, kind: 'ask', question: 'Why?' };
+    const tree = { schemaVersion: 1, rootId: node.id, currentId: child.id, nodes: [node, child] };
+    expect(VersionTreeFileSchema.parse(tree).nodes).toHaveLength(2);
+    expect(VersionTreeFileSchema.safeParse({ ...tree, nodes: [] }).success).toBe(false);
+  });
+
+  it.each([
+    ['bad id', { id: 'v-1' }],
+    ['bad kind', { kind: 'delete' }],
+    ['topic > 48', { topic: 'x'.repeat(49) }],
+    ['empty label', { label: '' }],
+    ['bad sha', { sha256: 'x' }],
+    ['bad target section', { target: { sectionId: 'nope' } }],
+  ])('rejects %s', (_name, patch) => {
+    expect(VersionNodeRecordSchema.safeParse({ ...node, ...patch }).success).toBe(false);
   });
 });
 

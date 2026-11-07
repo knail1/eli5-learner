@@ -1,13 +1,12 @@
 /**
- * The single prior version of a document (09 §4.1): `<slug>/.prev/` holds index.html, meta.json
- * and state.json. It is staged in a `.prev.tmp-*` folder and swapped in with two renames, always
- * under the document's lock. A crash between the renames leaves no slot (nothing to undo), never
- * a half-written one; reconcile's housekeeping removes the leftover staging folder.
+ * Change labels, and the legacy single prior version (09 §4.1.1). Earlier builds kept one prior
+ * version in `<slug>/.prev/` (index.html, meta.json, state.json). The version tree (./versions)
+ * reads it once to seed a document's tree, then removes it; nothing writes `.prev/` any more.
+ * Reconcile's housekeeping still removes `.prev.tmp-*` folders an older build left behind.
  */
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { DIR_MODE, fsyncDir, isErrno, tmpPathFor, writeFileAtomic, writeJsonAtomic } from './fs-atomic';
 import type { DocHistoryState, PriorVersionState } from './types';
 
 export const PREV_DIR = '.prev';
@@ -34,45 +33,6 @@ export function cleanChangeLabel(label: string | undefined): string {
 export function quoteLabel(name: string, max = 32): string {
   const one = name.replace(/\s+/g, ' ').trim();
   return one.length > max ? `${one.slice(0, max - 1).trimEnd()}…` : one;
-}
-
-/** Writes the version to keep into a fresh `.prev.tmp-*` folder next to `.prev/`. Not installed yet. */
-export async function stagePrior(
-  docDir: string,
-  files: { html: string | Uint8Array; meta: unknown },
-  state: PriorVersionState,
-): Promise<string> {
-  const dir = tmpPathFor(path.join(docDir, PREV_DIR));
-  await fsp.mkdir(dir, { mode: DIR_MODE });
-  try {
-    await writeFileAtomic(path.join(dir, 'index.html'), files.html);
-    await writeJsonAtomic(path.join(dir, 'meta.json'), files.meta);
-    await writeJsonAtomic(path.join(dir, PREV_STATE_FILE), state);
-  } catch (err) {
-    await discardStaged(dir);
-    throw err;
-  }
-  return dir;
-}
-
-/** Replaces `.prev/` with a staged folder: rename the old one aside, rename the new one in, drop the old. */
-export async function installPrior(docDir: string, staged: string): Promise<void> {
-  const target = path.join(docDir, PREV_DIR);
-  const old = tmpPathFor(target);
-  let moved = false;
-  try {
-    await fsp.rename(target, old);
-    moved = true;
-  } catch (err) {
-    if (!isErrno(err, 'ENOENT')) throw err;
-  }
-  await fsp.rename(staged, target);
-  await fsyncDir(docDir);
-  if (moved) await fsp.rm(old, { recursive: true, force: true }).catch(() => {});
-}
-
-export function discardStaged(dir: string): Promise<void> {
-  return fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
 }
 
 /** The slot's state when `.prev/` holds a valid state.json and both files; else undefined. */

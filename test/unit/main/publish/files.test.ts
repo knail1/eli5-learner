@@ -46,6 +46,17 @@ describe('buildPublishFileSet (10 §3.3)', () => {
     ]);
   });
 
+  it('never includes the version store (.versions/) or a legacy .prev/ (09 §4.1)', async () => {
+    for (const d of ['.versions/blobs', '.versions/nodes', '.prev'])
+      await mkdir(path.join(docDir, d), { recursive: true });
+    await writeFile(path.join(docDir, '.versions', 'tree.json'), '{}');
+    await writeFile(path.join(docDir, '.versions', 'blobs', `${'a'.repeat(64)}.html.gz`), 'gz');
+    await writeFile(path.join(docDir, '.versions', 'nodes', 'v-000000000001.json'), '{}');
+    await writeFile(path.join(docDir, '.prev', 'index.html'), 'old');
+    const files = await buildPublishFileSet('widget-pricing', docDir);
+    expect(files.map((f) => f.relPath)).toEqual(['index.html']);
+  });
+
   it('freezes the set and each entry (step 5)', async () => {
     const files = await buildPublishFileSet('widget-pricing', docDir);
     expect(Object.isFrozen(files)).toBe(true);

@@ -7,6 +7,7 @@ import type { SkippedSource } from '../sources';
 import type { JobWarning } from '../pipeline';
 import type {
   ActionRecord,
+  AskRecord,
   CatalogEntry,
   CatalogFile,
   DocumentMeta,
@@ -16,12 +17,21 @@ import type {
   SourceRecord,
   SuggestionsFile,
   TabRecord,
+  VersionNodeFile,
+  VersionNodeRecord,
+  VersionTreeFile,
 } from './types';
 import { SLUG_PATTERN } from './slug';
 
 export const CATALOG_SCHEMA_VERSION = 1;
 export const META_SCHEMA_VERSION = 1;
 export const SUGGESTIONS_SCHEMA_VERSION = 1;
+/** `.versions/tree.json` and `.versions/nodes/<id>.json` (09 §4.1). */
+export const TREE_SCHEMA_VERSION = 1;
+/** A version node id: 'v-' + 12 hex. */
+export const VERSION_ID_RE = /^v-[0-9a-f]{12}$/;
+/** An answer box id: 'q-' + 8 hex (07 §4). */
+export const QA_ID_RE = /^q-[0-9a-f]{8}$/;
 
 /** 07 §4 (mirrored in the preload contract). */
 export const SECTION_ID_PATTERN = /^sec-[a-z][a-z0-9]{1,15}-[0-9a-f]{8}$/;
@@ -117,6 +127,16 @@ export const ActionRecordSchema = z.object({
   resultTabKey: z.string().optional(),
 });
 
+/** 08 §6.8. */
+export const AskRecordSchema = z.object({
+  at: Timestamp,
+  sectionId: SectionIdSchema,
+  tabKey: z.string(),
+  question: z.string().min(1).max(500),
+  qaId: z.string().regex(QA_ID_RE),
+  jobId: z.string(),
+});
+
 /** 10 §3.2. */
 export const PublicationRecordSchema = z.object({
   targetId: z.string(),
@@ -156,9 +176,63 @@ export const DocumentMetaSchema = z
     warnings: z.array(JobWarningSchema),
     merges: z.array(MergeRecordSchema),
     actions: z.array(ActionRecordSchema).optional(),
+    asks: z.array(AskRecordSchema).optional(),
     publications: z.array(PublicationRecordSchema).default([]),
+    versionId: z.string().regex(VERSION_ID_RE).optional(),
   })
   .loose();
+
+// ---- .versions/ (09 §4.1) ----
+
+const VersionId = z.string().regex(VERSION_ID_RE);
+
+export const VersionNodeRecordSchema = z.object({
+  id: VersionId,
+  parentId: VersionId.nullable(),
+  createdAt: Timestamp,
+  kind: z.enum([
+    'expand',
+    'reexplain',
+    'analogy',
+    'deeper',
+    'revise',
+    'eli5-tab',
+    'eli5-selection',
+    'ask',
+    'close-tab',
+    'merge',
+    'outside',
+    'initial',
+  ]),
+  label: z.string().min(1).max(200),
+  topic: z.string().min(1).max(48),
+  heading: z.string().max(80).optional(),
+  question: z.string().max(500).optional(),
+  target: z
+    .object({ tabKey: z.string().optional(), sectionId: SectionIdSchema.optional(), anchorId: z.string().optional() })
+    .optional(),
+  undoTarget: z.object({ tabKey: z.string().optional(), sectionId: SectionIdSchema.optional() }).optional(),
+  sha256: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .nullable(),
+  bytes: z.number().int().min(0),
+  forwardId: VersionId.optional(),
+  jobId: z.string().optional(),
+});
+
+export const VersionTreeFileSchema = z.object({
+  schemaVersion: SchemaVersion,
+  rootId: VersionId,
+  currentId: VersionId,
+  nodes: z.array(VersionNodeRecordSchema).min(1),
+});
+
+export const VersionNodeFileSchema = z.object({
+  schemaVersion: SchemaVersion,
+  node: VersionNodeRecordSchema,
+  meta: DocumentMetaSchema,
+});
 
 // ---- .eli5/suggestions.json (09 §10.4, §10.5) ----
 
@@ -195,6 +269,10 @@ type _SchemaDriftChecks = [
   Assert<Same<Out<typeof TabRecordSchema>, TabRecord>>,
   Assert<Same<Out<typeof MergeRecordSchema>, MergeRecord>>,
   Assert<Same<Out<typeof ActionRecordSchema>, ActionRecord>>,
+  Assert<Same<Out<typeof AskRecordSchema>, AskRecord>>,
+  Assert<Same<Out<typeof VersionNodeRecordSchema>, VersionNodeRecord>>,
+  Assert<Same<Out<typeof VersionTreeFileSchema>, VersionTreeFile>>,
+  Assert<Out<typeof VersionNodeFileSchema> extends VersionNodeFile ? true : false>,
   Assert<Same<Out<typeof MergeSuggestionSchema>, MergeSuggestion>>,
   Assert<Same<Out<typeof SuggestionsFileSchema>, SuggestionsFile>>,
   // loose() adds an index signature, so the parsed meta is a DocumentMeta plus unknown extras.

@@ -17,6 +17,8 @@ import type {
   PublicationRecord,
   SectionId,
   TrashItem,
+  VersionChangeKind,
+  VersionTarget,
 } from '../../preload/contract';
 import type { Edition } from '../editions';
 import type { SkippedSource } from '../sources';
@@ -37,6 +39,8 @@ export type {
   MergeSuggestionStatus,
   PublicationRecord,
   SectionId,
+  VersionChangeKind,
+  VersionTarget,
 };
 
 /** catalog.json (09 §5.1). */
@@ -64,6 +68,17 @@ export interface ActionRecord {
   jobId: string;
   /** Set for 'eli5-tab' and 'eli5-selection'. */
   resultTabKey?: string;
+}
+
+/** A reader question and where its answer box went (08 §6.8). Stores the question, like `note`. */
+export interface AskRecord {
+  at: string;
+  sectionId: SectionId;
+  tabKey: string;
+  question: string;
+  /** The answer box's element id, 'q-' + 8 hex (07 §4). */
+  qaId: string;
+  jobId: string;
 }
 
 /** 09 §5.2. Local paths are basenames only; URLs have no fragment. */
@@ -121,7 +136,11 @@ export interface DocumentMeta {
   warnings: JobWarning[];
   merges: MergeRecord[];
   actions?: ActionRecord[];
+  /** Ask records (08 §6.8); kept out of `actions` so older builds still parse the meta. */
+  asks?: AskRecord[];
   publications: PublicationRecord[];
+  /** The version node this meta and index.html were committed as (09 §4.1). */
+  versionId?: string;
 }
 
 /** One `.trash/` entry's record in `.eli5/organization.json` (09 §4.2). */
@@ -190,18 +209,38 @@ export interface LibraryPolicy {
 /** HOOK-LIB-02 · Merge eligibility predicate (09 §10.2). Public build: `() => true`. */
 export type MergeEligibility = (a: DocumentMeta, b: DocumentMeta) => boolean;
 
+/** Where to scroll when a version is undone: the place the change came from. */
+export interface VersionUndoTarget {
+  tabKey?: string;
+  sectionId?: SectionId;
+}
+
+/** What a change was, recorded on the version node it creates (09 §4.1). */
+export interface VersionChange {
+  kind: VersionChangeKind;
+  /** Short branch title (cut to 48 characters). */
+  topic: string;
+  heading?: string;
+  question?: string;
+  target?: VersionTarget;
+  undoTarget?: VersionUndoTarget;
+  jobId?: string;
+}
+
 /**
- * An in-place change to an existing document (09 §9). With `html`, the library first keeps the
- * current files as the document's single prior version (09 §4.1); `label` names the change for
- * the Undo tooltip, e.g. "re-explained 'Pricing'" (default "last change").
+ * An in-place change to an existing document (09 §9). With `html`, the new files become a new
+ * version node whose parent is the current one (09 §4.1); `label` names the change for the Undo
+ * tooltip, e.g. "re-explained 'Pricing'" (default "last change"), and `change` says what it was
+ * (absent: an `outside` change).
  */
 export interface DocumentPatch {
   html?: string;
   meta: (m: DocumentMeta) => DocumentMeta;
   label?: string;
+  change?: VersionChange;
 }
 
-/** `.prev/state.json` (09 §4.1). */
+/** Legacy `.prev/state.json` (09 §4.1.1): read once to seed the version tree, then removed. */
 export interface PriorVersionState {
   schemaVersion: 1;
   /** 'undo': the slot holds the older version; 'redo': it holds the newer one after an undo. */
@@ -210,6 +249,60 @@ export interface PriorVersionState {
   label: string;
   /** `updatedAt` of the live meta.json this slot pairs with; any other live meta voids the slot. */
   pairedUpdatedAt: string;
+}
+
+/** One node in `.versions/tree.json` and `.versions/nodes/<id>.json` (09 §4.1). */
+export interface VersionNodeRecord {
+  /** 'v-' + 12 hex. */
+  id: string;
+  parentId: string | null;
+  createdAt: string;
+  kind: VersionChangeKind;
+  label: string;
+  topic: string;
+  heading?: string;
+  question?: string;
+  target?: VersionTarget;
+  undoTarget?: VersionUndoTarget;
+  /** sha256 of the uncompressed index.html; null when the snapshot was pruned (a stub). */
+  sha256: string | null;
+  /** Size of the gzipped blob. */
+  bytes: number;
+  /** The child Redo follows. */
+  forwardId?: string;
+  jobId?: string;
+}
+
+/** `.versions/tree.json`: a rebuildable index of the node files. */
+export interface VersionTreeFile {
+  schemaVersion: number;
+  rootId: string;
+  currentId: string;
+  nodes: VersionNodeRecord[];
+}
+
+/** `.versions/nodes/<id>.json`: the source of truth for one node, with its meta snapshot. */
+export interface VersionNodeFile {
+  schemaVersion: number;
+  node: VersionNodeRecord;
+  meta: DocumentMeta;
+}
+
+/**
+ * A document's version tree as read right now (09 §4.1), resolved in memory and never written by
+ * the read. `tree.currentId` is the live version; when `detached`, that is a synthesized `outside`
+ * node standing for the live files, saved before the next change.
+ */
+export interface VersionTreeView {
+  slug: string;
+  tree: VersionTreeFile;
+  detached: boolean;
+  /** The library is read-only, or tree.json was written by a newer app. */
+  readOnly: boolean;
+  /** The last html write could not save its version. */
+  degraded: boolean;
+  /** contentSha256 of the live meta's last publication. */
+  publishedSha?: string;
 }
 
 /** 09 §9. */
@@ -228,10 +321,21 @@ export interface Library {
   commitDocument(r: SlugReservation, stagingDir: string, meta: DocumentMeta): Promise<CatalogEntry>;
   updateDocument(slug: string, patch: DocumentPatch): Promise<CatalogEntry>;
   touch(slug: string): Promise<CatalogEntry>;
-  /** One-level undo/redo (09 §4.1). `history` never includes `busy`; 08 adds it. */
+  /** Undo/redo over the version tree (09 §4.1). `history` never includes `busy`; 08 adds it. */
   history(slug: string): Promise<DocHistoryState>;
   undo(slug: string): Promise<DocHistoryState>;
   redo(slug: string): Promise<DocHistoryState>;
+  /** The version tree (09 §4.1); lock-free, never writes. */
+  versions(slug: string): Promise<VersionTreeView>;
+  readVersion(slug: string, id: string): Promise<{ html: Buffer; meta: DocumentMeta; node: VersionNodeRecord }>;
+  /** Makes a version the live document; caller holds `withDocLock(slug)`. */
+  checkout(
+    slug: string,
+    id: string,
+    opts: { retiredIds: SectionId[]; html?: string | Uint8Array },
+  ): Promise<{ tree: VersionTreeView; node: VersionNodeRecord; previousId: string }>;
+  /** Rewrites the current version's index.html in place (a runtime upgrade); caller holds the lock. */
+  refreshRuntime(slug: string, html: string | Uint8Array): Promise<void>;
   withDocLock<T>(slug: string, fn: () => Promise<T>): Promise<T>;
   withDocLocks<T>(slugs: string[], fn: () => Promise<T>): Promise<T>;
   reconcile(): Promise<void>;
@@ -274,7 +378,9 @@ export type LibraryErrorCode =
   | 'FOLDER_NOT_FOUND'
   | 'FOLDER_NAME_INVALID'
   | 'FOLDER_NAME_TAKEN'
-  | 'TRASH_ITEM_NOT_FOUND';
+  | 'TRASH_ITEM_NOT_FOUND'
+  | 'VERSION_NOT_FOUND'
+  | 'VERSION_CORRUPT';
 
 export class LibraryError extends Error {
   readonly code: LibraryErrorCode;
