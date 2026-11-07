@@ -59,6 +59,34 @@ describe('app preload', () => {
     ]);
   });
 
+  it('maps the version tree calls to their app channels and subscribes to versions-changed (09 §4.1)', async () => {
+    const { ipcRenderer } = await import('electron');
+    const api = exposed.eli5 as {
+      doc: {
+        versions(slug: string): Promise<unknown>;
+        checkout(slug: string, versionId: string): Promise<unknown>;
+        onVersionsChanged(cb: (e: unknown) => void): () => void;
+      };
+    };
+    invoke.mockClear();
+    await api.doc.versions('widget-pricing');
+    await api.doc.checkout('widget-pricing', 'v-0123456789ab');
+    expect(invoke.mock.calls).toEqual([
+      [IPC.doc.versions, { slug: 'widget-pricing' }],
+      [IPC.doc.checkout, { slug: 'widget-pricing', versionId: 'v-0123456789ab' }],
+    ]);
+    const on = vi.mocked(ipcRenderer.on);
+    on.mockClear();
+    const seen: unknown[] = [];
+    const off = api.doc.onVersionsChanged((e) => seen.push(e));
+    expect(on).toHaveBeenCalledWith(IPC.doc.versionsChanged, expect.any(Function));
+    const listener = on.mock.calls[0]?.[1] as (e: unknown, payload: unknown) => void;
+    listener({}, { slug: 'widget-pricing' });
+    expect(seen).toEqual([{ slug: 'widget-pricing' }]);
+    off();
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith(IPC.doc.versionsChanged, listener);
+  });
+
   it('listens for drops in the capture phase', () => {
     expect(listeners.find((x) => x.type === 'drop')?.capture).toBe(true);
   });

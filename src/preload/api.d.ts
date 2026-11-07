@@ -16,6 +16,8 @@ import type {
   DocHistoryChangedEvent,
   DocHistoryState,
   DocUpdatedEvent,
+  DocVersionTree,
+  DocVersionsChangedEvent,
   EditionInfo,
   FolderSettingKey,
   HelpTopic,
@@ -101,11 +103,16 @@ export interface Eli5Api {
   };
   doc: {
     onUpdated(cb: (e: DocUpdatedEvent) => void): Unsub;
-    /** One-level undo/redo of a document (09 §4.1): state, swaps, and state pushes. */
+    /** Undo/redo of a document (09 §4.1): state, steps through the version tree, and state pushes. */
     history(slug: string): R<DocHistoryState>;
     undo(slug: string): R<DocHistoryState>;
     redo(slug: string): R<DocHistoryState>;
     onHistoryChanged(cb: (e: DocHistoryChangedEvent) => void): Unsub;
+    /** The document's version tree (09 §4.1). */
+    versions(slug: string): R<DocVersionTree>;
+    /** Makes a version the live document and scrolls the viewer to its change; returns the new tree. */
+    checkout(slug: string, versionId: string): R<DocVersionTree>;
+    onVersionsChanged(cb: (e: DocVersionsChangedEvent) => void): Unsub;
   };
   viewer: {
     setBounds(r: ViewerBounds): R<void>;

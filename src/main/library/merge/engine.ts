@@ -742,12 +742,15 @@ class MergeEngine implements MergeDelegate {
       mergedAt,
       anchorSectionIds: merged.markerSectionIds,
     };
+    const anchor = merged.markerSectionIds[0];
+    const at = anchor ? { tabKey: tabKeyOfSectionId(anchor), sectionId: anchor } : undefined;
     let committed: DocumentMeta;
     try {
       committed = await this.lib.writeDocumentFiles(s.target.slug, {
         html: merged.html,
-        // 09 §4.1: the pre-merge target becomes the prior version; Undo names the merge.
+        // 09 §4.1: the merge is a new version of the target; Undo names it and lands on its marker.
         label: `merged '${quoteLabel(sourceMeta.title)}' in`,
+        change: { kind: 'merge', topic: sourceMeta.title, ...(at ? { target: at, undoTarget: at } : {}) },
         meta: (m) => ({
           ...m,
           tabs: merged.tabs,

@@ -136,6 +136,28 @@ describe('doc preload (08 §4.3)', () => {
   });
 });
 
+describe('doc preload scroll buffer anchor', () => {
+  it('passes anchorId through the buffer unchanged (09 §4.1)', async () => {
+    vi.resetModules();
+    listeners.clear();
+    await import('../../../src/preload/doc');
+    const push = listeners.get(IPC.doc.scrollTo);
+    const e = {
+      sectionId: 'sec-indepth-3f9a1c2e',
+      tabKey: 'indepth',
+      anchorId: 'qa-0a1b2c3d',
+      flash: true,
+      loadSeq: 2,
+    };
+    push?.({}, e);
+    const got: unknown[] = [];
+    (exposed.eli5Doc as DocApi).onScrollTo((x) => got.push(x));
+    expect(got).toEqual([e]);
+    push?.({}, { ...e, loadSeq: 3 });
+    expect(got).toEqual([e, { ...e, loadSeq: 3 }]);
+  });
+});
+
 describe('doc preload scroll buffer expiry', () => {
   it('drops a buffered scroll-to older than 5 s', async () => {
     vi.resetModules();

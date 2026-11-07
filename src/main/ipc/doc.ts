@@ -17,6 +17,7 @@ import {
   type SectionId,
 } from '../../preload/contract';
 import { SECTION_ID_RE, SectionActionError, TAB_KEY_RE, tabKeyOfSectionId } from '../document';
+import { VERSION_ID_RE } from '../library';
 import { fail, type Register } from './handle';
 import { SlugPayload } from './schemas';
 
@@ -133,6 +134,8 @@ export const CreateSectionEli5Payload = z
   .refine(validScope, 'Invalid selection scope');
 /** Any tab key; the service answers E_FORBIDDEN for the in-depth and ELI5 tabs (08 §7.2). */
 export const CloseTabPayload = z.object({ slug: Slug, tabKey: TabKey });
+/** 09 §4.1: a version of the document, 'v-' + 12 hex. */
+export const CheckoutPayload = z.object({ slug: Slug, versionId: z.string().regex(VERSION_ID_RE) });
 
 /** The slug of the document the calling viewer has loaded (eli5doc://doc/<slug>/index.html). */
 function viewerSlug(e: IpcMainInvokeEvent): string | null {
@@ -161,12 +164,14 @@ async function mapped<T>(run: () => Promise<T>): Promise<T> {
 
 /**
  * `eli5:doc:*` invokes (08 §3). The section channels are viewer-only via VIEWER_CHANNELS; history,
- * undo and redo are app-only (09 §4.1). Events are wired by registerIpc.
+ * undo, redo, versions and checkout are app-only (09 §4.1). Events are wired by registerIpc.
  */
 export function registerDocIpc(on: Register, d: { actions: SectionActions; history: DocHistory }): void {
   on(IPC.doc.history, SlugPayload, (p) => mapped(() => d.history.state(p.slug)));
   on(IPC.doc.undo, SlugPayload, (p) => mapped(() => d.history.undo(p.slug)));
   on(IPC.doc.redo, SlugPayload, (p) => mapped(() => d.history.redo(p.slug)));
+  on(IPC.doc.versions, SlugPayload, (p) => mapped(() => d.history.versions(p.slug)));
+  on(IPC.doc.checkout, CheckoutPayload, (p) => mapped(() => d.history.checkout(p)));
   on(IPC.doc.regenerateSection, SectionActionPayload, (p, e) => {
     sameDocument(p.slug, e);
     return mapped(() => d.actions.regenerateSection(p));

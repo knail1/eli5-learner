@@ -46,6 +46,20 @@ export class ViewerRefresh {
     this.viewer.reload();
   }
 
+  /**
+   * Scroll only, no reload (09 §4.1: opening the version already shown). Emitted with the current
+   * loadSeq; while a reload of that document is pending, the target rides on it instead.
+   */
+  scrollTo(e: DocUpdatedEvent): void {
+    if (this.viewer.currentSlug() !== e.slug) return;
+    const p = this.pending;
+    if (p && p.slug === e.slug) {
+      p.target = e;
+      return;
+    }
+    this.out.scrollTo(scrollEvent(e, this.loadSeq));
+  }
+
   dispose(): void {
     for (const u of this.unsubs) u();
   }
@@ -75,16 +89,22 @@ export class ViewerRefresh {
         this.viewer.reload();
       } else {
         this.pending = undefined;
-        this.out.scrollTo({
-          ...(p.target.sectionId ? { sectionId: p.target.sectionId } : {}),
-          ...(p.target.tabKey ? { tabKey: p.target.tabKey } : {}),
-          flash: true,
-          loadSeq: p.seq,
-        });
+        this.out.scrollTo(scrollEvent(p.target, p.seq));
       }
     }
     this.out.afterLoad();
   }
+}
+
+/** `eli5:doc:scroll-to` for an update's target (08 §7.4 step 4); always flashes. */
+function scrollEvent(t: DocUpdatedEvent, loadSeq: number): ScrollToEvent {
+  return {
+    ...(t.sectionId ? { sectionId: t.sectionId } : {}),
+    ...(t.tabKey ? { tabKey: t.tabKey } : {}),
+    ...(t.anchorId ? { anchorId: t.anchorId } : {}),
+    flash: true,
+    loadSeq,
+  };
 }
 
 /** The part of Electron's WebContents the viewer port uses. */

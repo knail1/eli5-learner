@@ -109,6 +109,9 @@ const api: Eli5Api = {
     undo: (slug) => invoke(IPC.doc.undo, { slug }),
     redo: (slug) => invoke(IPC.doc.redo, { slug }),
     onHistoryChanged: on(IPC.doc.historyChanged),
+    versions: (slug) => invoke(IPC.doc.versions, { slug }),
+    checkout: (slug, versionId) => invoke(IPC.doc.checkout, { slug, versionId }),
+    onVersionsChanged: on(IPC.doc.versionsChanged),
   },
   viewer: {
     setBounds: (r) => invoke(IPC.viewer.setBounds, r),

@@ -19,9 +19,6 @@ const { setup } = await import('./harness');
 
 /** `eli5:doc:*` (08 §3, 01 §5.2). The harness viewer shows eli5doc://doc/solar-power/index.html. */
 
-const notWired = (): never => {
-  throw new Error('not used here');
-};
 const forbidden = { ok: false, error: { code: 'E_FORBIDDEN', message: 'Forbidden' } };
 const req = (over: Record<string, unknown> = {}) => ({
   slug: 'solar-power',
@@ -263,6 +260,15 @@ describe('eli5:doc:history / undo / redo (09 §4.1, 01 §5.2)', () => {
     const subs = new Set<(e: DocHistoryChangedEvent) => void>();
     const versionSubs = new Set<(e: DocVersionsChangedEvent) => void>();
     const state = { canUndo: true, canRedo: false, undoLabel: "expanded 'Panels'", busy: false };
+    const tree: DocVersionTree = {
+      slug: '',
+      nodes: [],
+      currentId: 'v-000000000000',
+      detached: false,
+      busy: false,
+      pending: [],
+      readOnly: false,
+    };
     const svc = {
       state: vi.fn(async (_slug: string) => state),
       undo: vi.fn(async (_slug: string) => ({
@@ -273,8 +279,12 @@ describe('eli5:doc:history / undo / redo (09 §4.1, 01 §5.2)', () => {
       })),
       redo: vi.fn(async (_slug: string) => state),
       onChanged: (cb: (e: DocHistoryChangedEvent) => void) => (subs.add(cb), () => subs.delete(cb)),
-      versions: vi.fn(async (_slug: string): Promise<DocVersionTree> => notWired()),
-      checkout: vi.fn(async (): Promise<DocVersionTree> => notWired()),
+      versions: vi.fn(async (slug: string): Promise<DocVersionTree> => ({ ...tree, slug })),
+      checkout: vi.fn(async (r: { slug: string; versionId: string }): Promise<DocVersionTree> => ({
+        ...tree,
+        slug: r.slug,
+        currentId: r.versionId,
+      })),
       onVersionsChanged: (cb: (e: DocVersionsChangedEvent) => void) => (
         versionSubs.add(cb),
         () => versionSubs.delete(cb)
@@ -361,13 +371,63 @@ describe('eli5:doc:history / undo / redo (09 §4.1, 01 §5.2)', () => {
     expect(versionSubs.size).toBe(0);
   });
 
-  it('keeps versions and checkout app-only and ask-section viewer-only until they are wired', async () => {
+  it('answers eli5:doc:versions and eli5:doc:checkout for the app window (09 §4.1)', async () => {
+    const { svc } = fakeHistory();
+    const h = await setup({ services: { docHistory: svc } });
+    expect(await h.call(IPC.doc.versions, { slug: 'solar-power' })).toMatchObject({
+      ok: true,
+      value: { slug: 'solar-power', currentId: 'v-000000000000' },
+    });
+    expect(svc.versions).toHaveBeenCalledWith('solar-power');
+    const r = { slug: 'solar-power', versionId: 'v-0123456789ab' };
+    expect(await h.call(IPC.doc.checkout, r)).toMatchObject({ ok: true, value: { currentId: 'v-0123456789ab' } });
+    expect(svc.checkout).toHaveBeenCalledWith(r);
+  });
+
+  it('keeps versions and checkout app-only', async () => {
+    const { svc } = fakeHistory();
+    const h = await setup({ services: { docHistory: svc } });
+    expect(await h.call(IPC.doc.versions, { slug: 'solar-power' }, 'viewer')).toEqual(forbidden);
+    expect(await h.call(IPC.doc.checkout, { slug: 'solar-power', versionId: 'v-0123456789ab' }, 'viewer')).toEqual(
+      forbidden,
+    );
+    expect(svc.versions).not.toHaveBeenCalled();
+    expect(svc.checkout).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed checkout with E_BAD_REQUEST before the service', async () => {
+    const { svc } = fakeHistory();
+    const h = await setup({ services: { docHistory: svc } });
+    for (const bad of [
+      { slug: 'solar-power' },
+      { slug: 'solar-power', versionId: 'v-0123' },
+      { slug: 'solar-power', versionId: 'v-0123456789AB' },
+      { slug: 'solar-power', versionId: '../tree.json' },
+      { slug: '../x', versionId: 'v-0123456789ab' },
+    ]) {
+      expect(await h.call(IPC.doc.checkout, bad)).toMatchObject({ ok: false, error: { code: 'E_BAD_REQUEST' } });
+    }
+    expect(svc.checkout).not.toHaveBeenCalled();
+  });
+
+  it('maps a missing or unreadable version to E_NOT_FOUND / E_IO', async () => {
+    const { svc } = fakeHistory();
+    svc.checkout.mockRejectedValueOnce(new LibraryError('VERSION_NOT_FOUND'));
+    svc.checkout.mockRejectedValueOnce(new LibraryError('VERSION_CORRUPT'));
+    svc.checkout.mockRejectedValueOnce(new SectionActionError('E_CONFLICT', 'Wait for the section update to finish'));
+    const h = await setup({ services: { docHistory: svc } });
+    const r = { slug: 'solar-power', versionId: 'v-0123456789ab' };
+    expect(await h.call(IPC.doc.checkout, r)).toMatchObject({ ok: false, error: { code: 'E_NOT_FOUND' } });
+    expect(await h.call(IPC.doc.checkout, r)).toMatchObject({ ok: false, error: { code: 'E_IO' } });
+    expect(await h.call(IPC.doc.checkout, r)).toEqual({
+      ok: false,
+      error: { code: 'E_CONFLICT', message: 'Wait for the section update to finish' },
+    });
+  });
+
+  it('keeps ask-section viewer-only until it is wired', async () => {
     const h = await setup();
     const notYet = { ok: false, error: { code: 'E_INTERNAL', message: 'Not implemented yet' } };
-    for (const ch of [IPC.doc.versions, IPC.doc.checkout]) {
-      expect(await h.call(ch, { slug: 'solar-power' }, 'viewer')).toEqual(forbidden);
-      expect(await h.call(ch, { slug: 'solar-power' })).toEqual(notYet);
-    }
     expect(await h.call(IPC.doc.askSection, req(), 'app')).toEqual(forbidden);
     expect(await h.call(IPC.doc.askSection, req(), 'viewer')).toEqual(notYet);
   });

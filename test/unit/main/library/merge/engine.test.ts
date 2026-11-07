@@ -441,6 +441,25 @@ describe('accept (09 §10.6)', () => {
     expect((await s.lib.getMeta(s.target.topicSlug)).merges).toEqual([]);
   });
 
+  it('records the merge as a version node of the target that lands on its first marker (09 §4.1)', async () => {
+    const s = await setup();
+    const { h, sug } = await suggested(s);
+    await h.service.accept(sug.id);
+    const { tree } = await s.lib.versions(s.target.topicSlug);
+    expect(tree.nodes).toHaveLength(2);
+    const root = tree.nodes.find((n) => n.parentId === null);
+    const merged = tree.nodes.find((n) => n.parentId === root?.id);
+    expect(tree.currentId).toBe(merged?.id);
+    const at = { tabKey: 'indepth', sectionId: MARKER };
+    expect(merged).toMatchObject({
+      kind: 'merge',
+      label: `merged '${quoteLabel(s.source.title)}' in`,
+      topic: quoteLabel(s.source.title, 48),
+      target: at,
+      undoTarget: at,
+    });
+  });
+
   it('finishes steps 8-10 in-session when they fail once after the commit point', async () => {
     const s = await setup();
     const { h, sug } = await suggested(s);

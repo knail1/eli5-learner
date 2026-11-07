@@ -1,7 +1,7 @@
 // Section runner (08 §6.2-§6.4, §7.1): generating stage (context + LLM), then the saving stage
 // (re-read and re-parse under withDocLock, precondition, pure mutator, render, post-check, write).
 import type { DocUpdatedEvent } from '../../../preload/contract';
-import { LibraryError, type DocumentMeta } from '../../library';
+import { LibraryError, type DocumentMeta, type VersionChange } from '../../library';
 import { estimateTokens, sectionText, type DocumentDraftTab, type SectionDraft } from '../../llm';
 import { PipelineFailure, type SectionRunContext, type SectionRunner } from '../../pipeline';
 import { canonicalJson } from '../canonical-json';
@@ -10,7 +10,16 @@ import { sectionIdsOf } from '../ids';
 import { addSectionEli5Tab, getSectionContext, replaceSection } from '../mutate';
 import { parseDocument } from '../parse';
 import { renderDocument } from '../render';
-import type { DocumentModel, ParsedDocument, Section, SectionContext, SectionJobPayload, Tab } from '../types';
+import { DOC_RUNTIME_VERSION } from '../runtime-assets';
+import type {
+  DocRuntime,
+  DocumentModel,
+  ParsedDocument,
+  Section,
+  SectionContext,
+  SectionJobPayload,
+  Tab,
+} from '../types';
 import { sectionHash } from './hash';
 import { selectionContext } from './selection-context';
 import { changeLabel, mirrorTabs, type ResolvedDeps } from './types';
@@ -31,6 +40,41 @@ export interface RunnerEnv {
   committed(p: SectionJobPayload, jobId: string, e: DocUpdatedEvent): void;
   /** True once for a job the user retried: its baseHash is re-taken (08 §9 "fresh baseHash"). */
   consumeRetry(jobId: string): boolean;
+}
+
+/** -1, 0 or 1 for dotted numeric versions ('1.0.0' < '1.2'); a non-number part counts as 0. */
+export function compareRuntimeVersions(a: string, b: string): number {
+  const pa = a.split('.').map((x) => Number.parseInt(x, 10) || 0);
+  const pb = b.split('.').map((x) => Number.parseInt(x, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d < 0 ? -1 : 1;
+  }
+  return 0;
+}
+
+/**
+ * D12 (07 §5.5): the runtime a re-render of `parsed` uses. A document whose runtime is older than
+ * the bundled one gets the bundled runtime (and its version stamped on the model); otherwise its
+ * own stays. When the bundled runtime is missing (no build pre-step) the document keeps its own.
+ */
+export function runtimeFor(
+  parsed: Pick<ParsedDocument, 'model' | 'runtime'>,
+  bundled: () => DocRuntime,
+): { runtime: DocRuntime; upgraded: boolean; stamp(m: DocumentModel): DocumentModel } {
+  const keep = { runtime: parsed.runtime, upgraded: false, stamp: (m: DocumentModel) => m };
+  if (compareRuntimeVersions(parsed.model.generator.runtimeVersion, DOC_RUNTIME_VERSION) >= 0) return keep;
+  let runtime: DocRuntime;
+  try {
+    runtime = bundled();
+  } catch {
+    return keep;
+  }
+  return {
+    runtime,
+    upgraded: true,
+    stamp: (m) => ({ ...m, generator: { ...m.generator, runtimeVersion: DOC_RUNTIME_VERSION } }),
+  };
 }
 
 const corrupt = (): PipelineFailure => new PipelineFailure('INTERNAL', 'document_corrupt');
@@ -161,8 +205,10 @@ interface Planned {
   meta: (m: DocumentMeta) => DocumentMeta;
   event: DocUpdatedEvent;
   tabLabel?: string;
-  /** Undo label for the prior version (08 §6.7). */
+  /** Undo label of the version this creates (08 §6.7). */
   label: string;
+  /** What the new version node records (09 §4.1). */
+  change: VersionChange;
 }
 
 /** Saving stage body, under withDocLock (08 §6.4 steps 1-6, §7.1 steps 1-4). */
@@ -180,7 +226,9 @@ async function plan(
   const { model, assets } = parsed;
   const hit = findSection(model, p.sectionId);
   if (!hit) throw new PipelineFailure('SECTION_GONE');
-  const renderOpts = { runtime: parsed.runtime, theme: parsed.theme };
+  const rt = runtimeFor(parsed, d.bundledRuntime);
+  const renderOpts = { runtime: rt.runtime, theme: parsed.theme };
+  const here = { tabKey: p.tabKey, sectionId: p.sectionId };
   const entry = {
     at: now,
     action: p.action,
@@ -204,9 +252,10 @@ async function plan(
       mutationFailure(err);
     }
     for (const w of added.warnings) d.log?.warn('document.section-warning', { slug: p.slug, code: w });
-    const html = renderDocument(added.model, assets, renderOpts);
-    postCheck(html, model, added.model);
-    const next = added.model;
+    const next = rt.stamp(added.model);
+    const html = renderDocument(next, assets, renderOpts);
+    postCheck(html, model, next);
+    const tabLabel = next.tabs.at(-1)?.label ?? '';
     return {
       html,
       meta: (m) => ({
@@ -218,8 +267,16 @@ async function plan(
         ],
       }),
       event: { slug: p.slug, tabKey: added.tabKey },
-      tabLabel: next.tabs.at(-1)?.label ?? '',
-      label: changeLabel(p.action, next.tabs.at(-1)?.label ?? ''),
+      tabLabel,
+      label: changeLabel(p.action, tabLabel),
+      change: {
+        kind: p.action,
+        topic: tabLabel,
+        heading: hit.section.heading,
+        target: { tabKey: added.tabKey },
+        undoTarget: here,
+        jobId,
+      },
     };
   }
   // 08 §6.4 step 3: a mismatch means something outside this feature changed it; the newer wins.
@@ -237,14 +294,22 @@ async function plan(
   for (const w of replaced.warnings) {
     d.log?.warn('document.section-warning', { slug: p.slug, sectionId: p.sectionId, code: w });
   }
-  const html = renderDocument(replaced.model, assets, renderOpts);
-  postCheck(html, model, replaced.model, p.sectionId);
-  const next = replaced.model;
+  const next = rt.stamp(replaced.model);
+  const html = renderDocument(next, assets, renderOpts);
+  postCheck(html, model, next, p.sectionId);
   return {
     html,
     meta: (m) => ({ ...m, tabs: mirrorTabs(next.tabs), actions: [...(m.actions ?? []), entry] }),
     event: { slug: p.slug, sectionId: p.sectionId, tabKey: p.tabKey },
     label: changeLabel(p.action, hit.section.heading),
+    change: {
+      kind: p.action,
+      topic: hit.section.heading,
+      heading: hit.section.heading,
+      target: here,
+      undoTarget: here,
+      jobId,
+    },
   };
 }
 
@@ -278,7 +343,12 @@ async function alreadyCommitted(d: ResolvedDeps, p: SectionJobPayload, jobId: st
 /** 08 §6.4 step 7: one updateDocument call; failures leave both files unchanged (09). */
 async function write(d: ResolvedDeps, slug: string, planned: Planned) {
   try {
-    return await d.library.updateDocument(slug, { html: planned.html, meta: planned.meta, label: planned.label });
+    return await d.library.updateDocument(slug, {
+      html: planned.html,
+      meta: planned.meta,
+      label: planned.label,
+      change: planned.change,
+    });
   } catch (err) {
     if (err instanceof LibraryError && err.code === 'NOT_FOUND') throw new PipelineFailure('DOC_GONE');
     const detail = err instanceof LibraryError ? `library:${err.code}` : 'write';

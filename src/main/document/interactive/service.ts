@@ -7,6 +7,9 @@ import type {
   DocHistoryChangedEvent,
   DocHistoryState,
   DocUpdatedEvent,
+  DocVersionPending,
+  DocVersionTree,
+  DocVersionsChangedEvent,
   MenuAction,
   ScrollToEvent,
   SectionActionRequest,
@@ -14,17 +17,28 @@ import type {
   SectionId,
 } from '../../../preload/contract';
 import type { DocHistory, SectionActions } from '../../ipc';
-import { LibraryError } from '../../library';
+import {
+  LibraryError,
+  historyFromTree,
+  redoChild,
+  scrollTargetFor,
+  toWire,
+  type VersionNodeRecord,
+  type VersionTreeFile,
+  type VersionTreeView,
+} from '../../library';
 import type { SectionRunner } from '../../pipeline';
 import { DocumentFormatError } from '../errors';
+import { sectionIdsOf } from '../ids';
 import { MAX_SECTION_ELI5_TABS, removeTab, sectionIdsOfTab } from '../mutate';
 import { parseDocument } from '../parse';
 import { renderDocument } from '../render';
+import { bundledDocRuntime } from '../runtime-assets';
 import { tabKeyOfSectionId } from '../section-id';
-import type { ParsedDocument, SectionJobPayload } from '../types';
+import type { DocumentModel, ParsedDocument, SectionJobPayload } from '../types';
 import { sectionHash } from './hash';
 import { RateLimiter } from './rate-limit';
-import { createSectionRunner } from './regenerate';
+import { createSectionRunner, runtimeFor } from './regenerate';
 import {
   SectionActionError,
   changeLabel,
@@ -57,7 +71,7 @@ export interface InteractiveReading {
   readonly actions: SectionActions;
   /** PipelineDeps.sectionRunner (06 §8.2). */
   readonly runner: SectionRunner;
-  /** IpcServices.docHistory: one-level undo/redo, refused while a section is busy (08 §6.7). */
+  /** IpcServices.docHistory: undo/redo and the version tree, refused while a section is busy (08 §6.7). */
   readonly history: DocHistory;
   /** Subscribes to the queue and rebuilds busy keys from non-terminal section jobs (08 §8.1). */
   attachJobs(jobs: InteractiveJobs): void;
@@ -73,7 +87,12 @@ interface Inflight {
   sectionId: SectionId;
   action: MenuAction;
   jobId?: string;
+  /** The section heading, once known (the Versions panel's pending row). */
+  heading?: string;
 }
+
+const nodeOf = (tree: VersionTreeFile, id: string | null | undefined): VersionNodeRecord | undefined =>
+  id == null ? undefined : tree.nodes.find((n) => n.id === id);
 
 const busyKey = (slug: string, sectionId: string): string => `${slug}#${sectionId}`;
 const refuse = (code: SectionActionError['code'], message: string): never => {
@@ -96,12 +115,14 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
     ...input,
     clock: input.clock ?? { now: () => new Date() },
     readFile: input.readFile ?? ((p) => readFile(p, 'utf8')),
+    bundledRuntime: input.bundledRuntime ?? bundledDocRuntime,
   };
   const inflight = new Map<string, Inflight>();
   const updated = new Emitter<DocUpdatedEvent>();
   const scroll = new Emitter<ScrollToEvent>();
   const busy = new Emitter<SectionBusyEvent>();
   const historyChanged = new Emitter<DocHistoryChangedEvent>();
+  const versionsChanged = new Emitter<DocVersionsChangedEvent>();
   const limiter = new RateLimiter({
     ...(d.rateLimit ?? {}),
     now: () => d.clock.now().getTime(),
@@ -114,22 +135,43 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
   let jobs: InteractiveJobs | undefined;
   let unsubJobs: Unsub | undefined;
 
-  // ---- one-level undo/redo (08 §6.7, 09 §4.1) ----
+  // ---- undo/redo and the version tree (08 §6.7, 09 §4.1) ----
   const busyFor = (slug: string): boolean => [...inflight.values()].some((f) => f.slug === slug);
-  const historyState = async (slug: string): Promise<DocHistoryState> => {
+  /** Section jobs of `slug` that will add a version when they finish. */
+  const pendingFor = (slug: string): DocVersionPending[] =>
+    [...inflight.values()]
+      .filter((f) => f.slug === slug)
+      .map((f) => ({
+        sectionId: f.sectionId,
+        action: f.action,
+        heading: f.heading ?? (f.jobId ? jobs?.get(f.jobId)?.section?.heading : undefined) ?? '',
+      }));
+  const historyOf = (slug: string, view: VersionTreeView): DocHistoryState => ({
+    ...historyFromTree(view.tree),
+    busy: busyFor(slug),
+  });
+  const wireOf = (slug: string, view: VersionTreeView): DocVersionTree =>
+    toWire(view, { busy: busyFor(slug), pending: pendingFor(slug) });
+  const viewOf = async (slug: string): Promise<VersionTreeView> => {
     if (!d.library.hasSlug(slug)) refuse('E_NOT_FOUND', NOTICES.docGone);
-    return { ...(await d.library.history(slug)), busy: busyFor(slug) };
+    return d.library.versions(slug);
   };
-  /** Serialized, so the last event for a slug always carries its latest state. */
+  const historyState = async (slug: string): Promise<DocHistoryState> => historyOf(slug, await viewOf(slug));
+  const versionsState = async (slug: string): Promise<DocVersionTree> => wireOf(slug, await viewOf(slug));
+  /** Serialized, so the last events for a slug always carry its latest state. */
   let historyChain: Promise<void> = Promise.resolve();
   const pushHistory = (slug: string): void => {
     historyChain = historyChain.then(async () => {
       if (!d.library.hasSlug(slug)) return;
+      let view: VersionTreeView;
       try {
-        historyChanged.emit({ slug, state: await historyState(slug) });
+        view = await d.library.versions(slug);
       } catch {
         // A document that vanished or cannot be read has no history to show.
+        return;
       }
+      historyChanged.emit({ slug, state: historyOf(slug, view) });
+      versionsChanged.emit({ slug, tree: wireOf(slug, view) });
     });
   };
   const unsubLibrary = d.library.on('changed', (e) => {
@@ -177,7 +219,7 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
       if (adopt) cur.jobId ??= jobId;
       return false;
     }
-    inflight.set(key, { slug: p.slug, sectionId: p.sectionId, action: p.action, jobId });
+    inflight.set(key, { slug: p.slug, sectionId: p.sectionId, action: p.action, jobId, heading: p.heading });
     return true;
   };
 
@@ -240,6 +282,8 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
       const section = model.tabs.find((t) => t.key === r.tabKey)?.sections.find((s) => s.id === r.sectionId);
       if (!section) return refuse('E_NOT_FOUND', NOTICES.sectionGone);
       if (section.kind === 'references') refuse('E_BAD_REQUEST', 'Invalid request');
+      const mine = inflight.get(key);
+      if (mine) mine.heading = section.heading;
       // 08 §7.5: every section a selection covers must still exist in the tab and be actionable.
       const covered = action === 'eli5-selection' ? (r.sectionIds ?? [r.sectionId]) : undefined;
       for (const id of covered ?? []) {
@@ -291,13 +335,21 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
       for (const f of inflight.values()) {
         if (f.slug === r.slug && tabKeyOfSectionId(f.sectionId) === r.tabKey) refuse('E_CONFLICT', NOTICES.tabBusy);
       }
-      const next = removeTab(model, r.tabKey, now);
+      const rt = runtimeFor({ model, runtime }, d.bundledRuntime);
+      const next = rt.stamp(removeTab(model, r.tabKey, now));
       const closedIds = sectionIdsOfTab(model, r.tabKey);
-      const html = renderDocument(next, assets, { runtime, theme });
+      const html = renderDocument(next, assets, { runtime: rt.runtime, theme });
+      const origin = tab.origin?.sectionId;
       await d.library.updateDocument(r.slug, {
         html,
         meta: (m) => ({ ...m, tabs: mirrorTabs(next.tabs), retiredIds: [...(m.retiredIds ?? []), ...closedIds] }),
         label: changeLabel('close-tab', tab.label),
+        change: {
+          kind: 'close-tab',
+          topic: tab.label,
+          ...(origin ? { target: { tabKey: tabKeyOfSectionId(origin), sectionId: origin } } : {}),
+          undoTarget: { tabKey: r.tabKey },
+        },
       });
       return model.tabs[index - 1]?.key ?? model.tabs[0]?.key;
     });
@@ -320,37 +372,117 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
     consumeRetry: (jobId) => retried.delete(jobId),
   });
 
-  /** 08 §6.7: refused while any section of the document is busy; reloads the viewer like an update. */
-  const swap = async (slug: string, dir: 'undo' | 'redo'): Promise<DocHistoryState> => {
-    if (!d.library.hasSlug(slug)) refuse('E_NOT_FOUND', NOTICES.docGone);
-    if (busyFor(slug)) refuse('E_CONFLICT', NOTICES.historyBusy);
-    const empty = dir === 'undo' ? NOTICES.nothingToUndo : NOTICES.nothingToRedo;
-    const cur = await d.library.history(slug);
-    if (!(dir === 'undo' ? cur.canUndo : cur.canRedo)) refuse('E_CONFLICT', empty);
-    let next: DocHistoryState;
-    try {
-      next = await (dir === 'undo' ? d.library.undo(slug) : d.library.redo(slug));
-    } catch (err) {
-      if (err instanceof LibraryError && err.code === 'HISTORY_EMPTY') refuse('E_CONFLICT', empty);
-      throw err;
-    }
-    d.log?.info('document.history-swap', { slug, kind: dir });
-    notifyUpdated({ slug });
-    return { ...next, busy: busyFor(slug) };
+  /**
+   * D7: SectionIds no version may reuse. Every id retired in either version, plus every id the live
+   * version has that the target lacks, minus the ids the target uses itself.
+   */
+  const retiredFor = (
+    live: DocumentModel | undefined,
+    target: DocumentModel,
+    liveRetired: readonly string[],
+    targetRetired: readonly string[],
+  ): SectionId[] => {
+    const inTarget = sectionIdsOf(target.tabs);
+    const out = new Set<string>([...targetRetired, ...liveRetired]);
+    for (const id of live ? sectionIdsOf(live.tabs) : []) out.add(id);
+    for (const id of inTarget) out.delete(id);
+    return [...out] as SectionId[];
   };
 
-  // The version tree and Ask (09 §4.1, 08 §6.8) are not wired yet: they answer E_INTERNAL.
-  const notYet = async (): Promise<never> => refuse('E_INTERNAL', 'Not implemented yet');
+  const tryParse = (html: string): ParsedDocument | undefined => {
+    try {
+      return parseDocument(html);
+    } catch (err) {
+      if (err instanceof DocumentFormatError) return undefined;
+      throw err;
+    }
+  };
+
+  /**
+   * 09 §4.1, D1: makes a version the live document and scrolls the viewer to where it changed.
+   * Refused while any section of the document is busy. The version already shown only scrolls.
+   * `pick` chooses the version from the tree read under the doc lock, so Undo and Redo step from
+   * the version that is current when they run, not from one a concurrent write replaced.
+   */
+  const checkoutWith = async (slug: string, pick: (tree: VersionTreeFile) => string): Promise<VersionTreeView> => {
+    if (!d.library.hasSlug(slug)) refuse('E_NOT_FOUND', NOTICES.docGone);
+    if (busyFor(slug)) refuse('E_CONFLICT', NOTICES.historyBusy);
+    const out = await d.library.withDocLock(slug, async () => {
+      // A job that became busy while this waited for the lock wins.
+      if (busyFor(slug)) refuse('E_CONFLICT', NOTICES.historyBusy);
+      const view = await d.library.versions(slug);
+      const id = pick(view.tree);
+      if (id === view.tree.currentId && nodeOf(view.tree, id)) return { view, id, previousId: id, moved: false };
+      const liveMeta = await d.library.getMeta(slug);
+      const liveRetired = liveMeta.retiredIds ?? [];
+      let target: Awaited<ReturnType<typeof d.library.readVersion>>;
+      try {
+        target = await d.library.readVersion(slug, id);
+      } catch (err) {
+        // readVersion never writes (D5). library.checkout reads the same snapshot again, stubs the
+        // node when it is corrupt so it is not offered again, and throws VERSION_CORRUPT.
+        if (!(err instanceof LibraryError && err.code === 'VERSION_CORRUPT')) throw err;
+        await d.library.checkout(slug, id, { retiredIds: liveRetired });
+        throw err;
+      }
+      let liveHtml: string | undefined;
+      try {
+        liveHtml = await d.readFile(d.library.docPath(slug));
+      } catch {
+        liveHtml = undefined;
+      }
+      const live = liveHtml === undefined ? undefined : tryParse(liveHtml);
+      const parsed = tryParse(target.html.toString('utf8'));
+      const targetRetired = target.meta.retiredIds ?? [];
+      let retiredIds: SectionId[];
+      let html: string | undefined;
+      if (parsed) {
+        retiredIds = retiredFor(live?.model, parsed.model, liveRetired, targetRetired);
+        // D12 (c): an old-runtime snapshot comes back with the bundled runtime, same model.
+        const rt = runtimeFor(parsed, d.bundledRuntime);
+        if (rt.upgraded) {
+          html = renderDocument(rt.stamp(parsed.model), parsed.assets, { runtime: rt.runtime, theme: parsed.theme });
+        }
+      } else {
+        // Not a document 08 can read: checked out as it is, retiring everything either side retired.
+        retiredIds = [...new Set([...liveRetired, ...targetRetired])] as SectionId[];
+      }
+      const r = await d.library.checkout(slug, id, { retiredIds, ...(html !== undefined ? { html } : {}) });
+      return { view: r.tree, id, previousId: r.previousId, moved: r.previousId !== id };
+    });
+    const e: DocUpdatedEvent = { slug, ...scrollTargetFor(out.view.tree, out.previousId, out.id) };
+    if (out.moved) {
+      d.log?.info('document.version-checkout', { slug });
+      notifyUpdated(e);
+    } else {
+      refresh.scrollTo(e);
+    }
+    return out.view;
+  };
+
+  /** 08 §6.7: Undo checks out the parent, Redo the redo child (09 §4.1). */
+  const step = async (slug: string, dir: 'undo' | 'redo'): Promise<DocHistoryState> => {
+    const view = await checkoutWith(slug, (tree) => {
+      const parent = nodeOf(tree, nodeOf(tree, tree.currentId)?.parentId);
+      const to = dir === 'undo' ? (parent?.sha256 ? parent : undefined) : redoChild(tree, tree.currentId);
+      return to?.id ?? refuse('E_CONFLICT', dir === 'undo' ? NOTICES.nothingToUndo : NOTICES.nothingToRedo);
+    });
+    d.log?.info('document.history-swap', { slug, kind: dir });
+    return historyOf(slug, view);
+  };
 
   const history: DocHistory = {
     state: historyState,
-    undo: (slug) => swap(slug, 'undo'),
-    redo: (slug) => swap(slug, 'redo'),
+    undo: (slug) => step(slug, 'undo'),
+    redo: (slug) => step(slug, 'redo'),
     onChanged: (cb) => historyChanged.on(cb),
-    versions: notYet,
-    checkout: notYet,
-    onVersionsChanged: () => () => {},
+    versions: versionsState,
+    checkout: async (r) => wireOf(r.slug, await checkoutWith(r.slug, () => r.versionId)),
+    onVersionsChanged: (cb) => versionsChanged.on(cb),
   };
+
+  // Ask (08 §6.8) is not wired yet: it answers E_INTERNAL.
+  const notYet = async (): Promise<never> => refuse('E_INTERNAL', 'Not implemented yet');
 
   const actions: SectionActions = {
     regenerateSection: (r) => request(r, r.action),

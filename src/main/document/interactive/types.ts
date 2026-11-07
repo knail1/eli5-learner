@@ -13,11 +13,13 @@ import {
   type DocumentPatch,
   type LibraryChangeReason,
   type TabRecord,
+  type VersionNodeRecord,
+  type VersionTreeView,
 } from '../../library';
 import type { LlmTasks } from '../../llm';
 import type { Logger } from '../../security';
 import type { IdSource } from '../section-id';
-import type { SectionJobPayload, Tab } from '../types';
+import type { DocRuntime, SectionJobPayload, SectionId, Tab } from '../types';
 
 export type Unsub = () => void;
 
@@ -44,13 +46,23 @@ export interface InteractiveLibrary {
   withDocLock<T>(slug: string, fn: () => Promise<T>): Promise<T>;
   /**
    * Atomic index.html + meta.json write and catalog bump; caller holds withDocLock (09 §9). With
-   * html, the previous files become the prior version labelled `label` (09 §4.1).
+   * html, the new files become a version node labelled `label`, described by `change` (09 §4.1).
    */
   updateDocument(slug: string, patch: DocumentPatch): Promise<{ id: string; topicSlug: string; title: string }>;
-  /** 09 §4.1: what the single prior version offers, and the swaps (each takes the doc lock). */
+  /** 09 §4.1: what Undo and Redo offer (lock-free). */
   history(slug: string): Promise<DocHistoryState>;
-  undo(slug: string): Promise<DocHistoryState>;
-  redo(slug: string): Promise<DocHistoryState>;
+  /** 09 §4.1: the version tree, resolved in memory (lock-free, never writes). */
+  versions(slug: string): Promise<VersionTreeView>;
+  /** A version's exact index.html and meta snapshot (lock-free). */
+  readVersion(slug: string, id: string): Promise<{ html: Buffer; meta: DocumentMeta; node: VersionNodeRecord }>;
+  /** Makes a version the live document; caller holds withDocLock (09 §4.1, D1). */
+  checkout(
+    slug: string,
+    id: string,
+    opts: { retiredIds: SectionId[]; html?: string | Uint8Array },
+  ): Promise<{ tree: VersionTreeView; node: VersionNodeRecord; previousId: string }>;
+  /** Rewrites the current version's index.html in place (a runtime upgrade); caller holds the lock. */
+  refreshRuntime(slug: string, html: string | Uint8Array): Promise<void>;
   on(event: 'changed', cb: (e: { reason: LibraryChangeReason; slugs: string[] }) => void): () => void;
 }
 
@@ -91,13 +103,16 @@ export interface InteractiveDeps {
   inputBudgetTokens?: () => number;
   /** 08 §6.1 step 1a. Default: 10 per 60 s. */
   rateLimit?: { max: number; windowMs: number };
+  /** The runtime an older document is re-rendered with (07 §5.5). Default: bundledDocRuntime. */
+  bundledRuntime?: () => DocRuntime;
   log?: Logger;
 }
 
 /** InteractiveDeps with defaults filled in. */
-export type ResolvedDeps = Omit<InteractiveDeps, 'clock' | 'readFile'> & {
+export type ResolvedDeps = Omit<InteractiveDeps, 'clock' | 'readFile' | 'bundledRuntime'> & {
   clock: { now(): Date };
   readFile: (path: string) => Promise<string>;
+  bundledRuntime: () => DocRuntime;
 };
 
 const ACTION_VERBS: Record<MenuAction, string> = {
