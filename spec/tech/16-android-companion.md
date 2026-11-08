@@ -5,7 +5,7 @@ the desktop app. It owns `android/` (the whole Android project) and `src/main/sy
 sync module). It implements the PRD section "Optional personal sync and Android companion (v2
 amendment)".
 
-Status: M5, specified and being built in slices (build order in [README.md](./README.md)). Everything
+Status: M5, built (all slices S0 to S12; build order in [README.md](./README.md)). Everything
 that touches the real Google Drive (cross-client visibility of the app-data folder, change feeds, the
 consent flows) is **unverified until gate G1** (§13) runs with a real Cloud project. Until then the
 sync code is built and tested against the in-memory fake Drive and the `SyncStore` contract suite

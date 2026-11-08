@@ -1,7 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { parseDocument, renderDocument, sectionIdsOfTab, type DocRuntime } from '../../../../../src/main/document';
 import { quoteLabel } from '../../../../../src/main/library';
 import type {
@@ -170,11 +170,14 @@ describe('eli5:doc:history-changed (08 §6.7)', () => {
     expect(events.at(-1)).toEqual({ slug: s.slug, state: { canUndo: false, canRedo: false, busy: true } });
     await s.ir.runner(s.ctx(jobId).ctx);
     s.jobs.emit(jobId, 'done');
-    await settle();
-    expect(events.at(-1)).toMatchObject({ slug: s.slug, state: { canUndo: true, busy: false } });
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({ slug: s.slug, state: { canUndo: true, busy: false } }),
+    );
     await s.ir.history.undo(s.slug);
-    await settle();
-    expect(events.at(-1)).toMatchObject({ slug: s.slug, state: { canUndo: false, canRedo: true, busy: false } });
+    // Poll rather than wait a fixed 10 ms: under a loaded machine the emit can land later.
+    await vi.waitFor(() =>
+      expect(events.at(-1)).toMatchObject({ slug: s.slug, state: { canUndo: false, canRedo: true, busy: false } }),
+    );
   });
 });
 

@@ -12,7 +12,7 @@ section by section.
   pipeline and job queue (06), document (07), interactive reading (08), library and merge
   suggestions (09), publishing (10), the app shell (11), and M4 hardening (e2e, cross-browser,
   evals, edition cells, CI, hygiene, packaging). M5 (v2, optional: personal sync and the Android
-  companion, `spec/tech/16-android-companion.md`) is in progress; real-Drive behavior is unverified
+  companion, `spec/tech/16-android-companion.md`) is built; real-Drive behavior is unverified
   until gate G1. See the build order in `spec/tech/README.md`.
 - **Source of truth:** `spec/ELI5 Learner Product Requirements Document.md` (what) and
   `spec/tech/` (how: one engineering spec per module; start at `spec/tech/README.md`, which also

@@ -166,9 +166,11 @@ The public build needs nothing but an API key: no accounts, no logins and no oth
 
 ## Use it on your phone (optional)
 
-> **In progress (v2, milestone M5).** The Android companion and personal sync are specified in
-> [spec/tech/16-android-companion.md](spec/tech/16-android-companion.md) and being built in slices.
-> Sync against a real Google Drive has not been verified yet.
+> **Built (v2, milestone M5); sync unverified against a real Google Drive.** The Android companion
+> and personal sync are specified in [spec/tech/16-android-companion.md](spec/tech/16-android-companion.md).
+> The local reader works with no setup. Sync is built and tested against an in-memory fake Drive
+> only; it stays unverified until you run gate G1 with your own Google Cloud project
+> ([android/SETUP.md](android/SETUP.md)).
 
 An optional Android app reads your learnings offline and sends links, photos and files from the
 phone's share sheet to your Mac, which does the generating. It is sideloaded (no Play Store).
@@ -182,7 +184,8 @@ phone's share sheet to your Mac, which does the generating. It is sideloaded (no
 
 You bring your own Google Cloud OAuth clients; nothing secret is in the repository or the APK. The
 step-by-step guide, from installing the Android toolchain to connecting both apps, is
-[android/SETUP.md](android/SETUP.md).
+[android/SETUP.md](android/SETUP.md). How the Android project is laid out, built, signed and
+sideloaded (plus the on-device checklist) is in [android/README.md](android/README.md).
 
 ## Not in v1
 
