@@ -169,12 +169,32 @@ works, go to Audience and click **Publish app** to move to **In production**. Be
 only for non-sensitive scopes, no review is required. Google may still show a "Google hasn't verified
 this app" notice on the consent screen; as the app's owner you can continue past it.
 
+### Gate G1 · the cross-client check (once, before trusting sync)
+
+The check proves that the desktop and Android clients of one project see the same hidden app folder
+(spec 16 §13). It needs a **debug** build on the phone, because the probe screen exists only there,
+and the debug SHA-1 registered as an Android client.
+
+1. From `android/`: `./gradlew assembleDebug`, then
+   `adb install -r app/build/outputs/apk/debug/app-debug.apk`. (A debug build has another signing
+   key than the release build; uninstall the release build first if `adb` refuses.)
+2. On the phone: Settings > **Connect Google Drive**, allow access. Then Settings > Diagnostics.
+3. Under "Drive probe": **Start change feed**, then **Write probe-phone.json**.
+4. On the Mac, the desktop side writes `probe-desktop.json` and lists the folder (a throwaway
+   script during development).
+5. On the phone: **Read probe-desktop.json** shows its content, **Check changes** lists it, and
+   **List app folder** counts both probes. Finally **Delete my probe** (or let the desktop delete it).
+
+If the phone never sees the desktop's file, the two clients are not in one project or not on one
+account (Troubleshooting below); if they are and it still fails, sync moves to a visible Drive
+folder as described at the top.
+
 ---
 
 ## Stage C · Connect both apps
 
-*(Unverified until G1. The desktop Settings > Sync section and the phone's Connect button arrive in
-later M5 slices.)*
+*(Unverified until G1. The phone's Connect button is built (Settings and the first-run screen);
+the desktop Settings > Sync section and library sync arrive in later M5 slices.)*
 
 ### C1. Desktop
 

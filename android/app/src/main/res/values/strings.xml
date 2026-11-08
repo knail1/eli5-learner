@@ -35,4 +35,50 @@
     <string name="about_local_mode">Local mode: documents stay on this phone. Nothing is sent anywhere.</string>
 
     <string name="reader_missing">This document is no longer on this phone.</string>
+    <string name="onboarding_title">Welcome to ELI5 Learner</string>
+    <string name="onboarding_body">Read your ELI5 documents on this phone, online or off.</string>
+    <string name="onboarding_local_title">Use on this phone only</string>
+    <string name="onboarding_local_body">Import documents exported from your Mac. Nothing is sent anywhere.</string>
+    <string name="onboarding_local_action">Use on this phone</string>
+    <string name="onboarding_drive_title">Connect Google Drive</string>
+    <string name="onboarding_drive_body">Sync with ELI5 Learner on your Mac through a hidden app folder in your own Google Drive. Only this app can see it.</string>
+    <string name="onboarding_waiting">Waiting for your Mac…</string>
+    <string name="onboarding_waiting_body">Your library appears here once ELI5 Learner on your Mac has synced to the same account.</string>
+    <string name="onboarding_continue">Continue</string>
+    <string name="onboarding_skip">Skip</string>
+
+    <string name="action_connect">Connect Google Drive</string>
+    <string name="action_connecting">Connecting…</string>
+    <string name="action_reconnect">Sign in again</string>
+    <string name="action_disconnect">Disconnect</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="account_connected_as">Connected as %1$s</string>
+    <string name="account_connected">Connected to Google Drive</string>
+    <string name="account_not_connected">Not connected. Documents stay on this phone.</string>
+    <string name="account_needs_reconnect">Sign in again to keep syncing</string>
+    <string name="account_needs_reconnect_body">Google no longer lets this phone sync. Reading keeps working.</string>
+    <string name="account_failed">Couldn’t connect to Google Drive</string>
+    <string name="account_failed_code">Couldn’t connect to Google Drive (code %1$d)</string>
+    <string name="account_cancelled">Not connected</string>
+    <string name="account_disconnected">Disconnected from Google Drive</string>
+    <string name="account_disconnected_not_revoked">Disconnected. To remove access fully, visit myaccount.google.com/permissions.</string>
+    <string name="disconnect_title">Disconnect Google Drive?</string>
+    <string name="disconnect_body">This phone stops syncing and gives up its access to your Drive. Documents already on this phone stay.</string>
+    <string name="settings_account">Account</string>
+
+    <string name="diagnostics_title">Diagnostics</string>
+    <string name="diagnostics_body">Counts only. Nothing here is sent anywhere.</string>
+    <string name="diagnostics_documents">Documents on this phone: %1$d</string>
+    <string name="diagnostics_drive_connected">Google Drive: connected</string>
+    <string name="diagnostics_drive_reconnect">Google Drive: sign in again</string>
+    <string name="diagnostics_drive_off">Google Drive: not connected</string>
+    <string name="probe_title">Drive probe (debug builds)</string>
+    <string name="probe_body">The phone half of the cross-client check (spec 16 §13, gate G1). Connect first.</string>
+    <string name="probe_write">Write probe-phone.json</string>
+    <string name="probe_list">List app folder</string>
+    <string name="probe_read">Read probe-desktop.json</string>
+    <string name="probe_start">Start change feed</string>
+    <string name="probe_changes">Check changes</string>
+    <string name="probe_delete">Delete my probe</string>
+    <string name="probe_clear">Clear log</string>
 </resources>

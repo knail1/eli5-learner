@@ -8,8 +8,10 @@ app on your phone, follow [SETUP.md](SETUP.md).
 
 > **Status (M5, in progress).** This folder is being built in slices. The local-mode app is built:
 > import (picker, share sheet, "Open with"), the library, the sandboxed reader and Settings > About;
-> the Inbox is a placeholder. Sync follows. Sync against a real Google Drive is unverified until
-> gate G1 (spec 16 §13).
+> the Inbox is a placeholder. Google authorization (Connect, Disconnect, "Sign in again"), the Drive
+> REST client and a debug-only Drive probe for gate G1 are built and tested against MockWebServer
+> and a fake authorization client; library sync follows. Everything against a real Google Drive is
+> unverified until gate G1 (spec 16 §13).
 
 This is its own Gradle build with one `:app` module. It never touches the npm toolchain, and Prettier
 ignores the folder.
@@ -96,6 +98,14 @@ Reader and import (no Google setup):
       import.
 - [ ] Rotate the phone and use split screen: the layout adapts and nothing is lost.
 - [ ] Settings > About shows "Sideloaded build", the version and the commit.
+
+Google sign-in (needs Stage B of SETUP.md):
+
+- [ ] Onboarding (first launch) or Settings > Connect Google Drive shows Google's consent for the
+      account, then "Connected as <email>".
+- [ ] Settings > Disconnect asks first, then shows "Disconnected from Google Drive"; documents stay.
+- [ ] Debug build only: Settings > Diagnostics > Drive probe writes, lists and deletes
+      `probe-phone.json` (the phone half of gate G1, SETUP.md).
 
 Sync (after G1, Stages B and C of SETUP.md):
 

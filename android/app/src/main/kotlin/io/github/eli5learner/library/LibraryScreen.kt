@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,7 +24,9 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -50,6 +53,8 @@ fun LibraryScreen(
     onOpen: (DocEntry) -> Unit,
     onRemove: (DocEntry) -> Unit,
     modifier: Modifier = Modifier,
+    needsReconnect: Boolean = false,
+    onReconnect: () -> Unit = {},
 ) {
     Scaffold(
         modifier = modifier,
@@ -64,32 +69,64 @@ fun LibraryScreen(
             )
         },
     ) { padding ->
-        when {
-            !state.loaded -> Box(Modifier.fillMaxSize().padding(padding))
-            state.total == 0 -> EmptyState(onImport, Modifier.fillMaxSize().padding(padding))
-            else ->
-                Column(Modifier.fillMaxSize().padding(padding)) {
-                    OutlinedTextField(
-                        value = state.query,
-                        onValueChange = onQueryChange,
-                        placeholder = { Text(stringResource(R.string.library_search)) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            // The only persistent banner: lost authorization (16 §6.2). Reading keeps working.
+            if (needsReconnect) ReconnectBanner(onReconnect)
+            LibraryBody(state, onQueryChange, onImport, onOpen, onRemove)
+        }
+    }
+}
+
+@Composable
+private fun ReconnectBanner(onReconnect: () -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                stringResource(R.string.account_needs_reconnect),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onReconnect) { Text(stringResource(R.string.action_reconnect)) }
+        }
+    }
+}
+
+@Composable
+private fun LibraryBody(
+    state: LibraryUiState,
+    onQueryChange: (String) -> Unit,
+    onImport: () -> Unit,
+    onOpen: (DocEntry) -> Unit,
+    onRemove: (DocEntry) -> Unit,
+) {
+    when {
+        !state.loaded -> Box(Modifier.fillMaxSize())
+        state.total == 0 -> EmptyState(onImport, Modifier.fillMaxSize())
+        else ->
+            Column(Modifier.fillMaxSize()) {
+                OutlinedTextField(
+                    value = state.query,
+                    onValueChange = onQueryChange,
+                    placeholder = { Text(stringResource(R.string.library_search)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                if (state.items.isEmpty()) {
+                    Text(
+                        stringResource(R.string.library_no_match),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(24.dp),
                     )
-                    if (state.items.isEmpty()) {
-                        Text(
-                            stringResource(R.string.library_no_match),
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(24.dp),
-                        )
-                    }
-                    LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
-                        items(state.items, key = { it.key }) { entry ->
-                            LibraryRow(entry, onOpen = { onOpen(entry) }, onRemove = { onRemove(entry) })
-                        }
+                }
+                LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
+                    items(state.items, key = { it.key }) { entry ->
+                        LibraryRow(entry, onOpen = { onOpen(entry) }, onRemove = { onRemove(entry) })
                     }
                 }
-        }
+            }
     }
 }
 

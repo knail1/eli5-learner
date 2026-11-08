@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.core.content.IntentCompat
+import io.github.eli5learner.auth.AccountViewModel
 import io.github.eli5learner.library.LibraryViewModel
 import io.github.eli5learner.ui.nav.AppNav
 import io.github.eli5learner.ui.theme.Eli5Theme
@@ -18,6 +19,10 @@ class MainActivity : ComponentActivity() {
         LibraryViewModel.factory(AppContainer.from(this), contentResolver)
     }
 
+    private val account: AccountViewModel by viewModels {
+        AccountViewModel.factory(AppContainer.from(this).authorizer)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -25,7 +30,7 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) handleImportIntent(intent)
         setContent {
             Eli5Theme {
-                AppNav(container = AppContainer.from(this), library = library)
+                AppNav(container = AppContainer.from(this), library = library, account = account)
             }
         }
     }

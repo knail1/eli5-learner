@@ -131,7 +131,9 @@ The app uses only `com.google.android.gms:play-services-auth` `AuthorizationClie
   stands. The app stores **no refresh token, no client ID and no secret**. The Android client is
   matched by application ID + signing SHA-1.
 - On HTTP 401 or `IllegalStateException`: `clearToken(ClearTokenRequest)`, then authorize once more.
-  A second failure sets `AuthState.NeedsReconnect`.
+  A second failure sets `AuthState.NeedsReconnect`. Between syncs a token from `authorize()` is
+  reused for at most 10 minutes, in memory only. The app persists only "connected", the account
+  email (a display hint, from the grant or OpenID userinfo) and "needs reconnect", in DataStore.
 - Background work (`WorkManager`) never shows consent. If `authorize()` needs a resolution, the
   worker sets `NeedsReconnect`, stops without retrying, and the Library shows the persistent banner
   "Sign in again to keep syncing". Reading keeps working.
@@ -632,7 +634,9 @@ failures after retries) and `E_SYNC_ABORTED`.
   `probe-desktop.json` to the app-data folder and an Android debug build lists and reads it; the
   phone writes `probe-phone.json` and the desktop lists it; `changes.list` on each side reports the
   other's file; the desktop can delete the phone's file. If any check fails, the same layout ships on
-  the `google-drive-folder` store (`drive.file`) instead, and this file is amended.
+  the `google-drive-folder` store (`drive.file`) instead, and this file is amended. The phone side
+  is Settings > Diagnostics > Drive probe, shown in debug builds only (write, list, read, change
+  feed, delete; probe files carry `appProperties {k: "probe", dev}`); release builds show counts only.
 - **G2.** Real two-device round trip: a capture shared on the phone becomes a document on the
   desktop and opens on the phone.
 

@@ -1,6 +1,8 @@
 package io.github.eli5learner.ui.nav
 
+import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -20,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.painterResource
@@ -31,14 +34,25 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
+import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.eli5learner.AppContainer
+import io.github.eli5learner.BuildConfig
 import io.github.eli5learner.R
+import io.github.eli5learner.auth.AccountEvent
+import io.github.eli5learner.auth.AccountViewModel
+import io.github.eli5learner.auth.AuthState
 import io.github.eli5learner.inbox.InboxScreen
 import io.github.eli5learner.library.LibraryEvent
 import io.github.eli5learner.library.LibraryScreen
 import io.github.eli5learner.library.LibraryViewModel
+import io.github.eli5learner.onboarding.OnboardingScreen
 import io.github.eli5learner.reader.ReaderScreen
+import io.github.eli5learner.settings.DiagnosticsScreen
+import io.github.eli5learner.settings.DiagnosticsViewModel
+import io.github.eli5learner.settings.ProbeActions
 import io.github.eli5learner.settings.SettingsScreen
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -49,6 +63,12 @@ data object InboxKey : NavKey
 
 @Serializable
 data object SettingsKey : NavKey
+
+@Serializable
+data object OnboardingKey : NavKey
+
+@Serializable
+data object DiagnosticsKey : NavKey
 
 @Serializable
 data class ReaderKey(
@@ -67,17 +87,58 @@ private enum class TopLevel(
 
 /**
  * Navigation 3 with a navigation suite (bar on phones, rail on wider windows): Library, Inbox,
- * Settings; the reader is pushed on top and hides the suite (16 §6.2).
+ * Settings; the reader, onboarding and diagnostics are pushed on top and hide the suite (16 §6.2).
+ * Onboarding shows once, on the first launch. Google consent is launched from here through
+ * `StartIntentSenderForResult` (16 §3.3).
  */
 @Composable
 fun AppNav(
     container: AppContainer,
     library: LibraryViewModel,
+    account: AccountViewModel,
 ) {
     val backStack = rememberNavBackStack(LibraryKey)
     val state by library.state.collectAsStateWithLifecycle()
+    val auth by account.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val resources = LocalResources.current
+    val scope = rememberCoroutineScope()
+    val consent =
+        rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
+            account.onConsentResult(r.resultCode == Activity.RESULT_OK, r.data)
+        }
+
+    LaunchedEffect(Unit) {
+        if (!container.preferences.onboardingDone.first() && backStack.lastOrNull() == LibraryKey) {
+            backStack.add(OnboardingKey)
+        }
+    }
+    val finishOnboarding = {
+        scope.launch { container.preferences.setOnboardingDone() }
+        if (backStack.lastOrNull() == OnboardingKey) backStack.removeAt(backStack.lastIndex)
+    }
+
+    LaunchedEffect(account) {
+        account.messages.collect { e ->
+            val text =
+                when (e) {
+                    is AccountEvent.LaunchConsent -> {
+                        consent.launch(IntentSenderRequest.Builder(e.pendingIntent).build())
+                        null
+                    }
+                    is AccountEvent.Connected ->
+                        e.email?.let { resources.getString(R.string.account_connected_as, it) }
+                            ?: resources.getString(R.string.account_connected)
+                    is AccountEvent.Failed ->
+                        e.statusCode?.let { resources.getString(R.string.account_failed_code, it) }
+                            ?: resources.getString(R.string.account_failed)
+                    AccountEvent.Cancelled -> resources.getString(R.string.account_cancelled)
+                    is AccountEvent.Disconnected ->
+                        resources.getString(if (e.revoked) R.string.account_disconnected else R.string.account_disconnected_not_revoked)
+                }
+            if (text != null) snackbar.showSnackbar(text)
+        }
+    }
     val picker =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
             if (uris.isNotEmpty()) library.import(uris)
@@ -102,7 +163,7 @@ fun AppNav(
     }
 
     val top = backStack.lastOrNull()
-    val inReader = top is ReaderKey
+    val inReader = top is ReaderKey || top is OnboardingKey || top is DiagnosticsKey
     val selected = TopLevel.entries.firstOrNull { it.key == top } ?: TopLevel.Library
     val defaultType = NavigationSuiteScaffoldDefaults.navigationSuiteType(currentWindowAdaptiveInfoV2())
 
@@ -145,10 +206,61 @@ fun AppNav(
                                     onImport = onImport,
                                     onOpen = { backStack.add(ReaderKey(it.key)) },
                                     onRemove = { library.remove(it.key) },
+                                    needsReconnect = auth is AuthState.NeedsReconnect,
+                                    onReconnect = account::connect,
                                 )
                             }
                             entry<InboxKey> { InboxScreen() }
-                            entry<SettingsKey> { SettingsScreen(onImport = onImport) }
+                            entry<SettingsKey> {
+                                SettingsScreen(
+                                    onImport = onImport,
+                                    auth = auth,
+                                    onConnect = account::connect,
+                                    onDisconnect = account::disconnect,
+                                    onDiagnostics = { backStack.add(DiagnosticsKey) },
+                                )
+                            }
+                            entry<OnboardingKey> {
+                                OnboardingScreen(
+                                    auth = auth,
+                                    onUseLocally = {
+                                        finishOnboarding()
+                                        onImport()
+                                    },
+                                    onConnect = account::connect,
+                                    onDone = { finishOnboarding() },
+                                )
+                            }
+                            entry<DiagnosticsKey> {
+                                val vm: DiagnosticsViewModel =
+                                    viewModel(
+                                        factory =
+                                            DiagnosticsViewModel.factory(
+                                                container.localIndex,
+                                                container.driveProbe,
+                                                container.preferences::deviceId,
+                                            ),
+                                    )
+                                val docs by vm.documents.collectAsStateWithLifecycle()
+                                val probe by vm.probeState.collectAsStateWithLifecycle()
+                                DiagnosticsScreen(
+                                    documents = docs.size,
+                                    auth = auth,
+                                    showProbe = BuildConfig.DEBUG,
+                                    probe = probe,
+                                    actions =
+                                        ProbeActions(
+                                            write = vm::write,
+                                            list = vm::list,
+                                            read = vm::read,
+                                            startChanges = vm::startChanges,
+                                            checkChanges = vm::checkChanges,
+                                            deleteOwn = vm::deleteOwn,
+                                            clear = vm::clear,
+                                        ),
+                                    onBack = { if (backStack.size > 1) backStack.removeAt(backStack.lastIndex) },
+                                )
+                            }
                             entry<ReaderKey> { k ->
                                 ReaderScreen(
                                     key = k.key,
