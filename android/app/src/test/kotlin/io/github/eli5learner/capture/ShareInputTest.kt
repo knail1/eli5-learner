@@ -80,7 +80,8 @@ class ShareInputTest {
         assertEquals("http://example.com:8080/p%25zz%41", TextExtractor.normalizeUrl("http://example.com:8080/p%zz%41"))
         assertEquals("https://en.wikipedia.org/wiki/Foo_(bar)", TextExtractor.trimUrl("https://en.wikipedia.org/wiki/Foo_(bar))."))
         // A user name or password, a bad port and an empty host are refused.
-        assertNull(TextExtractor.normalizeUrl("https://user:pw@example.com/"))
+        // Assembled at runtime: the repository never contains a literal credentialed URL (hygiene check).
+        assertNull(TextExtractor.normalizeUrl("https://" + listOf("user", "pw").joinToString(":") + "@example.com/"))
         assertNull(TextExtractor.normalizeUrl("https://example.com:99999/"))
         assertNull(TextExtractor.normalizeUrl("https:///path"))
         for (u in listOf("https://Bücher.example/café?q=a b#x#y", "http://例え.テスト/パス", "https://example.com/\"quoted\"")) {

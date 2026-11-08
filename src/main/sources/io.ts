@@ -4,8 +4,8 @@ import { createReadStream } from 'node:fs';
 import { open } from 'node:fs/promises';
 import path from 'node:path';
 import { oleStreamNames, readZipEntry } from './containers';
-import { SNIFF_HEAD_BYTES, type SniffOptions } from './sniff';
-import type { ResolveContext, SkipCode } from './types';
+import { SNIFF_HEAD_BYTES, sniff, type SniffOptions } from './sniff';
+import type { ResolveContext, SkipCode, SniffResult } from './types';
 
 /** First `bytes` bytes of a file (03 §5.1 step 4: 8 KiB for sniffing). */
 export async function readHead(filePath: string, bytes = SNIFF_HEAD_BYTES): Promise<Buffer> {
@@ -46,6 +46,18 @@ export function containerReaders(filePath: string): Pick<SniffOptions, 'readZipE
     readZipEntry: (name) => readZipEntry(filePath, name),
     oleStreamNames: () => oleStreamNames(filePath),
   };
+}
+
+/**
+ * Classifies a file on disk the way the file resolver does (03 §5.2): magic bytes first, ZIP and OLE
+ * containers looked into. Used for files main stages itself, such as phone inbox attachments (16 §5.3).
+ */
+export async function sniffFile(filePath: string, fileName: string, declaredMediaType?: string): Promise<SniffResult> {
+  const head = await readHead(filePath);
+  return sniff(head, fileName, {
+    ...(declaredMediaType ? { declaredMediaType } : {}),
+    ...containerReaders(filePath),
+  });
 }
 
 export function errnoOf(err: unknown): string | undefined {

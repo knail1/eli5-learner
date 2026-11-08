@@ -280,6 +280,18 @@ describe('resolveAll: URL handling and lane routing (03 §4 step 2.2, §8)', () 
     expect(out.resolved[0]).toMatchObject({ resolverId: 'file', ref: 'notes.md', format: 'markdown' });
   });
 
+  it('a file:// URL from the phone inbox is refused, never read (16 §5.3)', async () => {
+    const dir = await fx.tmpDir();
+    const p = await fx.put(dir, 'notes.md', fx.TEXT_BODY);
+    const out = await resolveAll(
+      [{ id: 'in-0000c001', kind: 'url', origin: 'inbox', url: pathToFileURL(p).href }],
+      fakeCtx(),
+      publicChain(),
+    );
+    expect(out.resolved).toEqual([]);
+    expect(out.skipped.map((s) => s.code)).toEqual(['unsupported-scheme']);
+  });
+
   it('public build: every URL takes the web lane; stubs are never selected', async () => {
     const fetchUrl = vi.fn(() =>
       Promise.resolve({ kind: 'skipped' as const, code: 'login-required' as const, reason: 'page required login' }),

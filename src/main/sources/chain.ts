@@ -91,6 +91,8 @@ function routeInput(input: SourceInput, ctx: ResolveContext): Routed | SkippedSo
   const norm = normalizeUrl(raw);
   if (!norm.ok) return skip(refForUrl(raw), norm.code);
   if (norm.url.protocol === 'file:') {
+    // A URL from the phone inbox never names a file on this Mac (16 §5.3).
+    if (input.origin === 'inbox') return skip(refForUrl(raw), 'unsupported-scheme');
     try {
       return { input: { id: input.id, kind: 'file', origin: input.origin, path: fileURLToPath(norm.url) } };
     } catch {

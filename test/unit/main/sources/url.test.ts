@@ -113,6 +113,15 @@ describe('UrlResolver (03 §7.2)', () => {
     expect(r.canResolve({ id: 'in-1', kind: 'file', origin: 'drop', path: '/a' }, fakeCtx())).toBe(false);
   });
 
+  it('a phone inbox URL is fetched with origin inbox, never as user-typed (16 §5.3 step 6)', async () => {
+    const fetchUrl = vi.fn((_u: string, _c: FetchContext) => Promise.resolve(article()));
+    const ctx = fakeCtx({ fetchUrl });
+    await r.resolve({ ...urlInput('https://example.com/post'), origin: 'inbox' }, ctx);
+    expect(fetchUrl.mock.calls[0]![1]).toMatchObject({ origin: 'inbox' });
+    await r.resolve(urlInput('https://example.com/other'), ctx);
+    expect(fetchUrl.mock.calls[1]![1]).not.toHaveProperty('origin');
+  });
+
   it('article -> html payload with baseUrl, final URL location, title and sha256', async () => {
     const fetchUrl = vi.fn((_u: string, _c: FetchContext) =>
       Promise.resolve(article({ finalUrl: 'https://www.example.org/post' })),

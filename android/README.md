@@ -18,8 +18,9 @@ app on your phone, follow [SETUP.md](SETUP.md).
 > for links, text, images, PDF and Office files), the outbox and its upload worker, Cancel, the
 > Inbox with job statuses, Retry and Delete, the acks file and the opt-in "Learnings ready"
 > notification; also tested against an in-memory Drive and database only. The desktop side that
-> runs phone jobs is not built yet. Everything against a real Google Drive is unverified until gate
-> G1 (spec 16 §13).
+> runs phone jobs (Settings > Sync > "Accept jobs from phone") is built and tested against the
+> desktop's in-memory store. Everything against a real Google Drive is unverified until gate G1
+> (spec 16 §13).
 
 This is its own Gradle build with one `:app` module. It never touches the npm toolchain, and Prettier
 ignores the folder.
@@ -127,7 +128,7 @@ Sync (after G1, Stages B and C of SETUP.md):
 - [ ] A document updated on the Mac shows "Updated on your Mac · Reload" and never reloads by
       itself.
 - [ ] Share a link to ELI5 Learner, tap "Send to my Mac": the Inbox goes from "Waiting to upload"
-      to "Waiting for your Mac" (needs the desktop inbox, a later slice) to Generating to Ready,
+      to "Waiting for your Mac" (turn on "Accept jobs from phone" on the Mac) to Generating to Ready,
       and the new document opens on the phone.
 - [ ] After the first capture the app asks "Tell you when it's ready?"; with Notify me, a finished
       job posts "Learnings ready", and tapping it opens the Inbox.

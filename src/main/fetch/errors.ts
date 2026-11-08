@@ -7,6 +7,7 @@ export interface ReasonDetail {
   limitBytes?: number;
   proxy?: boolean; // 407: "network proxy requires sign-in"
   challenge?: boolean; // render-failed on a bot challenge
+  direct?: boolean; // blocked-private-address on the link itself (a phone inbox URL, 16 §5.3)
 }
 
 /** FetchSkipCode → the short, plain reason stored in SkippedSource.reason (05 §10). */
@@ -51,7 +52,7 @@ export function reasonFor(code: FetchSkipCode, d: ReasonDetail = {}): string {
     case 'render-failed':
       return d.challenge ? 'site blocked automated access' : 'page could not be rendered';
     case 'blocked-private-address':
-      return 'link redirected to a private network address';
+      return d.direct ? 'link points to a private network address' : 'link redirected to a private network address';
   }
 }
 

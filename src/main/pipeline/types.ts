@@ -139,6 +139,27 @@ export interface Job {
   stagingPurged?: boolean;
   /** Label of the tab a section `eli5-tab` job added (06 §6 `Added tab: {label}`). */
   tabLabel?: string;
+  /**
+   * Set when main started the job on behalf of another surface (`startFromMain`): `inbox` is a job
+   * sent from the phone (16 §5.3), `ref` its phone job id. Drives the "From phone" chip.
+   */
+  origin?: JobOrigin;
+}
+
+/** Who asked for a job that main started itself (16 §5.3). */
+export interface JobOrigin {
+  kind: 'inbox';
+  /** The phone's job id (a UUIDv7). */
+  ref: string;
+}
+
+/** `JobQueue.startFromMain` options. */
+export interface StartFromMainOptions {
+  origin: 'inbox';
+  /** The phone's job id, kept on the job record. */
+  ref: string;
+  /** Every file input must sit under this folder (main staged it there). */
+  root: string;
 }
 
 /** HOOK-PIPE-01 enterprise job policy (06 §9.5 hook). */

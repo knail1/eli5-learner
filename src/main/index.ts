@@ -42,6 +42,7 @@ import {
 } from './ipc';
 import { JobQueue, createPipelineDeps, type SectionRunner } from './pipeline';
 import { sweepStaleDrafts } from './sources/drafts';
+import { mintInputId, sniffFile, type SourceInput } from './sources';
 import {
   DOC_SCHEME,
   createDocProtocolHandler,
@@ -58,8 +59,11 @@ import { registerSurface, safeOpenExternal } from './security';
 import {
   FOCUS_POLL_GAP_MS,
   GoogleOAuth,
+  InboxLedger,
   SyncEngine,
+  SyncInbox,
   SyncStateStore,
+  checkoutOutcomeOf,
   createSyncService,
   openSyncStore,
   syncActive,
@@ -427,7 +431,61 @@ async function bootstrap(): Promise<void> {
     onSignedOut: () => sync.refresh(),
     ...(syncFake ? { fetch: syncFake.fetch } : {}),
   });
-  const syncState = new SyncStateStore({ dir: path.join(userData, 'sync') });
+  const syncDir = path.join(userData, 'sync');
+  const syncState = new SyncStateStore({ dir: syncDir });
+  // 16 §5.3: the phone inbox. Jobs reach the pipeline only through `startFromMain` with origin
+  // 'inbox' (no renderer drop ids; URLs never get the private-address exception).
+  const inbox = new SyncInbox({
+    ledger: new InboxLedger({ dir: syncDir }),
+    dir: path.join(syncDir, 'inbox'),
+    enabled: () => settings.get().sync.inbox.enabled,
+    enqueue: async (c) => {
+      const inputs: SourceInput[] = [
+        ...c.urls.map((url): SourceInput => ({ id: mintInputId(), kind: 'url', origin: 'inbox', url })),
+        ...c.files.map((f): SourceInput => ({ id: mintInputId(), kind: 'file', origin: 'inbox', path: f.path })),
+      ];
+      const { jobId } = await jobs.startFromMain(
+        { inputs, options: { clarifyingInput: c.clarifyingInput, glossary: settings.get().glossary.defaultOn } },
+        { origin: 'inbox', ref: c.jobId, root: c.root },
+      );
+      return { pipelineJobId: jobId };
+    },
+    // Honoured only while the job waits in its lane (16 §5.2 step 3): a running job is left alone.
+    cancel: async (id) => {
+      if (jobs.get(id)?.status !== 'queued') return false;
+      try {
+        await jobs.cancel(id);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    checkout: async (docId, versionId) => {
+      const entry = library.list().find((e) => e.id === docId);
+      if (!entry) return { kind: 'not-found' };
+      try {
+        await interactive.history.checkout({ slug: entry.topicSlug, versionId });
+        return { kind: 'done' };
+      } catch (err) {
+        return checkoutOutcomeOf((err as { code?: string }).code);
+      }
+    },
+    knownJob: (id) => jobs.findByOrigin(id),
+    sniff: async (file, name, mime) => {
+      const r = await sniffFile(file, name, mime);
+      return r.ok ? r.mediaType : null;
+    },
+    kick: () => sync.schedulePush(),
+  });
+  jobs.on('changed', (s) => {
+    const origin = jobs.originOf(s.id);
+    if (origin?.kind !== 'inbox') return;
+    inbox
+      .reportJob(origin.ref, s)
+      .catch((err: unknown) =>
+        log.warn('sync.inbox.report-failed', { code: (err as { code?: string }).code ?? 'unknown' }),
+      );
+  });
   const sync = new SyncEngine({
     library,
     state: syncState,
@@ -440,6 +498,7 @@ async function bootstrap(): Promise<void> {
     outline: documentHeadings,
     isBusy: (slug) => interactive.isBusy(slug),
     device: { name: deviceName(), appVersion: app.getVersion() },
+    inbox,
   });
   // 16 §4.5 trigger and §4.8 cadence: library events push (debounced 5 s); resume and focus poll.
   library.on('changed', (e) => sync.schedulePush(e.slugs));

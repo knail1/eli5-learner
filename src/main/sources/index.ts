@@ -9,6 +9,7 @@ export { registerPublic } from './register';
 export { sniff, textProbe, isImageFormat, MEDIA_TYPES, SNIFF_HEAD_BYTES } from './sniff';
 export type { SniffOptions } from './sniff';
 export { readZipEntry, oleStreamNames } from './containers';
+export { sniffFile } from './io';
 export { SKIP_REASONS, skipReason, skip, mapMcpErrorKind, ORG_SOURCE_DETAIL } from './reasons';
 export { resolveAll, inputRef } from './chain';
 export { FileResolver, fileResolver, resolveFileInput } from './file';

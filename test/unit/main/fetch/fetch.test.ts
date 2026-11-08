@@ -437,6 +437,53 @@ describe('fetchUrl redirect guards with a scripted transport', () => {
     expect(o.finalUrl).toBe('https://portal.example.test/start');
   });
 
+  it('a phone inbox URL on loopback is refused before any request (16 §5.3 step 6)', async () => {
+    const f = makeFetcher();
+    const n = server.hits.length;
+    const o = expectSkip(
+      await f.fetchUrl(server.url('/article/'), { ...ctxFor(staging.dir, undefined, 'job-inbox'), origin: 'inbox' }),
+      'blocked-private-address',
+    );
+    expect(o.reason).toBe('link points to a private network address');
+    expect(server.hits.length).toBe(n);
+  });
+
+  it('a phone inbox URL whose host resolves to a private address is refused (DNS check)', async () => {
+    const requested: string[] = [];
+    const transport: HttpTransport = {
+      async request(req) {
+        requested.push(req.url);
+        throw new Error('unexpected request');
+      },
+    };
+    const f = makeFetcher({ transport, lookup: async () => ['192.168.1.20'] });
+    expectSkip(
+      await f.fetchUrl('https://printer.example.test/', { ...ctxFor(staging.dir), origin: 'inbox' }),
+      'blocked-private-address',
+    );
+    expect(requested).toEqual([]);
+  });
+
+  it('a phone inbox URL redirecting into loopback is refused; the render fallback never gets allowPrivate', async () => {
+    const t = redirectingTransport('https://news.example.test/inbox', server.url('/article/'));
+    const render = vi.fn(async (url: string, _o: RenderOptions): Promise<RenderResult> => ({
+      ok: true,
+      html: articleHtml(),
+      finalUrl: url,
+      timedOut: false,
+    }));
+    const f = makeFetcher({ transport: t, render, lookup: async () => ['203.0.113.10'] });
+    expectSkip(
+      await f.fetchUrl('https://news.example.test/inbox', {
+        ...ctxFor(staging.dir, undefined, 'job-inbox-2'),
+        origin: 'inbox',
+      }),
+      'blocked-private-address',
+    );
+    expect(t.requested).toEqual(['https://news.example.test/inbox']);
+    for (const call of render.mock.calls) expect(call[1].allowPrivate).toBe(false);
+  });
+
   it('a DOM-selector login signature marks an otherwise readable page as login-required', async () => {
     const f = makeFetcher({ loginSignatures: [{ domSelector: 'article', kind: 'conclusive' }] });
     expectSkip(await f.fetchUrl(server.url('/article/'), ctxFor(staging.dir, undefined, 'job-sig')), 'login-required');

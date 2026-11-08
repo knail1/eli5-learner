@@ -6,6 +6,12 @@ export interface FetchContext {
   signal: AbortSignal; // job cancellation; aborts network + render window
   stagingDir: string; // <userData>/jobs/<jobId>/ (06 §9.2); binary bodies are written here
   onProgress?: (detail: FetchProgress) => void;
+  /**
+   * Where the URL came from. `'inbox'` (a job sent from the phone, 16 §5.3 step 6) is never treated
+   * as user-typed: a private, loopback or link-local target is refused even when it is the URL
+   * itself, and redirects to one are refused as always (§4.4 rule 4 does not apply).
+   */
+  origin?: 'inbox';
 }
 
 /**

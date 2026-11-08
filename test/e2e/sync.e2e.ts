@@ -93,6 +93,64 @@ test('the sidebar indicator shows synced and opens Settings > Sync', async () =>
   await expect(l.win.locator('#settings-sync')).toBeVisible();
 });
 
+test('a job file from the phone becomes a "From phone" document and its status reaches done', async () => {
+  const section = l.win.locator('#settings-sync');
+  await section.getByRole('switch', { name: 'Accept jobs from phone' }).check();
+  const device = (await storeFiles(l.app)).find((f) => f.props.k === 'device');
+  await expect.poll(async () => JSON.parse(await storeText(l.app, device!.id)).inbox, { timeout: 20_000 }).toBe('on');
+
+  const jobId = '019a3c5e-7d2f-7a1b-9c3d-4e5f6a7b8c9d';
+  const phone = '9c8d7e6f-5a4b-4c3d-a2e1-f0e9d8c7b6a5';
+  // The phone's upload, straight into the in-memory store (synthetic text, 13 §4).
+  await l.app.evaluate(
+    async (_e, a) => {
+      const s = (
+        globalThis as {
+          __eli5FakeSyncStore?: {
+            generateIds(n: number): Promise<string[]>;
+            create(id: string, name: string, props: object, body: Uint8Array, mime: string): Promise<unknown>;
+          };
+        }
+      ).__eli5FakeSyncStore!;
+      const [id] = await s.generateIds(1);
+      const job = {
+        v: 1,
+        jobId: a.jobId,
+        deviceId: a.phone,
+        createdAt: new Date().toISOString(),
+        kind: 'capture',
+        urls: [],
+        text: 'Example Widgets Inc. measured every widget that left the plant this quarter and found the new presses make lighter, cheaper parts.',
+        clarifyingInput: '',
+        focus: ['beginner'],
+        attachments: [],
+      };
+      await s.create(
+        id!,
+        `job-${a.jobId}.json`,
+        { k: 'job', dev: a.phone, s: a.jobId },
+        new TextEncoder().encode(JSON.stringify(job)),
+        'application/json',
+      );
+    },
+    { jobId, phone },
+  );
+  await section.getByRole('button', { name: 'Sync now' }).click();
+
+  const line = l.win.locator('.job-line', { has: l.win.locator('.job-chip', { hasText: 'From phone' }) });
+  await expect(line).toHaveCount(1, { timeout: 20_000 });
+  await expect(line.locator('.job-text')).toHaveText(/^Done: /, { timeout: 30_000 });
+
+  const statusOf = async (): Promise<{ state?: string; docId?: string }> => {
+    const f = (await storeFiles(l.app)).find((x) => x.props.k === 'status');
+    return f ? (JSON.parse(await storeText(l.app, f.id)) as { state?: string; docId?: string }) : {};
+  };
+  await expect.poll(async () => (await statusOf()).state, { timeout: 30_000 }).toBe('done');
+  const { docId } = await statusOf();
+  const entries = await l.win.evaluate(() => window.eli5.library.list());
+  expect(entries.ok && entries.value.map((e) => e.id)).toContain(docId);
+});
+
 test('Delete cloud copy empties the store and turns Sync off; the library stays', async () => {
   const section = l.win.locator('#settings-sync');
   const before = await l.win.evaluate(() => window.eli5.library.list());

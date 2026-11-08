@@ -14,7 +14,7 @@ import {
 } from '../../../../src/main/pipeline';
 import { validateDocument } from '../../../helpers/doc-validity';
 import type { LlmTasks } from '../../../../src/main/llm';
-import { defaultScript, fileInput, harness, urlInput, type Harness } from './harness';
+import { FIXTURES, defaultScript, fileInput, harness, urlInput, type Harness } from './harness';
 
 const opts = { clarifyingInput: 'I run a small widget shop', glossary: true };
 const exists = (p: string): Promise<boolean> =>
@@ -163,6 +163,69 @@ describe('enqueue (06 §5.1)', () => {
     expect(job.status).toBe('done');
     expect(job.skipped).toEqual([expect.objectContaining({ ref: 'notes.md', code: 'file-changed' })]);
     expect(job.skipped[0]?.reason).toMatch(/changed or moved/i);
+  });
+
+  it('startFromMain (16 §5.3): stamps origin inbox, keeps the phone id, shows it in snapshots and survives a relaunch', async () => {
+    const h = await harness();
+    const root = path.join(h.userData, 'sync', 'inbox', 'phone-job');
+    await mkdir(root, { recursive: true });
+    const staged = path.join(root, 'notes.md');
+    await copyFile(path.join(FIXTURES, 'sources/text/notes.md'), staged);
+    const ref = '01890a5d-ac96-774b-bcce-b302099a8057';
+    const { jobId } = await h.queue.startFromMain(
+      {
+        inputs: [
+          { id: 'in-0000b001', kind: 'file', origin: 'drop', path: staged },
+          { id: 'in-0000b002', kind: 'url', origin: 'url-field', url: 'https://example.com/post' },
+        ],
+        options: opts,
+        draftId: 'draft-0000000b',
+      },
+      { origin: 'inbox', ref, root },
+    );
+    expect(h.queue.get(jobId)?.inputs.map((i) => i.origin)).toEqual(['inbox', 'inbox']);
+    expect(h.queue.get(jobId)?.origin).toEqual({ kind: 'inbox', ref });
+    expect(h.events.find((e) => e.id === jobId)).toMatchObject({ origin: 'inbox' });
+    expect(h.queue.originOf(jobId)).toEqual({ kind: 'inbox', ref });
+    expect(h.queue.findByOrigin(ref)?.id).toBe(jobId);
+    expect(h.queue.findByOrigin('01890a5d-ac96-774b-bcce-b302099a8058')).toBeUndefined();
+    const done = await h.finished(jobId);
+    expect(done.status).toBe('done');
+    // A renderer-started job carries no origin.
+    const plain = await h.queue.start({ inputs: [fileInput('sources/text/notes.md')], options: opts });
+    expect(h.queue.originOf(plain.jobId)).toBeUndefined();
+    expect(h.events.find((e) => e.id === plain.jobId)).not.toHaveProperty('origin');
+    await h.finished(plain.jobId);
+
+    const again = await harness({ from: h });
+    expect(again.queue.findByOrigin(ref)).toMatchObject({ id: jobId, origin: 'inbox', status: 'done' });
+  });
+
+  it('startFromMain refuses files outside its root and pasted items', async () => {
+    const h = await harness();
+    const root = path.join(h.userData, 'sync', 'inbox', 'phone-job');
+    await mkdir(root, { recursive: true });
+    const ref = '01890a5d-ac96-774b-bcce-b302099a8057';
+    await expect(
+      h.queue.startFromMain(
+        { inputs: [fileInput('sources/text/notes.md')], options: opts },
+        { origin: 'inbox', ref, root },
+      ),
+    ).rejects.toMatchObject({ code: 'E_BAD_REQUEST' });
+    await expect(
+      h.queue.startFromMain(
+        {
+          inputs: [{ id: 'in-0000b003', kind: 'file', origin: 'drop', path: path.join(root, '..', 'escape.md') }],
+          options: opts,
+        },
+        { origin: 'inbox', ref, root },
+      ),
+    ).rejects.toMatchObject({ code: 'E_BAD_REQUEST' });
+    const pasted = await stageText(h.userData, { draftId: 'draft-0000000c', text: 'x', markup: 'plain' });
+    await expect(
+      h.queue.startFromMain({ inputs: [pasted], options: opts }, { origin: 'inbox', ref, root }),
+    ).rejects.toMatchObject({ code: 'E_BAD_REQUEST' });
+    expect(h.queue.list()).toEqual([]);
   });
 
   it('refuses new jobs while the library is read-only', async () => {

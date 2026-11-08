@@ -62,6 +62,14 @@ describe('StatusArea (11 §5.5)', () => {
     expect(host.querySelector('[data-testid="announcer-polite"]')?.textContent).toBe('');
   });
 
+  it('marks a job sent from the phone with a "From phone" chip (16 §5.3)', async () => {
+    fake.api.jobs.list = async () => ok([job({ id: 'a' }), job({ id: 'b', origin: 'inbox', statusLine: 'Queued' })]);
+    const host = await render(withAnnouncer(StatusArea), { onOpenDoc: vi.fn(), onOpenSettings: vi.fn() });
+    const chips = () =>
+      Array.from(host.querySelectorAll('.job-line')).map((l) => l.querySelector('.job-chip')?.textContent);
+    expect(chips()).toEqual([undefined, 'From phone']);
+  });
+
   it('offers Cancel, and Retry/Dismiss on failures, inline', async () => {
     fake.api.jobs.list = async () => ok([job({})]);
     const host = await render(withAnnouncer(StatusArea), { onOpenDoc: vi.fn(), onOpenSettings: vi.fn() });

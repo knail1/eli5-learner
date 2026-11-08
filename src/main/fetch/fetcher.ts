@@ -199,8 +199,15 @@ export function createFetcher(deps: FetcherDeps): Fetcher {
     };
 
     try {
-      // §4.4 rule 4: a user-typed private or loopback URL is allowed (a local dev server).
-      allowPrivate = await isPrivateTarget(href, lookup);
+      // §4.4 rule 4: a user-typed private or loopback URL is allowed (a local dev server). A URL
+      // from the phone inbox is never user-typed (16 §5.3 step 6): a private target is refused.
+      const privateTarget = await isPrivateTarget(href, lookup);
+      if (ctx.origin === 'inbox') {
+        if (privateTarget) return skipped('blocked-private-address', { direct: true }, href);
+        allowPrivate = false;
+      } else {
+        allowPrivate = privateTarget;
+      }
       slot = await politeness.acquire(href, signal);
       let r: HttpResult | null = null;
       let retried = false;

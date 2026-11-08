@@ -52,6 +52,8 @@ describe('eli5:jobs:* (06 §11)', () => {
       { inputs: [url('https://example.com', 'BAD ID')], options: opts },
       { inputs: [url('https://example.com')], options: { clarifyingInput: 'x'.repeat(20_000), glossary: true } },
       { inputs: [url('https://example.com')], options: opts, draftId: '../escape' },
+      // The phone inbox origin is main-only (06 §5.1, 16 §5.3): the renderer cannot claim it.
+      { inputs: [{ ...url('https://example.com'), origin: 'inbox' }], options: opts },
     ]) {
       expect(await h.call(IPC.jobs.start, bad)).toMatchObject({ ok: false, error: { code: 'E_BAD_REQUEST' } });
     }

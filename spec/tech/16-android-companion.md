@@ -19,8 +19,11 @@ endpoints, unverified against a real Google account until G1. Library sync on th
 built and tested against an in-memory Drive and Room database only, likewise unverified until G1.
 So is the phone's side of the job inbox (§5.2: the share target and capture sheet, the outbox and
 its upload worker, cancel files, the acks file, job statuses in the Inbox and the "Learnings ready"
-notification); the desktop side that runs phone jobs (§5.3) is not built yet, so a capture waits in
-the store as "Waiting for your Mac" until it is.
+notification), and the desktop side that runs phone jobs (§5.3: `inbox.ts`, `ledger.ts`, the
+pipeline's main-side `startFromMain` entry, the `inbox` fetch origin and the "From phone" chip):
+built and tested against the in-memory store and the e2e fake, unverified against a real Drive until
+G1. The desktop accepts `capture` and `checkout` jobs; `ask` stays out of `accepts` until the phone
+has an Ask flow (S11), so an `ask` job is rejected with `E_UNSUPPORTED`.
 
 Related: [01-architecture.md](./01-architecture.md) · [06-generation-pipeline.md](./06-generation-pipeline.md) ·
 [07-output-document.md](./07-output-document.md) · [08-interactive-reading.md](./08-interactive-reading.md) ·
@@ -447,25 +450,48 @@ Details of the phone side:
 `src/main/sync/inbox.ts` runs on each pull while `sync.inbox.enabled` is true (default **false**; the
 user turns it on in Settings > Sync, which also lists the phones seen).
 
-1. Parse with zod `.strict()`. Reject `v` other than 1, `createdAt` older than 30 days or more than
-   1 day in the future, unknown kinds, and kinds missing from this desktop's `accepts`.
-2. Dedupe by `jobId` against `<userData>/sync/inbox.json` (durable ledger) and the 06 §9 job store.
-   A replay is a no-op.
+1. Parse with zod `.strict()` (job files over 1 MiB are not read). Reject `v` other than 1, a body
+   whose `jobId` is not the file's (`appProperties.s`), `createdAt` older than 30 days or more than
+   1 day in the future, unknown kinds, and kinds missing from this desktop's `accepts`. A rejected
+   job gets a `rejected` status with `E_INVALID`, `E_EXPIRED` or `E_UNSUPPORTED`.
+2. Dedupe by `jobId` against `<userData>/sync/inbox.json` (durable ledger, entries kept 60 days and
+   until the job file has left the store), the 06 §9 job store (`jobs.findByOrigin`) and any
+   `jobstatus` file already in the store. A replay is a no-op; a job another desktop answered is
+   left to it. A corrupt ledger is set aside and the other two checks still hold: this desktop's own
+   unfinished status is adopted with its pipeline job, or ends `failed` with `E_INTERNAL` when the
+   pipeline never got it. Before every enqueue the job store is asked again, so a crash between
+   starting the job and saving its id never starts it twice.
 3. Rate limits per Google account, not per device id (a device id is self-asserted): 30 jobs per
-   hour and 100 per day. Over the limit the job is `rejected` with `E_RATE`.
-4. Download attachments into `<userData>/sync/inbox/<jobId>/` (0700), verify sha256, sniff the
-   type, enforce the caps.
+   hour and 100 per day, counting accepted jobs only. Over the limit the job is `rejected` with
+   `E_RATE`. The ledger stores a sha256 prefix of the account, never the address.
+4. Download attachments into `<userData>/sync/inbox/<jobId>/` (0700, files 0600), verify size and
+   sha256, sniff the type with the 03 §5.2 sniffer (it must be on the allowlist and match the
+   declared type; the plain-text family counts as one), enforce the caps. Any failure is
+   `rejected` with `E_ATTACHMENT`. An attachment the store does not list yet (listings lag) is
+   waited for 10 minutes first. Shared text is staged as `shared-text.txt`.
 5. Write `jobstatus` `received`, then call the `enqueue` callback that bootstrap injects.
-   `src/main/sync` never imports `pipeline` (01 §3).
+   `src/main/sync` never imports `pipeline` (01 §3). A status file is created under a preallocated
+   id saved in the ledger first, and rewritten only when its content changes.
 6. URLs from the inbox go through the 05 public-URL guard with `allowPrivate` **never** set: private,
-   loopback and link-local targets are skipped, redirects included. The `inbox` origin is never
-   treated as user-typed.
+   loopback and link-local targets are skipped, redirects included (`FetchContext.origin: 'inbox'`,
+   reason "link points to a private network address"). The `inbox` origin is never treated as
+   user-typed, and a `file:` URL from it is never rewritten to a file input.
+
+The engine runs the inbox on each pass while this desktop is the primary and the library is
+writable, before the push. With the inbox off, job files wait in the store; jobs already accepted
+keep reporting. Staged files go when the job ends (a failed capture keeps them 7 days, so Retry in
+the app still finds them). Cancel (§5.2 step 3) is honoured while the job has not started running:
+before it is enqueued, while it waits in its lane (`jobs.cancel` on a `queued` job), or while a
+checkout waits for a busy document.
 
 Kinds:
 
-- `capture` becomes `jobs.start({inputs, options: {clarifyingInput}}, {origin: 'inbox'})`, a
-  main-side entry that skips the renderer drop-id check (06 §11) because the files were staged by
-  main.
+- `capture` becomes `jobs.startFromMain({inputs, options: {clarifyingInput, glossary}}, {origin:
+  'inbox', ref: jobId, root})`, a main-side entry that skips the renderer drop-id check (06 §11)
+  because the files were staged by main. It stamps every input with origin `inbox`, requires each
+  file under `root`, refuses pasted-item inputs, and records `{kind: 'inbox', ref}` on the job, so
+  `JobSnapshot.origin` is `'inbox'` and `jobs.originOf(id)` maps pipeline events back to the phone's
+  job id. `glossary` is the `glossary.defaultOn` setting.
 - `checkout` runs the 08 §6.7 checkout service. A busy document is retried for 10 minutes, then
   `failed` with `E_CONFLICT` and the 08 text "Your Mac is updating this document; try again in a
   moment".
@@ -481,9 +507,13 @@ type JobStatus = { v: 1; jobId: string; updatedAt: string;
   code?: string; reason?: string };                   // reason is the user-facing one-liner
 ```
 
-Bootstrap maps pipeline events (`stage`, `done`, `failed`) to `sync.reportJob(jobId, …)`. A `done`
-inbox job also posts the normal completion notification (11 §14), and the status area shows a
-"From phone" chip.
+Bootstrap maps pipeline events (`stage`, `done`, `failed`) to `inbox.reportJob(jobId, …)`
+(`reportFromSnapshot`): `queued` stays `queued`, reading to saving is `running` with the 06 §6 line
+as `stage`, `done` carries `docId` and `skippedSources`, a `CANCELLED` failure is `cancelled`, and
+any other failure is `failed` with `E_<JobFailureCode>` and the 06 line without its `Failed: `
+prefix as `reason`. A status after a terminal one (a Retry in the app) is not reported: the phone
+may already have acknowledged the job and GC removed its files. A `done` inbox job also posts the
+normal completion notification (11 §14), and the status area shows a "From phone" chip.
 
 ## 6. Android app
 
@@ -651,6 +681,9 @@ tokens.
 | `E_RATE` | desktop inbox | over the inbox limit |
 | `E_CONFLICT`, `E_STALE` | desktop inbox | §5.3 |
 | `E_ATTACHMENT` | desktop inbox | attachment missing, wrong sha, wrong type or too large |
+| `E_INVALID`, `E_EXPIRED`, `E_UNSUPPORTED` | desktop inbox | §5.3 step 1: unreadable job, outside the `createdAt` window, kind not accepted |
+| `E_NOT_FOUND`, `E_VERSION_GONE`, `E_CHECKOUT` | desktop inbox | checkout: document gone, version gone, other failure |
+| `E_START`, `E_INTERNAL`, `E_<JobFailureCode>` | desktop inbox | the pipeline refused the job, an internal error, or the 06 failure code of the job |
 
 Internal codes without user text of their own (desktop, `SyncError`): `E_SYNC_DISABLED` (sync off
 or not allowed; no request made), `E_SYNC_NOT_CONFIGURED` (no OAuth client; "Add your Google client

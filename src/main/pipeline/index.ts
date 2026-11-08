@@ -24,6 +24,7 @@ export type {
   JobFailure,
   JobFailureCode,
   JobId,
+  JobOrigin,
   JobKind,
   JobOptions,
   JobProgress,
@@ -37,6 +38,7 @@ export type {
   SectionJobPayload,
   SourceInput,
   StartJobRequest,
+  StartFromMainOptions,
 } from './types';
 export type { StatusLineContext, StatusLineJob } from './status';
 export {

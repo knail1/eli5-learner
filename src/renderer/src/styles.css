@@ -1022,6 +1022,13 @@ button.icon-button {
   min-width: 0;
   text-align: left;
 }
+.job-chip {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--chip);
+  font-size: 11px;
+}
 .job-actions {
   display: inline-flex;
   gap: 4px;

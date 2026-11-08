@@ -23,11 +23,14 @@ import type {
   JobFailure,
   JobId,
   JobKind,
+  JobOrigin,
   JobSnapshot,
   JobStatus,
   JobStep,
   PipelineDeps,
   SectionJobPayload,
+  SourceInput,
+  StartFromMainOptions,
   StartJobRequest,
 } from './types';
 import type { SlugReservation } from '../library';
@@ -235,7 +238,48 @@ export class JobQueue {
   // ---- requests (06 §11) ----
 
   /** `eli5:jobs:start` (06 §5.1). */
-  async start(req: StartJobRequest): Promise<{ jobId: JobId }> {
+  start(req: StartJobRequest): Promise<{ jobId: JobId }> {
+    return this.startCreate(req);
+  }
+
+  /**
+   * A create job that main starts itself, not from a renderer request (16 §5.3: a job sent from the
+   * phone). It skips the renderer drop-id check (06 §11) because main staged every file, and instead
+   * requires each file input to sit under `opts.root`. Every input is stamped with `origin: 'inbox'`,
+   * so URL fetching never applies the user-typed private-address exception (05 §4.4 rule 4).
+   * Pasted-item inputs are refused: they belong to renderer drafts.
+   */
+  async startFromMain(req: StartJobRequest, opts: StartFromMainOptions): Promise<{ jobId: JobId }> {
+    const root = path.resolve(opts.root);
+    const inputs = req.inputs.map((input): SourceInput => {
+      if (input.kind === 'url') return { ...input, origin: opts.origin };
+      if (input.kind === 'file') {
+        const rel = path.relative(root, path.resolve(input.path));
+        if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
+          throw new PipelineRequestError('E_BAD_REQUEST', 'File is outside the staging folder');
+        }
+        return { ...input, origin: opts.origin };
+      }
+      throw new PipelineRequestError('E_BAD_REQUEST', 'Pasted items cannot be started from main');
+    });
+    const { draftId: _draft, ...rest } = req;
+    return this.startCreate({ ...rest, inputs }, { kind: opts.origin, ref: opts.ref });
+  }
+
+  /** The newest job main started for `ref` (16 §5.3 step 2 dedupe), including dismissed ones. */
+  findByOrigin(ref: string): JobSnapshot | undefined {
+    let hit: Job | undefined;
+    for (const j of this.jobs.values()) if (j.origin?.ref === ref && (!hit || j.id > hit.id)) hit = j;
+    return hit ? this.snapshot(hit) : undefined;
+  }
+
+  /** The origin reference of a job main started itself (`startFromMain`), if any. */
+  originOf(id: JobId): JobOrigin | undefined {
+    const o = this.jobs.get(id)?.origin;
+    return o ? { ...o } : undefined;
+  }
+
+  private async startCreate(req: StartJobRequest, origin?: JobOrigin): Promise<{ jobId: JobId }> {
     if (!req.inputs.length) throw new PipelineRequestError('E_BAD_REQUEST', 'Add at least one source');
     if (this.d.library.readOnly) throw new PipelineRequestError('E_LIBRARY_READ_ONLY', 'The Library is read-only');
     const now = this.d.clock.now();
@@ -250,6 +294,7 @@ export class JobQueue {
         : {}),
     });
     const job = createJob({ id, kind: 'create', now, inputs, options: { ...req.options } });
+    if (origin) job.origin = { ...origin };
     await this.store.save(job);
     this.jobs.set(id, job);
     if (pending.length) this.startCopies(job, pending);

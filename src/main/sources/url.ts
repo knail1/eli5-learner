@@ -216,7 +216,13 @@ export class UrlResolver implements SourceResolver {
     if (!norm.ok) return { resolved: [], skipped: [skip(ref, norm.code)] };
     if (norm.url.protocol === 'file:') return { resolved: [], skipped: [skip(ref, 'unsupported-scheme')] };
     // fetchUrl throws only AbortError; the chain maps it to `cancelled` (03 §7.2).
-    const outcome = await ctx.fetchUrl(norm.key, { jobId: ctx.jobId, signal: ctx.signal, stagingDir: ctx.stagingDir });
+    const outcome = await ctx.fetchUrl(norm.key, {
+      jobId: ctx.jobId,
+      signal: ctx.signal,
+      stagingDir: ctx.stagingDir,
+      // 16 §5.3 step 6: a phone job's URL never gets the user-typed private-address exception.
+      ...(input.origin === 'inbox' ? { origin: 'inbox' as const } : {}),
+    });
     return fromOutcome(input, ref, norm.key, outcome, ctx);
   }
 }

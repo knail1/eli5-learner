@@ -51,6 +51,7 @@ import {
 } from './protocol';
 import type { SyncDocState, SyncState, SyncStateStore } from './state';
 import { sha256Hex } from './stores/drive-appdata';
+import type { InboxPass } from './inbox';
 import type { GuardedStore, GuardOptions } from './stores/guard';
 import type { RemoteFile, RemoteProps, SyncKind, SyncPolicy } from './types';
 import { SYNC_ERROR_TEXT, SyncError } from './types';
@@ -95,8 +96,11 @@ export interface SyncEngineDeps {
   /** A section job of the document is in flight (08 locks). */
   isBusy(slug: string): boolean;
   device: { name: string; appVersion: string };
-  /** The phone inbox (S10): job kinds this desktop runs and whether the user turned it on. */
-  inbox?: { accepts(): JobKind[]; enabled(): boolean; pending?(): number };
+  /**
+   * The phone inbox (16 §5.3, `inbox.ts`): job kinds this desktop runs, whether the user turned it
+   * on, and the step that handles job files on each pass (primary, writable library only).
+   */
+  inbox?: { accepts(): JobKind[]; enabled(): boolean; pending?(): number; process?(p: InboxPass): Promise<void> };
   now?: () => number;
   timers?: EngineTimers;
   debounceMs?: number;
@@ -489,6 +493,8 @@ export class SyncEngine {
       await this.writeDevice(store);
       this.heartbeat.start();
       if (this.role?.role === 'primary' && !this.d.library.readOnly && !this.stopped) {
+        // Jobs first: a phone waits on them, while the mirror can catch up a moment later.
+        await this.runInbox(store);
         await this.push(store);
         await this.gcIfDue(store);
       }
@@ -749,6 +755,25 @@ export class SyncEngine {
         s.deviceHash = hash;
       },
     );
+  }
+
+  // --------------------------------------------------------------------------------- inbox
+
+  /** 16 §5.3: the inbox reads job, cancel and status files from the index and writes statuses. */
+  private async runInbox(store: GuardedStore): Promise<void> {
+    const inbox = this.d.inbox;
+    if (!inbox?.process || this.stopped) return;
+    const st = this.d.state.current();
+    await inbox.process({
+      store,
+      files: [...this.index.values()],
+      deviceId: st.deviceId,
+      ...(st.account ? { account: st.account } : {}),
+      onWritten: (f) => {
+        this.index.set(f.id, f);
+        this.createdThisSession.add(f.id);
+      },
+    });
   }
 
   // ---------------------------------------------------------------------------------- push

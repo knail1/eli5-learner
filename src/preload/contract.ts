@@ -366,6 +366,8 @@ export interface JobSnapshot {
   canCancel: boolean;
   canRetry: boolean;
   canDismiss: boolean;
+  /** `'inbox'`: the job was sent from the phone (16 §5.3); the status area shows "From phone". */
+  origin?: 'inbox';
 }
 
 // ---------------------------------------------------------------------------

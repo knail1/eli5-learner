@@ -150,6 +150,7 @@ export function JobLine(p: {
         {glyph === 'check' ? '✓' : glyph === 'cross' ? '✕' : ''}
       </span>
       {text}
+      {j.origin === 'inbox' && <span className="job-chip">From phone</span>}
       <span className="job-actions">
         {j.canCancel && (
           <button type="button" disabled={p.busy} onClick={() => p.onAct('cancel')}>

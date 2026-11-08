@@ -66,6 +66,31 @@ export {
 export type { ClaimRef, ClaimRole, DeviceView } from './claims';
 export { planGc, GC_ABSENT_DOC_MS, GC_UNSELECTED_BLOB_MS, GC_TERMINAL_JOB_MS, GC_PHONE_SILENT_MS } from './gc';
 export type { GcInput, GcDoc, GcDeletion } from './gc';
+export {
+  SyncInbox,
+  INBOX_ACCEPTS,
+  INBOX_RATE_PER_HOUR,
+  INBOX_RATE_PER_DAY,
+  INBOX_MAX_AGE_MS,
+  INBOX_MAX_AHEAD_MS,
+  CHECKOUT_RETRY_MS,
+  ATTACHMENT_WAIT_MS,
+  FAILED_FILES_KEEP_MS,
+  LEDGER_KEEP_MS,
+  MAX_JOB_FILE_BYTES,
+  SHARED_TEXT_FILE,
+  FOCUS_PHRASES,
+  INBOX_TEXT,
+  accountKey,
+  checkoutOutcomeOf,
+  composeClarifying,
+  reportFromSnapshot,
+  statusBody,
+  stagedName,
+} from './inbox';
+export type { CheckoutOutcome, InboxCapture, InboxPass, SyncInboxDeps } from './inbox';
+export { InboxLedger, InboxLedgerSchema, INBOX_LEDGER_FILE } from './ledger';
+export type { InboxLedgerData, LedgerEntry, LedgerReport } from './ledger';
 export { createSyncService, syncErrorMessage } from './service';
 export type { SyncService, SyncServiceDeps } from './service';
 export { registerPublic } from './register';

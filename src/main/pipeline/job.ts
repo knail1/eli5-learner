@@ -103,6 +103,7 @@ export function snapshotOf(job: Job, ctx: SnapshotContext = {}): JobSnapshot {
     canCancel: !terminal && !ctx.commitStarted,
     canRetry: job.status === 'failed' && isRetryable(job.failure?.code),
     canDismiss: terminal,
+    ...(job.origin ? { origin: job.origin.kind } : {}),
   };
 }
 
@@ -150,6 +151,10 @@ export const JobRecordSchema = z
     failure: z
       .object({ code: z.string(), message: z.string(), detail: z.string().optional() })
       .passthrough()
+      .optional(),
+    origin: z
+      .object({ kind: z.literal('inbox'), ref: z.string().regex(/^[0-9a-f-]{1,64}$/) })
+      .strict()
       .optional(),
   })
   .passthrough();
