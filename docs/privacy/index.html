@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ELI5 Learner · Privacy policy</title>
+<style>
+  :root {
+    --ivory: #FAF9F5; --slate: #141413; --clay: #D97757; --oat: #E3DACC; --olive: #788C5D;
+    --gray-150: #F0EEE6; --gray-300: #D1CFC5; --gray-500: #87867F; --gray-700: #3D3D3A; --white: #FFFFFF;
+    --serif: ui-serif, Georgia, 'Times New Roman', serif;
+    --sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: var(--sans); background: var(--ivory); color: var(--gray-700); line-height: 1.6;
+    padding: 56px 32px 120px; -webkit-font-smoothing: antialiased; }
+  .page { max-width: 760px; margin: 0 auto; }
+  a { color: var(--clay); text-underline-offset: 3px; }
+  code { font-family: var(--mono); font-size: 0.88em; background: var(--gray-150); border: 1px solid var(--gray-300);
+    border-radius: 5px; padding: 1px 6px; color: var(--slate); }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 12px; }
+  h1 { font-family: var(--serif); font-weight: 500; font-size: 38px; line-height: 1.15; color: var(--slate); margin-bottom: 16px; }
+  h2 { font-family: var(--serif); font-weight: 500; font-size: 24px; color: var(--slate); margin: 40px 0 6px; }
+  hr.rule { border: 0; border-top: 1px solid var(--gray-300); margin: 8px 0 18px; }
+  p, li { font-size: 16px; margin-bottom: 10px; }
+  ul { padding-left: 22px; }
+  .lede { font-size: 17px; }
+  .note { background: var(--white); border: 1.5px solid var(--gray-300); border-left: 4px solid var(--olive);
+    border-radius: 10px; padding: 14px 18px; margin: 24px 0; }
+  footer { margin-top: 56px; font-size: 13px; color: var(--gray-500); }
+  @media (max-width: 720px) { body { padding: 32px 16px 80px; } h1 { font-size: 30px; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="eyebrow">ELI5 Learner</div>
+  <h1>Privacy policy</h1>
+  <p class="lede">ELI5 Learner is a desktop app with an optional Android companion. It has no server of its own,
+    no accounts, no analytics and no advertising. This page explains what data it touches and where that data goes.</p>
+
+  <div class="note">In short: your documents stay on your devices and, if you turn on sync, in a hidden folder in
+    your own Google Drive that only this app can read. The authors never receive any of it.</div>
+
+  <h2>What the app stores</h2>
+  <hr class="rule">
+  <ul>
+    <li>The documents you generate and their version history, in the app's folder on your Mac.</li>
+    <li>Your AI provider API key, in the macOS Keychain.</li>
+    <li>If you turn on sync: a Google sign-in token, in the macOS Keychain on the desktop and in Android's
+      account system on the phone.</li>
+  </ul>
+
+  <h2>What leaves your device</h2>
+  <hr class="rule">
+  <ul>
+    <li><strong>To the AI provider you choose</strong> (Anthropic or OpenAI): the source material you give the app and
+      the instructions needed to write your document, sent with your own API key. That provider's own privacy
+      policy applies.</li>
+    <li><strong>To public web pages you add as sources</strong>: an ordinary request to fetch the page.</li>
+    <li><strong>To your Google Drive, only if you turn on sync</strong>: your documents and their versions.</li>
+  </ul>
+  <p>Nothing is sent to the authors of ELI5 Learner, and there is no telemetry.</p>
+
+  <h2>Google user data</h2>
+  <hr class="rule">
+  <p>Sync is off by default. When you turn it on, the app asks Google for one permission:
+    <code>drive.appdata</code>, which lets it see and manage only its own hidden app-data folder in your Drive.
+    It cannot see, open or list any of your other Drive files, and it does not request Gmail, Photos, Calendar,
+    Contacts or any other Google data.</p>
+  <ul>
+    <li><strong>Use:</strong> the app-data folder is used only to copy your ELI5 Learner documents between your own
+      devices.</li>
+    <li><strong>Sharing:</strong> this data is not shared with, sold to or read by anyone else, and it is not used for
+      advertising or to train AI models.</li>
+    <li><strong>Storage:</strong> it lives in your own Google account and counts toward your Drive storage.</li>
+  </ul>
+  <p>ELI5 Learner's use of information received from Google APIs adheres to the
+    <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>,
+    including the Limited Use requirements.</p>
+
+  <h2>Removing your data</h2>
+  <hr class="rule">
+  <ul>
+    <li>Turn off sync in the app's settings, or remove the app's access at
+      <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</li>
+    <li>Delete the synced copies in Google Drive on the web: Settings, then Manage apps, then ELI5 Learner, then
+      Delete hidden app data.</li>
+    <li>Delete local documents from the app's library, or uninstall the app.</li>
+  </ul>
+
+  <h2>Contact</h2>
+  <hr class="rule">
+  <p>Questions about this policy: open an issue on the
+    <a href="https://github.com/knail1/eli5-learner/issues">project's GitHub page</a>.</p>
+
+  <footer>Last updated 8 November 2026. · <a href="../">ELI5 Learner home</a></footer>
+</div>
+</body>
+</html>

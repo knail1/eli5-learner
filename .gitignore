@@ -160,6 +160,7 @@ docs/*
 !docs/index.html
 !docs/sample/
 !docs/guides/
+!docs/privacy/
 
 # Local secrets and config (.env* is covered above)
 *.pem
