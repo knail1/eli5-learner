@@ -8,6 +8,7 @@ import { EnterpriseSection } from './sections/EnterpriseSection';
 import { LibrarySection } from './sections/LibrarySection';
 import { NotificationsSection } from './sections/NotificationsSection';
 import { PublishingSection } from './sections/PublishingSection';
+import { SyncSection } from './sections/SyncSection';
 
 export { SignInIndicator } from './sections/EnterpriseSection';
 
@@ -45,6 +46,7 @@ export function SettingsScreen(p: { settings: Settings | null; section?: Setting
       <LibrarySection {...props} />
       <PublishingSection {...props} />
       <NotificationsSection {...props} />
+      <SyncSection {...props} />
       <AboutSection {...props} />
       <EnterpriseSection {...props} />
     </div>

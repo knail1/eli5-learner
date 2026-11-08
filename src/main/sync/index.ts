@@ -66,4 +66,6 @@ export {
 export type { ClaimRef, ClaimRole, DeviceView } from './claims';
 export { planGc, GC_ABSENT_DOC_MS, GC_UNSELECTED_BLOB_MS, GC_TERMINAL_JOB_MS, GC_PHONE_SILENT_MS } from './gc';
 export type { GcInput, GcDoc, GcDeletion } from './gc';
+export { createSyncService, syncErrorMessage } from './service';
+export type { SyncService, SyncServiceDeps } from './service';
 export { registerPublic } from './register';

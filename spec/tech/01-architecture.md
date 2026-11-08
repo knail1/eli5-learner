@@ -235,6 +235,9 @@ HOOK-PUB-03). Publish UI visibility is HOOK-UI-01.
   everything else → `E_IO`.
   `PublishError` (10) maps to `E_PUBLISH_FAILED` with its `PublishErrorCode` in `detailCode` and,
   for `E_PUBLISH_SECRET_FOUND`, the masked `findings`; its `detail` is never sent.
+  `SyncError` (16 §10) maps to `E_SYNC_FAILED` with its `SyncErrorCode` in `detailCode`; the
+  message is the 16 §10 user text (the sign-in and client-JSON texts pass through, every other
+  module message is replaced by "Sync could not finish. Try again in a moment").
   A module needing a new code adds it here; `detailCode` carries a finer module code where the
   UI needs one (for example `PublishErrorCode`, 10).
 
@@ -251,7 +254,9 @@ export type IpcErrorCode =
   // library (09)
   | 'E_LIBRARY_READ_ONLY' | 'E_SUGGESTION_STALE' | 'E_MERGE_FAILED'
   // publish (10): every PublishError; its PublishErrorCode travels in detailCode
-  | 'E_PUBLISH_FAILED';
+  | 'E_PUBLISH_FAILED'
+  // sync (16, v2): every SyncError; its SyncErrorCode travels in detailCode
+  | 'E_SYNC_FAILED';
 
 export interface IpcError {
   code: IpcErrorCode;
@@ -405,18 +410,20 @@ this table is corrected. Channel **names** are fixed here.
 **Sync (16, v2, optional)**
 
 All sync channels are app window only (`assertSender`); the viewer gets `E_FORBIDDEN`. No payload
-ever carries a client secret, refresh token or access token.
+ever carries a client secret, refresh token or access token. When the sync policy does not allow
+sync (HOOK-SYNC-01) every invoke answers `E_NOT_AVAILABLE_IN_EDITION`; a `SyncError` answers
+`E_SYNC_FAILED` with the `SyncErrorCode` in `detailCode` (§5.1).
 
 | Channel | Dir | Request | Response / event payload | Spec |
 | --- | --- | --- | --- | --- |
 | `eli5:sync:status` | R→M | — | `SyncStatus` | 16 §8 |
 | `eli5:sync:set-client` | R→M | `{json: string}` (the Desktop client JSON; write-only, stored in the Keychain) | `SyncStatus` (reports only `configured: true`) | 16 §3.2 |
 | `eli5:sync:clear-client` | R→M | — | `SyncStatus` | 16 §3.2 |
-| `eli5:sync:sign-in` | R→M | — | `SyncStatus` after the loopback consent in the system browser | 16 §3.2 |
+| `eli5:sync:sign-in` | R→M | — | `SyncStatus` after the loopback consent in the system browser; `E_SYNC_FAILED` (`E_SYNC_DISABLED`) while Sync is off | 16 §3.2 |
 | `eli5:sync:sign-out` | R→M | — | `SyncStatus` | 16 §3.2 |
-| `eli5:sync:now` | R→M | — | `void` (schedules a push and a poll) | 16 §4.5 |
+| `eli5:sync:now` | R→M | — | `void` (starts a full pass; progress arrives as `eli5:sync:changed`) | 16 §4.5 |
 | `eli5:sync:make-primary` | R→M | — | `SyncStatus` | 16 §4.6 |
-| `eli5:sync:delete-remote` | R→M | — | `void` (deletes every file in the store; the local library is untouched) | 16 §4.7 |
+| `eli5:sync:delete-remote` | R→M | — | `void` (deletes every file in the store, then sets `sync.enabled` to false; the local library is untouched; `E_SETTINGS_LOCKED` when `sync.enabled` is managed) | 16 §4.7 |
 | `eli5:sync:changed` | M→R | — | `SyncStatus` | 16 §8 |
 
 This table is the complete v1 registry: channels not in it do not exist. A spec that needs a new
@@ -715,8 +722,10 @@ Rules:
 5. Test builds only: if `__ELI5_TEST__` is true **and** `ELI5_LLM_FAKE=1`, install the fake LLM
    provider (13 §6.1). It reads the active `llm.provider` at this moment (after the overlay and the
    re-validation) and replaces whatever provider is registered under that name. No stored API key
-   is needed with it. Without both conditions this step does not exist; production order is
-   unchanged.
+   is needed with it. Likewise, with `ELI5_SYNC_FAKE=1` it registers the in-memory sync store
+   under the shipped store id and a stand-in for the browser and Google's token endpoints
+   (`src/main/sync/testing/`, 16 §12). Without both conditions this step does not exist; production
+   order is unchanged.
 6. `registry.freeze()`.
 7. IPC handlers are registered; windows and Tray are created.
 8. v2, optional (16 §8): the sync service is created after the library. Bootstrap wires library

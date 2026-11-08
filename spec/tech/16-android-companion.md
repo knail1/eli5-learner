@@ -12,7 +12,9 @@ sync code is built and tested against the in-memory fake Drive and the `SyncStor
 (§12) only. The desktop sync engine (§4.5–§4.7: push, claims, heartbeat, garbage collection) was
 built ahead of G1 against the fake store, because G1 needs the owner's Cloud project; it must not be
 trusted with a real Drive until G1 passes, and a G1 failure moves it to the `google-drive-folder`
-store as §13 says.
+store as §13 says. The same holds for Settings > Sync, the sidebar indicator and `eli5:sync:*`
+(§8): built and tested end to end against the in-memory store and a stand-in for Google's
+endpoints, unverified against a real Google account until G1.
 
 Related: [01-architecture.md](./01-architecture.md) · [06-generation-pipeline.md](./06-generation-pipeline.md) ·
 [07-output-document.md](./07-output-document.md) · [08-interactive-reading.md](./08-interactive-reading.md) ·
@@ -353,9 +355,14 @@ that names it; one that no job names is removed 30 days after it was written (a 
 between the attachment and the job). Collection runs at most every 6 hours, and at once when a
 document was purged from the Trash.
 
-Settings > Sync > "Delete cloud copy" deletes every file in the store (paged). The user can do the
-same from Google Drive > Settings > Manage apps > Delete hidden app data. Either way the desktop keeps
-its library and a later enable pushes everything again.
+Settings > Sync > "Delete cloud copy" deletes every file in the store (paged), then turns Sync off
+(`sync.enabled` false), so the next poll does not push everything straight back. If the wipe fails
+part way, Sync stays on and the user can try again. While it runs, Sync now is a no-op and a second
+request joins the first. When managed config locks `sync.enabled` it is refused up front with
+`E_SETTINGS_LOCKED` and nothing is deleted, since a wipe that cannot turn Sync off would be pushed
+straight back (the button is disabled with a note). The user can do the same from Google Drive >
+Settings > Manage apps > Delete hidden app data. Either way the desktop keeps its library and a
+later enable pushes everything again.
 
 ### 4.8 Pull (phone; desktop pulls only jobs, cancels, devices and claims)
 
@@ -552,13 +559,21 @@ app; `adb push`; the public sample on the project's Pages site.
   ```ts
   type SyncStatus = {
     state: 'off' | 'not-configured' | 'signed-out' | 'idle' | 'syncing' | 'error' | 'paused-read-only' | 'mirror';
-    configured: boolean; account?: string; lastSyncAt?: string; pendingUploads: number;
+    configured: boolean; signedIn: boolean; account?: string; lastSyncAt?: string; pendingUploads: number;
     inboxPending: number; devices: Array<{ name: string; platform: 'macos' | 'android'; role: string; lastSeen: string }>;
     message?: string };
   ```
   `SourceOrigin` gains `'inbox'`; `SettingsSection` gains `'sync'`. `VersionChangeKind` gains
   `'sync'`, reserved for a later desktop pull, unused in this version.
   The channels are app-window only (`assertSender`); the viewer gets `E_FORBIDDEN`.
+  `signedIn` reports only whether a grant is stored (true also while Sync is off, so Disconnect stays
+  reachable); `configured` and `signedIn` are re-read from the Keychain on every status call, with
+  no request. The handlers sit in `src/main/ipc/sync.ts` over a `SyncService`
+  (`src/main/sync/service.ts`, `createSyncService`). While the sync policy does not allow sync,
+  every call fails with `NotAvailableInEdition` (HOOK-SYNC-01), which is how the renderer hides the
+  section and the indicator. `sign-in` needs Sync on (`E_SYNC_DISABLED` otherwise), so turning
+  Sync on comes first and nothing reaches Google before it. A `SyncError` crosses IPC as
+  `E_SYNC_FAILED` with the `SyncErrorCode` in `detailCode` (01 §5.1).
 - **Config** (12 §3):
   `sync: z.object({ enabled: z.boolean().default(false), store: z.string().default('google-drive-appdata'), pollSeconds: z.number().int().min(30).max(3600).default(60), history: z.enum(['current','recent','all']).default('recent'), inbox: z.object({ enabled: z.boolean().default(false) }).strict().prefault({}) }).strict().prefault({})`.
 - **Renderer** (11): Settings > Sync with the client JSON field (paste or drop; write-only), Connect
@@ -654,9 +669,17 @@ failures after retries) and `E_SYNC_ABORTED`.
   in read-only and unknown-format states, claim and takeover, crash between steps); inbox tests
   (schema fuzzing, sha mismatch, type sniffing, private-address URLs, replay, rate limits, cancel,
   `E_CONFLICT`, `E_STALE`, kinds not accepted); OAuth tests against a fake token endpoint (state
-  mismatch, timeout, `invalid_grant`); IPC sender tests; hygiene tests for the new rules.
-- **Desktop e2e.** Playwright with the fake store through the test registry: enable sync, generate,
-  see files in the fake, drop a job file, see a "From phone" document reach done.
+  mismatch, timeout, `invalid_grant`); IPC sender tests (the viewer gets `E_FORBIDDEN`; no answer
+  carries a client value or token); sync service tests with the real engine and sign-in over the
+  in-memory store; renderer tests for Settings > Sync and the indicator; hygiene tests for the new
+  rules.
+- **Desktop e2e** (`test/e2e/sync.e2e.ts`). Test builds with `ELI5_SYNC_FAKE=1` register
+  `MemorySyncStore` (`src/main/sync/testing/`) under the shipped store id and a stand-in that plays
+  the browser (it calls the app's own 127.0.0.1 callback) and answers the token, userinfo and revoke
+  endpoints, so the real loopback sign-in runs offline. The spec turns Sync on, saves the client,
+  connects, runs Sync now, sees the document's files in the store, follows the indicator to
+  Settings > Sync and deletes the cloud copy. The inbox slice adds: drop a job file, see a "From
+  phone" document reach done.
 - **Visual.** Doc runtime cases at 360 px and 412 px width.
 - **Android (JVM, headless).** DriveClient against MockWebServer (multipart shape, resumable chunks,
   backoff, 401 then clearToken); sync repository with a fake client and in-memory Room under

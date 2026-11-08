@@ -341,6 +341,19 @@ describe('checkBundle (13 §11 rule 4, 12 §12 gate 3)', () => {
       { check: 'bundle', path: 'out/main/index.js', line: 2, detail: 'FakeProvider present in a package build' },
     ]);
   });
+
+  it('flags the e2e sync store only in package mode (16 §12)', () => {
+    const files = [{ path: 'out/main/chunks/testing.js', text: 'class MemorySyncStore {}' }];
+    expect(checkBundle(files, { packageMode: false })).toEqual([]);
+    expect(checkBundle(files, { packageMode: true })).toEqual([
+      {
+        check: 'bundle',
+        path: 'out/main/chunks/testing.js',
+        line: 1,
+        detail: 'MemorySyncStore present in a package build',
+      },
+    ]);
+  });
 });
 
 describe('runHygiene over temp git repos', () => {

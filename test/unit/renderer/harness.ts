@@ -2,7 +2,14 @@ import { act, createElement, type ComponentType } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, vi } from 'vitest';
 import type { Eli5Api } from '../../../src/preload/api';
-import type { DocVersionNode, DocVersionTree, EditionInfo, IpcResult, Settings } from '../../../src/preload/contract';
+import type {
+  DocVersionNode,
+  DocVersionTree,
+  EditionInfo,
+  IpcResult,
+  Settings,
+  SyncStatus,
+} from '../../../src/preload/contract';
 import { DEFAULTS } from '../../../src/main/config/schema';
 
 /**
@@ -47,6 +54,17 @@ export const PUBLIC_EDITION: EditionInfo = {
 
 export const settings = (): Settings => structuredClone(DEFAULTS);
 
+/** A `SyncStatus` for tests: sync off, no client, not signed in, unless `over` says otherwise. */
+export const syncStatus = (over: Partial<SyncStatus> = {}): SyncStatus => ({
+  state: 'off',
+  configured: false,
+  signedIn: false,
+  pendingUploads: 0,
+  inboxPending: 0,
+  devices: [],
+  ...over,
+});
+
 type Listener = (payload: never) => void;
 
 export interface FakeApi {
@@ -68,7 +86,8 @@ export interface FakeApi {
       | 'doc'
       | 'doc-history'
       | 'doc-versions'
-      | 'publish',
+      | 'publish'
+      | 'sync',
     payload: unknown,
   ): void;
 }
@@ -200,6 +219,18 @@ export function installFakeApi(edition: EditionInfo = PUBLIC_EDITION): FakeApi {
       accountStatus: resolved(notImplemented),
       accountAction: resolved(notImplemented),
       onProgress: on('publish'),
+    },
+    // Sync off by default (16 §8): the indicator is absent and Settings > Sync shows the switch.
+    sync: {
+      status: resolved(ok(syncStatus())),
+      setClient: resolved(ok(syncStatus({ configured: true }))),
+      clearClient: resolved(ok(syncStatus())),
+      signIn: resolved(notImplemented),
+      signOut: resolved(ok(syncStatus())),
+      now: resolved(ok(undefined)),
+      makePrimary: resolved(notImplemented),
+      deleteRemote: resolved(ok(undefined)),
+      onChanged: on('sync'),
     },
     auth: {
       status: resolved(ok({ state: 'unavailable', updatedAt: '2026-01-01T00:00:00.000Z' })),

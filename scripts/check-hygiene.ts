@@ -14,7 +14,7 @@
 //    only, because CI logs of a public repo are public.
 // 4. Bundle check: out/main/build-info.json (written by config/electron.vite.config.ts) records that
 //    `@eli5/overlay` resolved to overlay.none in a public build with no module from outside src/;
-//    out/** also has no leftover overlay path and (with --package) no FakeProvider.
+//    out/** also has no leftover overlay path and (with --package) no FakeProvider or MemorySyncStore.
 //
 // Exit 1 on any finding, 2 on a usage or configuration error.
 
@@ -265,6 +265,9 @@ const OVERLAY_MARKERS: readonly { re: RegExp; detail: string }[] = [
   { re: /(^|[^a-z])enterprise\/index(\.ts)?\b/, detail: 'enterprise overlay referenced by the public bundle' },
 ];
 
+/** Test-build fakes (13 §6.1, 16 §12) that a package build must never contain. */
+const TEST_ONLY_NAMES = ['FakeProvider', 'MemorySyncStore'] as const;
+
 export function checkBundle(files: readonly TextFile[], opts: { packageMode: boolean }): HygieneFinding[] {
   const out: HygieneFinding[] = [];
   for (const f of files) {
@@ -272,8 +275,12 @@ export function checkBundle(files: readonly TextFile[], opts: { packageMode: boo
       for (const m of OVERLAY_MARKERS) {
         if (m.re.test(lineText)) out.push({ check: 'bundle', path: f.path, line: i + 1, detail: m.detail });
       }
-      if (opts.packageMode && lineText.includes('FakeProvider')) {
-        out.push({ check: 'bundle', path: f.path, line: i + 1, detail: 'FakeProvider present in a package build' });
+      if (opts.packageMode) {
+        for (const name of TEST_ONLY_NAMES) {
+          if (lineText.includes(name)) {
+            out.push({ check: 'bundle', path: f.path, line: i + 1, detail: `${name} present in a package build` });
+          }
+        }
       }
     });
   }
@@ -329,7 +336,7 @@ export interface RunHygieneOptions {
   env: Record<string, string | undefined>;
   /** Built bundle directory relative to root (CI: `out`); omitted skips the out/** scans. */
   outDir?: string;
-  /** The bundle is a package build: FakeProvider must be absent. */
+  /** The bundle is a package build: FakeProvider and MemorySyncStore must be absent. */
   packageMode?: boolean;
   log: (line: string) => void;
 }

@@ -36,4 +36,6 @@ secret test/unit/main/publish/scanner.test.ts generic-high-entropy
 # Bundle: scanner.ts's rule comment in main, and React's minified input-type table in the
 # renderer (`password:!0,range:!0,...`), pinned to that value's preview.
 secret out/main/index.js url-credentials
+# The sync state schema's `startToken: z.string()...` field (see src/main/sync/state.ts above).
+secret out/main/index.js generic-high-entropy z.st****************
 secret out/renderer/assets/*.js generic-high-entropy !0,r****************

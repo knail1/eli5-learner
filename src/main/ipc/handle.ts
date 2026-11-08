@@ -10,6 +10,7 @@ import { PipelineRequestError } from '../pipeline';
 import { PublishError, PublishRequestError } from '../publish';
 import { log } from '../security';
 import { InvalidDraftId } from '../sources';
+import { SyncError, syncErrorMessage } from '../sync';
 
 /** Identity of the two renderer surfaces allowed to invoke (12 §7.2 step 6). */
 export interface SenderIdentity {
@@ -79,6 +80,10 @@ export function toIpcError(err: unknown): IpcError {
       detailCode: err.code,
       ...(err.findings ? { findings: err.findings } : {}),
     };
+  }
+  // 16 §10: one boundary code; the SyncErrorCode travels in detailCode, the module's text only when safe.
+  if (err instanceof SyncError) {
+    return { code: 'E_SYNC_FAILED', message: syncErrorMessage(err.code, err.message), detailCode: err.code };
   }
   if (err instanceof InvalidDraftId) return { code: 'E_BAD_REQUEST', message: 'Invalid request' };
   // 01 §6.2: a provider that finds no key at call time maps to E_NO_API_KEY.

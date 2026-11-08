@@ -242,4 +242,38 @@ describe('app preload', () => {
     api.app.onCycleRegion(() => {});
     expect(ipcRenderer.on).toHaveBeenCalledWith(IPC.app.cycleRegion, expect.any(Function));
   });
+  it('maps window.eli5.sync to the app-only sync channels and subscribes to eli5:sync:changed (16 §8)', async () => {
+    const { ipcRenderer } = await import('electron');
+    type Fn = (...a: unknown[]) => Promise<unknown>;
+    const api = exposed.eli5 as { sync: Record<string, Fn> & { onChanged(cb: (s: unknown) => void): () => void } };
+    invoke.mockClear();
+    await api.sync.status!();
+    await api.sync.setClient!('{"installed":{}}');
+    await api.sync.clearClient!();
+    await api.sync.signIn!();
+    await api.sync.signOut!();
+    await api.sync.now!();
+    await api.sync.makePrimary!();
+    await api.sync.deleteRemote!();
+    expect(invoke.mock.calls).toEqual([
+      [IPC.sync.status, undefined],
+      [IPC.sync.setClient, { json: '{"installed":{}}' }],
+      [IPC.sync.clearClient, undefined],
+      [IPC.sync.signIn, undefined],
+      [IPC.sync.signOut, undefined],
+      [IPC.sync.now, undefined],
+      [IPC.sync.makePrimary, undefined],
+      [IPC.sync.deleteRemote, undefined],
+    ]);
+    const on = vi.mocked(ipcRenderer.on);
+    on.mockClear();
+    const seen: unknown[] = [];
+    const off = api.sync.onChanged((s) => seen.push(s));
+    expect(on).toHaveBeenCalledWith(IPC.sync.changed, expect.any(Function));
+    const listener = on.mock.calls[0]?.[1] as (e: unknown, payload: unknown) => void;
+    listener({}, { state: 'idle' });
+    expect(seen).toEqual([{ state: 'idle' }]);
+    off();
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith(IPC.sync.changed, listener);
+  });
 });

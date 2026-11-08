@@ -18,6 +18,7 @@ import { InTrash, TrashView } from './library/TrashView';
 import { readLastDoc, rememberDoc, resolveRoute, sameRoute, startupRoute } from './routes';
 import { SettingsScreen, SignInIndicator } from './settings/SettingsScreen';
 import { StatusArea } from './status/StatusArea';
+import { SyncIndicator } from './sync/SyncIndicator';
 import { SuggestionsPanel } from './suggestions/SuggestionsPanel';
 import { TopStatus } from './top-status/TopStatus';
 import { BottomHandle, useBottomPanel } from './layout/BottomPanel';
@@ -428,6 +429,7 @@ function Shell() {
           >
             <span aria-hidden="true">⚙</span> Settings
           </button>
+          <SyncIndicator onOpen={() => openSettings('sync')} />
           <FeatureGate feature="auth.signIn">
             <SignInIndicator />
           </FeatureGate>

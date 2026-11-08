@@ -1152,6 +1152,57 @@ button.link {
   border: 0;
   background: transparent;
 }
+button.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* ---- personal sync (11 §7 "Sync section", "Sync indicator"; v2) ---- */
+.sync-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 2px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.sync-indicator.sync-synced {
+  color: var(--ok);
+}
+.sync-indicator.sync-problem {
+  color: var(--danger);
+}
+.sync-indicator.sync-syncing svg {
+  animation: sync-pulse 1.2s ease-in-out infinite;
+}
+@keyframes sync-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+.settings .sync-field {
+  align-items: start;
+}
+.sync-client {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.sync-client textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
+}
+.sync-devices ul {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+}
+.sync-delete {
+  margin-top: 8px;
+}
 
 /* Motion off under reduced motion; spinners become a static "…" (11 §12). */
 @media (prefers-reduced-motion: reduce) {

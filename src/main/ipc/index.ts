@@ -39,6 +39,7 @@ import { notImplementedServices, type IpcServices } from './services';
 import { registerSettingsIpc } from './settings';
 import { registerSourcesIpc } from './sources';
 import { registerSuggestionsIpc } from './suggestions';
+import { registerSyncIpc } from './sync';
 
 export { assertSender, toIpcError, IpcFailure, fail, makeHandle, NO_API_KEY } from './handle';
 export type { SenderIdentity, HandlerRegistrar } from './handle';
@@ -136,6 +137,7 @@ export function registerIpc(d: IpcDeps): () => void {
   registerSuggestionsIpc(on, { suggestions: svc.suggestions });
   registerPublishIpc(on, { publish: svc.publish });
   registerAppIpc(on, { notifications: svc.notifications });
+  registerSyncIpc(on, { sync: svc.sync });
 
   // ---- settings (12 §5, 11 §10) ----
   registerSettingsIpc(on, {
@@ -231,6 +233,7 @@ export function registerIpc(d: IpcDeps): () => void {
     svc.docHistory.onVersionsChanged((e) => d.sendToApp(IPC.doc.versionsChanged, e)),
     svc.suggestions.onChanged((suggestions) => d.sendToApp(IPC.suggestions.changed, { suggestions })),
     svc.suggestions.onDocUpdated((e) => d.sendToApp(IPC.doc.updated, e)),
+    svc.sync.onChanged((s) => d.sendToApp(IPC.sync.changed, s)),
     svc.publish.onProgress(({ error, ...e }) =>
       d.sendToApp(IPC.publish.progress, error === undefined ? e : { ...e, error: toIpcError(error) }),
     ),

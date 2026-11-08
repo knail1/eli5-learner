@@ -33,7 +33,9 @@ export type IpcErrorCode =
   | 'E_SUGGESTION_STALE'
   | 'E_MERGE_FAILED'
   // publish (10): the PublishErrorCode travels in detailCode
-  | 'E_PUBLISH_FAILED';
+  | 'E_PUBLISH_FAILED'
+  // sync (16, v2): every SyncError; its SyncErrorCode travels in detailCode
+  | 'E_SYNC_FAILED';
 
 export interface IpcError {
   code: IpcErrorCode;
@@ -652,6 +654,8 @@ export interface SyncStatus {
   state: 'off' | 'not-configured' | 'signed-out' | 'idle' | 'syncing' | 'error' | 'paused-read-only' | 'mirror';
   /** An OAuth client is available (Settings > Sync, or the policy's managed source). */
   configured: boolean;
+  /** A grant is stored in the Keychain (the value never crosses IPC); true also while sync is off. */
+  signedIn: boolean;
   /** Account email, a display hint. */
   account?: string;
   lastSyncAt?: string;

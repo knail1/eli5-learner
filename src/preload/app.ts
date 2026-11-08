@@ -152,6 +152,17 @@ const api: Eli5Api = {
     accountStatus: (targetId) => invoke(IPC.publish.accountStatus, { targetId }),
     accountAction: (targetId, action) => invoke(IPC.publish.accountAction, { targetId, action }),
   },
+  sync: {
+    status: () => invoke(IPC.sync.status),
+    setClient: (json) => invoke(IPC.sync.setClient, { json }),
+    clearClient: () => invoke(IPC.sync.clearClient),
+    signIn: () => invoke(IPC.sync.signIn),
+    signOut: () => invoke(IPC.sync.signOut),
+    now: () => invoke(IPC.sync.now),
+    makePrimary: () => invoke(IPC.sync.makePrimary),
+    deleteRemote: () => invoke(IPC.sync.deleteRemote),
+    onChanged: on(IPC.sync.changed),
+  },
   auth: {
     status: () => invoke(IPC.auth.status),
     signIn: () => invoke(IPC.auth.signIn),

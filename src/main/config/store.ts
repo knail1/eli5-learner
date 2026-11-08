@@ -248,7 +248,8 @@ export class SettingsStore {
     };
   }
 
-  private isLocked(p: string): boolean {
+  /** The path, a parent or a child of it is set by managed config (12 §4.3). */
+  isLocked(p: string): boolean {
     return leafPaths(this.managed).some((m) => m === p || m.startsWith(`${p}.`) || p.startsWith(`${m}.`));
   }
 

@@ -348,6 +348,18 @@ export class SyncEngine {
     return n;
   }
 
+  /**
+   * Re-reads whether a client is configured and a grant is stored (Keychain only, never a request),
+   * then emits. Settings > Sync calls it after the client or the grant changed (16 §8).
+   */
+  async checkAuth(): Promise<SyncStatus> {
+    this.configured = await this.d.auth.configured();
+    this.signedIn = this.configured && (await this.d.auth.signedIn());
+    this.authChecked = true;
+    this.emit();
+    return this.status();
+  }
+
   onStatus(cb: (s: SyncStatus) => void): () => void {
     this.listeners.add(cb);
     return () => this.listeners.delete(cb);
@@ -361,13 +373,15 @@ export class SyncEngine {
     } catch {
       st = undefined;
     }
+    const lastSyncAt = this.lastSyncAt ?? st?.lastSyncAt;
     const base = {
       configured: this.configured,
+      signedIn: this.signedIn,
       pendingUploads: this.dirty.size,
       inboxPending: this.d.inbox?.pending?.() ?? 0,
       devices: this.devicesView(st?.deviceId),
       ...(st?.account ? { account: st.account } : {}),
-      ...(this.lastSyncAt ? { lastSyncAt: this.lastSyncAt } : {}),
+      ...(lastSyncAt ? { lastSyncAt } : {}),
     };
     if (!this.d.active()) return { ...base, state: 'off' };
     if (this.authChecked && !this.configured) {

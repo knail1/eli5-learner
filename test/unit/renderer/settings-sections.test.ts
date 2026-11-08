@@ -50,6 +50,7 @@ describe('settings sections (11 §7)', () => {
       'settings-library',
       'settings-publishing',
       'settings-notifications',
+      'settings-sync',
       'settings-about',
     ]);
     for (const id of ids) expect(host.querySelector(`#${id} h2`)?.getAttribute('tabindex'), id).toBe('-1');

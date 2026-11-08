@@ -5,6 +5,7 @@ import { fail } from './handle';
 import type { PublishService } from './publish';
 import type { FolderChooser, HelpLinks } from './settings';
 import type { MergeSuggestions } from './suggestions';
+import type { SyncService } from '../sync';
 
 /**
  * M3 service slots (dependency injection points). Each feature slice implements one interface;
@@ -26,6 +27,8 @@ export interface IpcServices {
   folders: FolderChooser;
   /** 11 §7: `eli5:settings:open-help` (HOOK-UI-02 public links). */
   help: HelpLinks;
+  /** 16 §8 (v2): `eli5:sync:*`. */
+  sync: SyncService;
 }
 
 const notImplemented = (): never => fail('E_INTERNAL', 'Not implemented yet');
@@ -76,5 +79,16 @@ export function notImplementedServices(): IpcServices {
     },
     folders: { chooseFolder: async () => notImplemented() },
     help: { open: async () => notImplemented() },
+    sync: {
+      status: async () => notImplemented(),
+      setClient: async () => notImplemented(),
+      clearClient: async () => notImplemented(),
+      signIn: async () => notImplemented(),
+      signOut: async () => notImplemented(),
+      now: async () => notImplemented(),
+      makePrimary: async () => notImplemented(),
+      deleteRemote: async () => notImplemented(),
+      onChanged: noEvents,
+    },
   };
 }

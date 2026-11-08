@@ -144,7 +144,8 @@ test('no test-only code ships in any out/main chunk (13 §5)', () => {
   for (const f of packed) {
     const js = readAsarText(ASAR, f);
     // The ELI5_LLM_FAKE check itself survives in dead code; the fake module never does.
-    for (const needle of ['FakeProvider', 'loadFakeScript']) expect(js.includes(needle), `${f}: ${needle}`).toBe(false);
+    for (const needle of ['FakeProvider', 'loadFakeScript', 'MemorySyncStore', 'fakeGoogle'])
+      expect(js.includes(needle), `${f}: ${needle}`).toBe(false);
   }
 });
 

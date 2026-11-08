@@ -272,6 +272,11 @@ describe('App layout and routes (11 §5, §6)', () => {
     ]);
     help?.remove();
     select?.remove();
+    // Settings > Sync (v2, 16 §8) is personal sync to the user's own Google Drive, not the dormant
+    // drive publisher: it names Google Drive by design and is checked in sync-section.test.ts.
+    const syncSection = host.querySelector('#settings-sync');
+    expect(syncSection).not.toBeNull();
+    syncSection?.remove();
     expect(host.innerHTML).not.toMatch(/mcp|drive|github/i);
   });
 

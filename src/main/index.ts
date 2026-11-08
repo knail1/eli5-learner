@@ -55,7 +55,15 @@ import { createPublishService } from './publish';
 import { hardenApp } from './security/harden';
 import { RotatingFileSink, createLogger, installLogger, log } from './security/log';
 import { registerSurface, safeOpenExternal } from './security';
-import { FOCUS_POLL_GAP_MS, GoogleOAuth, SyncEngine, SyncStateStore, openSyncStore, syncActive } from './sync';
+import {
+  FOCUS_POLL_GAP_MS,
+  GoogleOAuth,
+  SyncEngine,
+  SyncStateStore,
+  createSyncService,
+  openSyncStore,
+  syncActive,
+} from './sync';
 import {
   APP_SCHEME_PRIVILEGES,
   createMainWindow,
@@ -213,6 +221,17 @@ async function bootstrap(): Promise<void> {
       made.push(fake);
       return fake;
     });
+  }
+
+  // Test builds with ELI5_SYNC_FAKE=1 (13 §6.1): an in-memory store under the shipped store id and a
+  // stand-in for the browser and Google's token endpoints, so e2e drives Settings > Sync offline.
+  let syncFake: { openExternal(u: string): Promise<boolean>; fetch: typeof fetch } | undefined;
+  if (__ELI5_TEST__ && process.env.ELI5_SYNC_FAKE === '1') {
+    const { MemorySyncStore, fakeGoogle } = await import('./sync/testing');
+    const store = new MemorySyncStore();
+    (globalThis as { __eli5FakeSyncStore?: unknown }).__eli5FakeSyncStore = store;
+    registry.registerSyncStore(store.id, () => store);
+    syncFake = fakeGoogle();
   }
 
   // Dev-only budget-capped real run: wraps the LLM providers before the freeze; inert unless
@@ -402,10 +421,11 @@ async function bootstrap(): Promise<void> {
     keys: keyStore,
     enabled: () => syncActive(registry, settings.get()),
     clientSource: () => registry.syncPolicy().clientSource,
-    openExternal: (u) => safeOpenExternal(u, MAIN_SENDER_ID),
+    openExternal: syncFake?.openExternal ?? ((u) => safeOpenExternal(u, MAIN_SENDER_ID)),
     isPackaged: app.isPackaged,
     env: process.env,
     onSignedOut: () => sync.refresh(),
+    ...(syncFake ? { fetch: syncFake.fetch } : {}),
   });
   const syncState = new SyncStateStore({ dir: path.join(userData, 'sync') });
   const sync = new SyncEngine({
@@ -432,6 +452,19 @@ async function bootstrap(): Promise<void> {
   app.on('browser-window-focus', () => sync.pollSoon(FOCUS_POLL_GAP_MS));
   quitSteps.unshift({ name: 'sync', run: async () => sync.stop() });
   sync.start();
+  // Settings > Sync and the sidebar indicator (16 §8): `eli5:sync:*`, app window only.
+  m3.services.sync = createSyncService({
+    engine: sync,
+    oauth: syncOAuth,
+    state: syncState,
+    policy: () => registry.syncPolicy(),
+    active: () => syncActive(registry, settings.get()),
+    edition,
+    disable: async () => {
+      await settings.set({ sync: { enabled: false } });
+    },
+    canDisable: () => !settings.isLocked('sync.enabled'),
+  });
 
   // The viewer loads catalogued documents only through main (09 §11, 12 §7.7). A trashed one is not
   // loaded; the renderer's route shows it in the Trash with Put Back (11 §8).

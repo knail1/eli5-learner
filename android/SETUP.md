@@ -195,20 +195,26 @@ folder as described at the top.
 
 ## Stage C · Connect both apps
 
-*(Unverified until G1. The phone's Connect button is built (Settings and the first-run screen);
-the desktop Settings > Sync section and library sync arrive in later M5 slices.)*
+*(Unverified until G1. The phone's Connect button is built (Settings and the first-run screen),
+and so is the desktop Settings > Sync section with the sidebar sync indicator; both are tested only
+against a stand-in for Google so far. Library sync on the phone arrives in a later M5 slice.)*
 
 ### C1. Desktop
 
-1. Open ELI5 Learner on the Mac > Settings > Sync.
+1. Open ELI5 Learner on the Mac > Settings > Sync and turn on **Sync with my Google Drive**. Nothing
+   is sent to Google until you connect in step 3.
 2. Paste the contents of the downloaded Desktop client JSON into "Google client", or drop the file
-   on the field. It is stored in the macOS Keychain and never shown again. (Developers running
-   `npm run dev` can instead set `ELI5_GOOGLE_CLIENT_ID` and `ELI5_GOOGLE_CLIENT_SECRET` in a local
-   `.env`, which is git-ignored.)
+   on the field, then click **Save client**. It is stored in the macOS Keychain and never shown
+   again. (Developers running `npm run dev` can instead set `ELI5_GOOGLE_CLIENT_ID` and
+   `ELI5_GOOGLE_CLIENT_SECRET` in a local `.env`, which is git-ignored.)
 3. Click **Connect Google Drive**. Your browser opens Google's consent page. Choose your account and
-   allow access. The browser tab then says you can close it.
-4. Turn on **Sync**. The first push uploads your library; the sidebar icon shows progress.
-5. Turn on **Accept jobs from phone** if you want to send captures from the phone.
+   allow access. The browser tab then says you can close it, and Settings shows "Connected as" your
+   address. The first push uploads your library; the cloud icon in the sidebar footer shows
+   progress (click it to come back to Settings > Sync).
+4. Turn on **Accept jobs from phone** if you want to send captures from the phone.
+
+To remove everything from Drive later, use **Delete cloud copy** in the same section. It turns Sync
+off and leaves your library on the Mac as it is.
 
 ### C2. Phone
 

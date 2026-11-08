@@ -43,6 +43,7 @@ import type {
   SettingsDescription,
   SourceInput,
   StartJobRequest,
+  SyncStatus,
   TestConnectionResult,
   TestNotificationResult,
   ViewerBounds,
@@ -162,6 +163,22 @@ export interface Eli5Api {
     accountStatus(targetId: string): R<AccountStatus>;
     accountAction(targetId: string, action: AccountAction): R<AccountStatus>;
     onProgress(cb: (e: PublishProgressEvent) => void): Unsub;
+  };
+  /** v2, optional (16 §8): personal sync. App window only; no answer carries a token or client value. */
+  sync: {
+    status(): R<SyncStatus>;
+    /** Write-only: the Desktop client JSON goes to the Keychain and is never read back. */
+    setClient(json: string): R<SyncStatus>;
+    clearClient(): R<SyncStatus>;
+    /** Loopback consent in the system browser (16 §3.2); needs Sync on. */
+    signIn(): R<SyncStatus>;
+    signOut(): R<SyncStatus>;
+    /** Starts a full pass; progress arrives through onChanged. */
+    now(): R<void>;
+    makePrimary(): R<SyncStatus>;
+    /** Deletes every file in the store and turns Sync off; the library is untouched. */
+    deleteRemote(): R<void>;
+    onChanged(cb: (s: SyncStatus) => void): Unsub;
   };
   auth: {
     status(): R<AuthStatus>;

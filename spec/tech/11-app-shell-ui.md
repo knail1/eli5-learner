@@ -628,30 +628,37 @@ Rules:
 - All three keys are hidden or locked like any other key when an overlay marks them managed
   (HOOK-CFG-01, HOOK-UI-03).
 
-**Sync section** (`section: 'sync'`, v2, optional; behavior in 16). Hidden when the sync policy
-says sync is not allowed (HOOK-SYNC-01).
+**Sync section** (`section: 'sync'`, v2, optional; behavior in 16;
+`src/renderer/src/settings/sections/SyncSection.tsx`). Absent when the sync policy says sync is not
+allowed (HOOK-SYNC-01): `eli5:sync:status` then answers `E_NOT_AVAILABLE_IN_EDITION`.
 
 - Privacy line at the top, always shown: "Turning this on copies your learnings (not your sources or
   notes) to a hidden folder in your Google Drive. Google can read them."
-- "Google client" field: paste the downloaded Desktop client JSON or drop the file on it. It is
-  write-only: after saving it shows "Client saved in Keychain" and **Remove**, never the values
-  (`eli5:sync:set-client`, `clear-client`; HOOK-SYNC-02). A malformed JSON is rejected inline.
-- **Connect Google Drive** (opens the consent page in the system browser, never in a window),
-  then the account email and **Disconnect** (`eli5:sync:sign-in`, `sign-out`).
-- Switch "Sync" (`sync.enabled`, default off) and a choice "Versions to sync": Current only, Recent
-  (10 newest, default), All (`sync.history`).
+- Switch "Sync with my Google Drive" (`sync.enabled`, default off). It comes first because sign-in
+  needs it on: nothing reaches Google while it is off.
+- "Google client" field: paste the downloaded Desktop client JSON or drop the file on it, then
+  **Save client**. It is write-only: after saving it shows "Client saved in Keychain" and **Remove**,
+  never the values (`eli5:sync:set-client`, `clear-client`; HOOK-SYNC-02). A malformed JSON is
+  rejected inline and the text stays for correction.
+- **Connect Google Drive** (opens the consent page in the system browser, never in a window;
+  disabled with "Save your Google client first" or "Turn on Sync first"), then "Connected as
+  <email>" and **Disconnect** (`eli5:sync:sign-in`, `sign-out`).
+- A choice "Versions to sync": Current only, Recent (10 newest, default), All (`sync.history`).
 - Switch "Accept jobs from phone" (`sync.inbox.enabled`, default off), with the phones seen and
   their last-seen time.
 - **Sync now**, "Last synced <relative time>", pending uploads.
 - Devices list; on a mirror Mac, **Make this Mac the primary** (`eli5:sync:make-primary`).
-- **Delete cloud copy** with one confirmation (`eli5:sync:delete-remote`); the local library is not
-  touched.
+- **Delete cloud copy** with one inline confirmation (no dialog; `eli5:sync:delete-remote`). It
+  deletes the store and turns Sync off; the local library is not touched. Shown only while signed in
+  with Sync on; disabled with "Sync is managed by your organization" when `sync.enabled` is locked.
 - Error lines use the 16 §10 texts ("Sign in again to keep syncing", "Your Google Drive is full",
   "Update ELI5 Learner to keep syncing").
 
-**Sync indicator** (v2). When `sync.enabled` is true, the sidebar footer shows a small icon with
-three states: synced, syncing, and offline or error. It opens Settings > Sync. It is absent when
-sync is off. Inbox jobs carry a "From phone" chip in the status area (§5.5); a finished one posts
+**Sync indicator** (v2; `src/renderer/src/sync/SyncIndicator.tsx`). When `sync.enabled` is true,
+the sidebar footer shows a small cloud icon with three states: synced (`idle`, `mirror`), syncing,
+and offline or error (`error`, `signed-out`, `not-configured`, `paused-read-only`). Its accessible
+name says which ("Sync: up to date", "Sync: Your Google Drive is full", ...). It opens Settings >
+Sync. It is absent when sync is off or not allowed. Inbox jobs carry a "From phone" chip in the status area (§5.5); a finished one posts
 the normal completion notification (§14).
 
 ## 8. Empty and error states
