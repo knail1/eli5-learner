@@ -565,7 +565,30 @@ tokens.
 - **Shared contract.** `src/main/sync/protocol.ts` exports JSON Schema to `test/contracts/sync/`,
   with golden fixtures (manifest, tree, job, jobstatus, device, version-tree-layout input and expected
   lanes). Vitest and the Android unit tests both read them; the Android build adds the folder as a
-  test resource directory.
+  test resource directory. `npm run gen:sync-schema` (`scripts/export-sync-schema.ts`) writes the
+  `<type>.schema.json` files, the `layout.<name>.json` fixtures (expected rows computed by the
+  desktop's `layoutVersionTree`), `patterns.json` (every id pattern, limit and enum, which the
+  Android tests compare with `Models.kt`) and `fixtures/index.json`; `-- --check` fails on drift
+  or on an orphaned generated file and runs in CI. Hand-written fixtures are named `<type>.valid.<name>.json` or `<type>.invalid.<name>.json`, and
+  both sides must accept every valid one unchanged and reject every invalid one. Cross-field rules
+  (for example the 50 MiB per-job attachment total or a manifest folder reference) are not
+  expressible in the exported JSON Schema; the fixtures cover them. The cross-field rules are: a
+  phone's device record has `role: 'phone'`, `accepts: []` and `inbox: 'off'` (and only a phone has
+  that role); ids are unique within a manifest, tree, `accepts`, `focus`, attachments and acks; a
+  folder placement names a folder in the manifest; `replaces` differs from `docId`; `currentId` is
+  a node of its tree; an `uploaded` node has a `sha`; a capture has at least one URL, non-blank
+  text or an attachment, and at most 50 MiB of attachments; `failed` and `rejected` statuses carry
+  `code` and `reason`, other states no `code`; `done` carries `docId`. Field rules both sides share:
+  string lengths count Unicode code points (as zod does); a job URL is printable ASCII starting
+  with `http://` or `https://` (any case), parses with a DNS-style host and a valid port, and has
+  no user name or password (the phone percent-encodes and IDNA-encodes shared URLs; the desktop
+  never sees a WHATWG-repaired string); an attachment name has no bidi embedding, override or
+  isolate characters; a job status `stage` is one line and `anchorId` is a Q&A or section id;
+  "blank" text means only what JavaScript's `trim` removes; integers stay within
+  `Number.MAX_SAFE_INTEGER`. The Kotlin twin is
+  `android/app/src/main/kotlin/io/github/eli5learner/sync/protocol/Models.kt`, decoded only through
+  `SyncProtocol`, which adds the JSON-type and `null`-versus-omitted checks kotlinx.serialization
+  leaves out.
 - **Desktop (Vitest, offline).** An in-memory fake Drive at the fetch level (generateIds, multipart,
   resumable with 256 KiB-multiple checks, changes with tokens and 410, appProperties queries,
   eventual-consistency delay, injected 403, 429 and 5xx); a `SyncStore` contract suite run against the

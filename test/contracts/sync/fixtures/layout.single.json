@@ -1,0 +1,36 @@
+{
+  "tree": {
+    "v": 1,
+    "docId": "3f2b8c1e-5a4d-4e7f-9b6a-0c1d2e3f4a5b",
+    "seq": 1,
+    "currentId": "v-000000000001",
+    "nodes": [
+      {
+        "id": "v-000000000001",
+        "parentId": null,
+        "kind": "initial",
+        "label": "Original",
+        "createdAt": "2026-10-01T09:00:00.000Z",
+        "sha": "1111111111111111111111111111111111111111111111111111111111111111",
+        "uploaded": true
+      }
+    ]
+  },
+  "collapsed": [],
+  "rows": [
+    {
+      "id": "v-000000000001",
+      "level": 1,
+      "groupId": null,
+      "isCurrent": true,
+      "onCurrentPath": true,
+      "hasChildren": false,
+      "expanded": false,
+      "forced": false,
+      "branchStart": false,
+      "laneEnd": true,
+      "setsize": 1,
+      "posinset": 1
+    }
+  ]
+}

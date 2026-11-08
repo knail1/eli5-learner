@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "docId": "3f2b8c1e-5a4d-4e7f-9b6a-0c1d2e3f4a5b",
+  "seq": 3,
+  "currentId": "v-00000000000a",
+  "nodes": [
+    {
+      "id": "v-000000000001",
+      "parentId": null,
+      "kind": "initial",
+      "label": "Original",
+      "createdAt": "2026-09-30T08:00:00.000Z",
+      "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "uploaded": true,
+      "question": "What about the moon?"
+    }
+  ]
+}

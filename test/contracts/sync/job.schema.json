@@ -1,0 +1,146 @@
+{
+  "$id": "eli5-learner/sync/job.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "v": { "type": "number", "const": 1 },
+        "jobId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "deviceId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        },
+        "kind": { "type": "string", "const": "capture" },
+        "urls": {
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 2048,
+            "pattern": "^[hH][tT][tT][pP][sS]?:\\/\\/[\\u0021-\\u007e]+$"
+          }
+        },
+        "text": { "type": "string", "maxLength": 20000 },
+        "clarifyingInput": { "type": "string", "maxLength": 500 },
+        "focus": {
+          "maxItems": 4,
+          "type": "array",
+          "items": { "type": "string", "enum": ["big-picture", "how-it-works", "numbers", "beginner"] }
+        },
+        "attachments": {
+          "maxItems": 10,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "sha": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^(?!\\.{1,2}$)[^\\u002f\\\\\\u0000-\\u001f\\u007f\\u202a-\\u202e\\u2066-\\u2069]+$"
+              },
+              "mime": {
+                "type": "string",
+                "enum": [
+                  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                  "application/pdf",
+                  "text/markdown",
+                  "text/plain",
+                  "text/csv",
+                  "text/html",
+                  "image/png",
+                  "image/jpeg",
+                  "image/gif",
+                  "image/webp",
+                  "image/heic",
+                  "image/tiff",
+                  "image/bmp"
+                ]
+              },
+              "size": { "type": "integer", "minimum": 1, "maximum": 20971520 }
+            },
+            "required": ["sha", "name", "mime", "size"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "v",
+        "jobId",
+        "deviceId",
+        "createdAt",
+        "kind",
+        "urls",
+        "text",
+        "clarifyingInput",
+        "focus",
+        "attachments"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "v": { "type": "number", "const": 1 },
+        "jobId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "deviceId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        },
+        "kind": { "type": "string", "const": "checkout" },
+        "docId": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+        "versionId": { "type": "string", "pattern": "^v-[0-9a-f]{12}$" }
+      },
+      "required": ["v", "jobId", "deviceId", "createdAt", "kind", "docId", "versionId"],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "v": { "type": "number", "const": 1 },
+        "jobId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "deviceId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        },
+        "kind": { "type": "string", "const": "ask" },
+        "docId": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+        "sectionId": { "type": "string", "pattern": "^sec-[a-z][a-z0-9]{1,15}-[0-9a-f]{8}$" },
+        "sectionHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "question": { "type": "string", "minLength": 3, "maxLength": 500, "pattern": "^[^\\r\\n\\u2028\\u2029]*$" }
+      },
+      "required": ["v", "jobId", "deviceId", "createdAt", "kind", "docId", "sectionId", "sectionHash", "question"],
+      "additionalProperties": false
+    }
+  ],
+  "title": "JobRequest",
+  "description": "job-<jobId>.json (16 §5.1)"
+}

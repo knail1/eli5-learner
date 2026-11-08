@@ -36,6 +36,7 @@
     "eval": "node scripts/eval/run.mjs",
     "eval:calibrate": "node scripts/eval/run.mjs --calibrate",
     "check:spec": "node scripts/check-spec-hooks.mjs",
+    "gen:sync-schema": "jiti scripts/export-sync-schema.ts",
     "check:hygiene": "jiti scripts/check-hygiene.ts",
     "check:licenses": "node scripts/check-licenses.mjs",
     "check:editions": "node scripts/check-editions.mjs",

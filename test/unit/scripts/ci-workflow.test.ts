@@ -114,7 +114,7 @@ describe('.github/workflows/ci.yml (13 §12)', () => {
     for (const s of caches) expect(String(obj(s.with).key)).toContain("hashFiles('package-lock.json')");
   });
 
-  it('static runs typecheck, lint, prettier, the dependency audit and the license check', () => {
+  it('static runs typecheck, lint, prettier, the sync contract drift check, the dependency audit and the license check', () => {
     const r = runs('static');
     for (const cmd of [
       'npm run typecheck',
@@ -124,6 +124,7 @@ describe('.github/workflows/ci.yml (13 §12)', () => {
       'node scripts/check-licenses.mjs --audit',
       'node scripts/check-licenses.mjs\n',
       'node scripts/check-spec-hooks.mjs',
+      'npm run gen:sync-schema -- --check',
     ]) {
       expect(r + '\n', cmd).toContain(cmd);
     }

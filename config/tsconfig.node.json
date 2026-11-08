@@ -13,6 +13,7 @@
     "../src/env.d.ts",
     "../src/main/**/*",
     "../src/preload/**/*",
+    "../src/renderer/src/viewer/version-tree-layout.ts",
     "../test/**/*",
     "../scripts/**/*.ts",
     "./*.config.ts"

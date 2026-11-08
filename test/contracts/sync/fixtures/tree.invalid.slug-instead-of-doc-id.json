@@ -1,0 +1,44 @@
+{
+  "v": 1,
+  "docId": "how-tides-work",
+  "seq": 3,
+  "currentId": "v-00000000000a",
+  "nodes": [
+    {
+      "id": "v-000000000001",
+      "parentId": null,
+      "kind": "initial",
+      "label": "Original",
+      "createdAt": "2026-09-30T08:00:00.000Z",
+      "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "uploaded": true
+    },
+    {
+      "id": "v-000000000002",
+      "parentId": "v-000000000001",
+      "kind": "expand",
+      "label": "expanded 'Why the sea moves'",
+      "createdAt": "2026-09-30T08:10:00.000Z",
+      "sha": null,
+      "uploaded": false
+    },
+    {
+      "id": "v-00000000000a",
+      "parentId": "v-000000000001",
+      "kind": "ask",
+      "label": "asked about 'Spring and neap tides'",
+      "createdAt": "2026-09-30T08:20:00.000Z",
+      "sha": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "uploaded": true
+    },
+    {
+      "id": "v-00000000000b",
+      "parentId": "v-00000000000a",
+      "kind": "eli5-selection",
+      "label": "ELI5 of a selection",
+      "createdAt": "2026-09-30T08:30:00.000Z",
+      "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "uploaded": false
+    }
+  ]
+}

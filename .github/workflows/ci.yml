@@ -40,6 +40,8 @@ jobs:
       - run: npx prettier --check .
       - name: Spec hook registry
         run: node scripts/check-spec-hooks.mjs
+      - name: Sync contract drift (16 §12)
+        run: npm run gen:sync-schema -- --check
       - name: Dependency audit (high or critical fails unless in config/audit-allow.json)
         run: |
           npm audit --omit=dev --json > audit.json || true

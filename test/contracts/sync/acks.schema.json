@@ -1,0 +1,16 @@
+{
+  "$id": "eli5-learner/sync/acks.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "terminalJobIds": {
+      "maxItems": 10000,
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }
+    }
+  },
+  "required": ["terminalJobIds"],
+  "additionalProperties": false,
+  "title": "Acks",
+  "description": "acks-<deviceId>.json (16 §4.7)"
+}

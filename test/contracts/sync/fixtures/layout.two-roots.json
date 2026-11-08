@@ -1,0 +1,105 @@
+{
+  "tree": {
+    "v": 1,
+    "docId": "3f2b8c1e-5a4d-4e7f-9b6a-0c1d2e3f4a5b",
+    "seq": 1,
+    "currentId": "v-000000000004",
+    "nodes": [
+      {
+        "id": "v-000000000001",
+        "parentId": null,
+        "kind": "initial",
+        "label": "Original",
+        "createdAt": "2026-10-01T09:00:00.000Z",
+        "sha": "1111111111111111111111111111111111111111111111111111111111111111",
+        "uploaded": true
+      },
+      {
+        "id": "v-000000000002",
+        "parentId": "v-000000000001",
+        "kind": "expand",
+        "label": "expand 2",
+        "createdAt": "2026-10-01T09:01:00.000Z",
+        "sha": "2222222222222222222222222222222222222222222222222222222222222222",
+        "uploaded": true
+      },
+      {
+        "id": "v-000000000003",
+        "parentId": null,
+        "kind": "outside",
+        "label": "outside 3",
+        "createdAt": "2026-10-01T09:02:00.000Z",
+        "sha": "3333333333333333333333333333333333333333333333333333333333333333",
+        "uploaded": false
+      },
+      {
+        "id": "v-000000000004",
+        "parentId": "v-000000000003",
+        "kind": "eli5-selection",
+        "label": "eli5-selection 4",
+        "createdAt": "2026-10-01T09:03:00.000Z",
+        "sha": "4444444444444444444444444444444444444444444444444444444444444444",
+        "uploaded": true
+      }
+    ]
+  },
+  "collapsed": [],
+  "rows": [
+    {
+      "id": "v-000000000001",
+      "level": 1,
+      "groupId": null,
+      "isCurrent": false,
+      "onCurrentPath": false,
+      "hasChildren": false,
+      "expanded": false,
+      "forced": false,
+      "branchStart": false,
+      "laneEnd": false,
+      "setsize": 4,
+      "posinset": 1
+    },
+    {
+      "id": "v-000000000002",
+      "level": 1,
+      "groupId": null,
+      "isCurrent": false,
+      "onCurrentPath": false,
+      "hasChildren": false,
+      "expanded": false,
+      "forced": false,
+      "branchStart": false,
+      "laneEnd": true,
+      "setsize": 4,
+      "posinset": 2
+    },
+    {
+      "id": "v-000000000003",
+      "level": 1,
+      "groupId": null,
+      "isCurrent": false,
+      "onCurrentPath": true,
+      "hasChildren": false,
+      "expanded": false,
+      "forced": false,
+      "branchStart": true,
+      "laneEnd": false,
+      "setsize": 4,
+      "posinset": 3
+    },
+    {
+      "id": "v-000000000004",
+      "level": 1,
+      "groupId": null,
+      "isCurrent": true,
+      "onCurrentPath": true,
+      "hasChildren": false,
+      "expanded": false,
+      "forced": false,
+      "branchStart": false,
+      "laneEnd": true,
+      "setsize": 4,
+      "posinset": 4
+    }
+  ]
+}

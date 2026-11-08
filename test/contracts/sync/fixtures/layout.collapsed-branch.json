@@ -1,0 +1,100 @@
+{
+  "tree": {
+    "v": 1,
+    "docId": "3f2b8c1e-5a4d-4e7f-9b6a-0c1d2e3f4a5b",
+    "seq": 1,
+    "currentId": "v-000000000003",
+    "nodes": [
+      {
+        "id": "v-000000000001",
+        "parentId": null,
+        "kind": "initial",
+        "label": "Original",
+        "createdAt": "2026-10-01T09:00:00.000Z",
+        "sha": "1111111111111111111111111111111111111111111111111111111111111111",
+        "uploaded": true
+      },
+      {
+        "id": "v-000000000002",
+        "parentId": "v-000000000001",
+        "kind": "expand",
+        "label": "expand 2",
+        "createdAt": "2026-10-01T09:01:00.000Z",
+        "sha": "2222222222222222222222222222222222222222222222222222222222222222",
+        "uploaded": true
+      },
+      {
+        "id": "v-000000000003",
+        "parentId": "v-000000000002",
+        "kind": "deeper",
+        "label": "deeper 3",
+        "createdAt": "2026-10-01T09:02:00.000Z",
+        "sha": "3333333333333333333333333333333333333333333333333333333333333333",
+        "uploaded": false
+      },
+      {
+        "id": "v-000000000004",
+        "parentId": "v-000000000001",
+        "kind": "analogy",
+        "label": "analogy 4",
+        "createdAt": "2026-10-01T09:03:00.000Z",
+        "sha": "4444444444444444444444444444444444444444444444444444444444444444",
+        "uploaded": true
+      },
+      {
+        "id": "v-000000000005",
+        "parentId": "v-000000000004",
+        "kind": "revise",
+        "label": "revise 5",
+        "createdAt": "2026-10-01T09:04:00.000Z",
+        "sha": "5555555555555555555555555555555555555555555555555555555555555555",
+        "uploaded": true
+      }
+    ]
+  },
+  "collapsed": ["v-000000000001"],
+  "rows": [
+    {
+      "id": "v-000000000001",
+      "level": 1,
+      "groupId": null,
+      "isCurrent": false,
+      "onCurrentPath": true,
+      "hasChildren": true,
+      "expanded": false,
+      "forced": false,
+      "branchStart": false,
+      "laneEnd": false,
+      "setsize": 3,
+      "posinset": 1
+    },
+    {
+      "id": "v-000000000002",
+      "level": 1,
+      "groupId": null,
+      "isCurrent": false,
+      "onCurrentPath": true,
+      "hasChildren": false,
+      "expanded": false,
+      "forced": false,
+      "branchStart": false,
+      "laneEnd": false,
+      "setsize": 3,
+      "posinset": 2
+    },
+    {
+      "id": "v-000000000003",
+      "level": 1,
+      "groupId": null,
+      "isCurrent": true,
+      "onCurrentPath": true,
+      "hasChildren": false,
+      "expanded": false,
+      "forced": false,
+      "branchStart": false,
+      "laneEnd": true,
+      "setsize": 3,
+      "posinset": 3
+    }
+  ]
+}

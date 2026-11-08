@@ -1,0 +1,54 @@
+{
+  "$id": "eli5-learner/sync/tree.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "v": { "type": "number", "const": 1 },
+    "docId": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "seq": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "currentId": { "type": "string", "pattern": "^v-[0-9a-f]{12}$" },
+    "nodes": {
+      "minItems": 1,
+      "maxItems": 300,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "pattern": "^v-[0-9a-f]{12}$" },
+          "parentId": { "anyOf": [{ "type": "string", "pattern": "^v-[0-9a-f]{12}$" }, { "type": "null" }] },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "expand",
+              "reexplain",
+              "analogy",
+              "deeper",
+              "revise",
+              "eli5-tab",
+              "eli5-selection",
+              "ask",
+              "close-tab",
+              "merge",
+              "outside",
+              "initial"
+            ]
+          },
+          "label": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "sha": { "anyOf": [{ "type": "string", "pattern": "^[0-9a-f]{64}$" }, { "type": "null" }] },
+          "uploaded": { "type": "boolean" }
+        },
+        "required": ["id", "parentId", "kind", "label", "createdAt", "sha", "uploaded"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["v", "docId", "seq", "currentId", "nodes"],
+  "additionalProperties": false,
+  "title": "VersionTree",
+  "description": "tree-<docId>.json (16 §4.4)"
+}

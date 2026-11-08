@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "deviceId": "9c8d7e6f-5a4b-4c3d-a2e1-f0e9d8c7b6a5",
+  "platform": "android",
+  "name": "Pixel",
+  "appVersion": "0.1.0",
+  "role": "phone",
+  "accepts": [],
+  "inbox": "off"
+}

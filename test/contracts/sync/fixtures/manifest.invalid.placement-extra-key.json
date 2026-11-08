@@ -1,0 +1,23 @@
+{
+  "v": 1,
+  "seq": 7,
+  "generatedAt": "2026-10-01T09:00:00.000Z",
+  "folders": [{ "id": "f-0a1b2c3d", "name": "Science" }],
+  "docs": [
+    {
+      "docId": "a1b2c3d4-e5f6-4789-8abc-def012345678",
+      "title": "Compound interest",
+      "summary": "",
+      "headings": [],
+      "tabs": ["indepth", "eli5", "sx0a1b2c"],
+      "createdAt": "2026-10-01T09:00:00.000Z",
+      "updatedAt": "2026-10-01T09:00:00.000Z",
+      "placement": { "kind": "unfiled", "folderId": "f-0a1b2c3d" },
+      "currentVersionId": "v-000000000001",
+      "currentSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sizeBytes": 0,
+      "busy": true,
+      "replaces": "0e1d2c3b-4a59-4687-b766-554433221100"
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "v": 1,
+  "seq": 0,
+  "generatedAt": "2026-10-01T09:00:00.000Z",
+  "folders": [{ "id": "f-0a1b2c3d", "name": "Science" }],
+  "docs": [
+    {
+      "docId": "3f2b8c1e-5a4d-4e7f-9b6a-0c1d2e3f4a5b",
+      "title": "How tides work",
+      "summary": "The moon, the sun and the shape of the coast.",
+      "headings": ["Why the sea moves", "Spring and neap tides"],
+      "tabs": ["indepth", "eli5"],
+      "createdAt": "2026-09-30T08:00:00.000Z",
+      "updatedAt": "2026-10-01T09:00:00.000Z",
+      "placement": { "kind": "folder", "folderId": "f-0a1b2c3d" },
+      "currentVersionId": "v-00000000000a",
+      "currentSha": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "sizeBytes": 48213,
+      "busy": false
+    },
+    {
+      "docId": "a1b2c3d4-e5f6-4789-8abc-def012345678",
+      "title": "Compound interest",
+      "summary": "",
+      "headings": [],
+      "tabs": ["indepth", "eli5", "sx0a1b2c"],
+      "createdAt": "2026-10-01T09:00:00.000Z",
+      "updatedAt": "2026-10-01T09:00:00.000Z",
+      "placement": { "kind": "unfiled" },
+      "currentVersionId": "v-000000000001",
+      "currentSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sizeBytes": 0,
+      "busy": true,
+      "replaces": "0e1d2c3b-4a59-4687-b766-554433221100"
+    },
+    {
+      "docId": "5d4c3b2a-1f0e-4d9c-8b7a-695847362514",
+      "title": "How tides work",
+      "summary": "The moon, the sun and the shape of the coast.",
+      "headings": ["Why the sea moves", "Spring and neap tides"],
+      "tabs": ["indepth", "eli5"],
+      "createdAt": "2026-09-30T08:00:00.000Z",
+      "updatedAt": "2026-10-01T09:00:00.000Z",
+      "placement": { "kind": "archive" },
+      "currentVersionId": "v-00000000000a",
+      "currentSha": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "sizeBytes": 48213,
+      "busy": false
+    },
+    {
+      "docId": "7e6d5c4b-3a29-4180-9f8e-7d6c5b4a3928",
+      "title": "How tides work",
+      "summary": "The moon, the sun and the shape of the coast.",
+      "headings": ["Why the sea moves", "Spring and neap tides"],
+      "tabs": ["indepth", "eli5"],
+      "createdAt": "2026-09-30T08:00:00.000Z",
+      "updatedAt": "2026-10-01T09:00:00.000Z",
+      "placement": { "kind": "trash" },
+      "currentVersionId": "v-00000000000a",
+      "currentSha": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "sizeBytes": 48213,
+      "busy": false
+    }
+  ]
+}

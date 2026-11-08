@@ -1,0 +1,111 @@
+{
+  "$id": "eli5-learner/sync/manifest.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "v": { "type": "number", "const": 1 },
+    "seq": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+    },
+    "folders": {
+      "maxItems": 500,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "pattern": "^f-[0-9a-f]{8}$" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 60 }
+        },
+        "required": ["id", "name"],
+        "additionalProperties": false
+      }
+    },
+    "docs": {
+      "maxItems": 10000,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "docId": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+          "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "summary": { "type": "string", "maxLength": 300 },
+          "headings": { "maxItems": 200, "type": "array", "items": { "type": "string", "maxLength": 200 } },
+          "tabs": {
+            "minItems": 1,
+            "maxItems": 20,
+            "type": "array",
+            "items": { "type": "string", "pattern": "^(indepth|eli5|sx[0-9a-f]{6})$" }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "placement": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": { "type": "string", "const": "folder" },
+                  "folderId": { "type": "string", "pattern": "^f-[0-9a-f]{8}$" }
+                },
+                "required": ["kind", "folderId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": { "kind": { "type": "string", "const": "unfiled" } },
+                "required": ["kind"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": { "kind": { "type": "string", "const": "archive" } },
+                "required": ["kind"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": { "kind": { "type": "string", "const": "trash" } },
+                "required": ["kind"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "currentVersionId": { "type": "string", "pattern": "^v-[0-9a-f]{12}$" },
+          "currentSha": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "sizeBytes": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "busy": { "type": "boolean" },
+          "replaces": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" }
+        },
+        "required": [
+          "docId",
+          "title",
+          "summary",
+          "headings",
+          "tabs",
+          "createdAt",
+          "updatedAt",
+          "placement",
+          "currentVersionId",
+          "currentSha",
+          "sizeBytes",
+          "busy"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["v", "seq", "generatedAt", "folders", "docs"],
+  "additionalProperties": false,
+  "title": "LibraryManifest",
+  "description": "lib-<deviceId>.json (16 §4.4)"
+}
