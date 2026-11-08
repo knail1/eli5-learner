@@ -168,6 +168,17 @@ class FakeDrive : DriveApi {
         rewrite(fileId, files.getValue(fileId).body, appProperties)
     }
 
+    override suspend fun delete(fileId: String) {
+        call("delete")
+        if (fileId in files) remove(fileId)
+    }
+
+    /** Reads by id see hidden files too: only listings are eventually consistent. */
+    override suspend fun get(fileId: String): DriveFile? {
+        call("get")
+        return files[fileId]?.meta
+    }
+
     companion object {
         fun sha256(b: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
 

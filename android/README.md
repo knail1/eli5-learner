@@ -7,15 +7,19 @@ Google Drive and a share-sheet "Send to my Mac". The design is
 app on your phone, follow [SETUP.md](SETUP.md).
 
 > **Status (M5, in progress).** This folder is being built in slices. The local-mode app is built:
-> import (picker, share sheet, "Open with"), the library, the sandboxed reader and Settings > About;
-> the Inbox is a placeholder. Google authorization (Connect, Disconnect, "Sign in again"), the Drive
+> import (picker, share sheet, "Open with"), the library, the sandboxed reader and Settings > About.
+> Google authorization (Connect, Disconnect, "Sign in again"), the Drive
 > REST client and a debug-only Drive probe for gate G1 are built and tested against MockWebServer
 > and a fake authorization client. Library sync is built: Room library and full-text search,
 > pull from the Mac's manifest with an offline cache (policy, Wi-Fi rule, pins), folder chips, the
 > sync icon and status sheet, pull-to-refresh, the Reader's "Updated on your Mac · Reload" banner and
 > reading position, background sync through WorkManager, and the phone's device file; it is tested
-> against an in-memory Drive and database. Capture and the Inbox follow. Everything against a real
-> Google Drive is unverified until gate G1 (spec 16 §13).
+> against an in-memory Drive and database. Capture is built: the share target ("Send to my Mac"
+> for links, text, images, PDF and Office files), the outbox and its upload worker, Cancel, the
+> Inbox with job statuses, Retry and Delete, the acks file and the opt-in "Learnings ready"
+> notification; also tested against an in-memory Drive and database only. The desktop side that
+> runs phone jobs is not built yet. Everything against a real Google Drive is unverified until gate
+> G1 (spec 16 §13).
 
 This is its own Gradle build with one `:app` module. It never touches the npm toolchain, and Prettier
 ignores the folder.
@@ -101,6 +105,11 @@ Reader and import (no Google setup):
 - [ ] Share an `index.html` to ELI5 Learner from another app, and "Open with" from Files: both
       import.
 - [ ] Rotate the phone and use split screen: the layout adapts and nothing is lost.
+- [ ] Without Google Drive, share a link from Chrome to "Send to my Mac": the sheet opens over
+      Chrome, Send closes it at once, and the Inbox lists it as "Connect Google Drive to send".
+      Cancel removes it.
+- [ ] Share three photos from Photos and a PDF from Files: each is listed in the sheet; a video or
+      a file over 20 MB is listed with a one-line reason instead.
 - [ ] Settings > About shows "Sideloaded build", the version and the commit.
 
 Google sign-in (needs Stage B of SETUP.md):
@@ -117,7 +126,11 @@ Sync (after G1, Stages B and C of SETUP.md):
 - [ ] The Mac's library appears; a document opens offline afterwards.
 - [ ] A document updated on the Mac shows "Updated on your Mac · Reload" and never reloads by
       itself.
-- [ ] Share a link to ELI5 Learner, tap "Send to my Mac": the Inbox goes from "Waiting for your Mac"
-      to Generating to Ready, and the new document opens on the phone.
+- [ ] Share a link to ELI5 Learner, tap "Send to my Mac": the Inbox goes from "Waiting to upload"
+      to "Waiting for your Mac" (needs the desktop inbox, a later slice) to Generating to Ready,
+      and the new document opens on the phone.
+- [ ] After the first capture the app asks "Tell you when it's ready?"; with Notify me, a finished
+      job posts "Learnings ready", and tapping it opens the Inbox.
+- [ ] Cancel a job that is still waiting for the Mac: it shows "Cancelling…", then "Cancelled".
 - [ ] Revoke access at myaccount.google.com/permissions: the phone shows "Sign in again to keep
       syncing", and reading still works.

@@ -273,6 +273,13 @@ class DriveClient(
 
     suspend fun metadata(fileId: String): DriveFile = json(Spec("GET", api("files", fileId).addQueryParameter("fields", FILE_FIELDS).build()))
 
+    override suspend fun get(fileId: String): DriveFile? =
+        try {
+            metadata(fileId)
+        } catch (e: SyncException) {
+            if (e.code == SyncErrorCode.E_SYNC_NOT_FOUND) null else throw e
+        }
+
     override suspend fun download(fileId: String): ByteArray = bytesOf(send(Spec("GET", api("files", fileId).addQueryParameter("alt", "media").build())))
 
     override suspend fun downloadAtMost(
@@ -386,7 +393,7 @@ class DriveClient(
     }
 
     /** Permanent delete; a file already gone counts as deleted. */
-    suspend fun delete(fileId: String) {
+    override suspend fun delete(fileId: String) {
         try {
             send(Spec("DELETE", api("files", fileId).build())).close()
         } catch (e: SyncException) {

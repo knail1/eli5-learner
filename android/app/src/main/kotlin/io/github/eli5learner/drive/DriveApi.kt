@@ -1,7 +1,7 @@
 package io.github.eli5learner.drive
 
 /**
- * The Drive calls library sync makes (16 §4.8, §4.3): the phone's side of the `SyncStore` port.
+ * The Drive calls sync makes (16 §4.8, §4.3, §5.2): the phone's side of the `SyncStore` port.
  * [DriveClient] implements it; sync tests use an in-memory fake.
  */
 interface DriveApi {
@@ -45,4 +45,13 @@ interface DriveApi {
         fileId: String,
         appProperties: Map<String, String>,
     )
+
+    /** Permanent delete of a file this device wrote; a file already gone counts as deleted. */
+    suspend fun delete(fileId: String)
+
+    /**
+     * One file's metadata by id, or null when it does not exist. Unlike a listing, a read by id is
+     * strongly consistent, so it tells whether a create whose response was lost went through.
+     */
+    suspend fun get(fileId: String): DriveFile?
 }

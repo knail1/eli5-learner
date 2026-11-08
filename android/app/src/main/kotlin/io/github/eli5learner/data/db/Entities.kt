@@ -6,7 +6,7 @@ import androidx.room.Index
 /*
  * Room tables (16 §6.4). Everything here is a cache: documents are rebuilt from the files under
  * `filesDir/docs` and from the next pull, so the schema can be dropped and recreated at any time.
- * Jobs and attachments arrive with the capture slice.
+ * Jobs and their attachments are rebuilt from `filesDir/outbox/<jobId>/` (16 §5.2, §6.4).
  */
 
 /**
@@ -113,4 +113,73 @@ data class RemoteFileEntity(
     val seen: Long?,
     val size: Long?,
     val modifiedTime: String?,
+)
+
+/**
+ * One job this phone sent or is about to send (16 §5.2), with the desktop's last status (16 §5.3).
+ * Rebuilt from `filesDir/outbox/<jobId>/request.json` when the table is empty, so a schema change
+ * never loses a capture. [title] is a local display label and never leaves the phone.
+ */
+@Entity(tableName = "jobs", indices = [Index("local")])
+data class JobEntity(
+    @androidx.room.PrimaryKey val jobId: String,
+    /** `capture`, `checkout` or `ask`. */
+    val kind: String,
+    /** Epoch ms of the request's `createdAt`. */
+    val createdAt: Long,
+    val title: String,
+    /** [LOCAL], [UPLOADED], [CANCELLED] (never sent) or [BROKEN] (outbox files unreadable). */
+    val local: String = LOCAL,
+    val attachmentCount: Int = 0,
+    /** The preallocated id for `job-<jobId>.json`, persisted before the create (16 §4.5 step 4). */
+    val pendingJobFileId: String? = null,
+    val jobFileId: String? = null,
+    /** The user asked to cancel; a `jobcancel` file is written once the job is uploaded (16 §5.2 step 3). */
+    val cancelRequested: Boolean = false,
+    val pendingCancelFileId: String? = null,
+    val cancelFileId: String? = null,
+    /** The desktop's status (16 §5.3); null until a `jobstatus` file appears. */
+    val remoteState: String? = null,
+    val stage: String? = null,
+    val docId: String? = null,
+    val versionId: String? = null,
+    val skippedSources: Long? = null,
+    val anchorId: String? = null,
+    val code: String? = null,
+    val reason: String? = null,
+    /** The status file's `modifiedTime` last read, so an unchanged one is not downloaded again. */
+    val statusModified: String? = null,
+    /** Epoch ms when this phone first saw a terminal status. */
+    val terminalAt: Long? = null,
+    /** The terminal status was shown (Inbox or notification); the job id goes into the acks file (16 §5.2 step 4). */
+    val shown: Boolean = false,
+    /** "Learnings ready" was posted. */
+    val notified: Boolean = false,
+    /** Deleted from the Inbox; kept as a tombstone until the desktop collects the job (16 §4.7). */
+    val hidden: Boolean = false,
+) {
+    val terminal: Boolean get() = local == CANCELLED || local == BROKEN || remoteState in TERMINAL_STATES
+
+    companion object {
+        const val LOCAL = "local"
+        const val UPLOADED = "uploaded"
+        const val CANCELLED = "cancelled"
+        const val BROKEN = "broken"
+        val TERMINAL_STATES = setOf("done", "failed", "rejected", "cancelled")
+    }
+}
+
+/** One attachment of a job; the bytes are `filesDir/outbox/<jobId>/<sha>`. */
+@Entity(tableName = "job_attachments", primaryKeys = ["jobId", "sha"])
+data class JobAttachmentEntity(
+    val jobId: String,
+    val sha: String,
+    val name: String,
+    val mime: String,
+    val size: Long,
+    val position: Int,
+    /** The preallocated id for `att-<sha>.<ext>`, persisted before the create. */
+    val pendingFileId: String? = null,
+    /** Set once the attachment is in the store (uploaded here, or already there). */
+    val remoteFileId: String? = null,
 )

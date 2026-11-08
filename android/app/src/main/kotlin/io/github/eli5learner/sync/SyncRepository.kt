@@ -72,6 +72,17 @@ sealed interface SyncOutcome {
     ) : SyncOutcome
 }
 
+/**
+ * Job statuses, acks and the outbox (16 §5.2, §5.3), run at the end of each pull with the pull's
+ * fresh index. Implemented by [io.github.eli5learner.inbox.OutboxRepository].
+ */
+fun interface JobSync {
+    suspend fun afterPull(
+        files: List<RemoteFileEntity>,
+        primary: String?,
+    )
+}
+
 /** The worker's view of the repository; tests pass a fake. */
 fun interface SyncRunner {
     suspend fun runSync(): SyncOutcome
@@ -101,13 +112,14 @@ data class SyncStatus(
 
 /**
  * Library sync on the phone (16 §4.8, §6.4): pull only. The phone reads the store the primary Mac
- * writes and writes nothing but its own device file ([DeviceWriter]).
+ * writes and writes nothing here but its own device file ([DeviceWriter]); job files, cancels and
+ * acks are the outbox's ([JobSync]).
  *
  * One pass: refresh the file index (full `files.list` at bootstrap or after a lost token, else the
  * change feed), check `sync-info.json`, find the primary from the newest claim, read device files,
  * apply the primary's manifest when its `seq` is greater than the one held, apply changed version
  * trees, download current versions the offline policy wants (gunzip, sha-verify, atomic write), then
- * touch this phone's device file. A blob the listing does not show yet is retried on the next pass
+ * touch this phone's device file, then hand the index to [JobSync] for job statuses and acks. A blob the listing does not show yet is retried on the next pass
  * without an error (Drive listings are eventually consistent). Nothing here logs titles, names or
  * tokens (16 §9).
  */
@@ -125,6 +137,8 @@ class SyncRepository(
     /** True on an unmetered network ("Large downloads on Wi-Fi only"). */
     private val isUnmetered: () -> Boolean = { true },
     private val now: () -> Long = System::currentTimeMillis,
+    /** Statuses and acks of jobs this phone sent; null in library-only tests. */
+    private val jobs: JobSync? = null,
 ) : SyncRunner {
     private val run = Mutex()
     private val remote = db.remoteFiles()
@@ -224,6 +238,7 @@ class SyncRepository(
             // No Mac has set up the store yet. The phone still says hello, so the Mac can list it.
             _status.update { it.copy(waitingForMac = true, mac = null, pendingDownloads = 0) }
             heartbeat(files)
+            afterPull(files, null)
             return SyncOutcome.Synced
         }
         if (!formatKnown(info)) return SyncOutcome.FormatTooNew
@@ -248,7 +263,25 @@ class SyncRepository(
         val pending = downloadWanted(files, primary)
         _status.update { it.copy(pendingDownloads = pending) }
         heartbeat(files)
+        afterPull(files, primary)
         return SyncOutcome.Synced
+    }
+
+    /** Job statuses and acks; only a lost grant fails the pass, anything else waits for the next one. */
+    private suspend fun afterPull(
+        files: List<RemoteFileEntity>,
+        primary: String?,
+    ) {
+        val j = jobs ?: return
+        try {
+            j.afterPull(files, primary)
+        } catch (e: SyncException) {
+            if (e.code == SyncErrorCode.E_SYNC_AUTH) throw e
+        } catch (e: IOException) {
+            // A full disk while updating the outbox; the library pass itself succeeded.
+        } catch (e: RuntimeException) {
+            // Room trouble in the outbox; never fail the library pass for it. The next pass retries.
+        }
     }
 
     /** Full listing at bootstrap, after a lost token, or when the cache was rebuilt; else the change feed. */

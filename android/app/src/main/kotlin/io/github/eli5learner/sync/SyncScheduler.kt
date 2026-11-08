@@ -12,9 +12,15 @@ import androidx.work.PeriodicWorkRequest
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import io.github.eli5learner.auth.AuthState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
@@ -23,7 +29,8 @@ import java.util.concurrent.TimeUnit
  * now, and from WorkManager every 15 minutes on a connected network (unique, `KEEP`). Connecting
  * schedules the periodic work and pulls at once; disconnecting cancels it and forgets the remote
  * index ([SyncRepository.forget]). Foreground pulls run in the app scope, so leaving a screen does
- * not cancel them. Nothing is scheduled in local mode.
+ * not cancel them. While a sent job waits for a terminal status and the app is in the foreground, it
+ * pulls every 30 s ([watchJobs]). Nothing is scheduled in local mode.
  */
 class SyncScheduler(
     private val repository: SyncRepository,
@@ -34,6 +41,8 @@ class SyncScheduler(
 ) {
     @Volatile private var lastForeground = Long.MIN_VALUE / 2
     private var watching: Job? = null
+    private var jobWatch: Job? = null
+    private val foreground = MutableStateFlow(false)
 
     /** Follows the grant: schedule on connect, cancel and forget on disconnect. Idempotent. */
     @Synchronized
@@ -73,8 +82,39 @@ class SyncScheduler(
         return !before.equals(after, ignoreCase = true)
     }
 
+    /**
+     * Polls every [JOB_POLL_MS] while [active] (a job waits to upload or for its status) and the app
+     * is in the foreground (16 §4.8). Idempotent.
+     */
+    @Synchronized
+    fun watchJobs(active: Flow<Boolean>) {
+        if (jobWatch != null) return
+        jobWatch =
+            scope.launch {
+                combine(foreground, active) { fg, a -> fg && a }.distinctUntilChanged().collectLatest { on ->
+                    while (on) {
+                        delay(JOB_POLL_MS)
+                        lastForeground = now()
+                        try {
+                            repository.sync()
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            // Never let one failed pass end the poll (or crash the app scope).
+                        }
+                    }
+                }
+            }
+    }
+
+    /** The app left the foreground: the job poll stops (WorkManager keeps the periodic pull). */
+    fun onBackground() {
+        foreground.value = false
+    }
+
     /** The app came to the foreground: pull, at most once per [FOREGROUND_MIN_MS]. */
     fun onForeground() {
+        foreground.value = true
         val t = now()
         if (t - lastForeground < FOREGROUND_MIN_MS) return
         lastForeground = t
@@ -108,6 +148,9 @@ class SyncScheduler(
         const val PERIODIC = "eli5-sync-periodic"
         const val ONE_TIME = "eli5-sync-now"
         const val FOREGROUND_MIN_MS = 30_000L
+
+        /** While a job is pending and the app is in the foreground (16 §4.8). */
+        const val JOB_POLL_MS = 30_000L
 
         private val CONNECTED = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 

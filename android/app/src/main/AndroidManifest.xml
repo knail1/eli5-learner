@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 16 §6.1, §7: one activity; imports through VIEW and SEND for text/html; no backup of any data. -->
+<!-- 16 §6.1, §7: the main activity imports through VIEW and SEND for text/html; the capture activity
+     is the share target for links, text, images, PDF and Office files (16 §5.2); no backup of any data. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
@@ -8,6 +9,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Sync (16 §6.1): "Large downloads on Wi-Fi only" and the WorkManager network constraint. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- "Learnings ready" (16 §6.1): asked only after the first capture, and only if the user opts in. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <queries>
         <intent>
@@ -49,6 +52,36 @@
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/html" />
+            </intent-filter>
+        </activity>
+
+        <!-- The share target (16 §5.2, §6.2). Translucent, its own task, never in Recents. Intent
+             filters are enforced (Android 16+), so an explicit intent cannot reach it with another
+             action or type. text/html shares go to MainActivity as imports (16 §7). -->
+        <activity
+            android:name=".capture.CaptureActivity"
+            android:exported="true"
+            android:label="@string/capture_label"
+            android:theme="@style/Theme.Eli5.Translucent"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:intentMatchingFlags="enforceIntentFilter"
+            android:windowSoftInputMode="adjustResize"
+            tools:targetApi="36">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
             </intent-filter>
         </activity>
     </application>

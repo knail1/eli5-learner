@@ -14,6 +14,9 @@ import io.github.eli5learner.data.db.Eli5Db
 import io.github.eli5learner.drive.DriveClient
 import io.github.eli5learner.drive.DriveProbe
 import io.github.eli5learner.importer.HtmlImporter
+import io.github.eli5learner.inbox.OutboxRepository
+import io.github.eli5learner.inbox.ReadyNotifier
+import io.github.eli5learner.inbox.UploadWorker
 import io.github.eli5learner.sync.DeviceWriter
 import io.github.eli5learner.sync.SyncRepository
 import io.github.eli5learner.sync.SyncScheduler
@@ -26,7 +29,7 @@ import java.io.File
 /**
  * Manual dependency injection (16 §6.1). One instance per process, owned by [Eli5App]. Documents
  * under `filesDir/docs` with the Room library index over them, the importer, preferences, the Google
- * authorization and Drive client, and library sync. Nothing here makes a request: Drive calls happen
+ * authorization and Drive client, library sync, and the capture outbox. Nothing here makes a request: Drive calls happen
  * only after the user connects (16 §7).
  */
 class AppContainer(
@@ -72,13 +75,32 @@ class AppContainer(
             authState = authorizer::load,
             prepareAuth = { authorizer.prepare() },
             isUnmetered = ::isUnmetered,
+            jobs = outbox,
+        )
+    }
+
+    private fun workManager(): WorkManager? = runCatching { WorkManager.getInstance(app) }.getOrNull()
+
+    val readyNotifier: ReadyNotifier by lazy { ReadyNotifier(app) { preferences.readyNotificationsAnswer() } }
+
+    /** Captures waiting in `filesDir/outbox` and the statuses of jobs sent from here (16 §5.2). */
+    val outbox: OutboxRepository by lazy {
+        OutboxRepository(
+            db = db,
+            root = File(filesDir, "outbox"),
+            drive = drive,
+            prefs = preferences,
+            authState = authorizer::load,
+            prepareAuth = { authorizer.prepare() },
+            kickUpload = { UploadWorker.enqueue(workManager()) },
+            notifyReady = readyNotifier::notifyReady,
         )
     }
 
     val syncScheduler: SyncScheduler by lazy {
         SyncScheduler(
             repository = syncRepository,
-            workManager = { runCatching { WorkManager.getInstance(app) }.getOrNull() },
+            workManager = ::workManager,
             scope = appScope,
         )
     }

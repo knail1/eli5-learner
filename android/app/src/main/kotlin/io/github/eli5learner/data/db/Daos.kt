@@ -181,3 +181,73 @@ abstract class RemoteFileDao {
         if (upserts.isNotEmpty()) upsert(upserts)
     }
 }
+
+@Dao
+abstract class JobDao {
+    /** Jobs the Inbox lists, newest first. */
+    @Query("SELECT * FROM jobs WHERE hidden = 0 ORDER BY createdAt DESC")
+    abstract fun observeVisible(): Flow<List<JobEntity>>
+
+    @Query("SELECT * FROM jobs ORDER BY createdAt")
+    abstract suspend fun all(): List<JobEntity>
+
+    @Query("SELECT jobId FROM jobs")
+    abstract suspend fun ids(): List<String>
+
+    @Query("SELECT COUNT(*) FROM jobs")
+    abstract suspend fun count(): Int
+
+    @Query("SELECT * FROM jobs WHERE jobId = :jobId")
+    abstract suspend fun get(jobId: String): JobEntity?
+
+    /** Jobs waiting to upload, oldest first (16 §5.2 step 2). */
+    @Query("SELECT * FROM jobs WHERE local = 'local' ORDER BY createdAt")
+    abstract suspend fun waiting(): List<JobEntity>
+
+    @Query("SELECT * FROM jobs WHERE local = 'uploaded' ORDER BY createdAt")
+    abstract suspend fun uploaded(): List<JobEntity>
+
+    /** True while a sent job has no terminal status yet: the foreground poll runs (16 §4.8). */
+    @Query(
+        "SELECT EXISTS(SELECT 1 FROM jobs WHERE hidden = 0 AND (local = 'local' OR " +
+            "(local = 'uploaded' AND (remoteState IS NULL OR remoteState NOT IN ('done','failed','rejected','cancelled')))))",
+    )
+    abstract fun observeActive(): Flow<Boolean>
+
+    @Upsert
+    abstract suspend fun upsert(job: JobEntity)
+
+    @Query("UPDATE jobs SET cancelRequested = 1 WHERE jobId = :jobId")
+    abstract suspend fun requestCancel(jobId: String)
+
+    @Query("SELECT * FROM job_attachments WHERE jobId = :jobId ORDER BY position")
+    abstract suspend fun attachments(jobId: String): List<JobAttachmentEntity>
+
+    @Upsert
+    abstract suspend fun upsertAttachment(att: JobAttachmentEntity)
+
+    @Insert
+    protected abstract suspend fun insertAttachments(rows: List<JobAttachmentEntity>)
+
+    @Query("DELETE FROM jobs WHERE jobId = :jobId")
+    protected abstract suspend fun deleteRow(jobId: String)
+
+    @Query("DELETE FROM job_attachments WHERE jobId = :jobId")
+    protected abstract suspend fun deleteAttachments(jobId: String)
+
+    @Transaction
+    open suspend fun insert(
+        job: JobEntity,
+        attachments: List<JobAttachmentEntity>,
+    ) {
+        upsert(job)
+        deleteAttachments(job.jobId)
+        if (attachments.isNotEmpty()) insertAttachments(attachments)
+    }
+
+    @Transaction
+    open suspend fun delete(jobId: String) {
+        deleteRow(jobId)
+        deleteAttachments(jobId)
+    }
+}

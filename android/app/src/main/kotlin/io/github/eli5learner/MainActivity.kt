@@ -12,9 +12,17 @@ import io.github.eli5learner.auth.AccountViewModel
 import io.github.eli5learner.library.LibraryViewModel
 import io.github.eli5learner.ui.nav.AppNav
 import io.github.eli5learner.ui.theme.Eli5Theme
+import kotlinx.coroutines.flow.MutableStateFlow
 
-/** The single activity (16 §6.1). Also receives "Open with" (VIEW) and share-sheet (SEND) imports. */
+/**
+ * The main activity (16 §6.1). Also receives "Open with" (VIEW) and share-sheet (SEND) imports of
+ * HTML, and "Learnings ready" taps ([ACTION_OPEN_INBOX]). Captures arrive at
+ * [io.github.eli5learner.capture.CaptureActivity].
+ */
 class MainActivity : ComponentActivity() {
+    /** Bumped when a notification asks for the Inbox; [AppNav] follows it. */
+    private val openInbox = MutableStateFlow(0)
+
     private val library: LibraryViewModel by viewModels {
         LibraryViewModel.factory(AppContainer.from(this), contentResolver)
     }
@@ -27,14 +35,20 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         // Only a fresh launch carries a new intent; after a configuration change it was handled.
-        if (savedInstanceState == null) handleImportIntent(intent)
+        if (savedInstanceState == null) handleIntent(intent)
         val container = AppContainer.from(this)
         container.syncScheduler.start(container.authorizer.state)
+        container.syncScheduler.watchJobs(container.outbox.active)
         setContent {
             Eli5Theme {
-                AppNav(container = AppContainer.from(this), library = library, account = account)
+                AppNav(container = AppContainer.from(this), library = library, account = account, openInbox = openInbox)
             }
         }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        AppContainer.from(this).syncScheduler.onBackground()
     }
 
     override fun onStart() {
@@ -46,15 +60,25 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleImportIntent(intent)
+        handleIntent(intent)
     }
 
-    private fun handleImportIntent(intent: Intent?) {
+    private fun handleIntent(intent: Intent?) {
+        if (intent?.action == ACTION_OPEN_INBOX) {
+            openInbox.value += 1
+            return
+        }
         val uris = importUris(intent) ?: return
         library.import(uris)
     }
 
     companion object {
+        /**
+         * A "Learnings ready" notification was tapped. MainActivity is exported, so any app can send
+         * this; it only shows the Inbox and carries no data.
+         */
+        const val ACTION_OPEN_INBOX = "io.github.eli5learner.action.OPEN_INBOX"
+
         /**
          * URIs to import from a VIEW or SEND intent, or null when the intent is not an import. An
          * intent relaunched from Recents was already handled when it first arrived.

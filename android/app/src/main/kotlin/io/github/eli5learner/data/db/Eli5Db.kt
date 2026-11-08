@@ -7,7 +7,8 @@ import androidx.room.RoomDatabase
 
 /**
  * The phone's Room database (16 §6.1, §6.4). A cache only: it can always be rebuilt from
- * `filesDir/docs` and the next pull, so a schema change drops and recreates it rather than migrating.
+ * `filesDir/docs` and the next pull (jobs from `filesDir/outbox`), so a schema change drops and
+ * recreates it rather than migrating.
  */
 @Database(
     entities = [
@@ -17,8 +18,10 @@ import androidx.room.RoomDatabase
         VersionEntity::class,
         DeviceEntity::class,
         RemoteFileEntity::class,
+        JobEntity::class,
+        JobAttachmentEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class Eli5Db : RoomDatabase() {
@@ -31,6 +34,8 @@ abstract class Eli5Db : RoomDatabase() {
     abstract fun devices(): DeviceDao
 
     abstract fun remoteFiles(): RemoteFileDao
+
+    abstract fun jobs(): JobDao
 
     companion object {
         const val NAME = "eli5.db"

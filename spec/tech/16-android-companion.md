@@ -17,6 +17,10 @@ store as §13 says. The same holds for Settings > Sync, the sidebar indicator an
 endpoints, unverified against a real Google account until G1. Library sync on the phone (§4.8 pull,
 §6.4 cache and search, the phone's device file, the Library, Reader and Settings parts of §6.2) is
 built and tested against an in-memory Drive and Room database only, likewise unverified until G1.
+So is the phone's side of the job inbox (§5.2: the share target and capture sheet, the outbox and
+its upload worker, cancel files, the acks file, job statuses in the Inbox and the "Learnings ready"
+notification); the desktop side that runs phone jobs (§5.3) is not built yet, so a capture waits in
+the store as "Waiting for your Mac" until it is.
 
 Related: [01-architecture.md](./01-architecture.md) · [06-generation-pipeline.md](./06-generation-pipeline.md) ·
 [07-output-document.md](./07-output-document.md) · [08-interactive-reading.md](./08-interactive-reading.md) ·
@@ -412,6 +416,31 @@ Focus chips are appended to the clarifying input as fixed English phrases.
    not already exist, then `job-<jobId>.json`, then marks the job `UPLOADED` ("Waiting for your Mac").
 3. Cancel: write `jobcancel-<jobId>.json`. The desktop honours it only while the job is not running.
 4. After the phone has shown a terminal status, it adds the jobId to its `acks` file.
+
+Details of the phone side:
+
+- The outbox folder holds `request.json` (the exact bytes uploaded as `job-<jobId>.json`), one file
+  per attachment named by its sha, an `uploaded` marker once the job file exists, and a `hidden`
+  marker after Inbox Delete. Room rows are rebuilt from these folders when the table is empty
+  (§6.4); a folder without `request.json` older than a day is an abandoned sheet and is removed.
+- Every file the phone writes (`att`, `job`, `cancel`, `acks`) is created under a preallocated id
+  persisted first, so a retry after a lost response finds the same file. An attachment whose sha the
+  store already has (`appProperties` `k: att`, `s: <sha>`) is not uploaded again; an upload whose
+  reported `sha256Checksum` differs is deleted and retried. Whether a job file from a lost response
+  exists is read by its id, not from a listing (listings lag). Cancel and the job file's id are
+  serialized: a Cancel before the id is persisted removes the job unsent; after it, a cancel file
+  follows the job file.
+- The share target reads only `content:` URIs served by other apps, never one of this app's own
+  providers.
+- Shared text: URLs are extracted (at most 20, normalized as §12 requires; others are listed as
+  refused); text left around a URL is kept only when it is at least 280 characters, so a page title
+  shared with its link does not become a source. Longer text than the cap is shortened with a note.
+- A "shown" terminal status is one the Inbox displayed or a "Learnings ready" notification posted.
+  Inbox Delete hides a finished job but keeps it in the acks file until the desktop has collected
+  its files; finished jobs leave the Inbox after 30 days. Retry (failed, rejected) sends the same
+  capture under a new `jobId`; a `done` job's attachment copies are removed, so it cannot be retried.
+- The phone reads `jobstatus` files written by any other device, preferring the primary's, and
+  ignores one whose `jobId` does not match its name.
 
 ### 5.3 Desktop side
 

@@ -67,4 +67,10 @@ data class SyncCursor(
     val pendingDeviceFileId: String? = null,
     /** Hash of the device record last written, so an unchanged record is only touched. */
     val deviceRecordHash: String? = null,
+    /** This phone's `acks-<id>.json` file id once created (16 §4.7). */
+    val acksFileId: String? = null,
+    /** A preallocated id for the acks file, persisted before the create. */
+    val pendingAcksFileId: String? = null,
+    /** Hash of the acks body last written, so an unchanged list is not rewritten. */
+    val acksHash: String? = null,
 )

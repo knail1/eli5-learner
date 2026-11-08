@@ -69,6 +69,18 @@ class AppPreferences(
 
     override val lastSyncAt: Flow<Long?> = store.data.map { it[LAST_SYNC_AT] }
 
+    /**
+     * "Learnings ready" notifications (16 §6.1): null until the user was asked (after the first
+     * capture), then their answer.
+     */
+    val readyNotifications: Flow<Boolean?> = store.data.map { it[READY_NOTIFICATIONS] }
+
+    suspend fun readyNotificationsAnswer(): Boolean? = store.data.first()[READY_NOTIFICATIONS]
+
+    suspend fun setReadyNotifications(on: Boolean) {
+        store.edit { it[READY_NOTIFICATIONS] = on }
+    }
+
     override suspend fun cursor(): SyncCursor = cursorOf(store.data.first())
 
     override suspend fun updateCursor(change: (SyncCursor) -> SyncCursor) {
@@ -100,6 +112,9 @@ class AppPreferences(
             deviceFileId = p[DEVICE_FILE_ID],
             pendingDeviceFileId = p[PENDING_DEVICE_FILE_ID],
             deviceRecordHash = p[DEVICE_RECORD_HASH],
+            acksFileId = p[ACKS_FILE_ID],
+            pendingAcksFileId = p[PENDING_ACKS_FILE_ID],
+            acksHash = p[ACKS_HASH],
         )
 
     private fun writeCursor(
@@ -117,6 +132,9 @@ class AppPreferences(
         put(DEVICE_FILE_ID, c.deviceFileId)
         put(PENDING_DEVICE_FILE_ID, c.pendingDeviceFileId)
         put(DEVICE_RECORD_HASH, c.deviceRecordHash)
+        put(ACKS_FILE_ID, c.acksFileId)
+        put(PENDING_ACKS_FILE_ID, c.pendingAcksFileId)
+        put(ACKS_HASH, c.acksHash)
     }
 
     companion object {
@@ -125,6 +143,10 @@ class AppPreferences(
         private val DEVICE_FILE_ID = stringPreferencesKey("sync_device_file_id")
         private val PENDING_DEVICE_FILE_ID = stringPreferencesKey("sync_pending_device_file_id")
         private val DEVICE_RECORD_HASH = stringPreferencesKey("sync_device_record_hash")
+        private val ACKS_FILE_ID = stringPreferencesKey("sync_acks_file_id")
+        private val PENDING_ACKS_FILE_ID = stringPreferencesKey("sync_pending_acks_file_id")
+        private val ACKS_HASH = stringPreferencesKey("sync_acks_hash")
+        private val READY_NOTIFICATIONS = booleanPreferencesKey("ready_notifications")
         private val LAST_SYNC_AT = longPreferencesKey("sync_last_at")
         private val OFFLINE_POLICY = stringPreferencesKey("sync_offline_policy")
         private val LARGE_ON_WIFI_ONLY = booleanPreferencesKey("sync_large_on_wifi_only")

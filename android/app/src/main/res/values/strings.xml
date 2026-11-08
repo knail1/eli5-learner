@@ -24,7 +24,66 @@
     <string name="removed">Removed “%1$s”</string>
 
     <string name="inbox_title">Inbox</string>
-    <string name="inbox_placeholder">Jobs you send to your Mac show up here. Sending arrives with sync, which needs Google Drive on both devices.</string>
+    <string name="inbox_empty">Share a link, photo or file to ELI5 Learner and tap Send to my Mac. It shows up here while your Mac builds it.</string>
+    <string name="inbox_untitled">Capture</string>
+    <string name="inbox_chip_connect">Connect Google Drive to send</string>
+    <string name="inbox_chip_waiting_upload">Waiting to upload</string>
+    <string name="inbox_chip_waiting_mac">Waiting for your Mac</string>
+    <string name="inbox_chip_queued">Queued</string>
+    <string name="inbox_chip_generating">Generating</string>
+    <string name="inbox_chip_cancelling">Cancelling…</string>
+    <string name="inbox_chip_ready">Ready</string>
+    <string name="inbox_chip_failed">Failed</string>
+    <string name="inbox_chip_cancelled">Cancelled</string>
+    <plurals name="inbox_built_skipped">
+        <item quantity="one">Built · %1$d source skipped</item>
+        <item quantity="other">Built · %1$d sources skipped</item>
+    </plurals>
+    <string name="inbox_failed_local">This capture couldn’t be read on this phone.</string>
+    <string name="inbox_open">Open</string>
+    <string name="inbox_delete">Delete</string>
+    <string name="inbox_connect_to_send">Captures wait here until you connect Google Drive.</string>
+    <string name="inbox_notify_offer">Get a notification when a learning is ready.</string>
+    <string name="inbox_retried">Sent again</string>
+    <string name="inbox_retry_unavailable">Can’t send again: the shared files are no longer on this phone.</string>
+
+    <!-- Capture (16 §5.2, §6.2). -->
+    <string name="capture_label">Send to my Mac</string>
+    <string name="capture_title">Send to my Mac</string>
+    <string name="capture_reading">Copying what you shared…</string>
+    <string name="capture_question">What do you want to understand?</string>
+    <string name="capture_send">Send to my Mac</string>
+    <string name="capture_sent">Sent. Follow it in the Inbox.</string>
+    <string name="capture_failed">Couldn’t save this capture. Try again.</string>
+    <string name="capture_nothing">Nothing to send</string>
+    <string name="capture_file_row">%1$s · %2$s</string>
+    <string name="capture_a_file">A file</string>
+    <string name="capture_text_shortened">The text was shortened to 20,000 characters.</string>
+    <string name="capture_not_connected">Google Drive isn’t connected. This waits in the Inbox until you connect.</string>
+    <string name="capture_mac_paused">Your Mac isn’t taking jobs right now. This waits until it is.</string>
+    <string name="capture_refused_too_large">%1$s: too large (over 20 MB)</string>
+    <string name="capture_refused_job_too_large">%1$s: over 50 MB for one capture</string>
+    <string name="capture_refused_too_many">%1$s: one capture takes up to 10 files</string>
+    <string name="capture_refused_type">%1$s: this kind of file can’t be sent</string>
+    <string name="capture_refused_unreadable">%1$s: couldn’t be read</string>
+    <plurals name="capture_refused_urls">
+        <item quantity="one">%1$d link can’t be sent</item>
+        <item quantity="other">%1$d links can’t be sent</item>
+    </plurals>
+    <string name="focus_big_picture">Big picture</string>
+    <string name="focus_how_it_works">How it works</string>
+    <string name="focus_numbers">The numbers</string>
+    <string name="focus_beginner">For a beginner</string>
+
+    <!-- "Learnings ready" notifications (16 §6.1), opt-in after the first capture. -->
+    <string name="notify_channel">Learnings ready</string>
+    <string name="notify_channel_body">When your Mac finishes something you sent from this phone.</string>
+    <string name="notify_ready_title">Your learning is ready</string>
+    <string name="notify_ready_body">Ready to read</string>
+    <string name="notify_ask_title">Tell you when it’s ready?</string>
+    <string name="notify_ask_body">ELI5 Learner can notify you when your Mac finishes what you sent.</string>
+    <string name="notify_ask_yes">Notify me</string>
+    <string name="notify_ask_no">Not now</string>
 
     <string name="settings_title">Settings</string>
     <string name="settings_import_body">Add an exported ELI5 document (index.html) to this phone.</string>

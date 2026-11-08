@@ -1,6 +1,8 @@
 package io.github.eli5learner.ui.nav
 
+import android.Manifest
 import android.app.Activity
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -41,7 +43,10 @@ import io.github.eli5learner.R
 import io.github.eli5learner.auth.AccountEvent
 import io.github.eli5learner.auth.AccountViewModel
 import io.github.eli5learner.auth.AuthState
+import io.github.eli5learner.inbox.InboxActions
+import io.github.eli5learner.inbox.InboxEvent
 import io.github.eli5learner.inbox.InboxScreen
+import io.github.eli5learner.inbox.InboxViewModel
 import io.github.eli5learner.library.LibraryEvent
 import io.github.eli5learner.library.LibraryScreen
 import io.github.eli5learner.library.LibraryViewModel
@@ -53,6 +58,7 @@ import io.github.eli5learner.settings.ProbeActions
 import io.github.eli5learner.settings.SettingsScreen
 import io.github.eli5learner.settings.SyncSettingsActions
 import io.github.eli5learner.settings.SyncSettingsViewModel
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
@@ -98,6 +104,8 @@ fun AppNav(
     container: AppContainer,
     library: LibraryViewModel,
     account: AccountViewModel,
+    /** Bumped by a "Learnings ready" tap: show the Inbox. */
+    openInbox: StateFlow<Int>? = null,
 ) {
     val backStack = rememberNavBackStack(LibraryKey)
     val state by library.state.collectAsStateWithLifecycle()
@@ -109,6 +117,25 @@ fun AppNav(
         rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
             account.onConsentResult(r.resultCode == Activity.RESULT_OK, r.data)
         }
+
+    // "Notify me" from the Inbox: on Android 13+ the system asks; a refusal turns the option back off.
+    val notificationPermission =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (!granted) container.appScope.launch { container.preferences.setReadyNotifications(false) }
+        }
+    val requestNotifications = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    LaunchedEffect(openInbox) {
+        openInbox?.collect { n ->
+            if (n > 0) {
+                backStack.clear()
+                backStack.add(LibraryKey)
+                backStack.add(InboxKey)
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (!container.preferences.onboardingDone.first() && backStack.lastOrNull() == LibraryKey) {
@@ -216,7 +243,37 @@ fun AppNav(
                                     onPin = { e, pin -> library.setPinned(e.key, pin) },
                                 )
                             }
-                            entry<InboxKey> { InboxScreen() }
+                            entry<InboxKey> {
+                                val vm: InboxViewModel = viewModel(factory = InboxViewModel.factory(container))
+                                val inbox by vm.state.collectAsStateWithLifecycle()
+                                LaunchedEffect(vm) {
+                                    vm.messages.collect { e ->
+                                        val res =
+                                            when (e) {
+                                                InboxEvent.Retried -> R.string.inbox_retried
+                                                InboxEvent.RetryUnavailable -> R.string.inbox_retry_unavailable
+                                            }
+                                        snackbar.showSnackbar(resources.getString(res))
+                                    }
+                                }
+                                InboxScreen(
+                                    state = inbox,
+                                    actions =
+                                        InboxActions(
+                                            onCancel = vm::cancel,
+                                            onRetry = vm::retry,
+                                            onDelete = vm::delete,
+                                            onOpen = { backStack.add(ReaderKey(it)) },
+                                            onShown = vm::shown,
+                                            onConnect = account::connect,
+                                            onReconnect = account::connect,
+                                            onNotifications = { on ->
+                                                vm.enableNotifications(on)
+                                                if (on) requestNotifications()
+                                            },
+                                        ),
+                                )
+                            }
                             entry<SettingsKey> {
                                 val vm: SyncSettingsViewModel = viewModel(factory = SyncSettingsViewModel.factory(container))
                                 val sync by vm.state.collectAsStateWithLifecycle()

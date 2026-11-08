@@ -14,6 +14,9 @@ stay on your machine. The design is in
 > that fake Drive only; its behaviour against a real Drive is also unverified until G1. The same
 > holds for library sync on the phone (pull, offline cache, search, the phone's device file): built
 > and tested against an in-memory Drive and database only, unverified against a real Drive until G1.
+> "Send to my Mac" (the share sheet, the outbox, the Inbox and its statuses) is built and tested the
+> same way; the desktop side that runs phone jobs is not built yet, so for now a capture stays
+> "Waiting for your Mac".
 > Until G1 passes, treat Stages B and C as a preview; details may change, and if the hidden app
 > folder turns out not to be shared between the desktop and Android clients, sync moves to a
 > visible Drive folder instead.
@@ -128,8 +131,8 @@ the most reliable route; Android's developer verification rules exempt them.
 - **Import:** Library > Import, or share an `index.html` to ELI5 Learner from Files, Gmail or the
   Drive app, or tap it and choose "Open with ELI5 Learner".
 - **Read offline:** both tabs (In depth and ELI5), glossary, charts, theme.
-- **Capture:** sharing a link or photo to the app works, but the job waits in the Inbox as
-  "Connect Google Drive to send".
+- **Capture:** sharing a link, text, photos, a PDF or an Office file to **Send to my Mac** works;
+  the capture waits in the Inbox as "Connect Google Drive to send" (Cancel removes it).
 
 To get documents from the Mac: publish with the Local directory publisher (or find the document's
 folder in the library) and send `index.html` to the phone any way you like, or
