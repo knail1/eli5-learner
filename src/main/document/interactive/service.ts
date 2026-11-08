@@ -2,6 +2,7 @@
 // the events IPC forwards (`eli5:doc:updated`, `scroll-to`, `section-busy`).
 import { readFile } from 'node:fs/promises';
 import type {
+  AskSectionRequest,
   CloseTabRequest,
   CreateSectionEli5Request,
   DocHistoryChangedEvent,
@@ -29,16 +30,17 @@ import {
 } from '../../library';
 import type { SectionRunner } from '../../pipeline';
 import { DocumentFormatError } from '../errors';
+import { canonicalJson } from '../canonical-json';
 import { sectionIdsOf } from '../ids';
 import { MAX_SECTION_ELI5_TABS, removeTab, sectionIdsOfTab } from '../mutate';
 import { parseDocument } from '../parse';
 import { renderDocument } from '../render';
-import { bundledDocRuntime } from '../runtime-assets';
+import { DOC_RUNTIME_VERSION, bundledDocRuntime } from '../runtime-assets';
 import { tabKeyOfSectionId } from '../section-id';
 import type { DocumentModel, ParsedDocument, SectionJobPayload } from '../types';
 import { sectionHash } from './hash';
 import { RateLimiter } from './rate-limit';
-import { createSectionRunner, runtimeFor } from './regenerate';
+import { compareRuntimeVersions, createSectionRunner, runtimeFor } from './regenerate';
 import {
   SectionActionError,
   changeLabel,
@@ -79,6 +81,13 @@ export interface InteractiveReading {
   notifyUpdated(e: DocUpdatedEvent): void;
   /** Reload + scroll only, for an update another module already pushed (a merge accept, 09 §10.6 step 12). */
   refreshViewer(e: DocUpdatedEvent): void;
+  /**
+   * D12 (a), 07 §5.5: before the viewer opens a document whose runtime is older than the bundled
+   * one, re-renders the same model with the bundled runtime in place (same version node). Skipped
+   * when the library is read-only, a section of the document is busy or it does not parse. Never
+   * rejects: on any failure the document keeps its old runtime.
+   */
+  refreshRuntimeOnOpen(slug: string): Promise<void>;
   dispose(): void;
 }
 
@@ -263,7 +272,9 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
 
   /** 08 §6.1 steps 1-8 for both action channels. */
   const request = async (
-    r: Omit<SectionActionRequest, 'action'> & Pick<CreateSectionEli5Request, 'sectionIds'>,
+    r: Omit<SectionActionRequest, 'action'> &
+      Pick<CreateSectionEli5Request, 'sectionIds'> &
+      Partial<Pick<AskSectionRequest, 'question'>>,
     action: MenuAction,
   ): Promise<{ jobId: string }> => {
     if (d.viewer.currentSlug() !== r.slug) refuse('E_FORBIDDEN', 'Forbidden');
@@ -272,6 +283,7 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
     let reserved = false;
     try {
       if (tabKeyOfSectionId(r.sectionId) !== r.tabKey) refuse('E_BAD_REQUEST', 'Invalid request');
+      if (action === 'ask' && !r.question?.trim()) refuse('E_BAD_REQUEST', 'Invalid request');
       if (!d.library.hasSlug(r.slug)) refuse('E_NOT_FOUND', NOTICES.docGone);
       if (inflight.has(key)) refuse('E_CONFLICT', NOTICES.busy);
       // Reserved before any await, so two requests for one section cannot both pass step 4.
@@ -305,6 +317,7 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
         selectionText: r.selectionText,
         ...(r.note ? { note: r.note } : {}),
         ...(covered ? { sectionIds: covered } : {}),
+        ...(action === 'ask' ? { question: r.question } : {}),
         heading: section.heading,
         baseHash: sectionHash(section),
       };
@@ -481,14 +494,43 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
     onVersionsChanged: (cb) => versionsChanged.on(cb),
   };
 
-  // Ask (08 §6.8) is not wired yet: it answers E_INTERNAL.
-  const notYet = async (): Promise<never> => refuse('E_INTERNAL', 'Not implemented yet');
+  /** `; runtime X.Y.Z` in the generator meta tag, so a current document is skipped without a parse. */
+  const GENERATOR_RUNTIME_RE = /<meta name="generator" content="[^"]*; runtime ([0-9][0-9.]*)">/;
+  const refreshRuntimeOnOpen = async (slug: string): Promise<void> => {
+    try {
+      if (d.library.readOnly || !d.library.hasSlug(slug) || busyFor(slug)) return;
+      const head = GENERATOR_RUNTIME_RE.exec((await d.readFile(d.library.docPath(slug))).slice(0, 65536));
+      if (head?.[1] && compareRuntimeVersions(head[1], DOC_RUNTIME_VERSION) >= 0) return;
+      const refreshed = await d.library.withDocLock(slug, async () => {
+        // A job that started while this waited for the lock writes its own upgrade.
+        if (busyFor(slug)) return false;
+        const parsed = tryParse(await d.readFile(d.library.docPath(slug)));
+        if (!parsed) return false;
+        const rt = runtimeFor(parsed, d.bundledRuntime);
+        if (!rt.upgraded) return false;
+        const next = rt.stamp(parsed.model);
+        const html = renderDocument(next, parsed.assets, { runtime: rt.runtime, theme: parsed.theme });
+        // Same model only: a page that does not parse back to it is never written (the old one stays).
+        const back = tryParse(html);
+        if (!back || canonicalJson(back.model) !== canonicalJson(next)) {
+          d.log?.warn('document.runtime-refresh-skipped', { slug, kind: 'roundtrip' });
+          return false;
+        }
+        await d.library.refreshRuntime(slug, html);
+        return true;
+      });
+      if (refreshed) d.log?.info('document.runtime-refreshed', { slug });
+    } catch (err) {
+      // The old runtime keeps working; the next mutation upgrades it (D12 b).
+      d.log?.info('document.runtime-refresh-skipped', { slug, kind: (err as Error)?.name ?? 'error' });
+    }
+  };
 
   const actions: SectionActions = {
     regenerateSection: (r) => request(r, r.action),
     createSectionEli5: (r) => request(r, r.scope === 'selection' ? 'eli5-selection' : 'eli5-tab'),
     closeTab,
-    askSection: notYet,
+    askSection: (r) => request(r, 'ask'),
     onUpdated: (cb) => updated.on(cb),
     onScrollTo: (cb) => scroll.on(cb),
     onSectionBusy: (cb) => busy.on(cb),
@@ -500,6 +542,7 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
     history,
     notifyUpdated,
     refreshViewer: (e) => refresh.updated(e),
+    refreshRuntimeOnOpen,
     attachJobs(q) {
       unsubJobs?.();
       jobs = q;

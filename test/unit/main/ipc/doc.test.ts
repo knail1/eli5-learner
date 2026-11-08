@@ -425,11 +425,11 @@ describe('eli5:doc:history / undo / redo (09 §4.1, 01 §5.2)', () => {
     });
   });
 
-  it('keeps ask-section viewer-only until it is wired', async () => {
+  it('answers ask-section "Not implemented yet" without a service, and only for the viewer', async () => {
     const h = await setup();
     const notYet = { ok: false, error: { code: 'E_INTERNAL', message: 'Not implemented yet' } };
-    expect(await h.call(IPC.doc.askSection, req(), 'app')).toEqual(forbidden);
-    expect(await h.call(IPC.doc.askSection, req(), 'viewer')).toEqual(notYet);
+    expect(await h.call(IPC.doc.askSection, askReq(), 'app')).toEqual(forbidden);
+    expect(await h.call(IPC.doc.askSection, askReq(), 'viewer')).toEqual(notYet);
   });
 
   it('answers "Not implemented yet" without a service', async () => {
@@ -437,6 +437,88 @@ describe('eli5:doc:history / undo / redo (09 §4.1, 01 §5.2)', () => {
     expect(await h.call(IPC.doc.undo, { slug: 'solar-power' })).toEqual({
       ok: false,
       error: { code: 'E_INTERNAL', message: 'Not implemented yet' },
+    });
+  });
+});
+
+const askReq = (over: Record<string, unknown> = {}) => ({
+  slug: 'solar-power',
+  tabKey: 'indepth',
+  sectionId: 'sec-indepth-3f9a1c2e',
+  selectionText: 'Panels turn light into current.',
+  question: 'Why does the panel need sunlight?',
+  ...over,
+});
+
+describe('eli5:doc:ask-section (08 Ask)', () => {
+  it('passes a validated request to SectionActions.askSection and returns the job id', async () => {
+    const { svc } = fakeActions();
+    const h = await setup({ services: { sectionActions: svc } });
+    expect(await h.call(IPC.doc.askSection, askReq(), 'viewer')).toEqual({ ok: true, value: { jobId: 'job-s3' } });
+    expect(svc.askSection).toHaveBeenCalledWith(askReq());
+    expect(svc.regenerateSection).not.toHaveBeenCalled();
+  });
+
+  it('collapses whitespace in the question before the length check', async () => {
+    const { svc } = fakeActions();
+    const h = await setup({ services: { sectionActions: svc } });
+    const r = askReq({ question: '  Why   so\tmuch  sun?  ', action: 'expand', note: 'dropped' });
+    expect(await h.call(IPC.doc.askSection, r, 'viewer')).toMatchObject({ ok: true });
+    // Unknown fields are stripped; there is no note or action on an Ask.
+    expect(svc.askSection).toHaveBeenCalledWith(askReq({ question: 'Why so much sun?' }));
+  });
+
+  it('accepts a question of exactly 3 and exactly 500 characters', async () => {
+    const { svc } = fakeActions();
+    const h = await setup({ services: { sectionActions: svc } });
+    for (const question of ['Why', 'w'.repeat(500)]) {
+      expect(await h.call(IPC.doc.askSection, askReq({ question }), 'viewer')).toMatchObject({ ok: true });
+    }
+    expect(svc.askSection).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects malformed requests with E_BAD_REQUEST', async () => {
+    const { svc } = fakeActions();
+    const h = await setup({ services: { sectionActions: svc } });
+    const { question: _q, ...noQuestion } = askReq();
+    for (const bad of [
+      undefined,
+      noQuestion,
+      askReq({ question: 42 }),
+      askReq({ question: 'ab' }),
+      askReq({ question: '   ab     ' }),
+      askReq({ question: 'w'.repeat(501) }),
+      askReq({ question: 'two\nlines?' }),
+      askReq({ question: 'two\rlines?' }),
+      askReq({ selectionText: 'ab' }),
+      askReq({ selectionText: 'x'.repeat(4001) }),
+      askReq({ sectionId: 'sec-eli5-3f9a1c2e' }), // not in that tab
+      askReq({ tabKey: 'notes', sectionId: 'sec-notes-3f9a1c2e' }),
+      askReq({ slug: '../etc' }),
+    ]) {
+      expect(await h.call(IPC.doc.askSection, bad, 'viewer')).toMatchObject({
+        ok: false,
+        error: { code: 'E_BAD_REQUEST' },
+      });
+    }
+    expect(svc.askSection).not.toHaveBeenCalled();
+  });
+
+  it('accepts only the viewer of the same document (08 §4.3 step 1)', async () => {
+    const { svc } = fakeActions();
+    const h = await setup({ services: { sectionActions: svc } });
+    expect(await h.call(IPC.doc.askSection, askReq(), 'app')).toEqual(forbidden);
+    expect(await h.call(IPC.doc.askSection, askReq({ slug: 'tax-basics' }), 'viewer')).toEqual(forbidden);
+    expect(svc.askSection).not.toHaveBeenCalled();
+  });
+
+  it('maps a refused request to its code and inline notice', async () => {
+    const { svc } = fakeActions();
+    svc.askSection.mockRejectedValueOnce(new SectionActionError('E_RATE_LIMITED', 'Too many requests; wait a moment'));
+    const h = await setup({ services: { sectionActions: svc } });
+    expect(await h.call(IPC.doc.askSection, askReq(), 'viewer')).toEqual({
+      ok: false,
+      error: { code: 'E_RATE_LIMITED', message: 'Too many requests; wait a moment' },
     });
   });
 });

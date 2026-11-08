@@ -6,6 +6,7 @@ import type {
   FindCommandEvent,
   FindResultEvent,
   ApiKeyProvider,
+  AskSectionRequest,
   AuthStatus,
   CatalogEntry,
   ChooseFolderResult,
@@ -188,6 +189,8 @@ export interface Eli5Api {
 export interface Eli5DocApi {
   regenerateSection(r: Omit<SectionActionRequest, 'slug'>): R<{ jobId: string }>;
   createSectionEli5(r: Omit<CreateSectionEli5Request, 'slug'>): R<{ jobId: string }>;
+  /** 08 Ask: enqueues a job that inserts an answer box after the selection. Needs user activation. */
+  askQuestion(r: Omit<AskSectionRequest, 'slug'>): R<{ jobId: string }>;
   closeTab(tabKey: string): R<void>;
   openExternal(url: string): R<void>;
   onScrollTo(cb: (e: ScrollToEvent) => void): Unsub;

@@ -90,7 +90,7 @@ export interface ViewerPort {
 
 export interface InteractiveDeps {
   library: InteractiveLibrary;
-  tasks: Pick<LlmTasks, 'runSectionAction'>;
+  tasks: Pick<LlmTasks, 'runSectionAction' | 'answerSectionQuestion'>;
   viewer: ViewerPort;
   /** 08 §6.1 step 5: key present for the selected provider (no network). Default: true. */
   hasApiKey?: () => Promise<boolean>;

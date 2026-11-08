@@ -19,7 +19,7 @@ import {
   type ViewerPort,
 } from '../../../../../src/main/document';
 import type { FsLibrary } from '../../../../../src/main/library';
-import type { DocumentDraftTab, SectionDraft } from '../../../../../src/main/llm';
+import type { DocumentDraftTab, SectionAnswerDraft, SectionDraft } from '../../../../../src/main/llm';
 import type { SectionRunContext } from '../../../../../src/main/pipeline';
 import type { JobFailureCode, JobStatus } from '../../../../../src/preload/contract';
 import { fixtureDocument } from '../../../../fixtures/documents/models';
@@ -136,6 +136,14 @@ export const NEW_TAB: DocumentDraftTab = {
   ],
 };
 
+export const ANSWER: SectionAnswerDraft = {
+  topic: 'Why ROAS decides',
+  paragraphs: [
+    'ROAS compares revenue with spend, so it ranks channels by return.',
+    'Reach alone says nothing about sales.',
+  ],
+};
+
 export interface Setup {
   lib: FsLibrary;
   slug: string;
@@ -145,6 +153,7 @@ export interface Setup {
   viewer: FakeViewer;
   clock: FakeClock;
   runSectionAction: ReturnType<typeof vi.fn<(i: { action: string }) => Promise<SectionDraft | DocumentDraftTab>>>;
+  answerSectionQuestion: ReturnType<typeof vi.fn<(i: { question: string }) => Promise<SectionAnswerDraft>>>;
   hasApiKey: ReturnType<typeof vi.fn<() => Promise<boolean>>>;
   ir: ReturnType<typeof createInteractiveReading>;
   events: { updated: unknown[]; scroll: unknown[]; busy: unknown[] };
@@ -176,10 +185,11 @@ export async function setup(
   const runSectionAction = vi.fn(async (i: { action: string }): Promise<SectionDraft | DocumentDraftTab> =>
     i.action === 'eli5-tab' || i.action === 'eli5-selection' ? NEW_TAB : NEW_SECTION,
   );
+  const answerSectionQuestion = vi.fn(async (_i: { question: string }): Promise<SectionAnswerDraft> => ANSWER);
   const hasApiKey = vi.fn(async () => true);
   const ir = createInteractiveReading({
     library: lib,
-    tasks: { runSectionAction },
+    tasks: { runSectionAction, answerSectionQuestion },
     viewer,
     hasApiKey,
     clock,
@@ -201,6 +211,7 @@ export async function setup(
     viewer,
     clock,
     runSectionAction,
+    answerSectionQuestion,
     hasApiKey,
     ir,
     events,

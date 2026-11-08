@@ -70,6 +70,27 @@ function validAct(r: ActFields, needsAction: boolean): boolean {
   return typeof r.action === 'string' && ACTIONS.includes(r.action);
 }
 
+/** 08 Ask: one line of 3..500 chars (the page collapses whitespace first); selection as §5.3. */
+const MAX_QUESTION_CHARS = 500;
+
+interface AskFields {
+  tabKey?: unknown;
+  sectionId?: unknown;
+  selectionText?: unknown;
+  question?: unknown;
+}
+
+function validAsk(r: AskFields): boolean {
+  if (typeof r !== 'object' || r === null) return false;
+  if (typeof r.tabKey !== 'string' || !TAB_KEY_RE.test(r.tabKey)) return false;
+  const m = typeof r.sectionId === 'string' ? SECTION_ID_RE.exec(r.sectionId) : null;
+  if (!m || m[1] !== r.tabKey) return false;
+  if (typeof r.selectionText !== 'string' || r.selectionText.length > 4000 || r.selectionText.trim().length < 3)
+    return false;
+  const q = r.question;
+  return typeof q === 'string' && q.length <= MAX_QUESTION_CHARS && !/[\r\n]/.test(q) && q.trim().length >= 3;
+}
+
 const invoke = (ch: IpcChannel, payload?: unknown) => ipcRenderer.invoke(ch, payload);
 const on =
   <T>(ch: IpcChannel) =>
@@ -112,6 +133,17 @@ const api: Eli5DocApi = {
     if (!activated()) return forbidden();
     if (!validAct(r, false)) return badRequest();
     return invoke(IPC.doc.createSectionEli5, actPayload(r, false));
+  },
+  askQuestion: (r) => {
+    if (!activated()) return forbidden();
+    if (!validAsk(r)) return badRequest();
+    return invoke(IPC.doc.askSection, {
+      tabKey: r.tabKey,
+      sectionId: r.sectionId,
+      selectionText: r.selectionText,
+      question: r.question,
+      slug: currentSlug(),
+    });
   },
   closeTab: (tabKey) => {
     if (!activated()) return forbidden();

@@ -35,6 +35,9 @@ export const STATUS_LINES = {
   sectionEli5Running: (heading: string) => `Adding ELI5 tab: ${heading}`,
   selectionEli5Running: (heading: string) => `Adding ELI5 tab for a selection: ${heading}`,
   sectionEli5Done: (label: string) => `Added tab: ${label}`,
+  /** 08 Ask. */
+  sectionAskRunning: (heading: string) => `Answering a question: ${heading}`,
+  sectionAskDone: (heading: string) => `Answered: ${heading}`,
   failed: {
     NO_USABLE_CONTENT: (n: number) => `Failed: no usable content in ${n} source(s)`,
     LLM_AUTH: 'Failed: API key rejected. Check Settings',
@@ -112,6 +115,9 @@ function sectionLine(job: StatusLineJob, ctx: StatusLineContext): string {
   const heading = job.section?.heading ?? '';
   const action = job.section?.action;
   const eli5Tab = action === 'eli5-tab' || action === 'eli5-selection';
+  if (action === 'ask') {
+    return job.status === 'done' ? STATUS_LINES.sectionAskDone(heading) : STATUS_LINES.sectionAskRunning(heading);
+  }
   if (job.status === 'done') {
     return eli5Tab
       ? STATUS_LINES.sectionEli5Done(ctx.tabLabel ?? job.result?.title ?? heading)

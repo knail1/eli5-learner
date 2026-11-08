@@ -132,6 +132,24 @@ export const CreateSectionEli5Payload = z
   })
   .refine(sectionInTab, 'Section is not in that tab')
   .refine(validScope, 'Invalid selection scope');
+/** 08 Ask: one line of at most 500 chars; whitespace runs collapse, then 3..500 chars must remain. */
+export const MAX_QUESTION_CHARS = 500;
+const Question = z
+  .string()
+  .max(MAX_QUESTION_CHARS)
+  .refine((q) => !/[\r\n]/.test(q), 'Single line only')
+  .transform((q) => q.replace(/\s+/g, ' ').trim())
+  .pipe(z.string().min(3).max(MAX_QUESTION_CHARS));
+/** 08 Ask: the selection keeps §5.3's 4000 chars; there is no note. */
+export const AskSectionPayload = z
+  .object({
+    slug: Slug,
+    tabKey: TabKey,
+    sectionId: SectionIdSchema,
+    selectionText: SelectionText,
+    question: Question,
+  })
+  .refine(sectionInTab, 'Section is not in that tab');
 /** Any tab key; the service answers E_FORBIDDEN for the in-depth and ELI5 tabs (08 §7.2). */
 export const CloseTabPayload = z.object({ slug: Slug, tabKey: TabKey });
 /** 09 §4.1: a version of the document, 'v-' + 12 hex. */
@@ -179,6 +197,10 @@ export function registerDocIpc(on: Register, d: { actions: SectionActions; histo
   on(IPC.doc.createSectionEli5, CreateSectionEli5Payload, (p, e) => {
     sameDocument(p.slug, e);
     return mapped(() => d.actions.createSectionEli5(p));
+  });
+  on(IPC.doc.askSection, AskSectionPayload, (p, e) => {
+    sameDocument(p.slug, e);
+    return mapped(() => d.actions.askSection(p));
   });
   on(IPC.doc.closeTab, CloseTabPayload, (p, e) => {
     sameDocument(p.slug, e);

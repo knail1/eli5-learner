@@ -2,12 +2,19 @@
 // (re-read and re-parse under withDocLock, precondition, pure mutator, render, post-check, write).
 import type { DocUpdatedEvent } from '../../../preload/contract';
 import { LibraryError, type DocumentMeta, type VersionChange } from '../../library';
-import { estimateTokens, sectionText, type DocumentDraftTab, type SectionDraft } from '../../llm';
+import {
+  estimateTokens,
+  sectionText,
+  type DocumentDraftTab,
+  type SectionAnswerDraft,
+  type SectionDraft,
+} from '../../llm';
 import { PipelineFailure, type SectionRunContext, type SectionRunner } from '../../pipeline';
 import { canonicalJson } from '../canonical-json';
 import { DocumentBuildError, DocumentFormatError, DocumentMutationError, TooManyTabsError } from '../errors';
+import { collapseWs } from '../html';
 import { sectionIdsOf } from '../ids';
-import { addSectionEli5Tab, getSectionContext, replaceSection } from '../mutate';
+import { addSectionEli5Tab, getSectionContext, insertAnswer, replaceSection } from '../mutate';
 import { parseDocument } from '../parse';
 import { renderDocument } from '../render';
 import { DOC_RUNTIME_VERSION } from '../runtime-assets';
@@ -20,8 +27,9 @@ import type {
   SectionJobPayload,
   Tab,
 } from '../types';
+import { isUserQuestion } from '../validate';
 import { sectionHash } from './hash';
-import { selectionContext } from './selection-context';
+import { blockIndexOfSelection, selectionContext } from './selection-context';
 import { changeLabel, mirrorTabs, type ResolvedDeps } from './types';
 
 /** 08 §6.2 step 5: target plus neighbours may use 60% of the input budget. */
@@ -130,6 +138,20 @@ const isSectionDraft = (v: unknown): v is SectionDraft =>
   typeof (v as { heading?: unknown }).heading === 'string' &&
   Array.isArray((v as { blocks?: unknown }).blocks);
 
+/** An answer paragraph insertAnswer keeps: some text, and not a question back to the reader. */
+const keptParagraph = (p: unknown): p is string =>
+  typeof p === 'string' && collapseWs(p) !== '' && !isUserQuestion(p.trim());
+
+/** 08 Ask: a topic and at least one answer paragraph insertAnswer will keep. */
+const isAnswerDraft = (v: unknown): v is SectionAnswerDraft =>
+  typeof v === 'object' &&
+  v !== null &&
+  typeof (v as { topic?: unknown }).topic === 'string' &&
+  Array.isArray((v as { paragraphs?: unknown }).paragraphs) &&
+  (v as { paragraphs: unknown[] }).paragraphs.some(keptParagraph);
+
+type Draft = SectionDraft | DocumentDraftTab | SectionAnswerDraft;
+
 /**
  * Generating stage (08 §6.2): context from the embedded model, then one LLM call. Also returns the
  * target's current hash, which a user retry uses as its baseHash.
@@ -138,9 +160,8 @@ async function generate(
   env: RunnerEnv,
   p: SectionJobPayload,
   signal: AbortSignal,
-): Promise<{ draft: SectionDraft | DocumentDraftTab; currentHash: string }> {
+): Promise<{ draft: Draft; currentHash: string }> {
   const d = env.deps;
-  if (p.action === 'ask') throw new PipelineFailure('INTERNAL', 'ask_unsupported');
   const { model } = await readDoc(d, p.slug);
   let ctx: SectionContext;
   try {
@@ -148,6 +169,22 @@ async function generate(
   } catch (err) {
     if (err instanceof DocumentMutationError) throw new PipelineFailure('SECTION_GONE');
     throw err;
+  }
+  if (p.action === 'ask') {
+    if (!p.question?.trim()) throw new PipelineFailure('INTERNAL', 'no_question');
+    // 08 Ask: the section, its neighbours (budgeted like a rewrite), the selection and the question.
+    const out: unknown = await d.tasks.answerSectionQuestion({
+      tabKind: ctx.tab.kind,
+      section: ctx.draft,
+      outline: ctx.outline,
+      ...fitBudget(ctx, d.inputBudgetTokens?.()),
+      selection: p.selectionText,
+      question: p.question,
+      signal,
+    });
+    // No paragraph left after insertAnswer's filter: the output is unusable (no OUTPUT_INVALID code).
+    if (!isAnswerDraft(out)) throw new PipelineFailure('INTERNAL', 'invalid_output');
+    return { draft: out, currentHash: sectionHash(ctx.section) };
   }
   const focused = p.action === 'eli5-selection';
   // 08 §7.5: a selection ELI5 sends the selection plus brief context, never the neighbours.
@@ -216,12 +253,11 @@ async function plan(
   env: RunnerEnv,
   p: SectionJobPayload,
   jobId: string,
-  draft: SectionDraft | DocumentDraftTab,
+  draft: Draft,
   baseHash: string,
   now: string,
 ): Promise<Planned> {
   const d = env.deps;
-  if (p.action === 'ask') throw new PipelineFailure('INTERNAL', 'ask_unsupported');
   const parsed = await readDoc(d, p.slug);
   const { model, assets } = parsed;
   const hit = findSection(model, p.sectionId);
@@ -229,6 +265,50 @@ async function plan(
   const rt = runtimeFor(parsed, d.bundledRuntime);
   const renderOpts = { runtime: rt.runtime, theme: parsed.theme };
   const here = { tabKey: p.tabKey, sectionId: p.sectionId };
+  if (p.action === 'ask') {
+    // 08 Ask: an answer box goes after the passage asked about; the rest of the document is unchanged.
+    if (sectionHash(hit.section) !== baseHash) throw new PipelineFailure('SECTION_CHANGED');
+    const answer = draft as SectionAnswerDraft;
+    const question = p.question ?? '';
+    const retiredIds = (await d.library.getMeta(p.slug)).retiredIds ?? [];
+    let inserted: { model: DocumentModel; qaId: string };
+    try {
+      inserted = insertAnswer(
+        model,
+        p.sectionId,
+        blockIndexOfSelection(model, hit.section, p.selectionText),
+        { question, topic: answer.topic, quote: p.selectionText, paragraphs: answer.paragraphs },
+        now,
+        { idSource: d.sectionIds, retiredIds },
+      );
+    } catch (err) {
+      mutationFailure(err);
+    }
+    const { qaId } = inserted;
+    const next = rt.stamp(inserted.model);
+    const html = renderDocument(next, assets, renderOpts);
+    postCheck(html, model, next, p.sectionId);
+    const box = findSection(next, p.sectionId)?.section.blocks.find((b) => b.type === 'qa' && b.id === qaId);
+    // The box holds the question and topic as stored (whitespace collapsed, capped).
+    const stored = box?.type === 'qa' ? box : { topic: answer.topic, question };
+    const { topic } = stored;
+    const asked = { at: now, sectionId: p.sectionId, tabKey: p.tabKey, question: stored.question, qaId, jobId };
+    return {
+      html,
+      meta: (m) => ({ ...m, tabs: mirrorTabs(next.tabs), asks: [...(m.asks ?? []), asked] }),
+      event: { slug: p.slug, sectionId: p.sectionId, tabKey: p.tabKey, anchorId: qaId },
+      label: changeLabel('ask', topic),
+      change: {
+        kind: 'ask',
+        topic,
+        heading: hit.section.heading,
+        question: stored.question,
+        target: { ...here, anchorId: qaId },
+        undoTarget: here,
+        jobId,
+      },
+    };
+  }
   const entry = {
     at: now,
     action: p.action,
@@ -321,7 +401,8 @@ interface Committed {
 
 /**
  * 06 §9.4: a job resumed after a crash between its write and the persisted `done` finds its own
- * meta.json actions entry. It then commits nothing again (no LLM call, no second tab or entry).
+ * meta.json actions (or, for an Ask, asks) entry. It then commits nothing again (no LLM call, no
+ * second tab, answer box or entry).
  */
 async function alreadyCommitted(d: ResolvedDeps, p: SectionJobPayload, jobId: string): Promise<Committed | undefined> {
   let m: DocumentMeta;
@@ -330,9 +411,16 @@ async function alreadyCommitted(d: ResolvedDeps, p: SectionJobPayload, jobId: st
   } catch {
     return undefined; // DOC_GONE and friends surface from the normal path.
   }
+  const result = { docId: m.id, topicSlug: m.topicSlug, title: m.title };
+  const asked = m.asks?.find((x) => x.jobId === jobId);
+  if (asked) {
+    return {
+      out: { result },
+      event: { slug: p.slug, sectionId: asked.sectionId, tabKey: asked.tabKey, anchorId: asked.qaId },
+    };
+  }
   const a = m.actions?.find((x) => x.jobId === jobId);
   if (!a) return undefined;
-  const result = { docId: m.id, topicSlug: m.topicSlug, title: m.title };
   if (a.resultTabKey !== undefined) {
     const tabLabel = m.tabs.find((t) => t.key === a.resultTabKey)?.label ?? '';
     return { out: { result, tabLabel }, event: { slug: p.slug, tabKey: a.resultTabKey } };

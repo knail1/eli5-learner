@@ -1,15 +1,22 @@
+import { readFile } from 'node:fs/promises';
 import { describe, expect, it, vi } from 'vitest';
 import {
   DOC_RUNTIME_VERSION,
   compareRuntimeVersions,
+  locateModelJson,
+  locateSection,
   parseDocument,
+  replaceSection,
   runtimeFor,
   type DocRuntime,
+  type DocumentModel,
+  type QaDocBlock,
   type SectionId,
 } from '../../../../../src/main/document';
-import type { DocumentPatch } from '../../../../../src/main/library';
+import type { DocumentMeta, DocumentPatch } from '../../../../../src/main/library';
+import { PipelineFailure } from '../../../../../src/main/pipeline';
 import { STUB_RUNTIME } from '../../../../fixtures/documents/runtime';
-import { fixture, req, sec, setup, type Setup } from './harness';
+import { ANSWER, NEW_SECTION, fixture, rejection, render, req, sec, setup, type Setup } from './harness';
 
 /** What each section job records on the version node it creates (09 §4.1), and runtimeFor (D12). */
 
@@ -187,5 +194,199 @@ describe('runtimeFor (D12)', () => {
     const s = await setup({ deps: { bundledRuntime: () => NEW_RUNTIME } });
     await patchOf(s, () => s.ir.actions.regenerateSection(req(s)));
     expect(parseDocument(await s.read()).runtime).toEqual(STUB_RUNTIME);
+  });
+});
+
+// ---- Ask (08 Ask, design §4) ----
+
+const meta = async (s: Setup): Promise<DocumentMeta> =>
+  JSON.parse(await readFile(s.lib.docPath(s.slug, 'meta.json'), 'utf8')) as DocumentMeta;
+
+const askReq = (s: Setup, over: Record<string, unknown> = {}) => ({
+  slug: s.slug,
+  tabKey: 'indepth',
+  sectionId: sec(s.model, 0, 0),
+  selectionText: 'judges every channel',
+  question: 'Why ROAS and not reach?',
+  ...over,
+});
+
+const boxesOf = (m: DocumentModel, id: SectionId): { at: number; box: QaDocBlock }[] =>
+  (m.tabs.flatMap((t) => t.sections).find((x) => x.id === id)?.blocks ?? []).flatMap((b, at) =>
+    b.type === 'qa' ? [{ at, box: b }] : [],
+  );
+
+async function failure(p: Promise<unknown>): Promise<{ code: string; detail?: string }> {
+  const e = await rejection(p);
+  expect(e).toBeInstanceOf(PipelineFailure);
+  return e as unknown as PipelineFailure;
+}
+
+/** Everything outside the target <section> and the #eli5-model JSON. */
+function outside(html: string, id: SectionId): string {
+  const a = locateSection(html, id);
+  const b = locateModelJson(html);
+  if (!a || !b) throw new Error('not found');
+  const [x, y] = a.start < b.start ? [a, b] : [b, a];
+  return html.slice(0, x.start) + '<A/>' + html.slice(x.end, y.start) + '<B/>' + html.slice(y.end);
+}
+
+describe('Ask: the runner (08 Ask)', () => {
+  it('asks the model with the section, the selection and the question; no rewrite call', async () => {
+    const s = await setup();
+    const { jobId } = await s.ir.actions.askSection(askReq(s));
+    await s.ir.runner(s.ctx(jobId).ctx);
+    expect(s.runSectionAction).not.toHaveBeenCalled();
+    expect(s.answerSectionQuestion).toHaveBeenCalledTimes(1);
+    expect(s.answerSectionQuestion.mock.calls[0]?.[0]).toMatchObject({
+      tabKind: 'indepth',
+      selection: 'judges every channel',
+      question: 'Why ROAS and not reach?',
+      section: { heading: s.model.tabs[0]?.sections[0]?.heading },
+    });
+  });
+
+  it('inserts the answer box right after the selected block and leaves the rest of the file alone', async () => {
+    const s = await setup();
+    const id = sec(s.model, 0, 0);
+    const { jobId } = await s.ir.actions.askSection(askReq(s, { selectionText: 'cheap reach, weaker' }));
+    await s.ir.runner(s.ctx(jobId).ctx);
+    const html = await s.read();
+    const { model } = parseDocument(html);
+    const [hit, ...more] = boxesOf(model, id);
+    expect(more).toEqual([]);
+    expect(hit?.at).toBe(2); // the list is block 1
+    expect(hit?.box).toMatchObject({
+      question: 'Why ROAS and not reach?',
+      topic: ANSWER.topic,
+      quote: 'cheap reach, weaker',
+      paragraphs: ANSWER.paragraphs,
+      askedAt: '2026-09-28T10:00:00.000Z',
+    });
+    expect(model.tabs[0]?.sections[0]?.lastAction).toBe('ask');
+    expect(html).toContain(`<aside class="qa" id="${hit?.box.id}"`);
+    const reference = render({ ...s.model, updatedAt: '2026-09-28T10:00:00.000Z' });
+    expect(outside(html, id)).toBe(outside(reference, id));
+  });
+
+  it('records an asks entry, not an actions entry, and emits the box as the anchor', async () => {
+    const s = await setup();
+    const id = sec(s.model, 0, 0);
+    const { jobId } = await s.ir.actions.askSection(askReq(s));
+    await s.ir.runner(s.ctx(jobId).ctx);
+    const qaId = boxesOf(parseDocument(await s.read()).model, id)[0]?.box.id;
+    expect(qaId).toMatch(/^q-[0-9a-f]{8}$/);
+    const m = await meta(s);
+    expect(m.actions ?? []).toEqual([]);
+    expect(m.asks).toEqual([
+      {
+        at: '2026-09-28T10:00:00.000Z',
+        sectionId: id,
+        tabKey: 'indepth',
+        question: 'Why ROAS and not reach?',
+        qaId,
+        jobId,
+      },
+    ]);
+    expect(s.events.updated.at(-1)).toEqual({ slug: s.slug, sectionId: id, tabKey: 'indepth', anchorId: qaId });
+  });
+
+  it('labels the version "asked about \'<topic>\'" and records the change', async () => {
+    const s = await setup();
+    const id = sec(s.model, 0, 0);
+    const heading = s.model.tabs[0]?.sections[0]?.heading;
+    s.answerSectionQuestion.mockResolvedValueOnce({ ...ANSWER, topic: '  ROAS   versus reach ' });
+    const spy = vi.spyOn(s.lib, 'updateDocument');
+    const { jobId } = await s.ir.actions.askSection(askReq(s));
+    await s.ir.runner(s.ctx(jobId).ctx);
+    const qaId = boxesOf(parseDocument(await s.read()).model, id)[0]?.box.id;
+    const patch = spy.mock.calls.at(-1)?.[1];
+    expect(patch?.label).toBe("asked about 'ROAS versus reach'");
+    expect(patch?.change).toEqual({
+      kind: 'ask',
+      topic: 'ROAS versus reach',
+      heading,
+      question: 'Why ROAS and not reach?',
+      target: { tabKey: 'indepth', sectionId: id, anchorId: qaId },
+      undoTarget: { tabKey: 'indepth', sectionId: id },
+      jobId,
+    });
+    const tree = await s.ir.history.versions(s.slug);
+    expect(tree.nodes.at(-1)).toMatchObject({
+      kind: 'ask',
+      label: "asked about 'ROAS versus reach'",
+      question: 'Why ROAS and not reach?',
+      target: { anchorId: qaId },
+    });
+    expect((await s.ir.history.state(s.slug)).undoLabel).toBe("asked about 'ROAS versus reach'");
+  });
+
+  it('stacks a second answer after the first, in the order asked', async () => {
+    const s = await setup();
+    const id = sec(s.model, 0, 0);
+    for (const question of ['First question here?', 'Second question here?']) {
+      const { jobId } = await s.ir.actions.askSection(askReq(s, { question }));
+      await s.ir.runner(s.ctx(jobId).ctx);
+      s.jobs.emit(jobId, 'done');
+    }
+    const boxes = boxesOf(parseDocument(await s.read()).model, id);
+    expect(boxes.map((b) => [b.at, b.box.question])).toEqual([
+      [1, 'First question here?'],
+      [2, 'Second question here?'],
+    ]);
+    expect(new Set(boxes.map((b) => b.box.id)).size).toBe(2);
+    expect((await meta(s)).asks?.map((a) => a.qaId)).toEqual(boxes.map((b) => b.box.id));
+  });
+
+  it('is idempotent: a resumed job that already committed finds its asks entry and does nothing', async () => {
+    const s = await setup();
+    const id = sec(s.model, 0, 0);
+    const { jobId } = await s.ir.actions.askSection(askReq(s));
+    const first = await s.ir.runner(s.ctx(jobId).ctx);
+    const html = await s.read();
+    const qaId = boxesOf(parseDocument(html).model, id)[0]?.box.id;
+    // Crash after updateDocument, before the queue persisted done: the job runs once more.
+    const again = await s.ir.runner(s.ctx(jobId).ctx);
+    expect(again).toEqual(first);
+    expect(await s.read()).toBe(html);
+    expect(s.answerSectionQuestion).toHaveBeenCalledTimes(1);
+    expect((await meta(s)).asks).toHaveLength(1);
+    expect(s.events.updated.at(-1)).toEqual({ slug: s.slug, sectionId: id, tabKey: 'indepth', anchorId: qaId });
+  });
+
+  it('fails with SECTION_CHANGED when the section changed after the request; nothing is written', async () => {
+    const s = await setup();
+    const id = sec(s.model, 0, 0);
+    const { jobId } = await s.ir.actions.askSection(askReq(s));
+    await s.writeModel(replaceSection(s.model, id, NEW_SECTION, undefined, '2026-09-28T09:00:00.000Z').model);
+    const before = await s.read();
+    const metaBefore = await meta(s);
+    expect((await failure(s.ir.runner(s.ctx(jobId).ctx))).code).toBe('SECTION_CHANGED');
+    expect(await s.read()).toBe(before);
+    expect(await meta(s)).toEqual(metaBefore);
+    expect(s.events.updated).toEqual([]);
+  });
+
+  it('fails INTERNAL invalid_output before saving when no answer paragraph is usable', async () => {
+    const s = await setup();
+    s.answerSectionQuestion.mockResolvedValueOnce({
+      topic: 'Reach',
+      paragraphs: ['  ', 'Would you like to know more?'],
+    });
+    const { jobId } = await s.ir.actions.askSection(askReq(s));
+    const before = await s.read();
+    const { ctx, steps } = s.ctx(jobId);
+    expect(await failure(s.ir.runner(ctx))).toMatchObject({ code: 'INTERNAL', detail: 'invalid_output' });
+    expect(steps).toEqual([]);
+    expect(await s.read()).toBe(before);
+  });
+
+  it('fails INTERNAL without an LLM call when the payload has no question', async () => {
+    const s = await setup();
+    const { jobId } = await s.ir.actions.askSection(askReq(s));
+    const job = s.jobs.get(jobId);
+    if (job) delete job.section.question;
+    expect((await failure(s.ir.runner(s.ctx(jobId).ctx))).code).toBe('INTERNAL');
+    expect(s.answerSectionQuestion).not.toHaveBeenCalled();
   });
 });

@@ -337,6 +337,8 @@ export interface SectionJobPayload {
   note?: string;
   /** 'eli5-selection' only: every section the selection covers, first = sectionId (08 §7.5). */
   sectionIds?: SectionId[];
+  /** 'ask' only: the reader's question, 3..500 chars on one line (08 Ask). */
+  question?: string;
   heading: string; // source section heading at request time
   baseHash: string; // sectionHash(section) at request time (08 §6.3)
 }

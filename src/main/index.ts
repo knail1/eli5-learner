@@ -375,8 +375,16 @@ async function bootstrap(): Promise<void> {
 
   // The viewer loads catalogued documents only through main (09 §11, 12 §7.7). A trashed one is not
   // loaded; the renderer's route shows it in the Trash with Put Back (11 §8).
+  // An older document first gets the bundled runtime (D12 a, 07 §5.5); the refresh never rejects.
+  // Only the newest open loads, so a slow refresh cannot replace a document opened after it.
+  let openSeq = 0;
   const openDocument = (slug: string): void => {
-    if (library.hasSlug(slug)) openInViewer(viewerWebContents(), slug);
+    if (!library.hasSlug(slug)) return;
+    const n = ++openSeq;
+    void interactive.refreshRuntimeOnOpen(slug).then(() => {
+      // Trashed or deleted while the refresh ran: nothing to load.
+      if (n === openSeq && library.hasSlug(slug)) openInViewer(viewerWebContents(), slug);
+    });
   };
   // Tray and context-menu callers pass slugs unchecked; only catalogued documents are revealed.
   const revealDocument = (slug: string): void => {

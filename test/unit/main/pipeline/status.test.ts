@@ -144,6 +144,15 @@ describe('statusLine (06 §6)', () => {
     expect(statusLine(s({ status: 'failed', failure: { code: 'SECTION_GONE', message: '' } }))).toBe(
       'Failed: section no longer exists',
     );
+    const ask = { ...section, action: 'ask' as const, question: 'Why cache at all?' };
+    expect(statusLine(s({ status: 'queued', section: ask }))).toBe('Answering a question: Resolvers');
+    expect(statusLine(s({ status: 'generating', section: ask }))).toBe('Answering a question: Resolvers');
+    expect(statusLine(s({ status: 'saving', section: ask }))).toBe('Answering a question: Resolvers');
+    // The done line names the section, never a tab, even when a tab label is known.
+    expect(statusLine(s({ status: 'done', section: ask }), { tabLabel: 'ELI5: Caching' })).toBe('Answered: Resolvers');
+    expect(statusLine(s({ status: 'failed', section: ask, failure: { code: 'SECTION_CHANGED', message: '' } }))).toBe(
+      'Failed: section changed, try again',
+    );
   });
 });
 

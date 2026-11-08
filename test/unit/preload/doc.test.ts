@@ -39,6 +39,7 @@ const { IPC } = await import('../../../src/preload/contract');
 interface DocApi {
   regenerateSection(r: object): Promise<unknown>;
   createSectionEli5(r: object): Promise<unknown>;
+  askQuestion(r: object): Promise<unknown>;
   closeTab(tabKey: string): Promise<unknown>;
   openExternal(url: string): Promise<unknown>;
   onScrollTo(cb: (e: unknown) => void): () => void;
@@ -169,5 +170,53 @@ describe('doc preload scroll buffer expiry', () => {
     const got: unknown[] = [];
     (exposed.eli5Doc as DocApi).onScrollTo((x) => got.push(x));
     expect(got).toEqual([]);
+  });
+});
+
+describe('doc preload: askQuestion (08 Ask)', () => {
+  const ask = {
+    tabKey: 'indepth',
+    sectionId: 'sec-indepth-3f9a1c2e',
+    selectionText: 'judges every channel',
+    question: 'Why ROAS and not reach?',
+  };
+
+  it('sends ask-section with the slug from the URL and only the known fields', async () => {
+    await api().askQuestion({ ...ask, slug: 'someone-else', note: 'dropped', action: 'expand' });
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenCalledWith(IPC.doc.askSection, { ...ask, slug: 'example-widgets' });
+  });
+
+  it('refuses without transient user activation; no IPC is sent', async () => {
+    activation.isActive = false;
+    expect(await api().askQuestion(ask)).toEqual(forbidden);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it('accepts 3 and 500 characters', async () => {
+    await api().askQuestion({ ...ask, question: 'Why' });
+    await api().askQuestion({ ...ask, question: 'w'.repeat(500) });
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it('checks the request shape before sending', async () => {
+    const { question: _q, ...noQuestion } = ask;
+    for (const bad of [
+      noQuestion,
+      { ...ask, question: 42 },
+      { ...ask, question: 'ab' },
+      { ...ask, question: '   ab   ' },
+      { ...ask, question: 'w'.repeat(501) },
+      { ...ask, question: 'two\nlines?' },
+      { ...ask, question: 'two\rlines?' },
+      { ...ask, selectionText: 'ab' },
+      { ...ask, selectionText: 'x'.repeat(4001) },
+      { ...ask, sectionId: 'sec-eli5-3f9a1c2e' },
+      { ...ask, tabKey: 'notes', sectionId: 'sec-notes-3f9a1c2e' },
+      null as unknown as object,
+    ]) {
+      expect(await api().askQuestion(bad)).toMatchObject({ ok: false, error: { code: 'E_BAD_REQUEST' } });
+    }
+    expect(invoke).not.toHaveBeenCalled();
   });
 });
