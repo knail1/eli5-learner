@@ -6,6 +6,8 @@ docs/.gitkeep
 docs/.nojekyll
 docs/index.html
 docs/sample/
+# Hand-written public guides (setup and concept explainers); no generated learnings.
+docs/guides/
 
 # Secret-scan exceptions: "secret <glob> <rule-id> [<preview>]" (** spans directories, * one
 # segment). Each entry is a reviewed false positive, never a real credential. A glob that can match
