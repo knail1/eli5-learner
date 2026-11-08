@@ -5,6 +5,7 @@ import type { LLMError } from '../../../../src/main/llm/errors';
 import {
   DRAFT_SCHEMAS,
   draftJsonSchema,
+  draftPromptSchema as draftPromptSchemaText,
   stripNullProperties,
   usesPromptedJson,
   type DraftSchemaName,
@@ -113,6 +114,53 @@ describe('validateDraft semantic checks and block dropping (02 §10.1)', () => {
       sourceRefs: [],
     });
     expect(r.ok && r.data.chartCandidates).toEqual([]);
+  });
+});
+
+describe('chart validation is structural only (02 §10.1)', () => {
+  const chart = (c: object): object => ({
+    type: 'chart',
+    chart: { kind: 'bar', title: 'Sales rose', categories: ['a', 'b'], series: [{ name: 's', values: [1, 2] }], ...c },
+  });
+  const errors = (c: object): string[] => {
+    const r = validateDraft('SectionDraft', { heading: 'H', blocks: [chart(c)] });
+    return r.ok ? [] : r.errors;
+  };
+
+  it('rejects a blank title and duplicate categories', () => {
+    expect(errors({ title: '  ' })).toEqual(["blocks[0].chart.title: must state the chart's takeaway"]);
+    expect(errors({ categories: ['a', 'a'] })).toEqual(['blocks[0].chart.categories[1]: duplicate category "a"']);
+    // A pie with a negative value is normalized to a bar chart (07 §5.2), never repaired.
+    expect(errors({ kind: 'pie', series: [{ name: 's', values: [1, -2] }] })).toEqual([]);
+    expect(errors({ series: [{ name: 's', values: [1] }] })).toHaveLength(1);
+  });
+
+  it('accepts presentation problems the renderer normalizes: shouting, many series, sparse values, annotations', () => {
+    expect(
+      errors({
+        title: 'SALES ROSE EVERYWHERE',
+        categories: ['a', 'b', 'c', 'd', 'e'],
+        series: Array.from({ length: 7 }, (_, i) => ({ name: `s${i}`, values: [i, null, null, null, 1] })),
+        annotations: [
+          { category: 'zz', text: 'x'.repeat(300) },
+          { category: 'a', text: 'b' },
+          { category: 'b', text: 'c' },
+          { category: 'c', text: 'd' },
+        ],
+        footnote: 'f'.repeat(500),
+        order: 'value',
+      }),
+    ).toEqual([]);
+    // Scatter x values may repeat; pies may hold nulls.
+    expect(errors({ kind: 'scatter', categories: ['1', '1'] })).toEqual([]);
+    expect(errors({ kind: 'pie', series: [{ name: 's', values: [1, null] }] })).toEqual([]);
+  });
+
+  it('chart candidates use the narrower ChartCandidate shape in the native ChunkNotes schema', () => {
+    const json = JSON.stringify(draftJsonSchema('ChunkNotes'));
+    expect(json).not.toContain('annotations');
+    expect(json).not.toContain('footnote');
+    expect(draftPromptSchemaText('SectionDraft')).toContain('annotations');
   });
 });
 

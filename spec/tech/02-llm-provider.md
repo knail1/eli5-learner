@@ -394,7 +394,9 @@ export type DraftBlock =
   | { type: 'photo'; query: string; purpose: string; alt: string;       // stock photo slot, 07 §7.4
       caption?: string; sensitive?: boolean };
 
-export interface ChartSpec {
+// What chunk notes record (native strict output): no presentation fields, so the ChunkNotes
+// grammar stays within the provider's union-parameter cap. A candidate is a valid ChartSpec.
+export interface ChartCandidate {
   kind: 'bar' | 'stacked-bar' | 'line' | 'area' | 'pie' | 'scatter';
   title: string; subtitle?: string; source?: string;
   xLabel?: string; yLabel?: string; unit?: string;
@@ -402,9 +404,14 @@ export interface ChartSpec {
   series: { name: string; values: (number | null)[] }[];
   highlight?: { category: string; note: string };
 }
+export interface ChartSpec extends ChartCandidate {
+  footnote?: string;                                  // kept to 200 chars by 07 §5.2
+  annotations?: { category: string; text: string }[]; // up to 3, text <= 80, by 07 §5.2
+  order?: 'given' | 'value';                          // 'value': bars largest first
+}
 
 export interface ChunkNotes { notes: string; keyFacts: string[]; tables: { caption: string; header: string[]; rows: string[][] }[];
-                              chartCandidates: ChartSpec[]; jargon: string[]; sourceRefs: string[] }
+                              chartCandidates: ChartCandidate[]; jargon: string[]; sourceRefs: string[] }
 export interface GlossaryDraft { entries: { term: string; expansion?: string; explanation: string;
                                             anchorSectionIndex: number; anchorText: string }[] }  // 0..40
 export interface SummaryDraft { title: string; topicSlugHint: string; summary: string } // summary: 1-2 sentences, <= 300 chars
@@ -432,7 +439,7 @@ export interface MergePlanDraft {
 ### 10.1 Validation and repair (`structured.ts`)
 
 1. Send the request with `jsonSchema` (provider-native structured output).
-2. Parse and validate with zod. Also run semantic checks: `chart.series[i].values.length === categories.length`; `figure.imageLabel` exists; table rows match header width; `svg` starts with `<svg` and is under 100 KB; `photo.query` and `photo.alt` are not empty.
+2. Parse and validate with zod. Also run semantic checks. Charts are checked for structure only: `chart.series[i].values.length === categories.length`, every non-null value finite, no duplicate categories (scatter x values may repeat), a non-blank title; chart presentation (series caps, sparse series, text case, annotation limits, footnote length, a pie with negative values, which becomes a bar chart) is normalized by [07](07-output-document.md) §5.2 and never triggers a repair. A malformed chart candidate in `ChunkNotes` is dropped, never repaired. Other checks: `figure.imageLabel` exists; table rows match header width; `svg` starts with `<svg` and is under 100 KB; `photo.query` and `photo.alt` are not empty.
 3. On failure, drop the offending blocks when the rest is valid and at most 20% of blocks fail (for example, a malformed chart) and log a warning. Otherwise run one **repair call**: same request plus the assistant's invalid output (the `json-no-output` fragment when it was empty) and a user turn listing the validation errors (the `json-repair` fragment: "Return corrected JSON only"). `structured.ts` stays catalogue-free: the caller passes `repairText`, `noOutputText` and `contractText` callbacks that render the fragments.
 4. If repair also fails, throw `LLMError('invalid_output')`. For `in-depth` this fails the job; for `eli5`, `glossary`, and `summary` the pipeline degrades (ELI5 tab shows "ELI5 view could not be generated"; no glossary; summary falls back per [06](06-generation-pipeline.md) §7.1), per [06](06-generation-pipeline.md).
 

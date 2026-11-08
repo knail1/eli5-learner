@@ -19,7 +19,10 @@ import {
   textWidth,
   truncate,
 } from './common';
-import { NOTE_BELOW, NOTE_ROW, noteAbove, noteBelow } from './annotate';
+import { NOTE_BELOW, NOTE_ROW, annotationMark, noteAbove, noteBelow } from './annotate';
+
+/** Gap between bars as a share of the step: bars are about twice as wide as the gaps (Wong). */
+export const BAR_GAP = 1 / 3;
 
 /** Left margin of a vertical bar chart (tick labels). */
 const V_LEFT = 44;
@@ -116,9 +119,10 @@ export function renderBar(chart: ChartSpec, W: number = CHART_WIDTH): { body: st
 
   if (isHorizontal(chart, W)) {
     const maxChars = W < CHART_WIDTH ? 18 : 34;
+    const catLabel = (c: string): string => truncate(c, maxChars) + annotationMark(chart, c);
     const labelW = Math.min(
       W < CHART_WIDTH ? 130 : 220,
-      Math.max(...chart.categories.map((c) => textWidth(truncate(c, maxChars), 12))) + 10,
+      Math.max(...chart.categories.map((c) => textWidth(catLabel(c), 12))) + 10,
     );
     const rowH = 28;
     // Rule 6: the note gets its own space under the highlighted row, so it never meets a bar or a
@@ -136,7 +140,7 @@ export function renderBar(chart: ChartSpec, W: number = CHART_WIDTH): { body: st
     const band = scaleBand<number>()
       .domain(chart.categories.map((_, i) => i))
       .range([top, top + bandH])
-      .paddingInner(0.25)
+      .paddingInner(BAR_GAP)
       .paddingOuter(0.1);
     const rowY = (ci: number): number => (band(ci) ?? 0) + (hlRow >= 0 && ci > hlRow ? extra : 0);
     const sub = scaleBand<number>()
@@ -153,7 +157,7 @@ export function renderBar(chart: ChartSpec, W: number = CHART_WIDTH): { body: st
           ['text-anchor', 'end'],
           ['class', 'viz-ink viz-cat'],
         ],
-        escSvg(truncate(c, maxChars)),
+        escSvg(catLabel(c)),
       );
     });
     // Rule 8: a category without a value says so where its bar would start.
@@ -239,7 +243,7 @@ export function renderBar(chart: ChartSpec, W: number = CHART_WIDTH): { body: st
   const band = scaleBand<number>()
     .domain(chart.categories.map((_, i) => i))
     .range([left, W - 8])
-    .paddingInner(0.25)
+    .paddingInner(BAR_GAP)
     .paddingOuter(0.1);
   const sub = scaleBand<number>()
     .domain(chart.series.map((_, i) => i))
@@ -274,7 +278,7 @@ export function renderBar(chart: ChartSpec, W: number = CHART_WIDTH): { body: st
         ['text-anchor', 'middle'],
         ['class', 'viz-ink viz-cat'],
       ],
-      escSvg(c),
+      escSvg(c + annotationMark(chart, c)),
     );
   });
   for (const m of ms) {

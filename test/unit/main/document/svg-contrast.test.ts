@@ -131,3 +131,15 @@ describe('backdrop and mechanics', () => {
     expect(sanitizeSvg(once, opts)).toBe(once);
   });
 });
+
+describe('gradient backdrops (07 §7.3)', () => {
+  it('a gradient-filled shape is flattened first, so its labels are judged against the flat colour', () => {
+    const svg = clean(
+      '<defs><linearGradient id="g"><stop offset="0" stop-color="#111"/><stop offset="1" stop-color="#444"/></linearGradient></defs>' +
+        '<rect x="0" y="0" width="200" height="100" fill="url(#g)"/><text x="10" y="20">A</text>',
+    );
+    expect(svg).toContain('<rect x="0" y="0" width="200" height="100" class="viz-fill-ink">');
+    expect(texts(svg)).toEqual(['<text x="10" y="20" class="viz-fill-paper">']);
+    expect(clean(svg.replace(/^<svg[^>]*>|<\/svg>$/g, ''))).toBe(svg);
+  });
+});

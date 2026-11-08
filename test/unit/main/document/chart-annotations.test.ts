@@ -357,3 +357,36 @@ describe('highlight note layout (07 §7.2 rule 6)', () => {
     expect(h({ ...plain, highlight: { category: LONG_CATS[0]!, note: 'n' } })).toBeGreaterThan(h(plain));
   });
 });
+
+describe('annotations (07 §7.2 rule 14)', () => {
+  const annotated = (kind: ChartSpec['kind'], categories: string[]): ChartSpec => ({
+    kind,
+    title: 'Paid search returns the most per dollar',
+    categories,
+    series: [{ name: 'ROAS', values: categories.map((_, i) => (i % 3) + 1) }],
+    highlight: { category: categories[0] ?? '', note: 'Highest return' },
+    annotations: categories.slice(0, 3).map((category, i) => ({ category, text: `Note ${i + 1}` })),
+  });
+
+  it.each([
+    ['bar', ['Search', 'Social', 'Email', 'Display']],
+    ['bar', LONG_CATS],
+    ['line', ['2019', '2020', '2021', '2022', '2023']],
+    ['area', ['2019', '2020', '2021', '2022', '2023']],
+  ] as const)(
+    '%s: markers ride on the category labels, the highlight note still collides with nothing',
+    (kind, cats) => {
+      const svg = checkNote(annotated(kind, [...cats]));
+      for (const [i, mark] of ['¹', '²', '³'].entries()) expect(svg).toContain(`${cats[i]}\u2009${mark}`);
+      const labels = textBoxes(svg).filter((t) => t.cls.includes('viz-cat'));
+      for (let i = 0; i < labels.length; i++)
+        for (let j = i + 1; j < labels.length; j++)
+          expect(overlaps(labels[i]!, labels[j]!, 0), `${labels[i]!.what} / ${labels[j]!.what}`).toBe(false);
+    },
+  );
+
+  it('pie: markers follow the slice percentages', () => {
+    const svg = renderChartSvg(annotated('pie', ['North', 'South', 'East', 'West']), 'x');
+    expect(svg).toMatch(/North \d+%\u2009¹/);
+  });
+});

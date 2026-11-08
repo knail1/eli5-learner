@@ -1,9 +1,9 @@
-// Pie charts (07 §7.2 rule 7): <= 6 slices, largest first, clockwise from 12 o'clock, labels
+// Pie charts (07 §7.2 rule 7): <= 5 slices, largest first, clockwise from 12 o'clock, labels
 // outside with percentages. Uses the first series only.
 import { arc, pie } from 'd3-shape';
 import type { ChartSpec } from '../../llm';
 import { CHART_WIDTH, el, escSvg, formatValue, markAttrs, r2, seriesClass, truncate } from './common';
-import { NOTE_BELOW, noteUnder } from './annotate';
+import { NOTE_BELOW, annotationMark, noteUnder } from './annotate';
 
 interface Slice {
   label: string;
@@ -63,7 +63,7 @@ export function renderPie(chart: ChartSpec, W: number = CHART_WIDTH): { body: st
         ['text-anchor', right ? 'start' : 'end'],
         ['class', 'viz-ink viz-cat'],
       ],
-      escSvg(`${truncate(d.label, W < CHART_WIDTH ? 12 : 26)} ${pct}%`),
+      escSvg(`${truncate(d.label, W < CHART_WIDTH ? 12 : 26)} ${pct}%${annotationMark(chart, d.label)}`),
     );
   });
   // Rule 6: the note sits under the pie, below the lowest slice label.

@@ -4,6 +4,7 @@ import { DocumentFormatError } from './errors';
 import { attr, findAll, findById, innerSpan, outerSpan, parseTree, rawInner, textOf, type Span } from './html-tree';
 import { fromDataUri, sha256Hex } from './images';
 import { modelJson, renderSectionHtml } from './render/page';
+import { PALETTE_RUNTIME_VERSION, compareRuntimeVersions } from './runtime-assets';
 import { DocumentModelSchema } from './schema';
 import { sanitizeSvg } from './svg-sanitize';
 import { DEFAULT_FOOTER, parseThemeCss, parseThemeDarkCss } from './theme';
@@ -30,18 +31,31 @@ export function parseModelJson(json: string): DocumentModel {
 
 const DIAGRAM_PREFIX_RE = /\bid="(d[0-9a-f]{8}-)/;
 
+/** Stored SVG of a document whose runtime predates the current chart palette (07 §7.3, §11.1). */
+function legacyPalette(model: DocumentModel): boolean {
+  return compareRuntimeVersions(model.generator.runtimeVersion, PALETTE_RUNTIME_VERSION) < 0;
+}
+
 /**
  * The model JSON is file content, not trusted build output: diagram SVG is re-run through the
  * 07 §7.3 sanitizer (a fixed point for builder output, so round-trips stay byte-exact) and
- * diagrams that do not survive are dropped.
+ * diagrams that do not survive are dropped. SVG stored under the old palette has its theme
+ * classes renumbered once (the sanitizer's palette mark stops a second pass).
  */
 function resanitizeDiagrams(model: DocumentModel): void {
+  const legacy = legacyPalette(model);
   const clean = (sec: Section): void => {
     sec.blocks = sec.blocks.flatMap((b): DocBlock[] => {
       if (b.type !== 'diagram') return [b];
       const idPrefix =
         DIAGRAM_PREFIX_RE.exec(b.svg)?.[1] ?? `d${sha256Hex(new TextEncoder().encode(b.svg)).slice(0, 8)}-`;
-      const svg = sanitizeSvg(b.svg, { idPrefix, ariaLabel: b.alt, rootClass: 'diagram-svg', labelContrast: true });
+      const svg = sanitizeSvg(b.svg, {
+        idPrefix,
+        ariaLabel: b.alt,
+        rootClass: 'diagram-svg',
+        labelContrast: true,
+        legacyPalette: legacy,
+      });
       return svg === null ? [] : [{ ...b, svg }];
     });
   };
@@ -78,7 +92,12 @@ export function parseDocument(html: string): ParsedDocument {
   };
   // The logo bytes are file content too: re-sanitize (idempotent for theme.ts output) or drop.
   const logoSvg = logo
-    ? sanitizeSvg(rawInner(html, logo), { idPrefix: 'logo-', ariaLabel: 'Logo', rootClass: 'doc-logo-svg' })
+    ? sanitizeSvg(rawInner(html, logo), {
+        idPrefix: 'logo-',
+        ariaLabel: 'Logo',
+        rootClass: 'doc-logo-svg',
+        legacyPalette: legacyPalette(model),
+      })
     : null;
   if (logoSvg) theme.logoSvg = logoSvg;
 

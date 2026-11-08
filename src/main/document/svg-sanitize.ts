@@ -20,9 +20,6 @@ const ELEMENTS = new Set([
   'desc',
   'defs',
   'marker',
-  'linearGradient',
-  'radialGradient',
-  'stop',
   'clipPath',
   'use',
 ]);
@@ -63,23 +60,17 @@ const ATTRIBUTES = new Set([
   'marker-start',
   'marker-end',
   'marker-mid',
-  'offset',
-  'stop-color',
   'id',
   'role',
   'aria-label',
-  // marker/gradient/clipPath geometry needed for the allowlisted elements to work
+  // marker/clipPath geometry needed for the allowlisted elements to work
   'refX',
   'refY',
   'markerWidth',
   'markerHeight',
   'orient',
   'markerUnits',
-  'gradientUnits',
-  'gradientTransform',
   'clipPathUnits',
-  'fx',
-  'fy',
   'clip-path',
   // the paper outline behind recoloured diagram labels (svg-contrast.ts)
   'paint-order',
@@ -89,16 +80,16 @@ const ATTRIBUTES = new Set([
 export const COLOR_TOKENS = ['1', '2', '3', '4', '5', '6', '7', '8', 'ink', 'muted', 'paper', 'rule'] as const;
 export type ColorToken = (typeof COLOR_TOKENS)[number];
 
-// Hues of the light-theme --viz-1..8 tokens (index.css), for nearest-hue mapping.
-const VIZ_HUES: readonly [ColorToken, number][] = [
-  ['1', 207],
-  ['2', 20],
-  ['3', 146],
-  ['4', 334],
-  ['5', 260],
-  ['6', 42],
-  ['7', 180],
-  ['8', 0],
+/**
+ * Hues of the chromatic light-theme --viz tokens (index.css, 07 §11.1), for nearest-hue mapping.
+ * The graphite and grey slots (4, 7) and the sky slot (5, same hue as 1) are not hue targets.
+ */
+export const VIZ_HUES: readonly [ColorToken, number][] = [
+  ['1', 202],
+  ['2', 26],
+  ['3', 318],
+  ['6', 138],
+  ['8', 43],
 ];
 
 const NAMED: Record<string, string> = {
@@ -238,7 +229,7 @@ export function colorToken(value: string): ColorToken | 'none' | undefined {
 const URL_REF_RE = /^url\(\s*#([A-Za-z_][\w.-]*)\s*\)$/;
 
 /** Theme classes this sanitizer itself emits; kept on re-sanitize so the pass is idempotent. */
-const OWN_CLASS_RE = /^viz-(?:fill|stroke|stop)-(?:[1-8]|ink|muted|paper|rule)$/;
+const OWN_CLASS_RE = /^viz-(?:fill|stroke)-(?:[1-8]|ink|muted|paper|rule)$/;
 
 export interface SanitizeSvgOptions {
   /** Prefix for every id inside the SVG, `d` + 8 hex + `-` (07 §7.3). */
@@ -249,6 +240,55 @@ export interface SanitizeSvgOptions {
   rootClass?: string;
   /** Diagrams: recolour labels that blend into the shape behind them (07 §7.3, svg-contrast.ts). */
   labelContrast?: boolean;
+  /**
+   * Stored SVG from a runtime older than PALETTE_RUNTIME_VERSION (07 §7.3): theme classes numbered
+   * for the old palette are renumbered so each keeps its hue. Ignored when the root carries
+   * PALETTE_MARK (already renumbered).
+   */
+  legacyPalette?: boolean;
+}
+
+/** Root class of every sanitized SVG: its theme classes are numbered for the current palette. */
+export const PALETTE_MARK = 'viz-pal-2';
+
+/**
+ * Old palette slot -> current slot with the nearest hue (07 §11.1): blue, orange, green, magenta,
+ * violet, gold, teal, red became blue, vermillion, green, purple, purple, ochre, sky, vermillion.
+ */
+const LEGACY_SLOT: Readonly<Record<string, string>> = {
+  '1': '1',
+  '2': '2',
+  '3': '6',
+  '4': '3',
+  '5': '3',
+  '6': '8',
+  '7': '5',
+  '8': '2',
+};
+
+interface ClassEl {
+  nodeType: number;
+  childNodes: ArrayLike<ClassEl>;
+  getAttribute(name: string): string | null;
+  setAttribute(name: string, value: string): void;
+}
+
+/** Renumbers old-palette theme classes (viz-fill-N, viz-stroke-N, viz-stop-N) in place. */
+function remapLegacyPalette(root: ClassEl): void {
+  if ((root.getAttribute('class') ?? '').split(/\s+/).includes(PALETTE_MARK)) return;
+  const walk = (el: ClassEl): void => {
+    if (el.nodeType !== 1) return;
+    const cls = el.getAttribute('class');
+    if (cls) {
+      const next = cls.replace(
+        /(^|\s)(viz-(?:fill|stroke|stop)-)([1-8])(?=\s|$)/g,
+        (_m, pre: string, kind: string, n: string) => `${pre}${kind}${LEGACY_SLOT[n] ?? n}`,
+      );
+      if (next !== cls) el.setAttribute('class', next);
+    }
+    for (const c of Array.from(el.childNodes)) walk(c);
+  };
+  walk(root);
 }
 
 interface El {
@@ -310,6 +350,69 @@ function withStyleAttributes(attrs: { name: string; value: string }[]): { name: 
   return [...attrs, ...extra];
 }
 
+/** The parts of a linkedom element the paint-server pass reads and writes. */
+interface PaintEl {
+  nodeType: number;
+  localName?: string;
+  childNodes: ArrayLike<PaintEl>;
+  getAttribute(name: string): string | null;
+  setAttribute(name: string, value: string): void;
+}
+
+const PAINT_SERVERS = new Set(['linearGradient', 'radialGradient', 'pattern']);
+
+function styleValue(el: PaintEl, prop: string): string | undefined {
+  for (const decl of (el.getAttribute('style') ?? '').split(';')) {
+    const i = decl.indexOf(':');
+    if (i > 0 && decl.slice(0, i).trim().toLowerCase() === prop) return decl.slice(i + 1).trim();
+  }
+  return undefined;
+}
+
+/**
+ * No gradients, patterns or decorative shading in diagrams (07 §7.3). Gradients and patterns
+ * are not in the allowlist; a `fill` or `stroke` of `url(#id)` that points at one is rewritten
+ * first to a flat colour, the colour of its first stop (following one gradient's `href` to
+ * another), so the shape keeps a colour and the hue mapping below turns it into a theme class.
+ * A paint server without a readable colour gives a muted fill and no stroke. Stored diagrams from
+ * before this rule carry `viz-stop-*` classes on their stops; those are read too.
+ */
+function flattenPaintServers(root: PaintEl): void {
+  const servers = new Map<string, PaintEl>();
+  const all: PaintEl[] = [];
+  const walk = (el: PaintEl): void => {
+    if (el.nodeType !== 1) return;
+    all.push(el);
+    const id = el.getAttribute('id');
+    if (id && PAINT_SERVERS.has(el.localName ?? '') && !servers.has(id)) servers.set(id, el);
+    for (const c of Array.from(el.childNodes)) walk(c);
+  };
+  walk(root);
+  if (servers.size === 0) return;
+  const firstStop = (server: PaintEl, depth = 0): string | undefined => {
+    for (const c of Array.from(server.childNodes)) {
+      if (c.nodeType !== 1 || c.localName !== 'stop') continue;
+      const v = c.getAttribute('stop-color') ?? styleValue(c, 'stop-color');
+      if (v) return v;
+      const tok = /(?:^|\s)viz-stop-([1-8]|ink|muted|paper|rule)(?:\s|$)/.exec(c.getAttribute('class') ?? '')?.[1];
+      if (tok) return /^[1-8]$/.test(tok) ? `var(--viz-${tok})` : `var(--${tok})`;
+    }
+    const href = server.getAttribute('href') ?? server.getAttribute('xlink:href');
+    const next = /^#(.+)$/.exec(href ?? '')?.[1];
+    const target = next ? servers.get(next) : undefined;
+    return target && depth < 3 ? firstStop(target, depth + 1) : undefined;
+  };
+  for (const el of all) {
+    for (const attr of ['fill', 'stroke'] as const) {
+      const v = el.getAttribute(attr) ?? styleValue(el, attr);
+      const ref = v ? URL_REF_RE.exec(v.trim())?.[1] : undefined;
+      const server = ref ? servers.get(ref) : undefined;
+      if (!server) continue;
+      el.setAttribute(attr, firstStop(server) ?? (attr === 'fill' ? 'var(--muted)' : 'none'));
+    }
+  }
+}
+
 export function sanitizeSvg(input: string, opts: SanitizeSvgOptions): string | null {
   let doc: { documentElement: El | null };
   try {
@@ -319,6 +422,8 @@ export function sanitizeSvg(input: string, opts: SanitizeSvgOptions): string | n
   }
   const root = doc.documentElement;
   if (!root || root.localName !== 'svg') return null;
+  if (opts.legacyPalette) remapLegacyPalette(root as unknown as ClassEl);
+  flattenPaintServers(root as unknown as PaintEl);
   if (opts.labelContrast) fixLabelContrast(root as unknown as Parameters<typeof fixLabelContrast>[0], colorToken);
 
   // Collect ids of kept elements first so references can be rewritten (or dropped when dangling).
@@ -361,13 +466,12 @@ export function sanitizeSvg(input: string, opts: SanitizeSvgOptions): string | n
         continue;
       }
       if (/javascript:|expression\(|[<>]/i.test(value)) continue;
-      if (attrName === 'fill' || attrName === 'stroke' || attrName === 'stop-color') {
+      if (attrName === 'fill' || attrName === 'stroke') {
         const tok = colorToken(value);
         if (tok === 'none') {
-          if (attrName !== 'stop-color') out.push([attrName, 'none']);
+          out.push([attrName, 'none']);
         } else if (tok !== undefined) {
-          const kind = attrName === 'stop-color' ? 'stop' : attrName;
-          const c = `viz-${kind}-${tok}`;
+          const c = `viz-${attrName}-${tok}`;
           if (!classes.includes(c)) classes.push(c);
         }
         continue;
@@ -401,6 +505,7 @@ export function sanitizeSvg(input: string, opts: SanitizeSvgOptions): string | n
         classes.unshift('viz-fill-ink');
       }
       if (opts.rootClass) classes.unshift(opts.rootClass);
+      classes.push(PALETTE_MARK);
     } else if (name !== 'defs' && name !== 'g' && name !== 'title' && name !== 'desc') {
       shapes++;
     }

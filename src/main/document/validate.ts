@@ -76,8 +76,10 @@ export function convertBlock(b: DraftBlock, ctx: ConvertContext, blockIndex = -1
       return { type: 'table', ...(caption ? { caption } : {}), header: b.header, rows };
     }
     case 'chart': {
+      // Wong rules (07 §5.2): normalized quietly; a chart with no plottable series becomes a table.
       const chart = normalizeChart(b.chart, ctx.warn);
-      return chart ? { type: 'chart', chart } : null;
+      if (chart === null) return null;
+      return 'table' in chart ? { type: 'table', ...chart.table } : { type: 'chart', chart };
     }
     case 'diagram': {
       const title = collapseWs(b.title);

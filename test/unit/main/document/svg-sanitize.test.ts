@@ -110,8 +110,9 @@ describe('sanitizeSvg (07 §7.3)', () => {
     expect(out).toContain('class="viz-fill-3"');
     expect(out).toContain('class="viz-stroke-ink"');
     expect(out).toContain('fill="none" class="viz-stroke-2"');
-    expect(out).toContain('class="viz-stop-paper"');
-    expect(out).toContain('fill="url(#d12345678-g)"');
+    // No gradients: the gradient is gone; its shape keeps the first stop's colour as a flat class.
+    expect(out).toContain('<rect x="0" y="0" width="1" height="1" class="viz-fill-paper">');
+    expect(out).not.toMatch(/Gradient|<stop|url\(/);
     expect(out).not.toMatch(/="[^"]*var\(/);
     expect(out).not.toMatch(/(fill|stroke|stop-color)="(#|rgb|white|currentColor)/i);
   });
@@ -140,7 +141,7 @@ describe('sanitizeSvg (07 §7.3)', () => {
         opts,
       ) ?? '';
     expect(out).toMatch(
-      /^<svg xmlns="http:\/\/www.w3.org\/2000\/svg" viewBox="0 0 400 120" role="img" aria-label="A diagram" class="diagram-svg viz-fill-ink">/,
+      /^<svg xmlns="http:\/\/www.w3.org\/2000\/svg" viewBox="0 0 400 120" role="img" aria-label="A diagram" class="diagram-svg viz-fill-ink viz-pal-2">/,
     );
     expect(sanitizeSvg(wrap('<rect x="0" y="0" width="1" height="1"/>', ''), opts)).toBeNull();
   });
@@ -157,14 +158,103 @@ describe('sanitizeSvg (07 §7.3)', () => {
   });
 });
 
+describe('no gradients, patterns or shading (07 §7.3)', () => {
+  const rect = (fill: string, extra = ''): string =>
+    `<rect x="0" y="0" width="9" height="9" ${fill}${extra ? ` ${extra}` : ''}/>`;
+
+  it('drops linearGradient, radialGradient, stop and pattern', () => {
+    const out =
+      sanitizeSvg(
+        wrap(
+          '<defs><linearGradient id="a" gradientUnits="userSpaceOnUse" gradientTransform="rotate(9)">' +
+            '<stop offset="0" stop-color="#d55e00"/><stop offset="1" stop-color="#fff"/></linearGradient>' +
+            '<radialGradient id="b" fx="0.2" fy="0.2"><stop offset="0" stop-color="#0072b2"/></radialGradient>' +
+            '<pattern id="p" width="4" height="4"><path d="M0 0L4 4" stroke="#000"/></pattern></defs>' +
+            rect('fill="url(#a)"') +
+            rect('fill="url(#b)"') +
+            rect('fill="url(#p)"'),
+        ),
+        opts,
+      ) ?? '';
+    expect(out).not.toMatch(/linearGradient|radialGradient|<stop|<pattern|gradientUnits|gradientTransform|fx=|offset=/);
+    expect(out).not.toContain('url(');
+    expect(out).toContain('class="viz-fill-2"');
+    expect(out).toContain('class="viz-fill-1"');
+    // A pattern has no stop colour: the shape becomes a flat muted fill.
+    expect(out).toContain('class="viz-fill-muted"');
+  });
+
+  it('flattens url() fills and strokes to the first stop, following href and style', () => {
+    const out =
+      sanitizeSvg(
+        wrap(
+          '<defs><linearGradient id="base"><stop offset="0" style="stop-color:#117733"/></linearGradient>' +
+            '<linearGradient id="ref" href="#base"/><linearGradient id="empty"/></defs>' +
+            rect('fill="url(#ref)"') +
+            rect('style="fill:url(#base)"') +
+            '<line x1="0" y1="0" x2="9" y2="9" stroke="url(#base)"/>' +
+            '<line x1="0" y1="9" x2="9" y2="0" stroke="url(#empty)"/>',
+        ),
+        opts,
+      ) ?? '';
+    expect(out.match(/class="viz-fill-6"/g)).toHaveLength(2);
+    expect(out).toContain('<line x1="0" y1="0" x2="9" y2="9" class="viz-stroke-6">');
+    // No readable colour on a stroke: no stroke rather than a guessed one.
+    expect(out).toContain('<line x1="0" y1="9" x2="9" y2="0" stroke="none">');
+    expect(out).not.toContain('url(');
+  });
+
+  it('flattens stored diagrams whose stops carry theme classes, and stays idempotent', () => {
+    const stored = wrap(
+      '<defs><linearGradient id="d12345678-g"><stop offset="0" class="viz-stop-3"/></linearGradient></defs>' +
+        rect('fill="url(#d12345678-g)"'),
+    );
+    const once = sanitizeSvg(stored, opts) ?? '';
+    expect(once).toContain('class="viz-fill-3"');
+    expect(once).not.toMatch(/viz-stop|Gradient|url\(/);
+    expect(sanitizeSvg(once, opts)).toBe(once);
+  });
+});
+
+describe('old-palette diagrams (07 §7.3, §11.1)', () => {
+  const old = wrap(
+    '<rect width="5" height="5" class="viz-fill-3 viz-stroke-8"/>' +
+      '<defs><linearGradient id="d12345678-g"><stop offset="0" class="viz-stop-4"/></linearGradient></defs>' +
+      '<rect width="9" height="9" fill="url(#d12345678-g)"/><text x="1" y="1" class="viz-fill-ink">A</text>',
+  );
+
+  it('renumbers old theme classes so each keeps its hue, once', () => {
+    const once = sanitizeSvg(old, { ...opts, legacyPalette: true }) ?? '';
+    // Green 3 -> 6, red 8 -> vermillion 2, magenta stop 4 -> purple 3; ink is not a slot.
+    expect(once).toContain('class="viz-fill-6 viz-stroke-2"');
+    expect(once).toContain('<rect width="9" height="9" class="viz-fill-3">');
+    expect(once).toContain('class="viz-fill-ink"');
+    expect(once).toMatch(/<svg [^>]*class="diagram-svg[^"]* viz-pal-2"/);
+    // The palette mark stops a second renumbering.
+    expect(sanitizeSvg(once, { ...opts, legacyPalette: true })).toBe(once);
+    expect(sanitizeSvg(once, opts)).toBe(once);
+  });
+
+  it('leaves class numbers alone without the legacy flag', () => {
+    const out = sanitizeSvg(old, opts) ?? '';
+    expect(out).toContain('class="viz-fill-3 viz-stroke-8"');
+    expect(out).toContain('viz-pal-2');
+  });
+});
+
 describe('colorToken', () => {
   it('maps grays by lightness and hues to the nearest viz token', () => {
     expect(colorToken('#000')).toBe('ink');
     expect(colorToken('#fff')).toBe('paper');
     expect(colorToken('#888888')).toBe('muted');
     expect(colorToken('#cccccc')).toBe('rule');
-    expect(colorToken('hsl(146, 50%, 40%)')).toBe('3');
-    expect(colorToken('red')).toBe('8');
+    // Hue targets follow the 07 §11.1 palette: blue 1, vermillion 2, purple 3, green 6, ochre 8.
+    expect(colorToken('hsl(146, 50%, 40%)')).toBe('6');
+    expect(colorToken('red')).toBe('2');
+    expect(colorToken('#0072b2')).toBe('1');
+    expect(colorToken('purple')).toBe('3');
+    expect(colorToken('gold')).toBe('8');
+    expect(colorToken('skyblue')).toBe('1');
     expect(colorToken('transparent')).toBe('none');
     expect(colorToken('var(--viz-7)')).toBe('7');
     expect(colorToken('not-a-color')).toBeUndefined();

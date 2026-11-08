@@ -135,11 +135,16 @@ export interface NiceScale {
   step: number;
 }
 
-/** Tick steps are 1, 2, 2.5 or 5 times a power of ten. */
-const STEPS = [1, 2, 2.5, 5, 10];
+/**
+ * Tick steps are natural increments (Wong): 1, 2 or 5 times a power of ten; 2.5 only where the step
+ * is a whole 25, 250, ... (never 0.25 or 2.5).
+ */
+function stepsFor(pow: number): number[] {
+  return pow >= 10 ? [1, 2, 2.5, 5, 10] : [1, 2, 5, 10];
+}
 
 /**
- * "Nice" linear axis (07 §7.2 rule 2): a round step giving at most `count` intervals, and a domain
+ * "Nice" linear axis (07 §7.2 rule 2): a natural step giving at most `count` intervals, and a domain
  * of whole steps that always contains `lo` and `hi` (and 0 when `zero`), so the first and last
  * ticks sit at or beyond the data and every mark lies inside the gridlines.
  */
@@ -165,7 +170,7 @@ export function niceScale(lo: number, hi: number, count = 5, zero = false): Nice
   let step = pow * 10;
   let lo0 = a;
   let hi0 = b;
-  for (const m of STEPS) {
+  for (const m of stepsFor(pow)) {
     const st = pow * m;
     const s0 = Math.floor(a / st + eps) * st;
     const s1 = Math.ceil(b / st - eps) * st;
@@ -180,7 +185,7 @@ export function niceScale(lo: number, hi: number, count = 5, zero = false): Nice
     lo0 = Math.floor(a / step + eps) * step;
     hi0 = Math.ceil(b / step - eps) * step;
   }
-  const decimals = Math.max(0, -Math.floor(Math.log10(step)) + (step / pow === 2.5 ? 1 : 0));
+  const decimals = Math.max(0, -Math.floor(Math.log10(step)));
   const fix = (v: number): number => {
     const r = Number(v.toFixed(decimals));
     return Object.is(r, -0) ? 0 : r;

@@ -16,11 +16,50 @@ import {
   minOf,
   niceScale,
   r2,
+  type NiceScale,
   seriesClass,
   textWidth,
   truncate,
 } from './common';
-import { NOTE_ROW, noteAbove } from './annotate';
+import { NOTE_ROW, annotationMark, noteAbove } from './annotate';
+
+/** Lines start at zero when their values allow it (07 §7.2 rule 2): every value >= 0 and min <= half of max. */
+export const LINE_ZERO_RATIO = 0.5;
+export const AXIS_BREAK_NOTE = 'The vertical axis does not start at zero.';
+
+/**
+ * The y axis of a line or area chart (07 §7.2 rule 2). Areas always start at zero. A line
+ * starts at zero when its values sit on one side of zero and the smaller magnitude is at most half
+ * of the larger one; a line crossing zero uses the plain nice extent. Otherwise the domain is sized
+ * so the data fills about two thirds of the plot height, and `broken` is true when that domain
+ * leaves out zero (the renderer draws an axis break and adds AXIS_BREAK_NOTE).
+ */
+export function lineAxis(chart: ChartSpec): { nice: NiceScale; broken: boolean } {
+  const vals = allValues(chart);
+  const lo = minOf(vals) ?? 0;
+  const hi = maxOf(vals) ?? 1;
+  if (chart.kind === 'area') return { nice: niceScale(lo, hi, 6, true), broken: false };
+  if (lo < 0 && hi > 0) return { nice: niceScale(lo, hi, 6), broken: false };
+  const near = Math.min(Math.abs(lo), Math.abs(hi));
+  const far = Math.max(Math.abs(lo), Math.abs(hi));
+  if (near <= LINE_ZERO_RATIO * far || lo === hi) return { nice: niceScale(lo, hi, 6, true), broken: false };
+  // The data span is two thirds of the domain: a sixth of padding above and below.
+  const pad = (hi - lo) / 4 || far / 10;
+  const a = lo - pad;
+  const b = hi + pad;
+  const nice = niceScale(lo >= 0 ? Math.max(0, a) : a, hi <= 0 ? Math.min(0, b) : b, 6);
+  return { nice, broken: nice.domain[0] > 0 || nice.domain[1] < 0 };
+}
+
+/** Two short slanted strokes across the bottom of the y axis: the scale is cut (07 §7.2 rule 2). */
+function axisBreak(x: number, y: number): string {
+  const d = `M${r2(x - 5)},${r2(y + 2)}L${r2(x + 5)},${r2(y - 2)}M${r2(x - 5)},${r2(y + 6)}L${r2(x + 5)},${r2(y + 2)}`;
+  return el('path', [
+    ['d', d],
+    ['fill', 'none'],
+    ['class', 'viz-axis viz-axis-break'],
+  ]);
+}
 
 export function renderLine(chart: ChartSpec, W: number = CHART_WIDTH): { body: string; height: number } {
   const isArea = chart.kind === 'area';
@@ -46,9 +85,7 @@ export function renderLine(chart: ChartSpec, W: number = CHART_WIDTH): { body: s
         Math.max(...chart.series.map((s) => textWidth(truncate(s.name, W < CHART_WIDTH ? 12 : 18), 12))) + 14,
       )
     : 16;
-  const vals = allValues(chart);
-  // Rule 2: nice extent that contains every value; an area starts at 0.
-  const nice = niceScale(minOf(vals) ?? 0, maxOf(vals) ?? 1, 6, isArea);
+  const { nice, broken } = lineAxis(chart);
   const y = scaleLinear()
     .domain(nice.domain)
     .range([height - bottom, top]);
@@ -89,12 +126,16 @@ export function renderLine(chart: ChartSpec, W: number = CHART_WIDTH): { body: s
       escSvg(formatValue(t, chart.unit)),
     );
   }
-  // Thin out category labels so they do not collide.
+  if (broken) body += axisBreak(left, height - bottom - 6);
+  // Thin out category labels so they do not collide; annotated categories are always labelled.
   const n = chart.categories.length;
-  const need = Math.max(...chart.categories.map((c) => textWidth(truncate(c, 12), 12))) + 16;
+  const label = (c: string): string => truncate(c, 12) + annotationMark(chart, c);
+  const need = Math.max(...chart.categories.map((c) => textWidth(label(c), 12))) + 16;
   const every = Math.max(1, Math.ceil((n * need) / (W - right - left)));
+  const forced = chart.categories.map((c, i) => (annotationMark(chart, c) ? i : -1)).filter((i) => i >= 0);
+  const clear = (i: number): boolean => forced.every((f) => f === i || Math.abs(xp(f) - xp(i)) >= need);
   chart.categories.forEach((c, i) => {
-    if (i % every !== 0 && i !== n - 1) return;
+    if (!forced.includes(i) && ((i % every !== 0 && i !== n - 1) || !clear(i))) return;
     body += el(
       'text',
       [
@@ -103,7 +144,7 @@ export function renderLine(chart: ChartSpec, W: number = CHART_WIDTH): { body: s
         ['text-anchor', i === 0 && n > 1 ? 'start' : i === n - 1 && n > 1 ? 'end' : 'middle'],
         ['class', 'viz-ink viz-cat'],
       ],
-      escSvg(truncate(c, 12)),
+      escSvg(label(c)),
     );
   });
 

@@ -16,6 +16,10 @@ describe('niceScale (07 §7.2 rule 2)', () => {
     [5000, 19_000, 6, false, [5000, 20_000], 2500],
     [-3.2, 7.9, 5, true, [-5, 10], 5],
     [0.12, 0.47, 5, false, [0.1, 0.5], 0.1],
+    // Natural increments (Wong): 2.5 only as a whole 25, 250, ...; never 0.25 or 2.5.
+    [0, 1.2, 5, true, [0, 1.5], 0.5],
+    [0, 12, 5, true, [0, 15], 5],
+    [0, 120, 5, true, [0, 125], 25],
   ] as const)('%s..%s -> nice domain containing the data', (lo, hi, count, zero, domain, step) => {
     const s = niceScale(lo, hi, count, zero);
     expect(s.domain).toEqual(domain);
@@ -44,7 +48,8 @@ describe('niceScale (07 §7.2 rule 2)', () => {
         for (let i = 1; i < s.ticks.length; i++) {
           expect((s.ticks[i] ?? 0) - (s.ticks[i - 1] ?? 0)).toBeCloseTo(s.step, 9);
         }
-        expect([1, 2, 2.5, 5, 10]).toContain(Number((s.step / 10 ** Math.floor(Math.log10(s.step))).toFixed(6)));
+        const m = Number((s.step / 10 ** Math.floor(Math.log10(s.step))).toFixed(6));
+        expect(s.step >= 25 ? [1, 2, 2.5, 5, 10] : [1, 2, 5, 10]).toContain(m);
       }
     }
   });

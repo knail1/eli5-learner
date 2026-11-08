@@ -6,7 +6,24 @@ import { DocRuntimeMissingError } from './errors';
 import type { DocRuntime } from './types';
 
 /** Recorded in DocumentModel.generator.runtimeVersion; bump when the runtime contract changes. */
-export const DOC_RUNTIME_VERSION = '1.1.0';
+export const DOC_RUNTIME_VERSION = '1.1.1';
+
+/**
+ * The first runtime with the colour-blind-safe chart palette (07 §11.1). Diagram SVG stored by an
+ * older runtime carries theme classes numbered for the old palette; parse remaps them (07 §7.3).
+ */
+export const PALETTE_RUNTIME_VERSION = '1.1.1';
+
+/** -1, 0 or 1 for dotted numeric versions ('1.0.0' < '1.2'); a non-number part counts as 0. */
+export function compareRuntimeVersions(a: string, b: string): number {
+  const pa = a.split('.').map((x) => Number.parseInt(x, 10) || 0);
+  const pb = b.split('.').map((x) => Number.parseInt(x, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d < 0 ? -1 : 1;
+  }
+  return 0;
+}
 
 const files = import.meta.glob<string>(
   ['../../../build/doc-runtime/runtime.iife.js', '../../../build/doc-runtime/runtime.css'],

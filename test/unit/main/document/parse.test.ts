@@ -127,6 +127,27 @@ describe('parseDocument does not trust stored markup (07 §7.3, §8)', () => {
     expect(out).toContain('<rect width="5" height="5"');
   });
 
+  it('renumbers old-palette diagram classes only for documents from an older runtime (07 §7.3)', () => {
+    const withSvg = (runtimeVersion: string): ReturnType<typeof parseDocument> => {
+      const m = structuredClone(doc.model);
+      m.generator = { ...m.generator, runtimeVersion };
+      const d = m.tabs[0]?.sections.flatMap((s) => s.blocks).find((b) => b.type === 'diagram');
+      if (d?.type !== 'diagram') throw new Error('fixture');
+      d.svg = '<svg viewBox="0 0 10 10"><rect width="5" height="5" class="viz-fill-3"/></svg>';
+      return parseDocument(renderDocument(m, doc.assets, { runtime: STUB_RUNTIME, theme: doc.theme }));
+    };
+    const svgOf = (p: ReturnType<typeof parseDocument>): string => {
+      const d = p.model.tabs[0]?.sections.flatMap((s) => s.blocks).find((b) => b.type === 'diagram');
+      return d?.type === 'diagram' ? d.svg : '';
+    };
+    expect(svgOf(withSvg('1.1.0'))).toContain('class="viz-fill-6"');
+    expect(svgOf(withSvg('1.1.1'))).toContain('class="viz-fill-3"');
+    // A re-render of the renumbered model parses to itself: no second renumbering.
+    const once = withSvg('1.0.0');
+    const again = parseDocument(renderDocument(once.model, once.assets, { runtime: STUB_RUNTIME, theme: once.theme }));
+    expect(svgOf(again)).toBe(svgOf(once));
+  });
+
   it('re-sanitizes the header logo', () => {
     const themed = fixtureDocument('themed');
     const once = renderDocument(themed.model, themed.assets, { runtime: STUB_RUNTIME, theme: themed.theme });

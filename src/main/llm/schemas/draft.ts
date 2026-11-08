@@ -6,7 +6,11 @@ import { z } from 'zod';
  * semantic checks (02 §10.1) live in structured.ts.
  */
 
-export const ChartSpecSchema = z.object({
+/**
+ * A chart as notes record it (02 §10): the ChartSpec shape without the presentation fields, so the
+ * native strict ChunkNotes grammar stays within the provider's union-parameter cap.
+ */
+export const ChartCandidateSchema = z.object({
   kind: z.enum(['bar', 'stacked-bar', 'line', 'area', 'pie', 'scatter']),
   title: z.string(),
   subtitle: z.string().optional(),
@@ -17,6 +21,20 @@ export const ChartSpecSchema = z.object({
   categories: z.array(z.string()),
   series: z.array(z.object({ name: z.string(), values: z.array(z.number().nullable()) })),
   highlight: z.object({ category: z.string(), note: z.string() }).optional(),
+});
+export type ChartCandidate = z.infer<typeof ChartCandidateSchema>;
+
+/**
+ * A chart block (02 §10, 07 §7.2). Length limits on the new fields are applied by the renderer's
+ * normalization (07 §5.2), never by validation, so they cannot trigger a repair call.
+ */
+export const ChartSpecSchema = ChartCandidateSchema.extend({
+  /** Note under the plot (why values are missing, definitions); at most 200 characters are kept. */
+  footnote: z.string().optional(),
+  /** Up to three short notes on named categories (text at most 80 characters). */
+  annotations: z.array(z.object({ category: z.string(), text: z.string() })).optional(),
+  /** 'value' sorts bar categories largest first; time series keep the given order. */
+  order: z.enum(['given', 'value']).optional(),
 });
 export type ChartSpec = z.infer<typeof ChartSpecSchema>;
 
@@ -74,7 +92,7 @@ export const ChunkNotesSchema = z.object({
   notes: z.string(),
   keyFacts: z.array(z.string()),
   tables: z.array(z.object({ caption: z.string(), header: z.array(z.string()), rows: z.array(z.array(z.string())) })),
-  chartCandidates: z.array(ChartSpecSchema),
+  chartCandidates: z.array(ChartCandidateSchema),
   jargon: z.array(z.string()),
   sourceRefs: z.array(z.string()),
 });

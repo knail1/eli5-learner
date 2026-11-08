@@ -1,6 +1,7 @@
 // Highlight-note layout (07 §7.2 rule 6). A note never shares space with marks or labels: it sits
 // in a band reserved for it (above the plot, under the highlighted horizontal bar, or under a pie)
 // and a leader line runs through empty space to the highlighted mark.
+import type { ChartSpec } from '../../llm';
 import { CHART_WIDTH, el, escSvg, r2, textWidth, truncate } from './common';
 
 /** Band reserved above the plot for the note; the plot starts this far below the band's top. */
@@ -88,4 +89,17 @@ export function noteBelow(
 export function noteUnder(note: string, cx: number, top: number, W: number = CHART_WIDTH): string {
   const text = fitNote(note, W - 2 * MARGIN);
   return group('', cx, top + 12, text, 'middle');
+}
+
+/**
+ * Annotation markers (07 §7.2 rule 14): an annotated category's label carries a superscript number
+ * and the note itself is printed under the plot ("¹ Category: text"), so up to three notes never
+ * compete with marks, value labels or each other for space.
+ */
+export const ANNOTATION_MARKS = ['¹', '²', '³'] as const;
+
+/** " ¹" style suffix for an annotated category's label, or '' when it has no annotation. */
+export function annotationMark(chart: ChartSpec, category: string): string {
+  const i = (chart.annotations ?? []).findIndex((a) => a.category === category);
+  return i >= 0 && i < ANNOTATION_MARKS.length ? `\u2009${ANNOTATION_MARKS[i]}` : '';
 }

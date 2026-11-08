@@ -17,7 +17,7 @@ import { sectionIdsOf } from '../ids';
 import { addSectionEli5Tab, getSectionContext, insertAnswer, replaceSection } from '../mutate';
 import { parseDocument } from '../parse';
 import { renderDocument } from '../render';
-import { DOC_RUNTIME_VERSION } from '../runtime-assets';
+import { DOC_RUNTIME_VERSION, compareRuntimeVersions } from '../runtime-assets';
 import type {
   DocRuntime,
   DocumentModel,
@@ -50,16 +50,7 @@ export interface RunnerEnv {
   consumeRetry(jobId: string): boolean;
 }
 
-/** -1, 0 or 1 for dotted numeric versions ('1.0.0' < '1.2'); a non-number part counts as 0. */
-export function compareRuntimeVersions(a: string, b: string): number {
-  const pa = a.split('.').map((x) => Number.parseInt(x, 10) || 0);
-  const pb = b.split('.').map((x) => Number.parseInt(x, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (d !== 0) return d < 0 ? -1 : 1;
-  }
-  return 0;
-}
+export { compareRuntimeVersions };
 
 /**
  * D12 (07 §5.5): the runtime a re-render of `parsed` uses. A document whose runtime is older than

@@ -1,70 +1,27 @@
-// ChartSpec -> static inline SVG at render time (07 §7.2); chart checks at build time (07 §5.2).
+// ChartSpec -> static inline SVG at render time (07 §7.2); chart normalization at build time
+// (07 §5.2, normalize.ts).
 import type { ChartSpec } from '../../llm';
 import { attrs, esc } from '../html';
 import { renderBar, isHorizontal } from './bar';
 import { CHART_WIDTH, COMPACT_WIDTH, NO_DATA, formatValue, maxOf } from './common';
-import { renderLine } from './line';
+import { AXIS_BREAK_NOTE, lineAxis, renderLine } from './line';
+import { ANNOTATION_MARKS } from './annotate';
 import { renderPie } from './pie';
 import { renderScatter } from './scatter';
 
 export { formatValue, niceScale, COMPACT_WIDTH, COMPACT_BELOW } from './common';
 export { isHorizontal } from './bar';
-
-const MAX_CATEGORIES = 30;
-const MAX_LINE_SERIES = 6;
-const MAX_PIE_SLICES = 6;
-
-/**
- * 07 §5.2 chart checks. Returns null (drop) when a series length differs from the category count;
- * folds > 30 categories into "Other"; converts invalid pies to bars; caps line/area/scatter series.
- */
-export function normalizeChart(input: ChartSpec, warn: (w: string) => void): ChartSpec | null {
-  const n = input.categories.length;
-  if (n === 0 || input.series.length === 0) return null;
-  if (input.series.some((s) => s.values.length !== n)) {
-    warn('chart-series-length');
-    return null;
-  }
-  let chart: ChartSpec = { ...input, series: input.series.map((s) => ({ ...s, values: [...s.values] })) };
-  if (n > MAX_CATEGORIES) {
-    const first = chart.series[0]?.values ?? [];
-    const keep = new Set(
-      chart.categories
-        .map((_, i) => i)
-        .sort((a, b) => (first[b] ?? -Infinity) - (first[a] ?? -Infinity) || a - b)
-        .slice(0, MAX_CATEGORIES - 1),
-    );
-    const idx = chart.categories.map((_, i) => i).filter((i) => keep.has(i));
-    const rest = chart.categories.map((_, i) => i).filter((i) => !keep.has(i));
-    chart = {
-      ...chart,
-      categories: [...idx.map((i) => chart.categories[i] ?? ''), 'Other'],
-      series: chart.series.map((s) => {
-        const folded = rest.map((i) => s.values[i] ?? null).filter((v): v is number => v !== null);
-        return {
-          ...s,
-          values: [...idx.map((i) => s.values[i] ?? null), folded.length ? folded.reduce((a, b) => a + b, 0) : null],
-        };
-      }),
-    };
-    warn('chart-categories-folded');
-  }
-  if (chart.kind === 'pie') {
-    const vals = chart.series[0]?.values ?? [];
-    if (vals.some((v) => v !== null && v < 0) || chart.categories.length > MAX_PIE_SLICES) {
-      chart = { ...chart, kind: 'bar', series: chart.series.slice(0, 1) };
-      warn('pie-converted');
-    }
-  }
-  if (
-    (chart.kind === 'line' || chart.kind === 'area' || chart.kind === 'scatter') &&
-    chart.series.length > MAX_LINE_SERIES
-  ) {
-    chart = { ...chart, series: chart.series.slice(0, MAX_LINE_SERIES) };
-    warn('chart-series-capped');
-  }
-  return chart;
-}
+export { lineAxis } from './line';
+export {
+  normalizeChart,
+  chartText,
+  stripEmphasis,
+  unshout,
+  type ChartAsTable,
+  MAX_LINE_SERIES,
+  MAX_BAR_SERIES,
+  MAX_PIE_SLICES,
+} from './normalize';
 
 const KIND_NAMES: Record<ChartSpec['kind'], string> = {
   bar: 'Bar chart',
@@ -150,6 +107,21 @@ export function renderChartData(chart: ChartSpec): string {
 }
 
 /**
+ * Text under the plot (07 §7.2 rules 14, 15): one line per annotation ("¹ Category: text"), then
+ * the note, which joins the chart's footnote with the renderer's own axis-break sentence (rule 2).
+ */
+export function chartNotes(chart: ChartSpec): string {
+  let out = '';
+  (chart.annotations ?? []).slice(0, ANNOTATION_MARKS.length).forEach((a, i) => {
+    out += `<p class="chart-foot chart-ann"><span class="chart-ann-mark" aria-hidden="true">${ANNOTATION_MARKS[i]}</span> ${esc(a.category)}: ${esc(a.text)}</p>`;
+  });
+  const axis = chart.kind === 'line' && lineAxis(chart).broken ? AXIS_BREAK_NOTE : '';
+  const foot = [chart.footnote?.trim() ?? '', axis].filter((x) => x !== '').join(' ');
+  if (foot) out += `<p class="chart-foot">Note: ${esc(foot)}</p>`;
+  return out;
+}
+
+/**
  * `<figure class="chart">` with takeaway headline, subtitle, SVG, source line and data table (07 §7.1,
  * §7.2). Two SVGs: the regular layout and a compact one (rule 12); CSS container queries show
  * exactly one, so the hidden one is out of the accessibility tree too.
@@ -166,6 +138,7 @@ export function renderChartFigure(chart: ChartSpec, idBase: string): string {
     (chart.subtitle ? `<p class="chart-sub">${esc(chart.subtitle)}</p>` : '') +
     renderChartSvg(chart, idBase) +
     renderChartSvg(chart, `${idBase}-c`, COMPACT_WIDTH) +
+    chartNotes(chart) +
     (chart.source ? `<p class="chart-source">Source: ${esc(chart.source)}</p>` : '') +
     renderChartData(chart) +
     '</figure>'

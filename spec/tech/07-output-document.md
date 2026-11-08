@@ -255,9 +255,15 @@ export function buildDocumentModel(input: BuildInput): { model: DocumentModel; w
 | Inline markdown | Render through `inline-md.ts` only: `**bold**`, `*italic*`, `` `code` ``, `[text](url)`; everything else is escaped text |
 | Link URL | Allow `http:`, `https:`, `mailto:`; other schemes render the link text only |
 | Chart series length ≠ categories length | Drop block (02 already checks; re-checked here) |
+| Chart text (`charts/normalize.ts`) | Strip inline emphasis; ALL CAPS to sentence case, acronyms kept (§7.2 rule 13) |
 | Chart with > 30 categories | Keep top 29 by first series value, fold the rest into `Other` |
-| Pie with negative values or > 6 slices | Convert to horizontal bar, warning `pie-converted` |
-| Line/area/scatter with > 6 series | Keep first 6, warning |
+| Chart series missing > 20 % of its values (and more than one), not scatter | Drop the series and name it in the note, warning `chart-series-sparse`; when every series drops, the block becomes a table (title as caption, "No data" cells), warning `chart-sparse-tabled` |
+| Pie with negative values | Convert to horizontal bar, warning `pie-converted` |
+| Pie with > 5 slices | Keep the 4 largest, fold the rest into `Other`, warning `pie-slices-folded` |
+| Line/area/scatter with > 4 series; bar with > 4 series | Lines: keep the highlighted series plus the largest by mean \|value\|; grouped bars: the 4 largest totals; stacked bars: 3 largest plus an `Other` series; note "N more series not shown." (not for stacked); warning `chart-series-capped` |
+| Chart `order: "value"` | Sort bar and stacked-bar categories largest first; lines keep their order |
+| Chart annotations | Keep up to 3 on known categories, one per category, text ≤ 80 characters; warning `chart-annotations-dropped` |
+| Chart footnote | Keep ≤ 200 characters; append "No data for A, B." for remaining gaps |
 | Diagram SVG | Sanitize (section 7). Empty result or > 100 KB after sanitizing: drop |
 | Table row width ≠ header width | Pad with empty cells or truncate; warning |
 | Table > 200 rows | Keep 200, add caption suffix "(first 200 rows)" |
@@ -290,7 +296,7 @@ the runtime changed) the runtime blocks.
 
 **Runtime upgrades.** A document keeps its embedded runtime (`generator.runtimeVersion`, the
 `eli5-css` and `eli5-runtime` blocks) until one of these explicit exceptions re-renders the same
-model with the bundled runtime (`bundledDocRuntime()`, `DOC_RUNTIME_VERSION`, currently `1.1.0`):
+model with the bundled runtime (`bundledDocRuntime()`, `DOC_RUNTIME_VERSION`, currently `1.1.1`):
 
 1. **On open** ([08](08-interactive-reading.md) §5.1): when a document with an older runtime is
    opened in the app's viewer, the library is writable, the document parses and nothing in it is
@@ -548,35 +554,63 @@ Charts are rendered to static SVG in main at render time, using `d3-scale`, `d3-
 tooltips and the data disclosure. The `ChartSpec` is kept in the embedded model so a chart can be
 re-rendered when the runtime or theme changes.
 
-WSJ conventions enforced by the renderer:
+WSJ conventions (Dona M. Wong, *The Wall Street Journal Guide to Information Graphics*) enforced
+by the renderer and by build-time normalization (§5.2). Validation in [02](02-llm-provider.md)
+§10.1 checks chart structure only; every rule below is applied quietly with a build warning and
+never triggers a repair call.
 
 1. `title` is displayed as a takeaway headline (the prompt asks for a sentence, e.g. "Paid search
    returns the most per dollar"); `subtitle` carries unit and scope; `source` renders as a small
-   "Source:" line under the plot.
-2. Bars always start at zero. Every numeric axis uses `niceScale(lo, hi, count, zero)`
-   (`charts/common.ts`): a step of 1, 2, 2.5 or 5 × 10ⁿ giving at most `count` intervals (6 on
-   vertical axes, 5 on horizontal bars, 3 or 4 in the compact layout), and a domain of whole steps
-   that always contains every value (and 0 for bars and areas), so the first and last gridlines sit
-   at or beyond the data. Ticks are every step from end to end. A y-axis title gets 30 units above
-   the plot so it never meets the top tick label.
-3. Horizontal gridlines only, light; no chart border, no 3D, no gradients, no drop shadows.
-4. Direct labels at line ends when ≤ 4 series; otherwise a compact legend above the plot.
+   "Source:" line under the plot. The only other text is annotations (rule 14) and the note
+   (rule 15).
+2. Every numeric axis uses `niceScale(lo, hi, count, zero)` (`charts/common.ts`): a natural step of
+   1, 2 or 5 × 10ⁿ (2.5 × 10ⁿ only when the step is a whole 25, 250, …; never 0.25 or 2.5) giving
+   at most `count` intervals (6 on vertical axes, 5 on horizontal bars, 3 or 4 in the compact
+   layout), and a domain of whole steps that always contains every value, so the first and last
+   gridlines sit at or beyond the data. Ticks are every step from end to end. A y-axis title gets
+   30 units above the plot so it never meets the top tick label.
+   - Bars and areas always start at zero.
+   - Lines (a product decision the owner can reverse with `LINE_ZERO_RATIO` in `line.ts`):
+     a line whose values sit on one side of zero starts at zero when the smaller magnitude is at
+     most half of the larger (all values ≥ 0 and min ≤ 0.5 × max). A line crossing zero uses the
+     plain nice extent. Otherwise the domain is padded by a quarter of the data range on each side
+     (the data fills about two thirds of the plot height) before rounding; when that domain leaves
+     out zero, an axis-break mark (two short slanted strokes, `path.viz-axis-break`) sits at the
+     bottom of the y axis and the renderer appends "The vertical axis does not start at zero." to
+     the note (rule 15). The model's title and subtitle are never rewritten for this.
+3. Horizontal gridlines only, light; no chart border, no 3D, no gradients, no patterns, no drop
+   shadows. Labels are always horizontal: chart SVG never contains `rotate(`.
+4. Lines with two to four series are labelled directly at their ends and get no legend; with the
+   cap of rule 16 that is every new multi-line chart. A stored chart from before the cap with more
+   lines falls back to a compact legend above the plot. Bars with several series use a legend above
+   the plot.
 5. Bar charts switch to horizontal when any category label exceeds 14 characters or there are more
    than 8 categories. Value labels are printed on bars when ≤ 12 bars.
 6. `highlight.category` gets the accent color and all other marks the muted series color; the note
-   is drawn as a leader-line annotation.
-7. Pies: ≤ 6 slices, largest first, clockwise from 12 o'clock, labels outside with percentages.
+   is drawn as a leader-line annotation (`annotate.ts`). A single series without a highlight uses
+   `--viz-1`; the accent is reserved for the highlight.
+7. Pies: ≤ 5 slices (the smallest folded into "Other" at build time), largest first, clockwise from
+   12 o'clock, labels outside with percentages. A pie with a negative value becomes a bar chart.
 8. `null` values leave a gap in lines and an empty slot in bars (never zero). An empty bar slot
    shows a muted italic "No data" (`n/a` when the slot is too narrow) just above the zero line, or
    beside the axis in a horizontal chart; it is a focusable `text.viz-nodata` mark with
    `data-value="No data"`, so the tooltip and focus treat it like a bar. In a stacked chart only a
    category with no value in any series gets it. The data table shows "No data" in that cell and
    the `<desc>` summary ends with `no data: {category}` (`{category} · {series}` with several series;
-   the first three, then "and N more").
+   the first three, then "and N more"). Build-time normalization also names the gaps in the note:
+   "No data for A, B." (five names, then "and N more"). A series missing more than 20 % of its
+   values (and more than one value) is not charted (§5.2).
 9. Number formatting via `d3-format` with SI suffixes (`1.2M`); `unit` prefixes currency symbols and
    suffixes `%`.
 10. Size: `viewBox` based, width 100% of the text column, height derived from type (bar: 28 px per
-    category horizontal, 320 px vertical; line/area/scatter 320 px; pie 300 px).
+    category horizontal, 320 px vertical; line/area/scatter 320 px; pie 300 px). Bars are about
+    twice as wide as the gaps between them (`paddingInner` 1/3, `BAR_GAP` in `bar.ts`).
+11. Color is applied only through classes, never through presentation attributes holding `var()`
+    (engines, notably WebKit over `file://`, do not reliably resolve `var()` in SVG presentation
+    attributes). Marks get `class="viz-fill-N"` / `viz-stroke-N` (N = 1..8), `viz-fill-muted`,
+    `viz-grid`, `viz-ink`; `DOC_RUNTIME_CSS` defines `.viz-fill-1{fill:var(--viz-1)}`,
+    `.viz-stroke-1{stroke:var(--viz-1)}` and so on for every token, so marks switch with the theme
+    without re-render. The palette is colour-vision safe (§11.1).
 12. Narrow widths: `renderChartFigure` emits the chart twice, the regular SVG (`viewBox` 640 wide)
     and a compact one (`class="viz viz--compact"`, 380 wide, ids `{idBase}-c-t`/`-c-d`). `figure.chart`
     is an inline-size container; below 560 px the compact SVG replaces the regular one
@@ -585,12 +619,35 @@ WSJ conventions enforced by the renderer:
     whenever a category label would not fit under its bar, truncates category and series labels
     sooner, uses fewer ticks, and shrinks the pie. Without container query support only the regular
     SVG shows.
-11. Color is applied only through classes, never through presentation attributes holding `var()`
-    (engines, notably WebKit over `file://`, do not reliably resolve `var()` in SVG presentation
-    attributes). Marks get `class="viz-fill-N"` / `viz-stroke-N` (N = 1..8), `viz-fill-muted`,
-    `viz-grid`, `viz-ink`; `DOC_RUNTIME_CSS` defines `.viz-fill-1{fill:var(--viz-1)}`,
-    `.viz-stroke-1{stroke:var(--viz-1)}` and so on for every token, so marks switch with the theme
-    without re-render.
+13. Text: sentence case, never bold and italic together. Normalization strips inline-Markdown
+    emphasis (`**a**`, `*a*`, `__a__`, `_a_`) from every chart string, and a string with two or more
+    all-caps words of four or more letters goes to sentence case (`unshout` in `normalize.ts`).
+    Acronyms survive: common short words (FOR, THE, WHY) never count as acronyms; in mixed-case
+    text all-caps tokens of up to five characters are kept, and in fully shouted text tokens of up
+    to three characters and tokens of up to five characters with a digit or no vowel (GDP, MCMC, Q3)
+    are kept. This applies to the title, subtitle, axis labels, categories, series names, highlight
+    and annotations, so references to a category stay in step. CSS sets the chart title bold only;
+    no bold element is italic.
+14. Annotations (`ChartSpec.annotations`, at most three, text at most 80 characters, on known
+    categories only; others are removed at build time with warning `chart-annotations-dropped`):
+    the annotated category's label carries a superscript number (`¹ ² ³`, after a thin space) in the
+    SVG, and the note is printed under the plot as `<p class="chart-foot chart-ann">¹ Category:
+    text</p>`. Line charts always label an annotated category, hiding thinned-out labels that would
+    collide with it. Markers never compete with marks, value labels or the highlight note for
+    space (the highlight keeps the leader-line note of rule 6).
+15. Note: `<p class="chart-foot">Note: …</p>` under the annotations and above the source line. It
+    joins the model's `footnote` (at most 200 characters kept), the build-time notes (dropped
+    series, gaps) and the renderer's own axis-break sentence (rule 2), which is computed at render
+    time and never stored.
+16. Series and order (build time, §5.2): at most four lines, areas or scatter groups (the series
+    named by the highlight first, then the largest by mean |value|; "N more series not shown."),
+    at most four grouped bar series (largest totals), stacked bars fold the rest into an "Other"
+    series; warning `chart-series-capped`. `order: "value"` sorts bar and stacked-bar categories
+    largest first (stacked: by total, nulls last); line and area charts keep the given (time)
+    order; the default is `"given"`.
+17. Prompt-only rules, not enforced by code: pictograms, saying mean or median, doing the math for
+    the reader (charting change or share), and the five-second test live in the `chart-rules`
+    prompt fragment ([02](02-llm-provider.md) §9).
 
 Accessibility: `<svg role="img" aria-labelledby="{t} {d}">` with `<title>` and a generated `<desc>`
 summary ("Bar chart, 5 categories, highest: Paid search 4.2, no data: Affiliate"). Each mark carries
@@ -602,26 +659,50 @@ summary ("Bar chart, 5 categories, highest: Paid search 4.2, no data: Affiliate"
 Parse with `linkedom` in main, walk the tree, keep only allowlisted nodes:
 
 - Elements: `svg g path rect circle ellipse line polyline polygon text tspan title desc defs marker
-  linearGradient radialGradient stop clipPath use`.
+  clipPath use`. No gradients, patterns or decorative shading (Wong): `linearGradient`,
+  `radialGradient`, `stop` and `pattern` are removed.
 - Attributes: geometry and presentation attributes (`d x y x1 y1 x2 y2 cx cy r rx ry width height
   points transform viewBox preserveAspectRatio fill stroke stroke-width stroke-dasharray
   stroke-linecap stroke-linejoin opacity fill-opacity stroke-opacity font-size font-weight
-  text-anchor dominant-baseline paint-order marker-start marker-end marker-mid offset stop-color id
-  role aria-label`), plus `href`/`xlink:href` on `use` only when it starts with `#`.
+  text-anchor dominant-baseline paint-order marker-start marker-end marker-mid id role aria-label`,
+  marker and clipPath geometry), plus `href`/`xlink:href` on `use` only when it starts with `#`.
+- Flat paint: before anything else, a `fill` or `stroke` (attribute or style) of `url(#id)`
+  pointing at a gradient or pattern is rewritten to the colour of the paint server's first `stop`
+  (`stop-color` attribute or style, or the `viz-stop-*` class of a stored diagram; one gradient's
+  `href` to another is followed), which the colour mapping below turns into a theme class. A paint
+  server without a readable colour gives a muted fill and no stroke. Label contrast (below) then
+  judges the flat colour.
 - Removed: `script`, `style`, `foreignObject`, `image`, `a`, `animate*`, `set`, every `on*`
   attribute, `style` attributes, any `url(` not of the form `url(#id)`.
 - Model `class` attributes are stripped (they could collide with document CSS such as `gl-note` or
   `tab-close`); the only classes in the output are those the sanitizer adds below.
-- Colors: every `fill`, `stroke` and `stop-color` value is removed as an attribute and replaced by a
-  class. `none` stays as the attribute `fill="none"`/`stroke="none"`; `currentColor` becomes
+- Colors: every `fill` and `stroke` value is removed as an attribute and replaced by a class. `none` stays as the attribute `fill="none"`/`stroke="none"`; `currentColor` becomes
   `viz-{fill|stroke}-ink`; `var(--viz-N|--ink|--muted|--paper|--rule)` maps to the matching
-  `viz-{fill|stroke|stop}-{token}` class; any other color is mapped to the nearest palette token by
-  hue and lightness first. `DOC_RUNTIME_CSS` defines every such class (7.2 rule 11), so diagrams
+  `viz-{fill|stroke}-{token}` class; any other color is mapped by lightness and saturation to ink,
+  muted, rule or paper when it is a grey, otherwise to the nearest chromatic palette hue (`VIZ_HUES`:
+  blue 1, vermillion 2, purple 3, green 6, ochre 8; the graphite, grey and sky slots are not hue
+  targets). `DOC_RUNTIME_CSS` defines every such class (7.2 rule 11), so diagrams
   follow dark and light themes in every engine. The prompt tells the model to use the tokens.
 - IDs inside the SVG are prefixed with `d{8 hex}-` (and references rewritten) to avoid clashes
   with section IDs and other diagrams.
-- Root gets `role="img"`, `aria-label` from `diagram.alt`, and a `viewBox` if missing (computed
-  from `width`/`height`, else the block is dropped).
+- Root gets `role="img"`, `aria-label` from `diagram.alt`, a `viewBox` if missing (computed
+  from `width`/`height`, else the block is dropped), and the palette mark class `viz-pal-2` (its
+  theme classes are numbered for the §11.1 palette).
+
+**Stored diagrams are re-sanitized.** `parseModelJson` (`parse.ts`) runs every stored diagram
+through this sanitizer again (the model JSON is file content, not trusted build output), so every
+parse, and therefore every re-render after a refresh, regeneration or merge, applies the current
+rules: an old diagram loses its gradients and gets flat fills the next time its document is
+opened and saved. For diagrams already built by this sanitizer the pass is a fixed point. A
+document whose `generator.runtimeVersion` is older than `PALETTE_RUNTIME_VERSION` (`1.1.1`, the
+first runtime with the §11.1 palette) has its diagram and logo theme classes renumbered first, so
+each keeps its hue under the new palette: old slots 1 to 8 (blue, orange, green, magenta, violet,
+gold, teal, red) become 1, 2, 6, 3, 3, 8, 5, 2. SVG that already carries `viz-pal-2` is never
+renumbered again, and a document saved by a newer runtime is never renumbered (an older app that
+re-sanitizes drops the mark but keeps the newer `runtimeVersion`). Stored
+charts are not re-normalized: they re-render from their `ChartSpec` with the current renderer
+rules (§7.2 rules 2, 3, 10, 11), while the build-time rules of §5.2 apply to new and regenerated
+sections only.
 
 **Label contrast.** Every diagram sanitize (new and stored diagrams, so a stored document gets it
 the next time it is saved; never the theme logo) fixes text that would be hard to read on its
@@ -920,12 +1001,36 @@ and again under `:root[data-theme="dark"]`. The body always has an explicit back
 | --- | --- |
 | Surface and text | `--paper --paper-2 --ink --ink-2 --muted --rule --link` |
 | Accent | `--accent --accent-ink --highlight` |
-| Data viz | `--viz-1 … --viz-8` (categorical, checked for contrast in both themes), `--viz-muted`, `--viz-grid` |
+| Data viz | `--viz-1 … --viz-8` (categorical, see below), `--viz-muted`, `--viz-grid` |
 | Components | `--callout-note --callout-warning --callout-key --gl-bg --gl-rule --pull-rule` |
 | Type | `--font-serif: Charter, "Iowan Old Style", Georgia, serif` (body, headlines, pull quotes); `--font-sans: -apple-system, "Helvetica Neue", Arial, sans-serif` (kicker, tab bar, chart labels, meta, notes) |
 | Measure | Body 19 px / 1.6 in the text column (max 680 px); side gutter 16 px on phones |
 
 No web fonts are embedded by default (system fonts only; keeps files small and offline).
+
+**Chart palette.** Okabe-Ito derived, restrained and colour-vision safe. The first four slots
+contain no red/green or blue/yellow pair and only one blue; slots 5 to 8 serve pies with five
+slices and stored charts only.
+
+| Slot | Light | Dark | Name |
+| --- | --- | --- | --- |
+| `--viz-1` | `#0072b2` | `#56b4e9` | blue |
+| `--viz-2` | `#d55e00` | `#f28e52` | vermillion |
+| `--viz-3` | `#ab2b85` | `#c07caf` | purple |
+| `--viz-4` | `#5f5f5f` | `#b8b8b8` | graphite |
+| `--viz-5` | `#3a8fc8` | `#9fd3f2` | sky |
+| `--viz-6` | `#117733` | `#44aa77` | green |
+| `--viz-7` | `#8c8c8c` | `#8c8c8c` | grey |
+| `--viz-8` | `#a47500` | `#e0b040` | ochre |
+
+`test/unit/main/document/palette-cvd.test.ts` holds the palette to two checks in both themes:
+every pair of the first four stays more than 10 apart (CIEDE2000) under Machado et al. (2009)
+protanopia, deuteranopia and tritanopia simulation, and every slot is at least 3:1 on the paper.
+Callout and analogy rules (warning `--viz-2`, key point `--viz-6`, analogy `--viz-3`, note
+`--accent`) are at least 3:1 on their backgrounds. The runtime palette applies to every document
+whose CSS is re-rendered (§5.5): the palette change bumped `DOC_RUNTIME_VERSION` to `1.1.1`, so an
+older document gets it on its next refresh or edit, and its stored diagrams are renumbered at
+parse (§7.3) so a diagram painted with the old green slot 3 stays green.
 
 ### 11.2 Switching
 
