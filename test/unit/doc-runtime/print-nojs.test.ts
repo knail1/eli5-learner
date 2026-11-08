@@ -119,3 +119,31 @@ describe('answer boxes (07 §7.1)', () => {
     expect(qs.map((d) => d.open)).toEqual([true, ...qs.slice(1).map(() => false)]);
   });
 });
+
+describe('explorables (07 §7.1, §13)', () => {
+  it('show their static picture and outcome table without JavaScript', () => {
+    const { doc } = loadGolden('showcase'); // not booted
+    const figs = Array.from(doc.querySelectorAll<HTMLElement>('figure.explorable'));
+    expect(figs).toHaveLength(2);
+    for (const f of figs) {
+      expect(f.querySelector('svg.explorable-svg[role="img"] title')?.textContent?.trim()).not.toBe('');
+      expect(f.querySelectorAll('.explorable-run').length).toBeGreaterThan(0);
+      expect(f.querySelectorAll('details.explorable-data tbody tr').length).toBeGreaterThan(0);
+      expect(f.querySelector('.explorable-controls, script')).toBeNull();
+      // print hides [data-eli5-noact]: the figure itself must never carry it
+      expect(f.closest('[data-eli5-noact]')).toBeNull();
+    }
+  });
+
+  it('print keeps the picture, drops the live run and the controls', async () => {
+    const print = printBlock(CSS);
+    expect(print).toMatch(/\.explorable-live \{\s*display: none;/);
+    expect(print).toMatch(/\.explorable--live \.explorable-run \{\s*opacity: 1;/);
+    expect(print).not.toMatch(/(^|[\s,])(figure\.)?explorable(-svg)?\s*[,{][^}]*display: none/);
+    const rt = await loadRuntime();
+    const { win, doc } = loadGolden('showcase');
+    rt.boot(win, doc);
+    for (const c of Array.from(doc.querySelectorAll('.explorable-controls')))
+      expect(c.hasAttribute('data-eli5-noact')).toBe(true); // hidden by the print rule above
+  });
+});

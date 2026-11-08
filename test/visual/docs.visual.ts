@@ -155,6 +155,15 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(stepper).toHaveScreenshot(shot('showcase-stepper-step3'));
     });
 
+    test('explorables: static picture with presets and the controls (reduced motion: whole run)', async ({ page }) => {
+      await open(page, 'showcase');
+      for (const kind of ['gradient-descent', 'metropolis-walk']) {
+        const fig = page.locator(`#tab-indepth figure.explorable[data-kind="${kind}"]`);
+        await expect(fig.locator('.explorable-status')).toHaveText(/^(lr|step) [\d.]+: /);
+        await expect(fig).toHaveScreenshot(shot(`showcase-explorable-${kind}`));
+      }
+    });
+
     test('stock photo with its credit caption', async ({ page }) => {
       await open(page, 'showcase');
       const fig = page.locator('#tab-indepth figure.stock-photo');

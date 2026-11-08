@@ -1,5 +1,6 @@
 // Block conversion and semantic validation (07 §5.2): DraftBlock -> DocBlock, user-question
-// stripping, table/chart/diagram/stepper limits.
+// stripping, table/chart/diagram/stepper/explorable limits.
+import { clampSim } from '../../shared/explorable';
 import type { DraftBlock } from '../llm';
 import { normalizeChart } from './charts';
 import { capText, collapseWs } from './html';
@@ -29,9 +30,47 @@ export interface ConvertContext {
    */
   resolvePhoto?(blockIndex: number): { assetId: string; alt: string; caption: string } | undefined;
   warn(w: string): void;
+  /**
+   * Explorable caps beyond one section (07 §5.2: two per tab, four per document). Called once per
+   * explorable that passed every other check; false drops it. Absent: only the per-section cap.
+   */
+  takeExplorable?(): boolean;
 }
 
 export const MAX_PHOTO_CAPTION = 200;
+
+/** Explorable limits (07 §5.2). */
+export const MAX_EXPLORABLE_TITLE = 90;
+export const MAX_EXPLORABLE_CAPTION = 300;
+export const MAX_EXPLORABLE_ALT = 400;
+export const MAX_EXPLORABLES_PER_SECTION = 1;
+export const MAX_EXPLORABLES_PER_TAB = 2;
+export const MAX_EXPLORABLES_PER_DOC = 4;
+/** Canonical JSON of the clamped parameters (the data-params attribute). */
+export const MAX_EXPLORABLE_PARAMS = 1536;
+
+/**
+ * Tab and document explorable caps as a ConvertContext.takeExplorable: `docUsed` and `tabUsed`
+ * count explorables already kept elsewhere (a counter object lets the caller release a revised
+ * section's explorables). `force` counts a kept block without checking the caps.
+ */
+export function explorableBudget(
+  docUsed: { n: number },
+  tabUsed: { n: number } | number = 0,
+): (force?: boolean) => boolean {
+  const tab = typeof tabUsed === 'number' ? { n: tabUsed } : tabUsed;
+  return (force = false) => {
+    if (!force && (tab.n >= MAX_EXPLORABLES_PER_TAB || docUsed.n >= MAX_EXPLORABLES_PER_DOC)) return false;
+    tab.n++;
+    docUsed.n++;
+    return true;
+  };
+}
+
+/** Number of explorable blocks in `blocks`. */
+export function countExplorables(blocks: readonly { type: string }[]): number {
+  return blocks.filter((b) => b.type === 'explorable').length;
+}
 export const MAX_PHOTO_ALT = 300;
 
 /** Converts one draft block; null drops it. */
@@ -124,6 +163,18 @@ export function convertBlock(b: DraftBlock, ctx: ConvertContext, blockIndex = -1
       const alt = capText(collapseWs(r.alt), MAX_PHOTO_ALT) || caption;
       return { type: 'figure', assetId: r.assetId, caption, alt };
     }
+    case 'explorable': {
+      // 07 §5.2: every number clamped into its range; text capped; an unusable one is dropped.
+      const sim = clampSim(b.sim);
+      const title = capText(collapseWs(b.title), MAX_EXPLORABLE_TITLE);
+      if (!sim || !title || JSON.stringify(sim).length > MAX_EXPLORABLE_PARAMS) {
+        ctx.warn('explorable-dropped');
+        return null;
+      }
+      const caption = capText(collapseWs(b.caption), MAX_EXPLORABLE_CAPTION);
+      const alt = capText(collapseWs(b.alt), MAX_EXPLORABLE_ALT) || title;
+      return { type: 'explorable', title, caption, alt, sim };
+    }
     case 'stepper': {
       const steps = b.steps.filter((s) => collapseWs(s.label) !== '' || collapseWs(s.md) !== '');
       if (steps.length < 2) {
@@ -143,9 +194,18 @@ export function convertBlock(b: DraftBlock, ctx: ConvertContext, blockIndex = -1
 
 export function convertBlocks(blocks: readonly DraftBlock[], ctx: ConvertContext): DocBlock[] {
   const out: DocBlock[] = [];
+  let explorables = 0;
   for (const [i, b] of blocks.entries()) {
     const c = convertBlock(b, ctx, i);
-    if (c) out.push(c);
+    if (!c) continue;
+    if (c.type === 'explorable') {
+      if (explorables >= MAX_EXPLORABLES_PER_SECTION || (ctx.takeExplorable && !ctx.takeExplorable())) {
+        ctx.warn('explorable-dropped');
+        continue;
+      }
+      explorables++;
+    }
+    out.push(c);
   }
   return out;
 }

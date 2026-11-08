@@ -32,7 +32,7 @@ export default defineConfig({
     env: { TZ: 'UTC', LANG: 'en_US.UTF-8' },
     coverage: {
       provider: 'v8',
-      include: ['src/main/**', 'src/doc-runtime/**'],
+      include: ['src/main/**', 'src/doc-runtime/**', 'src/shared/**'],
       exclude: ['**/*.stub.ts', '**/testing/**'],
       // 13 §3.1 per-directory line floors; a glob's files are aggregated, and a drop fails CI.
       thresholds: {

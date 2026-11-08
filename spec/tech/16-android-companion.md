@@ -584,7 +584,10 @@ Documents are LLM-generated HTML and are untrusted.
   request has a user gesture; everything else is dropped.
 - No `addJavascriptInterface`, and nothing named `eli5Doc`. The runtime's bridge check (08 §4,
   `src/doc-runtime/bridge.ts`) then keeps it in its plain-browser, read-only mode, where tabs,
-  glossary, charts, stepper, theme and print work.
+  glossary, charts, stepper, explorables, theme and print work.
+- Explorables (07 §7.1, runtime 1.2.0) need nothing new here: their only code is the hashed runtime,
+  so the header policy, `script-src` pinning and the importer are unchanged; their `data-params`
+  attribute is inert JSON.
 - `BackHandler` goes back in WebView history first. The WebView is destroyed when the screen leaves.
 
 ### 6.4 Local storage on the phone

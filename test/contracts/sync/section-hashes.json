@@ -51,8 +51,10 @@
       "sections": [
         { "id": "sec-indepth-002d616b", "hash": "09955594bae9f8ad6b4fc07872aed692b9d348c39e1c1ae9e838f44ea0e03f2a" },
         { "id": "sec-indepth-2c0aba0b", "hash": "f168184bd817f64446573835c9edb1e9606e52523d5229ed7fe7b551fd9760fe" },
-        { "id": "sec-indepth-ff2fe033", "hash": "521b8927aac41801c1af21dd14b6f84bf9925f095fcfb7dff6203ae7c204cf36" },
-        { "id": "sec-eli5-1237126e", "hash": "761ef04bac9c507aa50420b7227d21b6068337d859f1f0de9a6c7a0b84d79ffb" },
+        { "id": "sec-indepth-1237126e", "hash": "9bcc6dbcd1bf31ef6cc45a056e1f05a983abc4564b7320f83c96e0f6fc8485b4" },
+        { "id": "sec-indepth-ff2fe033", "hash": "52cacf339bd55c5206eadfdb4de0b0e3a1dc52e0e7fd3547887da6e4c70ecdba" },
+        { "id": "sec-indepth-469edeff", "hash": "a4d6f6a903a988bcb3116d65c65fe2e3d624c15e1cfff1d31de4a24d6466051c" },
+        { "id": "sec-eli5-6619b547", "hash": "54d2a2b4381481adb0de6771eb6c3c1148962b3113c55d59a501da34c6405a11" },
         { "id": "sec-sx01e36f-ef87e7b2", "hash": "b8a73ccb0c7e3984e8bbbf744fc1148cabecdadf6d845c4b11c168dd5ede596a" }
       ]
     },

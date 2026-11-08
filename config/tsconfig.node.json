@@ -12,6 +12,7 @@
   "include": [
     "../src/env.d.ts",
     "../src/main/**/*",
+    "../src/shared/**/*",
     "../src/preload/**/*",
     "../src/renderer/src/viewer/version-tree-layout.ts",
     "../test/**/*",

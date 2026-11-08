@@ -88,6 +88,16 @@ describe('validateDocument (13 §7.1)', () => {
     expect(rules(mutate(good))).toContain(rule);
   });
 
+  it('accepts explorables and still rejects model code in an <iframe srcdoc> next to one (07 §6.2)', () => {
+    const show = fixtureDocument('showcase');
+    const html = renderDocument(show.model, show.assets, { runtime: STUB_RUNTIME, theme: show.theme });
+    expect(html).toContain('<figure class="explorable"');
+    expect(validateDocument(html).errors).toEqual([]);
+    const frame = '<iframe sandbox="allow-scripts" srcdoc="&lt;script&gt;run()&lt;/script&gt;"></iframe>';
+    const bad = html.replace('<figure class="explorable"', `${frame}<figure class="explorable"`);
+    expect(rules(bad)).toContain('single-file');
+  });
+
   it('checks tabs and sources against meta', () => {
     const r = validateDocument(good, {
       tabs: [{ key: 'indepth' }, { key: 'eli5' }],

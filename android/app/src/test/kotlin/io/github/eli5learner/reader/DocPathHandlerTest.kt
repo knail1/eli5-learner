@@ -45,6 +45,15 @@ class DocPathHandlerTest {
         assertTrue(cspOf(html).contains("script-src $hash;"))
     }
 
+    @Test fun `explorables need no new script hash or frame source (07 section 6_3)`() {
+        val html = TestDocs.fixture("showcase.html").toString(Charsets.UTF_8)
+        assertTrue(html.contains("<figure class=\"explorable\""))
+        val hash = HtmlImporter.inspect(html).scriptHashes.single()
+        val csp = cspOf(html)
+        assertTrue(csp, csp.contains("script-src $hash;"))
+        assertTrue(csp, csp.contains("frame-src 'none'"))
+    }
+
     @Test fun `a foreign file gets script-src none`() {
         assertTrue(cspOf(TestDocs.foreign()).contains("script-src 'none';"))
         assertTrue(cspOf(TestDocs.eli5(pin = false)).contains("script-src 'none';"))

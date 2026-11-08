@@ -205,6 +205,9 @@ export function sectionText(s: SectionDraft): string {
       case 'diagram':
         lines.push(`Diagram: ${b.title}. ${b.alt}`);
         break;
+      case 'explorable':
+        lines.push(`Explorable: ${b.title}. ${b.alt}`);
+        break;
       case 'figure':
         lines.push(`Figure: ${b.caption}`);
         break;

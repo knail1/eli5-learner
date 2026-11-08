@@ -9,7 +9,7 @@ import { DOC_RUNTIME_VERSION } from './runtime-assets';
 import { cryptoIdSource, ELI5_TAB_KEY, INDEPTH_TAB_KEY, mintSectionId, type IdSource } from './section-id';
 import { docThemeRef } from './theme';
 import type { AssetCredit, AssetRef, BuildInput, BuildResult, DocumentModel, Section, Tab } from './types';
-import { convertBlocks } from './validate';
+import { convertBlocks, explorableBudget } from './validate';
 
 export const MAX_TITLE = 120;
 export const MAX_DEK = 300;
@@ -70,6 +70,8 @@ export interface SectionBuildContext {
     blockIndex: number,
   ): { assetId: string; alt: string; caption: string } | undefined;
   warn(w: string): void;
+  /** Tab and document explorable caps (validate.ts explorableBudget); absent: per section only. */
+  takeExplorable?(): boolean;
   /** When given, receives the draft index of each kept section (07 §9.1 step 2 indexes drafts). */
   draftIndices?: number[];
 }
@@ -87,6 +89,7 @@ export function buildSections(drafts: DocumentDraftTab['sections'], ctx: Section
       idSource: ctx.idSource,
       resolveFigure: ctx.resolveFigure,
       ...(resolvePhoto ? { resolvePhoto: (bi: number) => resolvePhoto(di, bi) } : {}),
+      ...(ctx.takeExplorable ? { takeExplorable: ctx.takeExplorable } : {}),
       warn: ctx.warn,
     });
     if (blocks.length === 0) {
@@ -175,15 +178,22 @@ export function buildDocumentModel(input: BuildInput): BuildResult {
   const dek = input.indepth.dek ? capText(collapseWs(input.indepth.dek), MAX_DEK) : '';
   const sctx = { now, idSource, taken, resolveFigure, warn };
   const draftIndices: number[] = [];
+  const explorables = { n: 0 };
   const indepthSections = buildSections(input.indepth.sections, {
     ...sctx,
     tabKey: INDEPTH_TAB_KEY,
     resolvePhoto: resolvePhotoIn('indepth'),
+    takeExplorable: explorableBudget(explorables),
     draftIndices,
   });
   if (indepthSections.length === 0) throw new DocumentBuildError('empty_indepth');
   const eli5Sections = input.eli5
-    ? buildSections(input.eli5.sections, { ...sctx, tabKey: ELI5_TAB_KEY, resolvePhoto: resolvePhotoIn('eli5') })
+    ? buildSections(input.eli5.sections, {
+        ...sctx,
+        tabKey: ELI5_TAB_KEY,
+        resolvePhoto: resolvePhotoIn('eli5'),
+        takeExplorable: explorableBudget(explorables),
+      })
     : [];
 
   const indepth: Tab = {

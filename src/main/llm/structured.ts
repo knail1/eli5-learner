@@ -88,6 +88,19 @@ export function blockErrors(b: DraftBlock, at: string, ctx: ValidationContext): 
       if (!b.alt.trim()) errs.push(`${at}.alt: must describe the photo`);
       return errs;
     }
+    case 'explorable': {
+      // 02 §10.1: only non-finite numbers are errors (the block is dropped); ranges are clamped by
+      // document validation (07 §5.2), never repaired. Unknown kinds already fail the schema.
+      const errs: string[] = [];
+      const walk = (v: unknown, path: string): void => {
+        if (typeof v === 'number') {
+          if (!Number.isFinite(v)) errs.push(`${at}.sim${path}: must be a finite number`);
+        } else if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${path}[${i}]`));
+        else if (typeof v === 'object' && v !== null) for (const [k, x] of Object.entries(v)) walk(x, `${path}.${k}`);
+      };
+      walk(b.sim, '');
+      return errs;
+    }
     case 'diagram': {
       const errs: string[] = [];
       if (!b.svg.trimStart().startsWith('<svg')) errs.push(`${at}.svg: must start with <svg`);

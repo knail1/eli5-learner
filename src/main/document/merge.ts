@@ -29,7 +29,7 @@ import type {
   SectionId,
   Tab,
 } from './types';
-import { convertBlocks } from './validate';
+import { MAX_EXPLORABLES_PER_SECTION, convertBlocks, countExplorables, explorableBudget } from './validate';
 
 /** 09 §5.2 TabRecord, structurally. */
 export interface MergeTabRecord {
@@ -134,6 +134,8 @@ function blockLine(b: DocBlock, i: number, label: (assetId: string) => string): 
     }
     case 'diagram':
       return `${at} diagram: "${one(b.title)}" (${one(b.alt)})`;
+    case 'explorable':
+      return `${at} explorable (${b.sim.kind}): "${one(b.title)}" (${one(b.alt)})`;
     case 'figure':
       return `${at} figure [${label(b.assetId)}]: ${one(b.caption)}`;
     case 'qa':
@@ -386,6 +388,13 @@ export function applyMergePlan(
     return hit.from === 'target' ? hit.assetId : importAsset(hit.assetId);
   };
 
+  // Explorable caps (07 §5.2): what the target already holds counts; weaveTab sets the tab budget.
+  const explorablesUsed = {
+    n: t.tabs.reduce((n, tab) => n + tab.sections.reduce((k, x) => k + countExplorables(x.blocks), 0), 0),
+  };
+  const tabExplorables = { n: 0 };
+  let takeExplorable: (force?: boolean) => boolean = () => false;
+
   /** Plan blocks -> DocBlocks with their origins; `old` is the section being revised. */
   const resolveBlocks = (
     blocks: readonly MergePlanBlock[],
@@ -393,6 +402,14 @@ export function applyMergePlan(
   ): { blocks: DocBlock[]; origins: BlockOrigin[] } => {
     const out: DocBlock[] = [];
     const origins: BlockOrigin[] = [];
+    // 07 §5.2: one explorable per section; new ones also count against the tab and document caps.
+    const roomFor = (b: DocBlock, isNew: boolean): boolean => {
+      if (b.type !== 'explorable') return true;
+      // A kept explorable always fits the tab and document caps (its section's were released).
+      if (countExplorables(out) < MAX_EXPLORABLES_PER_SECTION && takeExplorable(!isNew)) return true;
+      warn('explorable-dropped');
+      return false;
+    };
     for (const b of blocks) {
       if (b.type === 'keep') {
         const kept = old?.blocks[b.block];
@@ -401,6 +418,7 @@ export function applyMergePlan(
           warn('merge-block-dropped');
           continue;
         }
+        if (!roomFor(kept, false)) continue;
         out.push(kept);
         origins.push({ kind: 'keep', index: b.block });
         continue;
@@ -412,11 +430,13 @@ export function applyMergePlan(
           warn('merge-block-dropped');
           continue;
         }
+        if (!roomFor(moved, true)) continue;
         out.push(moved);
         origins.push({ kind: 'incoming' });
         continue;
       }
       for (const c of convertBlocks([b], { idSource, resolveFigure, warn })) {
+        if (!roomFor(c, true)) continue;
         out.push(c);
         origins.push({ kind: 'written' });
       }
@@ -431,6 +451,8 @@ export function applyMergePlan(
 
   const weaveTab = (tab: Tab, tp: MergeTabPlan): Tab => {
     if (tab.placeholder && tp.revise.length === 0 && tp.insert.length === 0) return tab;
+    tabExplorables.n = tab.sections.reduce((n, x) => n + countExplorables(x.blocks), 0);
+    takeExplorable = explorableBudget(explorablesUsed, tabExplorables);
     const byId = new Map(tab.sections.map((x) => [x.id as string, x]));
     const aliasOf = (alias: string): SectionId | undefined => {
       const id = prep.targetAliases.get(alias.trim().toUpperCase());
@@ -447,8 +469,14 @@ export function applyMergePlan(
         warn('merge-unknown-section');
         continue;
       }
+      // The revised section's own explorables are released, then recounted as its blocks resolve.
+      const freed = countExplorables(old.blocks);
+      tabExplorables.n -= freed;
+      explorablesUsed.n -= freed;
       const resolved = resolveBlocks(r.blocks, old);
       if (resolved.blocks.length === 0) {
+        tabExplorables.n += freed;
+        explorablesUsed.n += freed;
         warn('merge-section-empty');
         continue;
       }

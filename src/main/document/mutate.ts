@@ -17,7 +17,7 @@ import type {
   SectionId,
   Tab,
 } from './types';
-import { convertBlocks, isUserQuestion } from './validate';
+import { convertBlocks, countExplorables, explorableBudget, isUserQuestion } from './validate';
 
 /** 07 §5.4: 2 fixed tabs + 20 section ELI5 tabs. */
 export const MAX_SECTION_ELI5_TABS = 20;
@@ -110,9 +110,16 @@ export function replaceSection(
   const warn = (w: string): void => {
     warnings.push(w);
   };
+  // 07 §5.2 explorable caps, counting every other section of the tab and the document.
+  const others = (secs: readonly Section[]): number =>
+    secs.reduce((n, s) => n + (s.id === id ? 0 : countExplorables(s.blocks)), 0);
   const blocks = convertBlocks(draft.blocks, {
     idSource: opts.idSource ?? cryptoIdSource,
     resolveFigure: assetResolver(model, opts),
+    takeExplorable: explorableBudget(
+      { n: model.tabs.reduce((n, t) => n + others(t.sections), 0) },
+      others(hit.tab.sections),
+    ),
     warn,
   });
   if (blocks.length === 0) throw new DocumentBuildError('empty_section');
@@ -302,6 +309,9 @@ export function addSectionEli5Tab(
     idSource,
     taken,
     resolveFigure: assetResolver(model, opts),
+    takeExplorable: explorableBudget({
+      n: model.tabs.reduce((n, t) => n + t.sections.reduce((k, s) => k + countExplorables(s.blocks), 0), 0),
+    }),
     warn: (w) => {
       warnings.push(w);
     },

@@ -3,6 +3,8 @@
  * Regenerate with ELI5_UPDATE_GOLDENS=1 npx vitest run test/unit/main/document/golden.test.ts
  */
 import { writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { build, type Rollup } from 'vite';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { parseDocument, renderDocument, type DocRuntime } from '../../../../src/main/document';
 import { GOLDEN_NAMES, fixtureDocument, type GoldenName } from '../../../fixtures/documents/models';
@@ -29,6 +31,31 @@ describe('doc-runtime bundle (07 §2)', () => {
     expect(runtime.js).not.toMatch(/\bimport\s*\(|\bimport\s+[\w{*]|\bexport\s/);
     expect(runtime.js).not.toMatch(/\bfetch\s*\(|XMLHttpRequest|WebSocket|\beval\s*\(|new Function\s*\(/);
   });
+});
+
+/**
+ * Explorables' share of the runtime (07 §7.1, design D26). Measured: about 9.1 KiB of JS for both
+ * kinds with the shared math (over the design's 6 KiB estimate, still inside the 40 KiB total) and
+ * under 1 KiB of CSS. The ceilings catch growth.
+ */
+describe('explorable runtime budget (07 §2, design D26)', () => {
+  it('JS <= 10 KiB minified for both kinds, CSS <= 1.5 KiB', async () => {
+    const out = (await build({
+      configFile: false,
+      logLevel: 'silent',
+      build: {
+        write: false,
+        target: 'es2020',
+        minify: true,
+        lib: { entry: resolve(process.cwd(), 'src/doc-runtime/explorable.ts'), formats: ['iife'], name: 'X' },
+      },
+    })) as Rollup.RollupOutput[];
+    const js = out.flatMap((o) => o.output).find((o) => o.type === 'chunk');
+    expect(js?.type === 'chunk' && Buffer.byteLength(js.code)).toBeLessThanOrEqual(10 * 1024);
+    const rules = runtime.css.match(/[^{}]*explorable[^{}]*\{[^}]*\}/g) ?? [];
+    expect(rules.length).toBeGreaterThan(5);
+    expect(Buffer.byteLength(rules.join(''))).toBeLessThanOrEqual(1536);
+  }, 60_000);
 });
 
 describe.each(GOLDEN_NAMES)('golden document %s', (name) => {

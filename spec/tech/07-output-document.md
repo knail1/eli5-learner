@@ -39,7 +39,8 @@ src/main/document/
   validate.ts         semantic checks, user-question stripping, limits
   inline-md.ts        inline markdown subset -> escaped HTML
   svg-sanitize.ts     allowlist sanitizer for model-supplied diagram SVG
-  charts/             ChartSpec -> inline SVG (bar, stacked-bar, line, area, pie, scatter)
+  charts/             ChartSpec -> inline SVG (bar, stacked-bar, line, area, pie, scatter);
+                      explorable.ts: explorable block -> static SVG + outcome table (7.1)
   glossary.ts         anchor resolution and placement
   references.ts       ResolvedSource / SkippedSource -> ReferenceEntry[]
   render/             one file per component, plus page.ts (skeleton) and csp.ts
@@ -50,12 +51,15 @@ src/main/photos/      stock photos (7.4): providers, query guard, slot resolutio
 src/doc-runtime/
   index.ts            boot: feature detection, module init order
   tabs.ts  glossary.ts  charts.ts  stepper.ts  figure.ts  theme.ts  print.ts  scroll.ts
+  explorable.ts       explorable controls and animation (7.1)
   selection.ts        owned by 08
   index.css           all document styles (tokens, layout, components, print)
+src/shared/explorable/  pure math shared by main and the runtime (7.1, 01 §3)
 ```
 
 The doc-runtime is built to one IIFE plus one CSS file and imported into main as `?raw` strings
-(`DOC_RUNTIME_JS`, `DOC_RUNTIME_CSS`, [01](01-architecture.md) §8.1). It has no imports, no
+(`DOC_RUNTIME_JS`, `DOC_RUNTIME_CSS`, [01](01-architecture.md) §8.1). It has no imports at run
+time (the build inlines `src/shared`), no
 `fetch`, no `XMLHttpRequest`, no `WebSocket`, no `eval`, and must run unchanged over `file://`,
 `eli5doc://`, and `https://`. Budget: JS ≤ 40 KB minified, CSS ≤ 30 KB.
 
@@ -120,7 +124,9 @@ export type BlockEnhancement =
 export interface SectionEnhancement { added?: string; blocks: BlockEnhancement[] }  // added: whole section new
 
 // DraftBlock (02 §10) with figures resolved to assets, plus the doc-only answer box; every other
-// variant is identical. Photos become figures at build time (7.4).
+// variant is identical. Photos become figures at build time (7.4). An `explorable` block keeps the
+// draft shape { type, title, caption, alt, sim } with every number clamped at build time (5.2, 7.1).
+// `sim` types and limits live in src/shared/explorable/clamp.ts (ExplorableSim).
 export type DocBlock =
   | Exclude<DraftBlock, { type: 'figure' } | { type: 'photo' }>
   | FigureDocBlock               // { type: 'figure'; assetId; caption; alt; annotations? }
@@ -268,6 +274,10 @@ export function buildDocumentModel(input: BuildInput): { model: DocumentModel; w
 | Table row width ≠ header width | Pad with empty cells or truncate; warning |
 | Table > 200 rows | Keep 200, add caption suffix "(first 200 rows)" |
 | Stepper with < 2 steps | Convert to an ordered list |
+| Explorable numbers (`src/shared/explorable` `clampSim`) | Clamp into range (scale 0.1–10, start −10–10, `lr` 0.0001–3, gradient-descent steps 10–200, `stepSize` 0.01–50, walk steps 50–500, seed 0–2³¹−1), 4 significant digits; reversed ranges ordered, a collapsed range widened tenfold each way; presets clamped into the slider range, sorted, deduplicated, at most 3, never empty (the draft schema does not bound the preset count, so a wrong count is never a drop or a repair). Never an error |
+| Explorable with a non-finite number, an unknown kind, surface or target, an empty title, or parameters over 1.5 KB of JSON | Drop block, warning `explorable-dropped` |
+| Explorable text | Title ≤ 90, caption ≤ 300, alt ≤ 400 characters (word-boundary cut); empty alt falls back to the title |
+| More than 1 explorable per section, 2 per tab or 4 per document | Keep the first ones in build order (a regenerated section counts the tab's other sections; a merge counts what the target holds, minus the explorables of each section it revises, and kept blocks always stay), drop the rest, warning `explorable-dropped` |
 | Duplicate heading in the same tab | Allowed; `aria-labelledby` uses the ID, not text |
 
 ### 5.3 Heading levels
@@ -296,7 +306,7 @@ the runtime changed) the runtime blocks.
 
 **Runtime upgrades.** A document keeps its embedded runtime (`generator.runtimeVersion`, the
 `eli5-css` and `eli5-runtime` blocks) until one of these explicit exceptions re-renders the same
-model with the bundled runtime (`bundledDocRuntime()`, `DOC_RUNTIME_VERSION`, currently `1.1.1`):
+model with the bundled runtime (`bundledDocRuntime()`, `DOC_RUNTIME_VERSION`, currently `1.2.0`, the first runtime with explorables, 7.1):
 
 1. **On open** ([08](08-interactive-reading.md) §5.1): when a document with an older runtime is
    opened in the app's viewer, the library is writable, the document parses and nothing in it is
@@ -394,7 +404,16 @@ object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'
 
 The hash is computed at render time. The JSON model block is not executed (non-script MIME type),
 so it needs no hash. `style-src 'unsafe-inline'` is needed for the theme block and chart SVG
-presentation attributes; no remote styles are possible. The viewer's protocol-level CSP
+presentation attributes; no remote styles are possible.
+
+Explorables (7.1) change nothing here: no new hash, no new directive, `frame-src 'none'` stays. Their
+only code is the hashed runtime. Rejected alternatives and why: model-authored JavaScript in an
+`<iframe sandbox srcdoc>` (an about:srcdoc document inherits this CSP, so its script would need a
+pinned hash, the validator's iframe ban would have to go, the Android importer would need a second
+HTML parser, and it would still allow CPU denial of service and phishing UI), and an expression
+language (a new parser inside the trusted runtime). Sources can prompt-inject the model, and hash
+pinning proves integrity, not safety; so the model supplies only numbers for a closed set of kinds,
+and validity (13 §7.1) still rejects any `<iframe>`. The viewer's protocol-level CSP
 ([01](01-architecture.md) §2.2) also applies in the app; both policies are enforced, and the
 stricter one wins. `frame-ancestors` cannot be set by meta and is not relied on.
 
@@ -410,7 +429,8 @@ The same file must work in the app viewer and when double-clicked in Chrome, Saf
   failure falls back to in-memory state.
 - Progressive enhancement: the runtime adds `class="js"` to `<html>`. Without JS, all tab panels
   render stacked with their tab label as a heading, glossary notes render inline, steppers show all
-  steps, and charts are already complete SVG. The document is fully readable with JS disabled.
+  steps, and charts and explorables are already complete SVG (an explorable's preset runs, labels
+  and outcome table are computed at build time). The document is fully readable with JS disabled.
 - External links: `target="_blank" rel="noopener noreferrer"`. In the app, the runtime intercepts
   clicks and calls `window.eli5Doc.openExternal(url)`.
 
@@ -534,6 +554,7 @@ translated into those choices by the prompt, never into raw HTML. Adding a compo
 | `photo` | A credited `<figure class="annotated stock-photo">` (7.4), or nothing when no photo fits | A real-world scene: people, places, objects, what an experience looks like; never data or structure | Credit links open in a new tab |
 | `stepper` | `<div class="stepper">` with ordered steps | A process with 3–8 stages | Prev/next buttons and step dots; all steps visible without JS and in print |
 | `analogy` | `<aside class="analogy">` with a "Think of it like" label | Mainly ELI5 and "Give me an analogy" actions | None |
+| `explorable` | `<figure class="explorable" data-kind data-params>`: title, caption, a static SVG of each preset's run with direct labels, and an outcome table in `<details>` (below) | A reader learns most by changing one setting and watching an iterative process respond (learning rate, MCMC step size); at most 1 per section, 2 per tab | Slider (log-mapped), preset buttons, Play/Pause, Step, Reset, polite status; static without JS and in print |
 | `qa` (doc-only, not a DraftBlock) | `<aside class="qa">` answer box with a question reveal (6.5) | Never: only the reader's Ask adds it | Native `<details>`; opened when the app lands on it |
 
 Page-level elements the renderer adds (not model blocks): kicker, `h1`, dek, meta line, merge
@@ -546,6 +567,41 @@ kept inside the image (half a diameter from every edge). Markers are placed in a
 marker whose center is closer than a diameter plus 2 px to an earlier one moves directly away from
 it to that distance (coincident centers move right, or down at the right edge), up to 8 times, so
 the layout is deterministic and the first marker never moves.
+
+**Explorables** (`src/shared/explorable/`, `charts/explorable.ts`, `src/doc-runtime/explorable.ts`).
+No model-authored code in any form: a closed `kind` enum the runtime implements, and numbers only.
+
+| Kind | Model fields | Math (`src/shared/explorable`) | Outcome words (code-computed) |
+| --- | --- | --- | --- |
+| `gradient-descent` | `surface` (`bowl`, `ravine`, `double-well`, `plateau`), `scale`, `start`, `lr {min,max,value}`, `steps`, 1–3 `presets` (learning rates) | x ← x − lr·f′(x) on a fixed surface: bowl `s/2·x²`; ravine `s/2·x² + 0.075·s·(1 − cos 4x)`; double-well `s/16·(x² − 4)²`; plateau `4s·(1 − exp(−x²/4))`, each with its analytic derivative. Stops when \|x\| > 50 or non-finite, or within 0.01 of a minimum | `diverges` (left the cutoff, "after N steps"); `oscillates` (the step changed direction ≥ 6 times); `converges` (reached a minimum, "in N steps", or covered at least half the way); `crawls` (otherwise) |
+| `metropolis-walk` | `target` (`normal`, `bimodal`, `skewed`), `start`, `stepSize {min,max,value}`, `steps`, `seed`, 1–3 `presets` (step sizes) | Seeded xorshift32, Gaussian proposals (Box-Muller), Metropolis acceptance on unnormalized log densities: N(0,1); two unit normals at ±2.5; a gamma (shape 2, scale 1.5) shifted to start at −3. A start where the density is zero begins at the mode | `sticks` (> 85 % accepted), `mixes` (15–85 %), `stuck` (< 15 %), with the acceptance rate |
+
+The model chooses only the family and its numbers; no expression is ever parsed. Main simulates
+each preset with the same shared math the runtime runs, so the labels ("lr 0.1: converges in 37
+steps"), the `<desc>`, the outcome table (setting, outcome, steps, final position or acceptance)
+and Markdown (10 §5.2) cannot contradict the animation. Captions are model text but are told not to
+state outcomes. The static SVG (480 × 280 viewBox, ≤ 560 px wide): gradient descent draws the curve,
+each preset's run as dots on it (a run that leaves the plot is drawn to the edge it leaves through)
+and a ring at the start; the walk draws the density and, under it, one strip per preset shading the
+positions it visited. All marks use the `viz-*` classes (7.2 rule 11). `render` re-clamps
+`sim`, so a hand-edited model cannot make the static simulation unbounded; if it cannot be clamped
+only the text renders.
+
+The runtime (`safe('explorable')`, §14) reads `data-params` with `JSON.parse`, re-clamps with the
+shared math, and adds controls with `createElement`/`textContent` only, inside a
+`[data-eli5-noact]` box after the SVG: a labelled native range input (positions 0–1000 mapped
+logarithmically over the range, `aria-valuetext` "learning rate 0.1"), one button per preset
+(`aria-pressed`), Play/Pause, Step, Reset and an `aria-live="polite"` status (announced on setting
+change, Step, pause and the end of a run, never per frame). A marker and its trail move inside the
+existing SVG via `requestAnimationFrame` only (a whole run plays in about 4 s, 12–150 ms per step),
+bounded by `steps` and the cutoff; a divergent run stops by itself. It pauses on `visibilitychange`
+to hidden, on any tab change and when the figure leaves the viewport (IntersectionObserver, when
+present). With `prefers-reduced-motion: reduce` there is no animation loop: a setting change or
+Play shows the whole run at once and Step advances manually. Never: timers, workers, storage,
+network, `postMessage`, `window.eli5Doc`, `innerHTML`. `figure.explorable` is outside the select-and-
+act menu (08 §5.6). Budget: about 9 KiB of the 40 KiB runtime JS (both kinds and the shared math;
+the design estimate was 6 KiB) and under 1.5 KiB of CSS; a golden test caps them at 10 KiB and
+1.5 KiB.
 
 ### 7.2 Charts (`src/main/document/charts/`)
 
@@ -1127,6 +1183,8 @@ disk changes at its next re-render.
   (`print-color-adjust: exact` for charts and callouts).
 - Glossary notes print as open, compact boxes after their block (no margin float at print widths).
 - Steppers print all steps; chart data disclosures stay closed; tooltips are not printed.
+- Explorables print their static SVG with every preset at full strength; the live marker and the
+  controls (`[data-eli5-noact]`) are hidden. The figure itself never carries `data-eli5-noact`.
 - External links print their URL after the link text (`a[href^="http"]::after`).
 - `break-inside: avoid` on figures, charts, tables ≤ 30 rows, callouts, pull quotes; `h2` has
   `break-after: avoid`. Page margins 18 mm, body 11 pt.
@@ -1137,7 +1195,9 @@ disk changes at its next re-render.
 
 1. Add `js` class; read theme preference; apply `data-theme`.
 2. `tabs.init()` (resolves hash), `glossary.init()`, `charts.init()`, `stepper.init()`,
-   `figure.init()`, `print.init()`, theme toggle, `enhancements.init()` (6.4 Hide highlights).
+   `figure.init()`, `explorable.init(tabs)` (7.1; reads `prefers-reduced-motion` only when the
+   document has an explorable), `print.init()`, theme toggle, `enhancements.init()` (6.4 Hide
+   highlights).
 3. If `window.eli5Doc` exists: `selection.init()` ([08](08-interactive-reading.md)), un-hide close
    buttons, `scroll.init()`, link interception.
 4. Every module is wrapped in `try/catch`; a failing module logs to the console and leaves the
@@ -1195,6 +1255,11 @@ open-on-landing is part of `scroll.init()`, 08 §7.4), and the menu is part of `
       labels read "ELI5: <heading>".
 - [ ] Every `DraftBlock` variant renders per 7.1, and every chart kind renders per 7.2 in both
       themes with a data table disclosure.
+- [ ] An explorable renders its static SVG, labels and outcome table with no extra script; the CSP
+      is byte-identical to a document without one; out-of-range numbers are clamped and
+      non-finite ones drop the block; caps 1/2/4 hold; the runtime's slider has `aria-valuetext`,
+      a divergent run stops by itself, reduced motion runs no animation loop, and the whole thing
+      works over `file://` in Chromium and WebKit from the keyboard.
 - [ ] Sanitizer fixtures: script, `foreignObject`, `on*`, external `href`, `url(http…)`, and
       `style` payloads are all removed.
 - [ ] Glossary notes appear in the right margin at ≥ 1100 px aligned with their anchor block, as

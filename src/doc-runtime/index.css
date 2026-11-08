@@ -1056,6 +1056,65 @@ figure.stock-photo .fig-media img {
   opacity: 0.45;
   cursor: default;
 }
+
+/* Explorables (07 §7.1): the static picture works alone; the runtime adds controls and a live run. */
+figure.explorable svg {
+  width: 100%;
+  max-width: 560px;
+  height: auto;
+  display: block;
+}
+.explorable-path {
+  stroke-width: 1.5;
+  stroke-opacity: 0.6;
+}
+.explorable--live .explorable-run {
+  opacity: 0.5;
+}
+.explorable-trail {
+  stroke: var(--ink);
+  stroke-width: 2;
+}
+.explorable-ball {
+  fill: var(--ink);
+  stroke: var(--paper);
+  stroke-width: 2;
+}
+.explorable-controls {
+  font: 13px/1.4 var(--font-sans);
+  margin: 8px 0;
+}
+.explorable-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.explorable-row input {
+  flex: 1 1 160px;
+  accent-color: var(--accent);
+}
+.explorable-row button {
+  font: 600 13px/1 var(--font-sans);
+  color: var(--ink);
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+.explorable-row button[aria-pressed='true'] {
+  border-color: var(--ink);
+}
+.explorable-row button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.explorable-status {
+  margin: 0;
+  color: var(--muted);
+}
 .stepper-dots {
   display: flex;
   gap: 6px;
@@ -1256,6 +1315,13 @@ html.js.eli5-sel-note .gl-note[data-eli5-sel] * {
   }
   .stepper--js .step:not(.is-current) {
     display: block;
+  }
+  /* Explorables print their static picture: no live run, presets at full strength. */
+  .explorable-live {
+    display: none;
+  }
+  .explorable--live .explorable-run {
+    opacity: 1;
   }
   /* The question prints as a static "You asked: …" line, open even before any script runs. */
   .qa-chip {

@@ -122,7 +122,8 @@ Each directory has one public entry (`index.ts`) that is the only import path ot
 | `src/main/sync/` | v2, optional: personal sync. `SyncStore` port, Google OAuth (loopback + PKCE) and Drive REST client, store guard, push engine, claims, heartbeat, job inbox and ledger; stub stores `google-drive-folder`, `dropbox`, `webdav` | `createSyncService()`, `SyncStore`, `SyncStatus` | 16 |
 | `src/preload/app.ts` | `window.eli5` API | `Eli5Api` (type) | this file, 11 |
 | `src/preload/doc.ts` | `window.eli5Doc` API | `Eli5DocApi` (type) | this file, 08 |
-| `src/preload/contract.ts` | IPC channel constants, payload/response types, `IpcResult<T>` (types and string constants only; no runtime deps). The **only** location for types shared with renderers; there is no `src/shared/` (supersedes 03 §1) | `IPC`, `IpcResult` | this file |
+| `src/preload/contract.ts` | IPC channel constants, payload/response types, `IpcResult<T>` (types and string constants only; no runtime deps). The **only** location for IPC types shared with renderers (supersedes 03 §1) | `IPC`, `IpcResult` | this file |
+| `src/shared/` | Pure code run by both main and the doc-runtime: today `explorable/` (surfaces, gradient descent, Metropolis walk, clamping, outcome words). No DOM, Node or package imports; included by `config/tsconfig.node.json`, `config/tsconfig.web.json` and the doc-runtime Vite build | `clampSim()`, `runGD()`, `runMH()`, `outcomeRows()` | 07 §7.1 |
 | `src/renderer/` | React UI | — | 11 |
 | `src/doc-runtime/` | Tabs, glossary layout, selection bridge; built to one IIFE + CSS and inlined into every document | `DOC_RUNTIME_JS`, `DOC_RUNTIME_CSS` (build-time strings) | 07, 08 |
 | `android/` (outside `src/`) | v2, optional: the Android companion, its own Gradle build; never part of the npm toolchain | — | 16 §6 |
@@ -130,7 +131,8 @@ Each directory has one public entry (`index.ts`) that is the only import path ot
 **Dependency rules** (enforced by an ESLint `import/no-restricted-paths` config, see 13):
 
 - `src/renderer`, `src/doc-runtime` may import only `src/preload/contract.ts` (types) and their
-  own files. Never `src/main`.
+  own files; `src/doc-runtime` and `src/main` may also import `src/shared`. Never `src/main`.
+- `src/shared` imports only `src/shared`, by relative path (no Node built-ins or packages).
 - `src/main/*` modules import each other only through `index.ts`. `pipeline` may depend on
   `sources`, `extract`, `llm`, `document`, `library`, `photos`; `document` may depend on `llm`;
   `photos` may depend on `document`, `llm` (types and `sectionText`) and `fetch`; nothing depends

@@ -33,6 +33,15 @@ class HtmlImporterTest {
         }
     }
 
+    @Test fun `a document with explorables (data-params JSON) imports with its single pinned script`() {
+        val html = TestDocs.fixture("showcase.html").toString(Charsets.UTF_8)
+        assertTrue(html.contains("data-params=\"{&quot;kind&quot;:&quot;gradient-descent&quot;"))
+        val i = HtmlImporter.inspect(html)
+        assertTrue(i.isEli5)
+        assertTrue(i.headings.contains("How the routing model learns"))
+        assertEquals(1, i.scriptHashes.size)
+    }
+
     @Test fun `the runtime hash matches the one the desktop pinned in the meta CSP`() {
         val html = TestDocs.fixture("full.html").toString(Charsets.UTF_8)
         val i = HtmlImporter.inspect(html)

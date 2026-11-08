@@ -3,6 +3,7 @@ import { mkdir as fsMkdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { clampSim, fmtNum, outcomeRows, settingName } from '../../shared/explorable';
 import type { Settings } from '../config';
 import { parseDocument, type DocBlock, type DocumentModel, type ReferenceEntry } from '../document';
 import { abbreviateHome, cancelled, expandHome, prepareExportDir, writeExportFile } from './local';
@@ -85,6 +86,17 @@ export function blockToMarkdown(b: DocBlock): string {
         `> **You asked:** ${oneLine(b.question).replace(/[\\*_`[\]]/g, '\\$&')}`,
         ...b.paragraphs.map(quote),
       ].join('\n>\n');
+    case 'explorable': {
+      // 10 §5.2: no animation in Markdown; the outcomes the app computed stand in for it. The
+      // numbers are re-clamped (as the renderer does), so a hand-edited model stays bounded.
+      const sim = clampSim(b.sim);
+      const text = [italic(b.title), oneLine(b.caption), oneLine(b.alt)];
+      if (!sim) return text.filter((x) => x !== '').join('\n\n');
+      const name = settingName(sim);
+      const rows = outcomeRows(sim).map((r) => [fmtNum(r.setting), r.outcome, String(r.steps), r.result]);
+      const head = [name.charAt(0).toUpperCase() + name.slice(1), 'Outcome', 'Steps', 'Result'];
+      return [...text, pipeTable(head, rows)].filter((x) => x !== '').join('\n\n');
+    }
     case 'stepper':
       return [
         `**${oneLine(b.title)}**`,
