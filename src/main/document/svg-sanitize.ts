@@ -81,15 +81,18 @@ export const COLOR_TOKENS = ['1', '2', '3', '4', '5', '6', '7', '8', 'ink', 'mut
 export type ColorToken = (typeof COLOR_TOKENS)[number];
 
 /**
- * Hues of the chromatic light-theme --viz tokens (index.css, 07 §11.1), for nearest-hue mapping.
- * The graphite and grey slots (4, 7) and the sky slot (5, same hue as 1) are not hue targets.
+ * Hues of the chromatic light-theme --viz tokens (index.css, 07 §11.1), for nearest-hue mapping:
+ * blue, vermillion, purple, teal, green, violet, ochre. The graphite slot (4) is not a hue target.
+ * A test derives each entry from RUNTIME_LIGHT, so they cannot drift from the palette.
  */
 export const VIZ_HUES: readonly [ColorToken, number][] = [
-  ['1', 202],
-  ['2', 26],
+  ['1', 203],
+  ['2', 25],
   ['3', 318],
-  ['6', 138],
-  ['8', 43],
+  ['5', 176],
+  ['6', 104],
+  ['7', 254],
+  ['8', 49],
 ];
 
 const NAMED: Record<string, string> = {
@@ -253,14 +256,14 @@ export const PALETTE_MARK = 'viz-pal-2';
 
 /**
  * Old palette slot -> current slot with the nearest hue (07 §11.1): blue, orange, green, magenta,
- * violet, gold, teal, red became blue, vermillion, green, purple, purple, ochre, sky, vermillion.
+ * violet, gold, teal, red became blue, vermillion, green, purple, violet, ochre, teal, vermillion.
  */
 const LEGACY_SLOT: Readonly<Record<string, string>> = {
   '1': '1',
   '2': '2',
   '3': '6',
   '4': '3',
-  '5': '3',
+  '5': '7',
   '6': '8',
   '7': '5',
   '8': '2',

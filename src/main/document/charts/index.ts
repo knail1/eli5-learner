@@ -18,9 +18,11 @@ export {
   stripEmphasis,
   unshout,
   type ChartAsTable,
+  type ChartContext,
   MAX_LINE_SERIES,
   MAX_BAR_SERIES,
   MAX_PIE_SLICES,
+  MAX_DERIVED_TITLE,
 } from './normalize';
 
 const KIND_NAMES: Record<ChartSpec['kind'], string> = {

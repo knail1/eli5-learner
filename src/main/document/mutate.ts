@@ -130,6 +130,8 @@ export function replaceSection(
   );
   const others = (secs: readonly Section[]): number =>
     secs.reduce((n, s) => n + (s.id === id ? 0 : countAnimations(s.blocks)), 0);
+  const rawHeading = collapseWs(draft.heading) || hit.section.heading;
+  const heading = rawHeading.length > 120 ? rawHeading.slice(0, 119) + '…' : rawHeading;
   const blocks = convertBlocks(draft.blocks, {
     idSource: opts.idSource ?? cryptoIdSource,
     resolveFigure: assetResolver(model, opts),
@@ -138,15 +140,15 @@ export function replaceSection(
       others(hit.tab.sections),
     ),
     keepAnimation: () => ownAnimations.shift(),
+    heading,
     warn,
   });
   if (blocks.length === 0) throw new DocumentBuildError('empty_section');
-  const heading = collapseWs(draft.heading) || hit.section.heading;
   const { merge, mergeMarker } = hit.section;
   const section: Section = {
     id,
     kind: 'content',
-    heading: heading.length > 120 ? heading.slice(0, 119) + '…' : heading,
+    heading,
     blocks: carryAnswers(hit.section.blocks, blocks),
     origin: 'regenerated',
     updatedAt: now,

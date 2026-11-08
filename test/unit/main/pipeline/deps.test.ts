@@ -127,7 +127,7 @@ describe('createPipelineDeps (06 §2, M1 handoff wiring)', () => {
     // Skill theme feeds the document theme (07 §11.3).
     const theme = d.docTheme();
     expect(theme.source).toBe('skill');
-    expect(theme.theme.tokens['--accent']).toBe('#d97757');
+    expect(theme.theme.tokens['--accent']).toBe('#b5532f');
     // The task functions run against the registry's provider with the bundled prompts.
     const summary = await d.tasks.summarize(
       { kind: 'indepth', title: 'T', dek: 'D', sections: [{ heading: 'H', blocks: [{ type: 'paragraph', md: 'x' }] }] },

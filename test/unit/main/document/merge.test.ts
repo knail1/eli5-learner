@@ -251,6 +251,22 @@ describe('applyMergePlan (07 §8.1)', () => {
     });
   });
 
+  it('a written chart with a blank title takes its section heading (07 §5.2)', () => {
+    const chart = {
+      type: 'chart' as const,
+      chart: { kind: 'bar' as const, title: '', categories: ['a', 'b'], series: [{ name: 's', values: [1, 2] }] },
+    };
+    const plan: MergePlanDraft = {
+      indepth: { revise: [], insert: [{ after: 'START', heading: 'Plant output', blocks: [chart] }] },
+      eli5: { revise: [], insert: [] },
+      glossary: [],
+    };
+    const w = wovenFixture(STUB_RUNTIME, plan);
+    const block = w.model.tabs[0]?.sections[0]?.blocks[0];
+    expect(block?.type === 'chart' && block.chart.title).toBe('Plant output');
+    expect(w.warnings).toContain('chart-title-derived');
+  });
+
   it('skips unknown aliases and invalid blocks with warnings, never failing the merge', () => {
     const plan: MergePlanDraft = {
       indepth: {

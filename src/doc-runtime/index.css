@@ -1,9 +1,9 @@
 /* Document styles (07 §11): tokens, layout, components, glossary margin notes, print. */
 
 /* ---- Tokens (07 §11.1) ---- */
-/* Categorical chart palette --viz-1..8 (07 §11.1), Okabe-Ito derived: the first four (blue, vermillion,
-   purple, graphite) stay apart under protan, deutan and tritan vision; every slot is >= 3:1 on the
-   paper in both themes. */
+/* Categorical chart palette --viz-1..8 (07 §11.1), shared by every theme (themes cannot set it):
+   blue, vermillion, purple, graphite, teal, green, grey, ochre. Every slot is >= 4.5:1 on the paper
+   in both themes, adjacent slots (and any two of the first five) differ by CIEDE2000 > 20. */
 :root {
   color-scheme: light dark;
   --paper: #fbfaf7;
@@ -16,14 +16,14 @@
   --accent: #0f5fa8;
   --accent-ink: #ffffff;
   --highlight: #fff1a8;
-  --viz-1: #0072b2;
-  --viz-2: #d55e00;
-  --viz-3: #ab2b85;
-  --viz-4: #5f5f5f;
-  --viz-5: #3a8fc8;
-  --viz-6: #117733;
-  --viz-7: #8c8c8c;
-  --viz-8: #a47500;
+  --viz-1: #0067a5;
+  --viz-2: #b84c00;
+  --viz-3: #a12a7e;
+  --viz-4: #4a4a4a;
+  --viz-5: #047c74;
+  --viz-6: #2e7514;
+  --viz-7: #5a32e0;
+  --viz-8: #7e6600;
   --viz-muted: #bdb8ad;
   --viz-grid: #e4e0d7;
   --callout-note: #edf3fa;
@@ -59,12 +59,12 @@
     --highlight: #5a4b12;
     --viz-1: #56b4e9;
     --viz-2: #f28e52;
-    --viz-3: #c07caf;
-    --viz-4: #b8b8b8;
-    --viz-5: #9fd3f2;
-    --viz-6: #44aa77;
-    --viz-7: #8c8c8c;
-    --viz-8: #e0b040;
+    --viz-3: #d48ac4;
+    --viz-4: #cbcbcb;
+    --viz-5: #2ed3c6;
+    --viz-6: #86d45a;
+    --viz-7: #8474ff;
+    --viz-8: #d8c040;
     --viz-muted: #5b5f66;
     --viz-grid: #2d3035;
     --callout-note: #1b2836;
@@ -93,12 +93,12 @@
   --highlight: #5a4b12;
   --viz-1: #56b4e9;
   --viz-2: #f28e52;
-  --viz-3: #c07caf;
-  --viz-4: #b8b8b8;
-  --viz-5: #9fd3f2;
-  --viz-6: #44aa77;
-  --viz-7: #8c8c8c;
-  --viz-8: #e0b040;
+  --viz-3: #d48ac4;
+  --viz-4: #cbcbcb;
+  --viz-5: #2ed3c6;
+  --viz-6: #86d45a;
+  --viz-7: #8474ff;
+  --viz-8: #d8c040;
   --viz-muted: #5b5f66;
   --viz-grid: #2d3035;
   --callout-note: #1b2836;
@@ -1253,14 +1253,14 @@ html.js.eli5-sel-note .gl-note[data-eli5-sel] * {
     --accent: #0f5fa8;
     --accent-ink: #ffffff;
     --highlight: #fff1a8;
-    --viz-1: #0072b2;
-    --viz-2: #d55e00;
-    --viz-3: #ab2b85;
-    --viz-4: #5f5f5f;
-    --viz-5: #3a8fc8;
-    --viz-6: #117733;
-    --viz-7: #8c8c8c;
-    --viz-8: #a47500;
+    --viz-1: #0067a5;
+    --viz-2: #b84c00;
+    --viz-3: #a12a7e;
+    --viz-4: #4a4a4a;
+    --viz-5: #047c74;
+    --viz-6: #2e7514;
+    --viz-7: #5a32e0;
+    --viz-8: #7e6600;
     --viz-muted: #bdb8ad;
     --viz-grid: #e4e0d7;
     --callout-note: #edf3fa;

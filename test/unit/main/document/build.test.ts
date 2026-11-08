@@ -208,6 +208,37 @@ describe('buildDocumentModel (07 §5.1)', () => {
     expect(m.dek?.length ?? 0).toBeLessThanOrEqual(300);
   });
 
+  it('fixes a blank chart title from the section heading and merges repeated categories (07 §5.2)', () => {
+    const indepth: DocumentDraftTab = {
+      kind: 'indepth',
+      title: 't',
+      sections: [
+        {
+          heading: 'Search pays back the most',
+          blocks: [
+            {
+              type: 'chart',
+              chart: {
+                kind: 'bar',
+                title: ' ',
+                categories: ['Search', 'Social', 'Search'],
+                series: [{ name: 'Return', values: [2, 1, 3] }],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const { model: m, warnings: w } = build({ indepth });
+    const chart = m.tabs[0]?.sections[0]?.blocks[0];
+    expect(chart?.type).toBe('chart');
+    if (chart?.type !== 'chart') return;
+    expect(chart.chart.title).toBe('Search pays back the most');
+    expect(chart.chart.categories).toEqual(['Search', 'Social']);
+    expect(chart.chart.series[0]?.values).toEqual([5, 1]);
+    expect(w).toEqual(expect.arrayContaining(['chart-title-derived', 'chart-categories-merged']));
+  });
+
   it('never produces org references in the public build (HOOK-DOC-02)', () => {
     expect(model.references.some((r) => r.kind === 'org')).toBe(false);
     expect(model.generator.edition).toBe('public');

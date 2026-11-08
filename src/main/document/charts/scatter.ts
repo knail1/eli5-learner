@@ -117,6 +117,9 @@ export function renderScatter(chart: ChartSpec, W: number = CHART_WIDTH): { body
     );
   }
   const dots: { cx: number; cy: number; r: number; hl: boolean }[] = [];
+  // 07 §7.2 rule 6, as in bar, line and pie: with a highlight, its points take the accent and every
+  // other point is muted, so the accent never sits next to a series colour that resembles it.
+  const hasHl = chart.highlight !== undefined && chart.categories.includes(chart.highlight.category);
   chart.series.forEach((s, si) => {
     s.values.forEach((v, i) => {
       if (v === null || !Number.isFinite(v)) return;
@@ -126,7 +129,7 @@ export function renderScatter(chart: ChartSpec, W: number = CHART_WIDTH): { body
         ['cx', r2(xp(i))],
         ['cy', r2(y(v))],
         ['r', hl ? 6 : 4.5],
-        ['class', `${hl ? 'viz-fill-accent' : seriesClass('fill', si)} viz-dot`],
+        ['class', `${hl ? 'viz-fill-accent' : hasHl ? 'viz-fill-muted' : seriesClass('fill', si)} viz-dot`],
         ...markAttrs(markLabel(chart, chart.categories[i] ?? '', si), formatValue(v, chart.unit)),
       ]);
     });

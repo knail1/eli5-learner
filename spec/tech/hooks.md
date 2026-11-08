@@ -198,7 +198,7 @@ The one-paragraph summaries below are not the contract. The callout in the defin
 **HOOK-DOC-01 · Organization document theme and branding.** Defined in [07-output-document.md](./07-output-document.md).
 - *Public:* a neutral default `DocTheme`, the footer "Made with ELI5 Learner", no logo and no classification label.
 - *Binding supplies:*
-  - token overrides for colors, fonts and optional embedded fonts, within a size cap;
+  - token overrides for colors (not the chart slots `--viz-1 … --viz-8`, which are fixed), fonts and optional embedded fonts, within a size cap;
   - a sanitized logo SVG;
   - a footer or classification label;
   - whether the theme applies to every document or only to published ones (HOOK-PUB-01, HOOK-PUB-03);

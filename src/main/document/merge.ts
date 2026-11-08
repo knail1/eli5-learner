@@ -416,6 +416,7 @@ export function applyMergePlan(
   const resolveBlocks = (
     blocks: readonly MergePlanBlock[],
     old: Section | undefined,
+    sectionHeading: string,
   ): { blocks: DocBlock[]; origins: BlockOrigin[] } => {
     const out: DocBlock[] = [];
     const origins: BlockOrigin[] = [];
@@ -452,7 +453,7 @@ export function applyMergePlan(
         origins.push({ kind: 'incoming' });
         continue;
       }
-      for (const c of convertBlocks([b], { idSource, resolveFigure, warn })) {
+      for (const c of convertBlocks([b], { idSource, resolveFigure, heading: sectionHeading, warn })) {
         if (!roomFor(c, true)) continue;
         out.push(c);
         origins.push({ kind: 'written' });
@@ -490,7 +491,7 @@ export function applyMergePlan(
       const freed = countAnimations(old.blocks);
       tabAnimations.n -= freed;
       animationsUsed.n -= freed;
-      const resolved = resolveBlocks(r.blocks, old);
+      const resolved = resolveBlocks(r.blocks, old, heading(r.heading, old.heading));
       if (resolved.blocks.length === 0) {
         tabAnimations.n += freed;
         animationsUsed.n += freed;
@@ -537,7 +538,7 @@ export function applyMergePlan(
         warn('sections-capped');
         break;
       }
-      const { blocks } = resolveBlocks(ins.blocks, undefined);
+      const { blocks } = resolveBlocks(ins.blocks, undefined, heading(ins.heading, 'More on this'));
       if (blocks.length === 0) {
         warn('merge-section-empty');
         continue;

@@ -127,12 +127,26 @@ describe('chart validation is structural only (02 §10.1)', () => {
     return r.ok ? [] : r.errors;
   };
 
-  it('rejects a blank title and duplicate categories', () => {
-    expect(errors({ title: '  ' })).toEqual(["blocks[0].chart.title: must state the chart's takeaway"]);
-    expect(errors({ categories: ['a', 'a'] })).toEqual(['blocks[0].chart.categories[1]: duplicate category "a"']);
+  it('never asks for a repair for a blank title or duplicate categories (fixed in code, 07 §5.2)', () => {
+    expect(errors({ title: '  ' })).toEqual([]);
+    expect(errors({ categories: ['a', 'a'] })).toEqual([]);
+    expect(errors({ kind: 'line', title: '', categories: ['a', 'a'] })).toEqual([]);
     // A pie with a negative value is normalized to a bar chart (07 §5.2), never repaired.
     expect(errors({ kind: 'pie', series: [{ name: 's', values: [1, -2] }] })).toEqual([]);
+    // Structure still counts: a series shorter than the categories asks for a repair.
     expect(errors({ series: [{ name: 's', values: [1] }] })).toHaveLength(1);
+  });
+
+  it('keeps chunk-note chart candidates with a blank title or repeated categories', () => {
+    const r = validateDraft('ChunkNotes', {
+      notes: 'n',
+      keyFacts: [],
+      tables: [],
+      chartCandidates: [{ kind: 'bar', title: '', categories: ['a', 'a'], series: [{ name: 's', values: [1, 2] }] }],
+      jargon: [],
+      sourceRefs: [],
+    });
+    expect(r.ok && r.data.chartCandidates).toHaveLength(1);
   });
 
   it('accepts presentation problems the renderer normalizes: shouting, many series, sparse values, annotations', () => {

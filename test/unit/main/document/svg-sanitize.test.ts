@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { colorToken, sanitizeSvg } from '../../../../src/main/document';
+import { RUNTIME_LIGHT, parseColor, rgbToHsl, type ColorToken, type Rgb } from '../../../../src/main/document/color';
+import { VIZ_HUES } from '../../../../src/main/document/svg-sanitize';
 
 const opts = { idPrefix: 'd12345678-', ariaLabel: 'A diagram', rootClass: 'diagram-svg' };
 const wrap = (inner: string, rootAttrs = 'viewBox="0 0 100 50"'): string =>
@@ -188,7 +190,7 @@ describe('no gradients, patterns or shading (07 §7.3)', () => {
     const out =
       sanitizeSvg(
         wrap(
-          '<defs><linearGradient id="base"><stop offset="0" style="stop-color:#117733"/></linearGradient>' +
+          '<defs><linearGradient id="base"><stop offset="0" style="stop-color:#2e7514"/></linearGradient>' +
             '<linearGradient id="ref" href="#base"/><linearGradient id="empty"/></defs>' +
             rect('fill="url(#ref)"') +
             rect('style="fill:url(#base)"') +
@@ -243,13 +245,26 @@ describe('old-palette diagrams (07 §7.3, §11.1)', () => {
 });
 
 describe('colorToken', () => {
+  it('each hue target is the hue of its light-theme slot (07 §11.1), so the two cannot drift', () => {
+    for (const [slot, hue] of VIZ_HUES) {
+      const { h } = rgbToHsl(parseColor(RUNTIME_LIGHT[`--viz-${slot}` as ColorToken]) as Rgb);
+      expect(Math.abs(h - hue), `slot ${slot}`).toBeLessThanOrEqual(1);
+    }
+    // Every chromatic slot is a target; only graphite (4) is not.
+    expect(VIZ_HUES.map(([s]) => s).sort()).toEqual(['1', '2', '3', '5', '6', '7', '8']);
+  });
+
   it('maps grays by lightness and hues to the nearest viz token', () => {
     expect(colorToken('#000')).toBe('ink');
     expect(colorToken('#fff')).toBe('paper');
     expect(colorToken('#888888')).toBe('muted');
     expect(colorToken('#cccccc')).toBe('rule');
-    // Hue targets follow the 07 §11.1 palette: blue 1, vermillion 2, purple 3, green 6, ochre 8.
-    expect(colorToken('hsl(146, 50%, 40%)')).toBe('6');
+    // Hue targets follow the 07 §11.1 palette: blue 1, vermillion 2, purple 3, teal 5, green 6,
+    // violet 7, ochre 8.
+    expect(colorToken('hsl(110, 50%, 40%)')).toBe('6');
+    expect(colorToken('teal')).toBe('5');
+    expect(colorToken('#20b2aa')).toBe('5');
+    expect(colorToken('#6a3fd8')).toBe('7');
     expect(colorToken('red')).toBe('2');
     expect(colorToken('#0072b2')).toBe('1');
     expect(colorToken('purple')).toBe('3');

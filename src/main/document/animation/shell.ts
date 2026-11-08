@@ -5,11 +5,11 @@
 // motion and gives the model a small accessible helper API (`window.ELI5`).
 //
 // Frozen: documents pin this exact text by hash (the frame CSP and the parent CSP). A change is a
-// new shell version kept next to this one, so older documents still round-trip byte for byte, and
-// a DOC_RUNTIME_VERSION bump. Written without backticks, `${` or backslashes so String.raw keeps the
-// source text exactly.
+// new shell version, with older ones kept in ANIMATION_SHELLS so older documents still round-trip
+// byte for byte, and a DOC_RUNTIME_VERSION bump. Written without backticks, `${` or backslashes so
+// String.raw keeps the source text exactly.
 
-/** Version 1 of the shell script. */
+/** Version 2 of the shell script (version 1 with the shared chart palette, 07 §11.1). */
 export const ANIMATION_SHELL_JS = String.raw`(function () {
   'use strict';
   var W = window, D = document, P = W.parent;
@@ -70,9 +70,9 @@ export const ANIMATION_SHELL_JS = String.raw`(function () {
   } catch (e) {}
   var themes = {
     light: { paper: '#fbfaf7', ink: '#1b1b1b', muted: '#5a5a5a', grid: '#e4e0d7', accent: '#0f5fa8',
-      series: ['#0072b2', '#d55e00', '#ab2b85', '#5f5f5f', '#3a8fc8', '#117733', '#8c8c8c', '#a47500'] },
+      series: ['#0067a5', '#b84c00', '#a12a7e', '#4a4a4a', '#047c74', '#2e7514', '#5a32e0', '#7e6600'] },
     dark: { paper: '#16171a', ink: '#ece9e4', muted: '#a9a59e', grid: '#2d3035', accent: '#6fb1f5',
-      series: ['#56b4e9', '#f28e52', '#c07caf', '#b8b8b8', '#9fd3f2', '#44aa77', '#8c8c8c', '#e0b040'] }
+      series: ['#56b4e9', '#f28e52', '#d48ac4', '#cbcbcb', '#2ed3c6', '#86d45a', '#8474ff', '#d8c040'] }
   };
   var mq = function (q) { try { return W.matchMedia(q).matches; } catch (e) { return false; } };
   var theme = mq('(prefers-color-scheme: dark)') ? 'dark' : 'light';
@@ -241,15 +241,15 @@ export const ANIMATION_SHELL_JS = String.raw`(function () {
   if (W.ResizeObserver) new W.ResizeObserver(function () { height(false); }).observe(D.body);
 })();`;
 
-/** Version 1 of the shell stylesheet: theme tokens, layout at 320 px and up, accessible controls. */
+/** Version 2 of the shell stylesheet: theme tokens, layout at 320 px and up, accessible controls. */
 export const ANIMATION_SHELL_CSS =
   ':root{color-scheme:light dark;--paper:#fbfaf7;--ink:#1b1b1b;--muted:#5a5a5a;--grid:#e4e0d7;--accent:#0f5fa8;' +
-  '--s1:#0072b2;--s2:#d55e00;--s3:#ab2b85;--s4:#5f5f5f;--s5:#3a8fc8;--s6:#117733;--s7:#8c8c8c;--s8:#a47500}' +
+  '--s1:#0067a5;--s2:#b84c00;--s3:#a12a7e;--s4:#4a4a4a;--s5:#047c74;--s6:#2e7514;--s7:#5a32e0;--s8:#7e6600}' +
   '@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--paper:#16171a;--ink:#ece9e4;--muted:#a9a59e;' +
-  '--grid:#2d3035;--accent:#6fb1f5;--s1:#56b4e9;--s2:#f28e52;--s3:#c07caf;--s4:#b8b8b8;--s5:#9fd3f2;--s6:#44aa77;' +
-  '--s7:#8c8c8c;--s8:#e0b040}}' +
+  '--grid:#2d3035;--accent:#6fb1f5;--s1:#56b4e9;--s2:#f28e52;--s3:#d48ac4;--s4:#cbcbcb;--s5:#2ed3c6;--s6:#86d45a;' +
+  '--s7:#8474ff;--s8:#d8c040}}' +
   ':root[data-theme=dark]{--paper:#16171a;--ink:#ece9e4;--muted:#a9a59e;--grid:#2d3035;--accent:#6fb1f5;' +
-  '--s1:#56b4e9;--s2:#f28e52;--s3:#c07caf;--s4:#b8b8b8;--s5:#9fd3f2;--s6:#44aa77;--s7:#8c8c8c;--s8:#e0b040}' +
+  '--s1:#56b4e9;--s2:#f28e52;--s3:#d48ac4;--s4:#cbcbcb;--s5:#2ed3c6;--s6:#86d45a;--s7:#8474ff;--s8:#d8c040}' +
   '*{box-sizing:border-box}' +
   'html,body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}' +
   '#eli5-anim{padding:8px;min-width:0}' +
@@ -265,7 +265,29 @@ export const ANIMATION_SHELL_CSS =
   'button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}' +
   '.eli5-readout{margin:8px 0 0;font-variant-numeric:tabular-nums}';
 
+// Version 1 (runtime 1.3.0) differs from version 2 only in its series colours, so it is derived
+// from version 2 by swapping them back; a test pins its exact hashes.
+const PALETTE_V2 = {
+  light: ['#0067a5', '#b84c00', '#a12a7e', '#4a4a4a', '#047c74', '#2e7514', '#5a32e0', '#7e6600'],
+  dark: ['#56b4e9', '#f28e52', '#d48ac4', '#cbcbcb', '#2ed3c6', '#86d45a', '#8474ff', '#d8c040'],
+};
+const PALETTE_V1 = {
+  light: ['#0072b2', '#d55e00', '#ab2b85', '#5f5f5f', '#3a8fc8', '#117733', '#8c8c8c', '#a47500'],
+  dark: ['#56b4e9', '#f28e52', '#c07caf', '#b8b8b8', '#9fd3f2', '#44aa77', '#8c8c8c', '#e0b040'],
+};
+const seriesJs = (l: readonly string[]): string => `series: [${l.map((c) => `'${c}'`).join(', ')}]`;
+const seriesCss = (l: readonly string[]): string => l.map((c, i) => `--s${i + 1}:${c}`).join(';');
+
+/** Version 2 with every series colour list and `--sN` declaration set back to version 1. */
+function shellV1(text: string, list: (l: readonly string[]) => string): string {
+  let out = text;
+  for (const k of ['light', 'dark'] as const) out = out.split(list(PALETTE_V2[k])).join(list(PALETTE_V1[k]));
+  return out;
+}
+const SHELL_V1_CSS = shellV1(ANIMATION_SHELL_CSS, seriesCss);
+
 /** Every shell version a valid document may contain, newest first (07 §6.2 validity). */
 export const ANIMATION_SHELLS: readonly { js: string; css: string }[] = [
   { js: ANIMATION_SHELL_JS, css: ANIMATION_SHELL_CSS },
+  { js: shellV1(ANIMATION_SHELL_JS, seriesJs), css: SHELL_V1_CSS },
 ];

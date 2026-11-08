@@ -87,11 +87,13 @@ export function buildSections(drafts: DocumentDraftTab['sections'], ctx: Section
       break;
     }
     const resolvePhoto = ctx.resolvePhoto;
+    const heading = capText(collapseWs(d.heading), MAX_HEADING);
     const blocks = convertBlocks(d.blocks, {
       idSource: ctx.idSource,
       resolveFigure: ctx.resolveFigure,
       ...(resolvePhoto ? { resolvePhoto: (bi: number) => resolvePhoto(di, bi) } : {}),
       ...(ctx.takeAnimation ? { takeAnimation: ctx.takeAnimation } : {}),
+      heading,
       warn: ctx.warn,
     });
     if (blocks.length === 0) {
@@ -104,7 +106,7 @@ export function buildSections(drafts: DocumentDraftTab['sections'], ctx: Section
     out.push({
       id,
       kind: 'content',
-      heading: capText(collapseWs(d.heading), MAX_HEADING),
+      heading,
       blocks,
       origin: 'generated',
       updatedAt: ctx.now,

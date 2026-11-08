@@ -172,6 +172,13 @@ describe('runtimeFor (D12)', () => {
     expect(rt.stamp(parsed('0.9.0').model).generator.runtimeVersion).toBe(DOC_RUNTIME_VERSION);
   });
 
+  it('a document on runtime 1.3.0 (the palette before 07 §11.1 shared it) takes the bundled runtime', () => {
+    expect(compareRuntimeVersions('1.3.0', DOC_RUNTIME_VERSION)).toBe(-1);
+    const rt = runtimeFor(parsed('1.3.0'), () => NEW_RUNTIME);
+    expect(rt.upgraded).toBe(true);
+    expect(rt.runtime).toBe(NEW_RUNTIME);
+  });
+
   it('keeps the old runtime when the bundled one is missing', () => {
     const rt = runtimeFor(parsed('0.9.0'), () => {
       throw new Error('missing');

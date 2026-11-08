@@ -25,6 +25,7 @@ import {
   ANIMATION_SANDBOX,
   ANIMATION_SHELL_CSS,
   ANIMATION_SHELL_JS,
+  ANIMATION_SHELLS,
   MAX_ANIMATION_CSS,
   MAX_ANIMATION_HTML,
   MAX_ANIMATION_JS,
@@ -33,6 +34,7 @@ import {
   animationHashes,
   animationSrcdoc,
   lintAnimation,
+  parseAnimationSrcdoc,
   renderAnimationFigure,
 } from '../../../../src/main/document/animation';
 import { convertBlocks, type ConvertContext } from '../../../../src/main/document/validate';
@@ -470,6 +472,23 @@ describe('the sandboxed frame (07 §6.2, §7.1)', () => {
     expect(animationCsp([h1, h2])).toBe(csp);
     expect(srcdoc).toContain(`<style id="eli5-anim-shell">${ANIMATION_SHELL_CSS}</style>`);
     expect(srcdoc.indexOf('Content-Security-Policy')).toBeLessThan(srcdoc.indexOf('<style'));
+  });
+
+  it('keeps the runtime 1.3.0 shell (version 1) byte for byte, so frames built with it still parse', () => {
+    expect(ANIMATION_SHELLS[0]).toEqual({ js: ANIMATION_SHELL_JS, css: ANIMATION_SHELL_CSS });
+    const v1 = ANIMATION_SHELLS[1];
+    if (!v1) throw new Error('version 1 shell missing');
+    // The hashes of the shell that commit A1 shipped (runtime 1.3.0).
+    expect(sha(v1.js)).toBe("'sha256-e0IZQWdbe3ACvYq4uAxQ5qL1XqULufinduwV3RqYVMk='");
+    expect(sha(v1.css)).toBe("'sha256-nentYDor5iJOQ+BDzCJkcAJKPRDCX5jT9AJYvp4uZOg='");
+    const current = animationSrcdoc(b);
+    const old = current
+      .replace(sha(ANIMATION_SHELL_JS), () => sha(v1.js))
+      .replace(ANIMATION_SHELL_CSS, () => v1.css)
+      .replace(ANIMATION_SHELL_JS, () => v1.js);
+    expect(old).not.toBe(current);
+    expect(parseAnimationSrcdoc(old)?.hashes).toEqual([sha(v1.js), sha(PACKING_JS)]);
+    expect(parseAnimationSrcdoc(current)?.hashes).toEqual([sha(ANIMATION_SHELL_JS), sha(PACKING_JS)]);
   });
 
   it('is deterministic and escapes model text', () => {

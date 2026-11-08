@@ -43,20 +43,13 @@ export type ValidationOutcome<T> = { ok: true; data: T; dropped: string[] } | { 
 
 /**
  * Structural chart checks only (02 §10.1): every series as long as the categories, finite
- * values, no duplicate categories (scatter x values may repeat), a title. Presentation rules
- * (series caps, sparse series, text case, annotations, a pie with negative values, which becomes
- * a bar chart) are normalized by the renderer (07 §5.2) and never trigger a repair call.
+ * values. Everything else is fixed in code by the renderer (07 §5.2) and never triggers a repair
+ * call: repeated categories merge, a blank title is derived, and presentation rules (series caps,
+ * sparse series, text case, annotations, a pie with negative values, which becomes a bar chart)
+ * are normalized.
  */
 function chartErrors(c: ChartCandidate, at: string): string[] {
   const errs: string[] = [];
-  if (c.title.trim() === '') errs.push(`${at}.title: must state the chart's takeaway`);
-  if (c.kind !== 'scatter') {
-    const seen = new Set<string>();
-    c.categories.forEach((cat, i) => {
-      if (seen.has(cat)) errs.push(`${at}.categories[${i}]: duplicate category "${cat}"`);
-      seen.add(cat);
-    });
-  }
   c.series.forEach((s, i) => {
     if (s.values.length !== c.categories.length) {
       errs.push(

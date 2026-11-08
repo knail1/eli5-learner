@@ -90,7 +90,8 @@ describe('deriveDarkTokens (07 §11.4)', () => {
     const css = readFileSync(path.join(REPO, 'resources/skills/beautiful-doc/theme.css'), 'utf8');
     const light = parseThemeTokens(css);
     const d = deriveDarkTokens(light) as Record<ColorToken, string>;
-    expect(Object.keys(d).sort()).toEqual([...COLOR_TOKENS].sort());
+    // Every colour token except the chart slots, which no theme sets (07 §11.1).
+    expect(Object.keys(d).sort()).toEqual(COLOR_TOKENS.filter((t) => !/^--viz-[1-8]$/.test(t)).sort());
     const paper = d['--paper'];
     // Surfaces are dark, near the runtime's lightness, and keep their light hue.
     expect(ratio(paper, '#000')).toBeLessThan(1.4);
@@ -110,18 +111,7 @@ describe('deriveDarkTokens (07 §11.4)', () => {
     for (const t of ['--ink-2', '--muted', '--link', '--accent'] as const) {
       expect(ratio(d[t], paper), t).toBeGreaterThanOrEqual(4.5);
     }
-    for (const t of [
-      '--gl-rule',
-      '--pull-rule',
-      '--viz-1',
-      '--viz-2',
-      '--viz-3',
-      '--viz-4',
-      '--viz-5',
-      '--viz-6',
-      '--viz-7',
-      '--viz-8',
-    ] as const) {
+    for (const t of ['--gl-rule', '--pull-rule'] as const) {
       expect(ratio(d[t], paper), t).toBeGreaterThanOrEqual(3);
     }
     expect(ratio(d['--accent-ink'], d['--accent'])).toBeGreaterThanOrEqual(4.5);

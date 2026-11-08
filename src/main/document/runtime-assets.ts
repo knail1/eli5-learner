@@ -6,10 +6,10 @@ import { DocRuntimeMissingError } from './errors';
 import type { DocRuntime } from './types';
 
 /** Recorded in DocumentModel.generator.runtimeVersion; bump when the runtime contract changes. */
-export const DOC_RUNTIME_VERSION = '1.3.0';
+export const DOC_RUNTIME_VERSION = '1.3.1';
 
 /**
- * The first runtime with the colour-blind-safe chart palette (07 §11.1). Diagram SVG stored by an
+ * The first runtime with the current chart slot order (07 §11.1). Diagram SVG stored by an
  * older runtime carries theme classes numbered for the old palette; parse remaps them (07 §7.3).
  */
 export const PALETTE_RUNTIME_VERSION = '1.1.1';

@@ -1,6 +1,6 @@
 // Chart normalization at build time (07 §5.2): the Wong rules the renderer enforces on a model
 // ChartSpec. Validation (02 §10.1) only checks structure; everything here is a quiet fix plus a
-// build warning, never a repair call.
+// build warning, never a repair call or a drop (repeated categories merge, a blank title is derived).
 import type { ChartSpec } from '../../llm';
 import { formatValue, NO_DATA } from './common';
 
@@ -19,6 +19,14 @@ export const MAX_ANNOTATION_TEXT = 80;
 /** Names listed in the "No data for ..." footnote before "and N more". */
 const MAX_GAP_NAMES = 5;
 export const OTHER = 'Other';
+/** Title of a chart with no title, heading, y-axis label or series name to derive one from. */
+export const FALLBACK_TITLE = 'Chart';
+
+/** What the chart's surroundings offer for fixes (07 §5.2). */
+export interface ChartContext {
+  /** The section heading, for a blank title. */
+  heading?: string;
+}
 
 /** A chart whose every series was too sparse to plot: shown as a table instead (07 §5.2). */
 export interface ChartAsTable {
@@ -172,6 +180,53 @@ function chartAsTable(c: ChartSpec): ChartAsTable {
 
 // ---- steps ----
 
+/** Longest derived title: the section heading's own cap (07 §5.2). */
+export const MAX_DERIVED_TITLE = 120;
+
+/**
+ * Repeated categories (scatter x values may repeat) merge into the first occurrence: bars, stacked
+ * bars and pies sum each series (an all-null group stays null); lines and areas keep the first
+ * reading that has a value, since summing two readings of one point in time would invent a value.
+ * The footnote tells the reader which categories were combined.
+ */
+function mergeDuplicateCategories(chart: ChartSpec, warn: (w: string) => void): ChartSpec {
+  if (chart.kind === 'scatter' || new Set(chart.categories).size === chart.categories.length) return chart;
+  const groups = new Map<string, number[]>();
+  chart.categories.forEach((cat, i) => {
+    const g = groups.get(cat);
+    if (g) g.push(i);
+    else groups.set(cat, [i]);
+  });
+  const keepFirst = chart.kind === 'line' || chart.kind === 'area';
+  const firstValue = (s: ChartSpec['series'][number], idx: readonly number[]): number | null =>
+    idx.map((i) => s.values[i]).find(isNum) ?? null;
+  const repeated = [...groups].filter(([, idx]) => idx.length > 1).map(([cat]) => cat);
+  warn('chart-categories-merged');
+  const merged: ChartSpec = {
+    ...chart,
+    categories: [...groups.keys()],
+    series: chart.series.map((s) => ({
+      ...s,
+      values: [...groups.values()].map((idx) =>
+        keepFirst ? firstValue(s, idx) : sumOf(idx.map((i) => s.values[i] ?? null)),
+      ),
+    })),
+  };
+  const how = keepFirst ? 'first value shown' : 'values added';
+  return addFootnote(merged, `Repeated ${nameList(repeated)} combined (${how}).`);
+}
+
+/** A blank title is derived from the section heading, else the y-axis label, else the first series. */
+function deriveTitle(chart: ChartSpec, ctx: ChartContext, warn: (w: string) => void): ChartSpec {
+  if (chart.title !== '') return chart;
+  const title =
+    [ctx.heading === undefined ? '' : chartText(ctx.heading), chart.yLabel ?? '', chart.series[0]?.name ?? ''].find(
+      (t) => t !== '',
+    ) ?? FALLBACK_TITLE;
+  warn('chart-title-derived');
+  return { ...chart, title: capped(title, MAX_DERIVED_TITLE) };
+}
+
 function foldCategories(chart: ChartSpec, warn: (w: string) => void): ChartSpec {
   const n = chart.categories.length;
   if (n <= MAX_CATEGORIES) return chart;
@@ -249,9 +304,9 @@ function normalizePie(chart: ChartSpec, warn: (w: string) => void): ChartSpec {
 }
 
 /**
- * Series caps: lines/areas/scatter keep the series named by the highlight plus the largest by mean
- * |value| (at most four); grouped bars keep the four largest totals; stacked bars fold the rest
- * into an "Other" series. Dropped series are named in the footnote.
+ * Series caps: lines/areas/scatter keep the four largest by mean |value| (a highlight names a
+ * category, so it never picks a series); grouped bars keep the four largest; stacked bars fold the
+ * rest into an "Other" series. The number of dropped series is given in the footnote.
  */
 function capSeries(chart: ChartSpec, warn: (w: string) => void): ChartSpec {
   const isLine = chart.kind === 'line' || chart.kind === 'area' || chart.kind === 'scatter';
@@ -271,9 +326,8 @@ function capSeries(chart: ChartSpec, warn: (w: string) => void): ChartSpec {
     };
     return { ...keepSeries(chart, keep), series: [...keepSeries(chart, keep).series, other] };
   }
-  const hl = chart.highlight?.category;
   const ranked = chart.series
-    .map((s, i) => ({ i, score: s.name === hl ? Infinity : meanAbs(s.values) }))
+    .map((s, i) => ({ i, score: meanAbs(s.values) }))
     .sort((a, b) => b.score - a.score || a.i - b.i);
   const keep = new Set(ranked.slice(0, max).map((r) => r.i));
   const more = chart.series.length - keep.size;
@@ -326,10 +380,14 @@ function noteGaps(chart: ChartSpec): ChartSpec {
 /**
  * 07 §5.2 chart normalization. Returns null (drop) when the chart is empty or a series length
  * differs from the category count, a table when every series is too sparse, else the chart with
- * the Wong rules applied (text, categories, pie, sparse and capped series, order, annotations,
- * footnotes).
+ * the Wong rules applied (text, repeated categories, blank title, categories, pie, sparse and
+ * capped series, order, annotations, footnotes).
  */
-export function normalizeChart(input: ChartSpec, warn: (w: string) => void): ChartSpec | ChartAsTable | null {
+export function normalizeChart(
+  input: ChartSpec,
+  warn: (w: string) => void,
+  ctx: ChartContext = {},
+): ChartSpec | ChartAsTable | null {
   const n = input.categories.length;
   if (n === 0 || input.series.length === 0) return null;
   if (input.series.some((s) => s.values.length !== n)) {
@@ -340,6 +398,8 @@ export function normalizeChart(input: ChartSpec, warn: (w: string) => void): Cha
     ...input,
     series: input.series.map((s) => ({ ...s, values: [...s.values] })),
   });
+  chart = mergeDuplicateCategories(chart, warn);
+  chart = deriveTitle(chart, ctx, warn);
   chart = foldCategories(chart, warn);
   const dense = dropSparse(chart, warn);
   if ('table' in dense) return dense;

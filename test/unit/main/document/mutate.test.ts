@@ -105,6 +105,22 @@ describe('replaceSection (07 §8, 08 §6.4)', () => {
     );
   });
 
+  it('a regenerated chart with a blank title takes the section heading (07 §5.2)', () => {
+    const chartDraft: SectionDraft = {
+      heading: ' ',
+      blocks: [
+        {
+          type: 'chart',
+          chart: { kind: 'bar', title: '', categories: ['a', 'b'], series: [{ name: 's', values: [1, 2] }] },
+        },
+      ],
+    };
+    const r = replaceSection(doc.model, id, chartDraft, 'reexplain', LATER, { idSource: new SeededIdSource(3) });
+    const block = r.model.tabs[0]?.sections[1]?.blocks[0];
+    expect(block?.type === 'chart' && block.chart.title).toBe(doc.model.tabs[0]?.sections[1]?.heading);
+    expect(r.warnings).toEqual(['chart-title-derived']);
+  });
+
   it('refuses the references section, unknown ids, and drafts with nothing valid', () => {
     const refs = doc.model.tabs[0]?.sections.at(-1)?.id as SectionId;
     expect(() => replaceSection(doc.model, refs, draft, 'expand', LATER)).toThrow(DocumentMutationError);

@@ -40,6 +40,8 @@ export interface ConvertContext {
    */
   resolvePhoto?(blockIndex: number): { assetId: string; alt: string; caption: string } | undefined;
   warn(w: string): void;
+  /** The section heading: a chart with a blank title takes it (07 §5.2). */
+  heading?: string;
   /**
    * Animation caps beyond one section (07 §5.2: two per tab, four per document). Called once per
    * animation that passed every other check; false drops it. Absent: only the per-section cap.
@@ -171,7 +173,7 @@ export function convertBlock(b: DraftBlock, ctx: ConvertContext, blockIndex = -1
     }
     case 'chart': {
       // Wong rules (07 §5.2): normalized quietly; a chart with no plottable series becomes a table.
-      const chart = normalizeChart(b.chart, ctx.warn);
+      const chart = normalizeChart(b.chart, ctx.warn, ctx.heading === undefined ? {} : { heading: ctx.heading });
       if (chart === null) return null;
       return 'table' in chart ? { type: 'table', ...chart.table } : { type: 'chart', chart };
     }

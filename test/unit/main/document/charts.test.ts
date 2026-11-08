@@ -4,6 +4,7 @@ import {
   formatValue,
   isHorizontal,
   lineAxis,
+  MAX_DERIVED_TITLE,
   normalizeChart,
   renderChartFigure,
   renderChartSvg,
@@ -78,6 +79,27 @@ describe('chart rendering (07 §7.2)', () => {
     expect(svg).toMatch(/class="viz-fill-accent"[^>]*data-label="B"/);
     expect((svg.match(/viz-fill-muted/g) ?? []).length).toBe(2);
     expect(svg).toContain('Look here');
+  });
+
+  it('scatter highlight: accent points, every other point muted (rule 6)', () => {
+    const svg = renderChartSvg(
+      base({
+        kind: 'scatter',
+        categories: ['1', '2', '3'],
+        series: [
+          { name: 'S1', values: [3, 1, 2] },
+          { name: 'S2', values: [1, 2, 3] },
+        ],
+        highlight: { category: '2', note: 'Look here' },
+      }),
+      'x',
+    );
+    expect((svg.match(/viz-fill-accent viz-dot/g) ?? []).length).toBe(2);
+    expect((svg.match(/viz-fill-muted viz-dot/g) ?? []).length).toBe(4);
+    expect(svg).not.toMatch(/viz-fill-[12] viz-dot/);
+    // Without a highlight the series keep their colours.
+    const plain = renderChartSvg(base({ kind: 'scatter', categories: ['1', '2', '3'] }), 'x');
+    expect((plain.match(/viz-fill-1 viz-dot/g) ?? []).length).toBe(3);
   });
 
   it.each(['line', 'area'] as const)('%s highlight: accent point, muted lines and points (rule 6)', (kind) => {
@@ -197,9 +219,14 @@ describe('normalizeChart (07 §5.2)', () => {
     expect(warnings).toContain('chart-series-capped');
   });
 
-  it('a line series named by the highlight is kept even when small', () => {
-    const { chart } = run(base({ kind: 'line', series: series(6), highlight: { category: 's0', note: 'n' } }));
-    expect(chart?.series.map((x) => x.name)).toEqual(['s0', 's3', 's4', 's5']);
+  it('a highlight names a category, so the cap still keeps the largest series by mean', () => {
+    const hl = { category: 'B', note: 'n' };
+    const { chart } = run(base({ kind: 'line', series: series(6), highlight: hl }));
+    expect(chart?.series.map((x) => x.name)).toEqual(['s2', 's3', 's4', 's5']);
+    expect(chart?.highlight).toEqual(hl);
+    // A highlight that happens to match a series name gets no special treatment either.
+    const named = run(base({ kind: 'line', series: series(6), highlight: { category: 's0', note: 'n' } }));
+    expect(named.chart?.series.map((x) => x.name)).toEqual(['s2', 's3', 's4', 's5']);
   });
 
   it('grouped bars keep the four largest series; stacked bars fold the rest into Other', () => {
@@ -443,3 +470,117 @@ describe('Wong layout rules (07 §7.2)', () => {
 function series4(): ChartSpec['series'][number] {
   return { name: 's', values: [4, 3, 2, 1] };
 }
+
+describe('normalizeChart fixes in code (07 §5.2): duplicate categories and blank titles', () => {
+  const run = (c: ChartSpec, ctx?: { heading?: string }): { chart: ChartSpec | null; warnings: string[] } => {
+    const warnings: string[] = [];
+    const r = normalizeChart(c, (w) => warnings.push(w), ctx);
+    if (r !== null && 'table' in r) throw new Error('unexpected table');
+    return { chart: r, warnings };
+  };
+
+  it.each(['bar', 'stacked-bar'] as const)('%s: duplicate categories merge by summing each series', (kind) => {
+    const { chart, warnings } = run(
+      base({
+        kind,
+        categories: ['A', 'B', 'A', 'C', 'B'],
+        series: [
+          { name: 'S1', values: [1, 2, 3, 4, null] },
+          { name: 'S2', values: [null, 1, null, 2, 5] },
+        ],
+      }),
+    );
+    expect(chart?.categories).toEqual(['A', 'B', 'C']);
+    expect(chart?.series).toEqual([
+      { name: 'S1', values: [4, 2, 4] },
+      { name: 'S2', values: [null, 6, 2] },
+    ]);
+    expect(chart?.footnote).toContain('Repeated A and B combined (values added).');
+    expect(warnings).toContain('chart-categories-merged');
+  });
+
+  it('pie: duplicate slices merge by summing', () => {
+    const { chart } = run(
+      base({ kind: 'pie', categories: ['A', 'B', 'A'], series: [{ name: 's', values: [1, 2, 3] }] }),
+    );
+    expect(chart?.categories).toEqual(['A', 'B']);
+    expect(chart?.series[0]?.values).toEqual([4, 2]);
+  });
+
+  it.each(['line', 'area'] as const)('%s: the first reading with a value of a repeated category is kept', (kind) => {
+    const { chart, warnings } = run(
+      base({
+        kind,
+        categories: ['2020', '2021', '2021', '2022'],
+        series: [
+          { name: 'S1', values: [1, 2, 9, 3] },
+          { name: 'S2', values: [4, null, 7, 6] },
+        ],
+      }),
+    );
+    expect(chart?.categories).toEqual(['2020', '2021', '2022']);
+    expect(chart?.series).toEqual([
+      { name: 'S1', values: [1, 2, 3] },
+      { name: 'S2', values: [4, 7, 6] },
+    ]);
+    expect(chart?.footnote).toBe('Repeated 2021 combined (first value shown).');
+    expect(warnings).toContain('chart-categories-merged');
+  });
+
+  it('scatter x values may repeat and are left alone', () => {
+    const { chart, warnings } = run(base({ kind: 'scatter', categories: ['1', '1', '2'] }));
+    expect(chart?.categories).toEqual(['1', '1', '2']);
+    expect(warnings).not.toContain('chart-categories-merged');
+  });
+
+  it('categories that only differ by emphasis or case-shouting merge after text normalization', () => {
+    const { chart } = run(
+      base({ categories: ['**North**', 'North', 'South'], series: [{ name: 's', values: [1, 2, 3] }] }),
+    );
+    expect(chart?.categories).toEqual(['North', 'South']);
+    expect(chart?.series[0]?.values).toEqual([3, 3]);
+  });
+
+  it('merged categories keep annotations and the highlight on the surviving category', () => {
+    const { chart } = run(
+      base({
+        categories: ['A', 'B', 'A'],
+        series: [{ name: 's', values: [1, 2, 3] }],
+        highlight: { category: 'A', note: 'Most' },
+        annotations: [{ category: 'A', text: 'Peak' }],
+      }),
+    );
+    expect(chart?.highlight?.category).toBe('A');
+    expect(chart?.annotations).toEqual([{ category: 'A', text: 'Peak' }]);
+  });
+
+  it('distinct categories are untouched and give no warning', () => {
+    const { chart, warnings } = run(base({}));
+    expect(chart?.categories).toEqual(['A', 'B', 'C']);
+    expect(warnings).toEqual([]);
+  });
+
+  it('a blank title is derived from the section heading', () => {
+    const { chart, warnings } = run(base({ title: '  ' }), { heading: 'Paid **search** returns the most' });
+    expect(chart?.title).toBe('Paid search returns the most');
+    expect(warnings).toEqual(['chart-title-derived']);
+  });
+
+  it('without a heading, a blank title falls back to the y-axis label, then the first series', () => {
+    expect(run(base({ title: '', yLabel: 'Revenue per dollar' })).chart?.title).toBe('Revenue per dollar');
+    expect(run(base({ title: '' }), { heading: ' ' }).chart?.title).toBe('S1');
+    expect(run(base({ title: '', series: [{ name: ' ', values: [1, 2, 3] }] })).chart?.title).toBe('Chart');
+  });
+
+  it('a derived title is capped like a section heading', () => {
+    const { chart } = run(base({ title: '' }), { heading: 'word '.repeat(60) });
+    expect(chart?.title.length).toBeLessThanOrEqual(MAX_DERIVED_TITLE);
+    expect(chart?.title.endsWith('…')).toBe(true);
+  });
+
+  it('a title that is present is never replaced', () => {
+    const { chart, warnings } = run(base({}), { heading: 'Other heading' });
+    expect(chart?.title).toBe('Paid search returns the most per dollar');
+    expect(warnings).not.toContain('chart-title-derived');
+  });
+});

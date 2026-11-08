@@ -2,7 +2,9 @@
  * Skill theme input for the beautiful-doc slot (02 §11, 07 §11.3): the html-effectiveness palette
  * (resources/skills/beautiful-doc/html-effectiveness, Apache-2.0). Only known token names are used;
  * the renderer validates every value. Callout and glossary tokens are backgrounds for --ink text, so
- * they are light tints of sky, rust and olive (contrast is tested).
+ * they are light tints of sky, rust and olive (contrast is tested). The accent is a deeper rust than
+ * the gallery's #d97757 so highlighted chart marks and the kicker reach contrast on the paper. Chart
+ * series colours (--viz-1..8) are not set here: every theme uses the shared chart palette (07 §11.1).
  */
 :root {
   --paper: #faf9f5;
@@ -12,17 +14,9 @@
   --muted: #87867f;
   --rule: #d1cfc5;
   --link: #a8512f;
-  --accent: #d97757;
+  --accent: #b5532f;
   --accent-ink: #faf9f5;
   --highlight: #e3dacc;
-  --viz-1: #d97757;
-  --viz-2: #788c5d;
-  --viz-3: #6a8caf;
-  --viz-4: #b04a3f;
-  --viz-5: #c9a15b;
-  --viz-6: #8c6b9e;
-  --viz-7: #3d3d3a;
-  --viz-8: #87867f;
   --viz-muted: #d1cfc5;
   --viz-grid: #e8e6dc;
   --callout-note: #e7edf4;

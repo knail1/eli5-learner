@@ -9,9 +9,9 @@ describe('parseThemeTokens (07 §11.3 skill theme input)', () => {
   it('reads the bundled beautiful-doc palette', () => {
     const css = readFileSync(path.join(REPO, 'resources/skills/beautiful-doc/theme.css'), 'utf8');
     const t = parseThemeTokens(css);
-    expect(t['--accent']).toBe('#d97757');
+    expect(t['--accent']).toBe('#b5532f');
     expect(t['--font-serif']).toBe('"Iowan Old Style", ui-serif, Georgia, "Times New Roman", serif');
-    expect(Object.keys(t)).toHaveLength(28);
+    expect(Object.keys(t)).toHaveLength(20);
   });
 
   it('keeps known tokens outside @media blocks, first declaration wins, comments ignored', () => {

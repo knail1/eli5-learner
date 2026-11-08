@@ -291,11 +291,13 @@ export function buildDocumentModel(input: BuildInput): { model: DocumentModel; w
 | Link URL | Allow `http:`, `https:`, `mailto:`; other schemes render the link text only |
 | Chart series length ≠ categories length | Drop block (02 already checks; re-checked here) |
 | Chart text (`charts/normalize.ts`) | Strip inline emphasis; ALL CAPS to sentence case, acronyms kept (§7.2 rule 13) |
+| Chart category repeated (after text normalization), not scatter | Merge into the first occurrence: bar, stacked bar and pie sum each series (an all-null group stays null); line and area keep the first non-null value; the footnote names the combined categories ("Repeated A and B combined (values added)." or "(first value shown)."); warning `chart-categories-merged`. Never a repair call or a drop |
+| Chart title blank | Derive it from the section heading, else the y-axis label, else the first series name, else "Chart" (capped at 120 characters, like a heading); warning `chart-title-derived`. Never a repair call or a drop |
 | Chart with > 30 categories | Keep top 29 by first series value, fold the rest into `Other` |
 | Chart series missing > 20 % of its values (and more than one), not scatter | Drop the series and name it in the note, warning `chart-series-sparse`; when every series drops, the block becomes a table (title as caption, "No data" cells), warning `chart-sparse-tabled` |
 | Pie with negative values | Convert to horizontal bar, warning `pie-converted` |
 | Pie with > 5 slices | Keep the 4 largest, fold the rest into `Other`, warning `pie-slices-folded` |
-| Line/area/scatter with > 4 series; bar with > 4 series | Lines: keep the highlighted series plus the largest by mean \|value\|; grouped bars: the 4 largest totals; stacked bars: 3 largest plus an `Other` series; note "N more series not shown." (not for stacked); warning `chart-series-capped` |
+| Line/area/scatter with > 4 series; bar with > 4 series | Lines: keep the 4 largest by mean \|value\| (a highlight names a category, never a series); grouped bars: the 4 largest totals; stacked bars: 3 largest plus an `Other` series; note "N more series not shown." (not for stacked); warning `chart-series-capped` |
 | Chart `order: "value"` | Sort bar and stacked-bar categories largest first; lines keep their order |
 | Chart annotations | Keep up to 3 on known categories, one per category, text ≤ 80 characters; warning `chart-annotations-dropped` |
 | Chart footnote | Keep ≤ 200 characters; append "No data for A, B." for remaining gaps |
@@ -335,7 +337,7 @@ the runtime changed) the runtime blocks.
 
 **Runtime upgrades.** A document keeps its embedded runtime (`generator.runtimeVersion`, the
 `eli5-css` and `eli5-runtime` blocks) until one of these explicit exceptions re-renders the same
-model with the bundled runtime (`bundledDocRuntime()`, `DOC_RUNTIME_VERSION`, currently `1.3.0`, the first runtime with animation frames, 7.1; `1.2.0` was an unreleased runtime with declarative explorables, now removed):
+model with the bundled runtime (`bundledDocRuntime()`, `DOC_RUNTIME_VERSION`, currently `1.3.1`, the shared chart palette of 11.1; `1.3.0` was the first runtime with animation frames, 7.1; `1.2.0` was an unreleased runtime with declarative explorables, now removed):
 
 1. **On open** ([08](08-interactive-reading.md) §5.1): when a document with an older runtime is
    opened in the app's viewer, the library is writable, the document parses and nothing in it is
@@ -643,7 +645,8 @@ SHELL CSS</style><style>MODEL CSS</style></head><body><main id="eli5-anim">MODEL
 ```
 
 **Shell** (`animation/shell.ts`, frozen; a change adds a version next to it so older documents
-still validate and round-trip, and bumps `DOC_RUNTIME_VERSION`). Before the model's code runs it
+still validate and round-trip, and bumps `DOC_RUNTIME_VERSION`; `ANIMATION_SHELLS` holds version 2,
+runtime 1.3.1, and version 1, runtime 1.3.0, which differs only in its series colours). Before the model's code runs it
 captures the parent window, then makes `fetch`, `XMLHttpRequest`, `WebSocket`, `WebTransport`,
 `EventSource`, `RTCPeerConnection` (and the `webkit` form and data channels), `Worker`,
 `SharedWorker`, `BroadcastChannel`, `MessageChannel`, `importScripts`, `open`, `opener`, `parent`,
@@ -786,7 +789,7 @@ never triggers a repair call.
     attributes). Marks get `class="viz-fill-N"` / `viz-stroke-N` (N = 1..8), `viz-fill-muted`,
     `viz-grid`, `viz-ink`; `DOC_RUNTIME_CSS` defines `.viz-fill-1{fill:var(--viz-1)}`,
     `.viz-stroke-1{stroke:var(--viz-1)}` and so on for every token, so marks switch with the theme
-    without re-render. The palette is colour-vision safe (§11.1).
+    without re-render. The palette is one shared high-contrast set that no theme overrides (§11.1).
 12. Narrow widths: `renderChartFigure` emits the chart twice, the regular SVG (`viewBox` 640 wide)
     and a compact one (`class="viz viz--compact"`, 380 wide, ids `{idBase}-c-t`/`-c-d`). `figure.chart`
     is an inline-size container; below 560 px the compact SVG replaces the regular one
@@ -815,8 +818,9 @@ never triggers a repair call.
     joins the model's `footnote` (at most 200 characters kept), the build-time notes (dropped
     series, gaps) and the renderer's own axis-break sentence (rule 2), which is computed at render
     time and never stored.
-16. Series and order (build time, §5.2): at most four lines, areas or scatter groups (the series
-    named by the highlight first, then the largest by mean |value|; "N more series not shown."),
+16. Series and order (build time, §5.2): at most four lines, areas or scatter groups (the largest
+    by mean |value|; the highlight names a category, so it never picks a series; "N more series
+    not shown."),
     at most four grouped bar series (largest totals), stacked bars fold the rest into an "Other"
     series; warning `chart-series-capped`. `order: "value"` sorts bar and stacked-bar categories
     largest first (stacked: by total, nulls last); line and area charts keep the given (time)
@@ -856,8 +860,8 @@ Parse with `linkedom` in main, walk the tree, keep only allowlisted nodes:
   `viz-{fill|stroke}-ink`; `var(--viz-N|--ink|--muted|--paper|--rule)` maps to the matching
   `viz-{fill|stroke}-{token}` class; any other color is mapped by lightness and saturation to ink,
   muted, rule or paper when it is a grey, otherwise to the nearest chromatic palette hue (`VIZ_HUES`:
-  blue 1, vermillion 2, purple 3, green 6, ochre 8; the graphite, grey and sky slots are not hue
-  targets). `DOC_RUNTIME_CSS` defines every such class (7.2 rule 11), so diagrams
+  blue 1, vermillion 2, purple 3, teal 5, green 6, violet 7, ochre 8; the graphite slot is not a
+  hue target; a test derives each hue from the light palette). `DOC_RUNTIME_CSS` defines every such class (7.2 rule 11), so diagrams
   follow dark and light themes in every engine. The prompt tells the model to use the tokens.
 - IDs inside the SVG are prefixed with `d{8 hex}-` (and references rewritten) to avoid clashes
   with section IDs and other diagrams.
@@ -873,7 +877,7 @@ opened and saved. For diagrams already built by this sanitizer the pass is a fix
 document whose `generator.runtimeVersion` is older than `PALETTE_RUNTIME_VERSION` (`1.1.1`, the
 first runtime with the §11.1 palette) has its diagram and logo theme classes renumbered first, so
 each keeps its hue under the new palette: old slots 1 to 8 (blue, orange, green, magenta, violet,
-gold, teal, red) become 1, 2, 6, 3, 3, 8, 5, 2. SVG that already carries `viz-pal-2` is never
+gold, teal, red) become 1, 2, 6, 3, 7, 8, 5, 2. SVG that already carries `viz-pal-2` is never
 renumbered again, and a document saved by a newer runtime is never renumbered (an older app that
 re-sanitizes drops the mark but keeps the newer `runtimeVersion`). Stored
 charts are not re-normalized: they re-render from their `ChartSpec` with the current renderer
@@ -1184,29 +1188,45 @@ and again under `:root[data-theme="dark"]`. The body always has an explicit back
 
 No web fonts are embedded by default (system fonts only; keeps files small and offline).
 
-**Chart palette.** Okabe-Ito derived, restrained and colour-vision safe. The first four slots
-contain no red/green or blue/yellow pair and only one blue; slots 5 to 8 serve pies with five
-slices and stored charts only.
+**Chart palette.** One shared, high-contrast palette for every theme: a theme (skill or overlay,
+§11.3) cannot set `--viz-1 … --viz-8`, so a themed document never swaps in a low-contrast set.
+Comprehension comes first; colour-vision simulation is not a requirement. Slots keep their hue
+identity across palette revisions (in runtime 1.3.1, 5 moved from sky to teal and 7 from grey to
+violet, so all eight slots stay apart), so stored diagrams keep their meaning without renumbering.
 
 | Slot | Light | Dark | Name |
 | --- | --- | --- | --- |
-| `--viz-1` | `#0072b2` | `#56b4e9` | blue |
-| `--viz-2` | `#d55e00` | `#f28e52` | vermillion |
-| `--viz-3` | `#ab2b85` | `#c07caf` | purple |
-| `--viz-4` | `#5f5f5f` | `#b8b8b8` | graphite |
-| `--viz-5` | `#3a8fc8` | `#9fd3f2` | sky |
-| `--viz-6` | `#117733` | `#44aa77` | green |
-| `--viz-7` | `#8c8c8c` | `#8c8c8c` | grey |
-| `--viz-8` | `#a47500` | `#e0b040` | ochre |
+| `--viz-1` | `#0067a5` | `#56b4e9` | blue |
+| `--viz-2` | `#b84c00` | `#f28e52` | vermillion |
+| `--viz-3` | `#a12a7e` | `#d48ac4` | purple |
+| `--viz-4` | `#4a4a4a` | `#cbcbcb` | graphite |
+| `--viz-5` | `#047c74` | `#2ed3c6` | teal |
+| `--viz-6` | `#2e7514` | `#86d45a` | green |
+| `--viz-7` | `#5a32e0` | `#8474ff` | violet |
+| `--viz-8` | `#7e6600` | `#d8c040` | ochre |
 
-`test/unit/main/document/palette-cvd.test.ts` holds the palette to two checks in both themes:
-every pair of the first four stays more than 10 apart (CIEDE2000) under Machado et al. (2009)
-protanopia, deuteranopia and tritanopia simulation, and every slot is at least 3:1 on the paper.
-Callout and analogy rules (warning `--viz-2`, key point `--viz-6`, analogy `--viz-3`, note
-`--accent`) are at least 3:1 on their backgrounds. The runtime palette applies to every document
-whose CSS is re-rendered (§5.5): the palette change bumped `DOC_RUNTIME_VERSION` to `1.1.1`, so an
-older document gets it on its next refresh or edit, and its stored diagrams are renumbered at
-parse (§7.3) so a diagram painted with the old green slot 3 stays green.
+Hard rules, in both themes and for every theme file (the runtime and the bundled beautiful-doc
+theme), held by `test/unit/main/document/palette.test.ts`:
+
+- Every slot is at least 4.5:1 on the paper, so marks are clearly visible and series-coloured
+  text (line direct labels, diagram labels) is readable; the highlight accent is at least 3:1.
+- Text on any fill reaches 4.5:1: paper-coloured text on a slot fill, or ink with the 3 px paper
+  outline (§7.3).
+- Never same-hue text on a fill: a label in a slot's colour on that slot's shape becomes outlined
+  ink (§7.3).
+- Every pair of slots differs by CIEDE2000 > 20 for normal vision (charts show at most five slots,
+  but diagrams and animations may use all eight together).
+- The accent sits next to a slot colour only in the highlight rule (7.2 rule 6), where every other
+  mark is muted (bar, line, pie and scatter alike); the animation prompt tells the model the same.
+- Callout and analogy rules (warning `--viz-2`, key point `--viz-6`, analogy `--viz-3`, note
+  `--accent`) are at least 3:1 on their backgrounds.
+
+The runtime CSS, its print block, `color.ts` (`RUNTIME_LIGHT`, `RUNTIME_DARK`) and the animation
+shell's `palette` carry the same values (tested). The runtime palette applies to every document
+whose CSS is re-rendered (§5.5); this palette bumped `DOC_RUNTIME_VERSION` to `1.3.1`, so a
+1.3.0 document takes it on open. An earlier palette change bumped `DOC_RUNTIME_VERSION` to `1.1.1`
+and renumbered stored diagrams at parse (§7.3) so a diagram painted with the old green slot 3 stays
+green.
 
 ### 11.2 Switching
 
@@ -1224,8 +1244,11 @@ parse (§7.3) so a diagram painted with the old green slot 3 stays green.
 
 `DocTheme = { id; version; tokens: Record<TokenName, string>; footer?: string; logoSvg?: string }`.
 Precedence: default theme < skill theme input (CSS custom properties supplied by the beautiful-doc
-skill, [02](02-llm-provider.md) §11) < overlay theme (HOOK-DOC-01). Only known token names are
-accepted and values must match `^(#[0-9a-f]{3,8}|rgb\(…\)|hsl\(…\)|oklch\(…\)|[a-z-]+|[0-9.]+(px|rem|em)?|"[^"<>]*"( ?, ?[a-zA-Z "-]+)*)$`;
+skill, [02](02-llm-provider.md) §11) < overlay theme (HOOK-DOC-01). The chart slots `--viz-1 …
+--viz-8` are fixed (§11.1): any layer that sets one, light or dark, has it dropped with warning
+`theme-token-chart-fixed:<token>`, and `themeCss` never writes one, so a stored theme that set one
+gets the shared palette on its next re-render. Only known token names are accepted and values must
+match `^(#[0-9a-f]{3,8}|rgb\(…\)|hsl\(…\)|oklch\(…\)|[a-z-]+|[0-9.]+(px|rem|em)?|"[^"<>]*"( ?, ?[a-zA-Z "-]+)*)$`;
 anything else is dropped with a warning. The theme is written into `#eli5-theme` and recorded in
 `DocumentModel.theme`. `DocTheme.darkTokens?` optionally carries explicit dark values (11.4); a
 skill supplies them in a `@media (prefers-color-scheme: dark)` block of its CSS. When a higher layer
@@ -1264,7 +1287,7 @@ handler adds the derived rules when it serves such a document (`upgradeThemeBloc
 disk changes at its next re-render.
 
 <!-- hook:HOOK-DOC-01 -->
-> **Private hook · HOOK-DOC-01 · Organization document theme and branding.** Public behavior: neutral default theme, footer "Made with ELI5 Learner", no logo, no classification label; the registry's `docTheme` capability returns the default `DocTheme`. Private binding supplies: organization token overrides (colors, fonts, optionally a data-URI embedded font within a size cap), optionally explicit dark values for those colors (`DocTheme.darkTokens`; otherwise derived per 11.4), a logo SVG (sanitized by 7.3 rules) for the header kicker, a footer or data-classification label, whether the theme applies to every document or only to documents published through HOOK-PUB-01 / HOOK-PUB-03, and the theme `id`/`version` for traceability. Registered through the capability registry per HOOK-CFG-02. Binding lives in the private spec under "HOOK-DOC-01".
+> **Private hook · HOOK-DOC-01 · Organization document theme and branding.** Public behavior: neutral default theme, footer "Made with ELI5 Learner", no logo, no classification label; the registry's `docTheme` capability returns the default `DocTheme`. Private binding supplies: organization token overrides (colors other than the fixed chart slots of 11.1, fonts, optionally a data-URI embedded font within a size cap), optionally explicit dark values for those colors (`DocTheme.darkTokens`; otherwise derived per 11.4), a logo SVG (sanitized by 7.3 rules) for the header kicker, a footer or data-classification label, whether the theme applies to every document or only to documents published through HOOK-PUB-01 / HOOK-PUB-03, and the theme `id`/`version` for traceability. Registered through the capability registry per HOOK-CFG-02. Binding lives in the private spec under "HOOK-DOC-01".
 
 ## 12. Tab bar behavior (`tabs.ts`)
 

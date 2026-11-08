@@ -43,10 +43,11 @@ describe('bundled skills', () => {
     expect(lib.forSlot('eli5')?.examples).toEqual([]);
   });
 
-  it('beautiful-doc theme.css sets every document token and all values are accepted', () => {
+  it('beautiful-doc theme.css sets every document token but the chart slots, and all values are accepted', () => {
     const css = lib.themeCss(['beautiful-doc']);
     const tokens = parseThemeCss(css);
-    expect(Object.keys(tokens).sort()).toEqual([...TOKEN_NAMES].sort());
+    // Chart slots are the shared palette every theme uses (07 §11.1).
+    expect(Object.keys(tokens).sort()).toEqual(TOKEN_NAMES.filter((t) => !/^--viz-[1-8]$/.test(t)).sort());
     const { theme, source, warnings } = resolveDocTheme({ skill: tokens });
     expect(warnings).toEqual([]);
     expect(source).toBe('skill');

@@ -51,6 +51,36 @@ export function sanitizeTokens(
   return out;
 }
 
+/**
+ * The chart slots (07 §11.1): one shared palette for every theme, chosen for contrast and
+ * distinctness in both themes. A theme layer that sets one has it dropped with a warning, and
+ * themeCss never writes one, so a stored theme that set one gets the shared palette on re-render.
+ */
+export const CHART_SLOTS = [
+  '--viz-1',
+  '--viz-2',
+  '--viz-3',
+  '--viz-4',
+  '--viz-5',
+  '--viz-6',
+  '--viz-7',
+  '--viz-8',
+] as const satisfies readonly TokenName[];
+const CHART_SLOT_SET = new Set<string>(CHART_SLOTS);
+
+/** The tokens without the chart slots; each dropped slot is reported. */
+function withoutChartSlots(
+  tokens: Partial<Record<TokenName, string>>,
+  warn: (w: string) => void,
+): Partial<Record<TokenName, string>> {
+  const out: Partial<Record<TokenName, string>> = {};
+  for (const [name, value] of Object.entries(tokens) as [TokenName, string][]) {
+    if (CHART_SLOT_SET.has(name)) warn(`theme-token-chart-fixed:${name}`);
+    else out[name] = value;
+  }
+  return out;
+}
+
 export interface ThemeLayers {
   base?: DocTheme;
   /** CSS custom properties from the beautiful-doc skill (02 §11). */
@@ -75,8 +105,8 @@ export function resolveDocTheme(layers: ThemeLayers): {
     warnings.push(w);
   };
   const base = layers.base ?? defaultDocTheme;
-  let tokens = sanitizeTokens(base.tokens as Record<string, string>, warn);
-  let dark = sanitizeTokens((base.darkTokens ?? {}) as Record<string, string>, warn);
+  let tokens = withoutChartSlots(sanitizeTokens(base.tokens as Record<string, string>, warn), warn);
+  let dark = withoutChartSlots(sanitizeTokens((base.darkTokens ?? {}) as Record<string, string>, warn), warn);
   let source: DocThemeRef['source'] = 'default';
   let id = base.id;
   let version = base.version;
@@ -88,8 +118,8 @@ export function resolveDocTheme(layers: ThemeLayers): {
     light: Readonly<Record<string, string>>,
     darkIn: Readonly<Record<string, string>> | undefined,
   ): void => {
-    const l = sanitizeTokens(light, warn);
-    const d = sanitizeTokens(darkIn ?? {}, warn);
+    const l = withoutChartSlots(sanitizeTokens(light, warn), warn);
+    const d = withoutChartSlots(sanitizeTokens(darkIn ?? {}, warn), warn);
     for (const name of Object.keys(l) as TokenName[]) if (!(name in d)) delete dark[name];
     tokens = { ...tokens, ...l };
     dark = { ...dark, ...d };
@@ -117,7 +147,9 @@ export function resolveDocTheme(layers: ThemeLayers): {
 }
 
 function decls(tokens: Readonly<Partial<Record<TokenName, string>>>): string {
-  return TOKEN_NAMES.filter((n) => tokens[n] !== undefined && isValidTokenValue(tokens[n] ?? ''))
+  return TOKEN_NAMES.filter(
+    (n) => !CHART_SLOT_SET.has(n) && tokens[n] !== undefined && isValidTokenValue(tokens[n] ?? ''),
+  )
     .map((n) => `${n}:${tokens[n] ?? ''}`)
     .join(';');
 }
