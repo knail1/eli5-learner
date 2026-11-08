@@ -38,6 +38,8 @@ fun OnboardingScreen(
     onConnect: () -> Unit,
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Connected but no Mac seen yet (16 §6.2: "Waiting for your Mac" until a desktop device file appears). */
+    waitingForMac: Boolean = true,
 ) {
     Scaffold(
         modifier = modifier,
@@ -79,8 +81,10 @@ fun OnboardingScreen(
                                         ?: stringResource(R.string.account_connected),
                                     style = MaterialTheme.typography.bodyMedium,
                                 )
-                                Text(stringResource(R.string.onboarding_waiting), style = MaterialTheme.typography.titleSmall)
-                                Text(stringResource(R.string.onboarding_waiting_body), style = MaterialTheme.typography.bodyMedium)
+                                if (waitingForMac) {
+                                    Text(stringResource(R.string.onboarding_waiting), style = MaterialTheme.typography.titleSmall)
+                                    Text(stringResource(R.string.onboarding_waiting_body), style = MaterialTheme.typography.bodyMedium)
+                                }
                                 Button(onClick = onDone) { Text(stringResource(R.string.onboarding_continue)) }
                             }
                             else -> {

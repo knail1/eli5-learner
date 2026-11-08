@@ -100,6 +100,9 @@ enum class SyncErrorCode {
     /** Drive storage full; "Your Google Drive is full". */
     E_SYNC_QUOTA,
 
+    /** The remote format is newer than this app; read-only, "Update ELI5 Learner to keep syncing". */
+    E_SYNC_FORMAT,
+
     /** HTTP 404. */
     E_SYNC_NOT_FOUND,
 

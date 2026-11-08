@@ -52,6 +52,12 @@ class DocStore(
         return bytes.takeIf { sha256Hex(it) == sha }
     }
 
+    /** Whether `<key>/<sha>.html` exists (not verified; [read] verifies). */
+    fun exists(
+        key: String,
+        sha: String,
+    ): Boolean = isValidKey(key) && isValidSha(sha) && File(File(root, key), "$sha.html").isFile
+
     /** Every stored `(key, sha)` pair, for rebuilding the index from the files. */
     fun list(): List<Pair<String, String>> =
         root
@@ -76,13 +82,21 @@ class DocStore(
     fun prune(
         key: String,
         sha: String,
+    ) = pruneExcept(key, setOf(sha))
+
+    /** Removes every file under [key] except the shas in [keep]; the folder goes when nothing is left. */
+    fun pruneExcept(
+        key: String,
+        keep: Set<String>,
     ) {
         requireKey(key)
-        File(root, key)
+        val dir = File(root, key)
+        dir
             .listFiles()
             .orEmpty()
-            .filter { it.isFile && it.name != "$sha.html" }
+            .filter { it.isFile && it.name.removeSuffix(".html") !in keep }
             .forEach { it.delete() }
+        if (dir.isDirectory && dir.listFiles().isNullOrEmpty()) dir.delete()
     }
 
     companion object {

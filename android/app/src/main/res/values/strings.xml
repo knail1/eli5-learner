@@ -81,4 +81,55 @@
     <string name="probe_changes">Check changes</string>
     <string name="probe_delete">Delete my probe</string>
     <string name="probe_clear">Clear log</string>
+    <!-- Library sync (16 §6.2, §6.4). Offline is a state, not an error. -->
+    <string name="sync_state_synced">Synced</string>
+    <string name="sync_state_syncing">Syncing…</string>
+    <string name="sync_state_offline">Not synced right now</string>
+    <string name="sync_problem_offline">Offline. Documents on this phone still open.</string>
+    <string name="sync_problem_format">Update ELI5 Learner to keep syncing</string>
+    <string name="sync_problem_quota">Your Google Drive is full</string>
+    <string name="sync_problem_error">Couldn’t sync just now. It tries again by itself.</string>
+    <string name="sync_last">Last synced %1$s</string>
+    <string name="sync_never">Not synced yet</string>
+    <string name="sync_mac_seen">Your Mac was last seen %1$s</string>
+    <string name="sync_mac_never_seen">Your Mac hasn’t checked in yet</string>
+    <string name="sync_mac_no_jobs">Your Mac isn’t taking jobs right now</string>
+    <plurals name="sync_pending">
+        <item quantity="one">%1$d document still to download</item>
+        <item quantity="other">%1$d documents still to download</item>
+    </plurals>
+    <string name="action_sync_now">Sync now</string>
+    <string name="folder_all">All</string>
+    <string name="folder_unfiled">Unfiled</string>
+    <string name="folder_archive">Archive</string>
+    <string name="label_unread">New version</string>
+    <string name="label_updated">Updated %1$s</string>
+    <string name="label_busy">Your Mac is updating this document</string>
+    <string name="label_not_downloaded">Not on this phone yet</string>
+    <string name="label_pinned">Kept offline</string>
+    <string name="action_pin">Keep offline</string>
+    <string name="action_unpin">Don’t keep offline</string>
+
+    <string name="reader_updated">Updated on your Mac</string>
+    <string name="action_reload">Reload</string>
+    <string name="reader_downloading">Downloading…</string>
+    <string name="reader_not_offline">This document isn’t on this phone yet. Connect to the internet to download it.</string>
+    <string name="reader_waiting_blob">Your Mac hasn’t finished uploading this document. Try again in a moment.</string>
+    <string name="action_retry">Retry</string>
+
+    <string name="settings_sync">Sync</string>
+    <string name="settings_offline_policy">Keep offline</string>
+    <string name="offline_all">All documents</string>
+    <string name="offline_recent">20 most recent</string>
+    <string name="offline_pinned">Only ones you keep offline</string>
+    <string name="settings_wifi_only">Large downloads on Wi-Fi only</string>
+    <string name="settings_wifi_only_body">Documents over 5 MB wait for Wi-Fi.</string>
+    <string name="settings_macs">Macs seen</string>
+    <string name="settings_mac_row">%1$s · %2$s</string>
+    <string name="role_primary">primary</string>
+    <string name="role_mirror">status only</string>
+    <string name="settings_storage">Storage</string>
+    <string name="settings_storage_body">Documents on this phone use %1$s.</string>
+    <string name="action_clear_cache">Clear cache</string>
+    <string name="cache_cleared">Downloaded copies removed. They download again when needed.</string>
 </resources>

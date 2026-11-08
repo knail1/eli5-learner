@@ -85,7 +85,7 @@ class DriveClient(
     private val multipartMaxBytes: Int = MULTIPART_MAX_BYTES,
     private val chunkBytes: Int = RESUMABLE_CHUNK_BYTES,
     private val now: () -> Long = System::currentTimeMillis,
-) {
+) : DriveApi {
     init {
         require(chunkBytes > 0 && chunkBytes % RESUMABLE_QUANTUM == 0) { "chunkBytes must be a multiple of 256 KiB" }
         require(multipartMaxBytes >= 0) { "multipartMaxBytes must not be negative" }
@@ -219,7 +219,7 @@ class DriveClient(
     // -------------------------------------------------------------------------------- reading
 
     /** `files.list` in the app-data folder, filtered by `appProperties`, following every page. */
-    suspend fun list(props: Map<String, String> = emptyMap()): List<DriveFile> {
+    override suspend fun list(props: Map<String, String>): List<DriveFile> {
         val out = mutableListOf<DriveFile>()
         var pageToken: String? = null
         repeat(MAX_PAGES) {
@@ -238,13 +238,13 @@ class DriveClient(
         throw SyncException(SyncErrorCode.E_SYNC_HTTP, "Too many list pages")
     }
 
-    suspend fun startPageToken(): String {
+    override suspend fun startPageToken(): String {
         val r = json<StartPageTokenResponse>(Spec("GET", api("changes", "startPageToken").build()))
         return r.startPageToken ?: throw SyncException(SyncErrorCode.E_SYNC_HTTP, "No start page token")
     }
 
     /** `changes.list` to the end (16 §4.8). Throws `E_SYNC_TOKEN` on 410 or an invalid token. */
-    suspend fun changes(token: String): ChangesPage {
+    override suspend fun changes(token: String): ChangesPage {
         val out = mutableListOf<DriveChange>()
         var pageToken = token
         repeat(MAX_PAGES) {
@@ -273,10 +273,37 @@ class DriveClient(
 
     suspend fun metadata(fileId: String): DriveFile = json(Spec("GET", api("files", fileId).addQueryParameter("fields", FILE_FIELDS).build()))
 
-    suspend fun download(fileId: String): ByteArray = bytesOf(send(Spec("GET", api("files", fileId).addQueryParameter("alt", "media").build())))
+    override suspend fun download(fileId: String): ByteArray = bytesOf(send(Spec("GET", api("files", fileId).addQueryParameter("alt", "media").build())))
+
+    override suspend fun downloadAtMost(
+        fileId: String,
+        maxBytes: Long,
+    ): ByteArray? {
+        val res = send(Spec("GET", api("files", fileId).addQueryParameter("alt", "media").build()))
+        return withContext(Dispatchers.IO) {
+            try {
+                res.use {
+                    val declared = it.body.contentLength()
+                    if (declared > maxBytes) return@use null
+                    val input = it.body.byteStream()
+                    val out = ByteArrayOutputStream()
+                    val buf = ByteArray(64 * 1024)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        if (out.size().toLong() + n > maxBytes) return@use null
+                        out.write(buf, 0, n)
+                    }
+                    out.toByteArray()
+                }
+            } catch (_: IOException) {
+                throw SyncException(SyncErrorCode.E_SYNC_HTTP, "Drive response could not be read")
+            }
+        }
+    }
 
     /** Preallocated ids in the app-data space (16 §4.5): a retried create can never duplicate a file. */
-    suspend fun generateIds(count: Int): List<String> {
+    override suspend fun generateIds(count: Int): List<String> {
         require(count in 1..1000) { "generateIds: 1..1000" }
         val url =
             api("files", "generateIds")
@@ -304,7 +331,7 @@ class DriveClient(
      * Creates a file in the app-data folder under a preallocated [id]. A retry after a lost response
      * finds the id taken (409) and returns the existing file instead of duplicating it.
      */
-    suspend fun create(
+    override suspend fun create(
         id: String,
         name: String,
         appProperties: Map<String, String>,
@@ -332,7 +359,7 @@ class DriveClient(
     }
 
     /** Replaces a file's content (a new revision). Own files only (16 §4.2). */
-    suspend fun updateContent(
+    override suspend fun updateContent(
         fileId: String,
         body: ByteArray,
         mime: String,
@@ -350,7 +377,7 @@ class DriveClient(
         }
 
     /** Metadata-only update of `appProperties`: no new revision (the heartbeat, 16 §4.3). */
-    suspend fun patchProperties(
+    override suspend fun patchProperties(
         fileId: String,
         appProperties: Map<String, String>,
     ) {

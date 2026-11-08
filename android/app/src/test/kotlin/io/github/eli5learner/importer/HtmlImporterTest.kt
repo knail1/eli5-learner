@@ -2,7 +2,8 @@ package io.github.eli5learner.importer
 
 import io.github.eli5learner.TestDocs
 import io.github.eli5learner.data.DocStore
-import io.github.eli5learner.data.LocalIndex
+import io.github.eli5learner.data.LibraryIndex
+import io.github.eli5learner.inMemoryDb
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -11,8 +12,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
-import java.io.File
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [36])
 class HtmlImporterTest {
     @get:Rule val tmp = TemporaryFolder()
 
@@ -96,7 +101,7 @@ class HtmlImporterTest {
     @Test fun `import stores the bytes, indexes them and replaces an older copy of the same docId`() =
         runTest {
             val store = DocStore(tmp.newFolder("docs"))
-            val index = LocalIndex(File(tmp.root, "index.json"), store)
+            val index = LibraryIndex(inMemoryDb(), store)
             var now = 1_000L
             val importer = HtmlImporter(store, index) { now }
 
@@ -110,15 +115,15 @@ class HtmlImporterTest {
             assertEquals(listOf(other.entry.key, v2.entry.key), entries.map { it.key })
             assertTrue(other.entry.foreign)
             assertFalse(v2.entry.foreign)
-            assertEquals(DocStore.importedKey(v2.entry.sha), v2.entry.key)
-            assertNull(store.read(v1.entry.key, v1.entry.sha))
-            assertEquals(v2.entry.sha, DocStore.sha256Hex(store.read(v2.entry.key, v2.entry.sha)!!))
+            assertEquals(DocStore.importedKey(v2.entry.sha!!), v2.entry.key)
+            assertNull(store.read(v1.entry.key, v1.entry.sha!!))
+            assertEquals(v2.entry.sha, DocStore.sha256Hex(store.read(v2.entry.key, v2.entry.sha!!)!!))
         }
 
     @Test fun `import skips empty, non-HTML and oversized files`() =
         runTest {
             val store = DocStore(tmp.newFolder("docs"))
-            val importer = HtmlImporter(store, LocalIndex(File(tmp.root, "index.json"), store))
+            val importer = HtmlImporter(store, LibraryIndex(inMemoryDb(), store))
             assertTrue(importer.import(ByteArray(0), "a.html") is ImportResult.Skipped)
             assertTrue(importer.import("%PDF-1.7 binary".toByteArray(), "a.pdf") is ImportResult.Skipped)
             assertTrue(importer.import(ByteArray(HtmlImporter.MAX_BYTES + 1) { 'a'.code.toByte() }, "a.html") is ImportResult.Skipped)

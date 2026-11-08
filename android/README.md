@@ -10,8 +10,12 @@ app on your phone, follow [SETUP.md](SETUP.md).
 > import (picker, share sheet, "Open with"), the library, the sandboxed reader and Settings > About;
 > the Inbox is a placeholder. Google authorization (Connect, Disconnect, "Sign in again"), the Drive
 > REST client and a debug-only Drive probe for gate G1 are built and tested against MockWebServer
-> and a fake authorization client; library sync follows. Everything against a real Google Drive is
-> unverified until gate G1 (spec 16 §13).
+> and a fake authorization client. Library sync is built: Room library and full-text search,
+> pull from the Mac's manifest with an offline cache (policy, Wi-Fi rule, pins), folder chips, the
+> sync icon and status sheet, pull-to-refresh, the Reader's "Updated on your Mac · Reload" banner and
+> reading position, background sync through WorkManager, and the phone's device file; it is tested
+> against an in-memory Drive and database. Capture and the Inbox follow. Everything against a real
+> Google Drive is unverified until gate G1 (spec 16 §13).
 
 This is its own Gradle build with one `:app` module. It never touches the npm toolchain, and Prettier
 ignores the folder.

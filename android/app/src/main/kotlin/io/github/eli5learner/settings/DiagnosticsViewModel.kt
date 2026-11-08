@@ -6,13 +6,15 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.eli5learner.data.DocEntry
-import io.github.eli5learner.data.LocalIndex
+import io.github.eli5learner.data.LibraryIndex
 import io.github.eli5learner.drive.DriveProbe
 import io.github.eli5learner.drive.SyncException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -27,11 +29,11 @@ data class ProbeUiState(
  * holds counts, probe file names and error codes only; never tokens or other file names.
  */
 class DiagnosticsViewModel(
-    private val index: LocalIndex,
+    private val index: LibraryIndex,
     private val probe: DriveProbe,
     private val deviceId: suspend () -> String,
 ) : ViewModel() {
-    val documents: StateFlow<List<DocEntry>> = index.entries
+    val documents: StateFlow<List<DocEntry>> = index.entries.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _probe = MutableStateFlow(ProbeUiState())
     val probeState: StateFlow<ProbeUiState> = _probe.asStateFlow()
@@ -103,7 +105,7 @@ class DiagnosticsViewModel(
         private const val MAX_LOG = 200
 
         fun factory(
-            index: LocalIndex,
+            index: LibraryIndex,
             probe: DriveProbe,
             deviceId: suspend () -> String,
         ): ViewModelProvider.Factory = viewModelFactory { initializer { DiagnosticsViewModel(index, probe, deviceId) } }

@@ -3,7 +3,8 @@ package io.github.eli5learner.library
 import android.net.Uri
 import io.github.eli5learner.TestDocs
 import io.github.eli5learner.data.DocStore
-import io.github.eli5learner.data.LocalIndex
+import io.github.eli5learner.data.LibraryIndex
+import io.github.eli5learner.inMemoryDb
 import io.github.eli5learner.importer.HtmlImporter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -21,7 +22,6 @@ import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import java.io.File
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -36,13 +36,13 @@ class LibraryViewModelTest {
     @Test fun `imports content URIs only and reports what was skipped`() =
         runTest {
             val store = DocStore(tmp.newFolder("docs"))
-            val index = LocalIndex(File(tmp.root, "index.json"), store)
+            val index = LibraryIndex(inMemoryDb(), store)
             val files =
                 mapOf(
                     Uri.parse("content://files/a") to ("a.html" to TestDocs.eli5().toByteArray()),
                     Uri.parse("file:///data/data/io.github.eli5learner/files/library-index.json") to ("x" to "<html></html>".toByteArray()),
                 )
-            val vm = LibraryViewModel(index, store, HtmlImporter(store, index), UriReader { files[it] })
+            val vm = LibraryViewModel(index, HtmlImporter(store, index), UriReader { files[it] })
 
             vm.import(files.keys.toList() + Uri.parse("content://files/unreadable"))
             assertEquals(LibraryEvent.Imported(imported = 1, skipped = 2), vm.messages.first())

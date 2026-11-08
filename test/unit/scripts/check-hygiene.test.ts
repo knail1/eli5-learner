@@ -503,7 +503,7 @@ describe('this repository', () => {
 
   it('whitelists exactly the public Pages paths from .gitignore', () => {
     const allow = parseAllowFile(readFileSync(join(repoRoot, 'config', 'hygiene-allow'), 'utf8'));
-    expect(allow.paths).toEqual(['docs/.gitkeep', 'docs/.nojekyll', 'docs/index.html', 'docs/sample/']);
+    expect(allow.paths).toEqual(['docs/.gitkeep', 'docs/.nojekyll', 'docs/index.html', 'docs/sample/', 'docs/guides/']);
   });
 
   it('keeps secret exceptions narrow: no directory-wide test/** and no unpinned bundle-chunk globs', () => {

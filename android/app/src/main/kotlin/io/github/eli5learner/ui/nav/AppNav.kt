@@ -51,6 +51,8 @@ import io.github.eli5learner.settings.DiagnosticsScreen
 import io.github.eli5learner.settings.DiagnosticsViewModel
 import io.github.eli5learner.settings.ProbeActions
 import io.github.eli5learner.settings.SettingsScreen
+import io.github.eli5learner.settings.SyncSettingsActions
+import io.github.eli5learner.settings.SyncSettingsViewModel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
@@ -208,16 +210,33 @@ fun AppNav(
                                     onRemove = { library.remove(it.key) },
                                     needsReconnect = auth is AuthState.NeedsReconnect,
                                     onReconnect = account::connect,
+                                    connected = auth is AuthState.Connected,
+                                    onRefresh = library::syncNow,
+                                    onFolder = library::setFolder,
+                                    onPin = { e, pin -> library.setPinned(e.key, pin) },
                                 )
                             }
                             entry<InboxKey> { InboxScreen() }
                             entry<SettingsKey> {
+                                val vm: SyncSettingsViewModel = viewModel(factory = SyncSettingsViewModel.factory(container))
+                                val sync by vm.state.collectAsStateWithLifecycle()
+                                LaunchedEffect(vm) {
+                                    vm.cleared.collect { snackbar.showSnackbar(resources.getString(R.string.cache_cleared)) }
+                                }
                                 SettingsScreen(
                                     onImport = onImport,
                                     auth = auth,
                                     onConnect = account::connect,
                                     onDisconnect = account::disconnect,
                                     onDiagnostics = { backStack.add(DiagnosticsKey) },
+                                    sync = sync,
+                                    syncActions =
+                                        SyncSettingsActions(
+                                            syncNow = vm::syncNow,
+                                            setPolicy = vm::setPolicy,
+                                            setLargeOnWifiOnly = vm::setLargeOnWifiOnly,
+                                            clearCache = vm::clearCache,
+                                        ),
                                 )
                             }
                             entry<OnboardingKey> {
@@ -229,6 +248,7 @@ fun AppNav(
                                     },
                                     onConnect = account::connect,
                                     onDone = { finishOnboarding() },
+                                    waitingForMac = state.sync.mac == null,
                                 )
                             }
                             entry<DiagnosticsKey> {
@@ -236,7 +256,7 @@ fun AppNav(
                                     viewModel(
                                         factory =
                                             DiagnosticsViewModel.factory(
-                                                container.localIndex,
+                                                container.libraryIndex,
                                                 container.driveProbe,
                                                 container.preferences::deviceId,
                                             ),
@@ -264,9 +284,14 @@ fun AppNav(
                             entry<ReaderKey> { k ->
                                 ReaderScreen(
                                     key = k.key,
-                                    index = container.localIndex,
+                                    index = container.libraryIndex,
                                     store = container.docStore,
                                     onBack = { if (backStack.size > 1) backStack.removeAt(backStack.lastIndex) },
+                                    onFetch = container.syncRepository::fetch,
+                                    onSavePosition = { key, sha, pos ->
+                                        // App scope: the screen's own scope is gone by the time the WebView is released.
+                                        container.appScope.launch { container.libraryIndex.saveReadingPosition(key, sha, pos) }
+                                    },
                                 )
                             }
                         },

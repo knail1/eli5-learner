@@ -14,7 +14,9 @@ built ahead of G1 against the fake store, because G1 needs the owner's Cloud pro
 trusted with a real Drive until G1 passes, and a G1 failure moves it to the `google-drive-folder`
 store as §13 says. The same holds for Settings > Sync, the sidebar indicator and `eli5:sync:*`
 (§8): built and tested end to end against the in-memory store and a stand-in for Google's
-endpoints, unverified against a real Google account until G1.
+endpoints, unverified against a real Google account until G1. Library sync on the phone (§4.8 pull,
+§6.4 cache and search, the phone's device file, the Library, Reader and Settings parts of §6.2) is
+built and tested against an in-memory Drive and Room database only, likewise unverified until G1.
 
 Related: [01-architecture.md](./01-architecture.md) · [06-generation-pipeline.md](./06-generation-pipeline.md) ·
 [07-output-document.md](./07-output-document.md) · [08-interactive-reading.md](./08-interactive-reading.md) ·
@@ -366,8 +368,9 @@ later enable pushes everything again.
 
 ### 4.8 Pull (phone; desktop pulls only jobs, cancels, devices and claims)
 
-- Bootstrap or token loss: `files.list` with `spaces=appDataFolder`, `pageSize=1000`, a narrow
-  `fields` mask, then `changes.getStartPageToken`.
+- Bootstrap or token loss: `changes.getStartPageToken`, then `files.list` with
+  `spaces=appDataFolder`, `pageSize=1000` and a narrow `fields` mask. The token comes first, so a
+  change made while the listing runs is replayed by the next `changes.list` rather than lost.
 - Steady state: `changes.list` with `spaces=appDataFolder`, `includeRemoved=true`, `pageSize=1000`
   and `fields=nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,appProperties,sha256Checksum,size,modifiedTime))`.
   Follow `nextPageToken` to the end, apply, then persist `newStartPageToken`. A 410 or invalid token
@@ -521,12 +524,24 @@ Documents are LLM-generated HTML and are untrusted.
 
 - `filesDir/docs/<docId>/<sha>.html`: gunzipped, sha-verified, written atomically. An older sha is
   kept while the Reader shows it.
-- Room tables: documents, versions, jobs, attachments, devices, and an FTS table over title,
-  summary, headings and the plain text of the embedded model for cached documents.
+- Room tables: documents, folders, versions, devices, the phone's index of remote files (from the
+  listing and the change feed), jobs and attachments (with capture, §5.2), and an FTS4 table over
+  title, summary, headings and the plain text of the embedded model for cached documents. Room is a
+  cache: a schema change drops and recreates it, the first load rebuilds rows from
+  `filesDir/docs`, and an empty remote index forces a full listing that re-applies the current
+  manifest. Sync cursors (change token, manifest `seq`, the device file id) and the offline options
+  live in DataStore.
+- The phone reads the manifest and trees of the newest claim's device only, and only when their
+  `seq` is greater than the one it holds; until a new primary has written its manifest, the phone
+  keeps what it has. Each pass ends with the phone's own device file (`role: 'phone'`): created once
+  under a preallocated id persisted first, rewritten only when the record changes, else touched with
+  `seen`. A lost grant stops background work without retries; network trouble retries with
+  WorkManager's backoff.
 - Offline policy (default All) decides which current blobs download eagerly. Older versions download
   on demand when previewed. "Large downloads on Wi-Fi only" applies to blobs over 5 MiB.
 - Imported documents (§7) live under `filesDir/docs/local-<sha>/` with `source = imported`. A synced
-  document with the same `docId` replaces the imported copy.
+  document with the same `docId` replaces the imported copy, and importing a document already
+  synced from the Mac is skipped.
 
 ## 7. Before sync is set up
 

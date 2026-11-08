@@ -6,6 +6,8 @@
     <!-- 16 §6.1. The local-mode reader makes no request: its WebView client answers every request
          itself (16 §6.3). Sync (later slices) uses the network. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Sync (16 §6.1): "Large downloads on Wi-Fi only" and the WorkManager network constraint. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <queries>
         <intent>

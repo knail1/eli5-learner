@@ -2,9 +2,10 @@ package io.github.eli5learner.importer
 
 import io.github.eli5learner.data.DocEntry
 import io.github.eli5learner.data.DocStore
-import io.github.eli5learner.data.LocalIndex
+import io.github.eli5learner.data.LibraryIndex
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -44,7 +45,7 @@ sealed interface ImportResult {
  */
 class HtmlImporter(
     private val store: DocStore,
-    private val index: LocalIndex,
+    private val index: LibraryIndex,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     /** Stores [bytes] and records them in the index. */
@@ -59,7 +60,6 @@ class HtmlImporter(
         val inspection = inspect(html, fallbackTitle(displayName))
         val sha = DocStore.sha256Hex(bytes)
         val key = DocStore.importedKey(sha)
-        store.write(key, bytes)
         val entry =
             DocEntry(
                 key = key,
@@ -67,14 +67,19 @@ class HtmlImporter(
                 title = inspection.title,
                 docId = inspection.docId,
                 foreign = !inspection.isEli5,
-                importedAt = clock(),
+                updatedAt = clock(),
                 tabs = inspection.tabs,
                 headings = inspection.headings,
             )
-        // A newer import of the same ELI5 document replaces the older copy (16 §6.4).
-        val replaced = index.upsert(entry)
-        replaced.filter { it != key }.forEach { store.delete(it) }
-        return ImportResult.Imported(entry)
+        // A newer import of the same ELI5 document replaces the older copy, and a copy synced from the
+        // Mac wins over any import (16 §6.4).
+        return when (val r = index.saveImport(entry, if (inspection.isEli5) modelText(html) else "") { store.write(key, bytes) }) {
+            is LibraryIndex.ImportSave.Saved -> {
+                r.replaced.filter { it != key }.forEach { store.delete(it) }
+                ImportResult.Imported(entry)
+            }
+            LibraryIndex.ImportSave.AlreadySynced -> ImportResult.Skipped("already in the library from your Mac")
+        }
     }
 
     companion object {
@@ -145,6 +150,52 @@ class HtmlImporter(
                 scriptHashes = hashes.distinct(),
             )
         }
+
+        /**
+         * The plain text of an ELI5 document's embedded model, for the search index (16 §6.4): title,
+         * dek, headings and the prose of every block. Empty for anything without a model. Bounded.
+         */
+        fun modelText(html: String): String {
+            val body =
+                SCRIPT_RE
+                    .findAll(html)
+                    .firstOrNull { attributes(it.groupValues[1])["id"] == "eli5-model" }
+                    ?.groupValues
+                    ?.get(2) ?: return ""
+            val model = runCatching { JSON.parseToJsonElement(body) }.getOrNull() ?: return ""
+            val out = StringBuilder()
+            collectText(model, inText = false, out)
+            return plain(out.toString()).take(MAX_MODEL_TEXT)
+        }
+
+        private fun collectText(
+            e: JsonElement,
+            inText: Boolean,
+            out: StringBuilder,
+        ) {
+            if (out.length > MAX_MODEL_TEXT) return
+            when (e) {
+                is JsonObject -> e.forEach { (k, v) -> collectText(v, k in TEXT_KEYS, out) }
+                is JsonArray -> e.forEach { collectText(it, inText, out) }
+                is JsonPrimitive -> if (inText && e.isString) out.append(e.content).append('\n')
+            }
+        }
+
+        /** Markdown and tags out, entities decoded, whitespace collapsed. */
+        private fun plain(s: String): String =
+            decodeEntities(s.replace(TAG_RE, " "))
+                .replace(MARKDOWN_RE, " ")
+                .replace(Regex("\\s+"), " ")
+                .trim()
+
+        private const val MAX_MODEL_TEXT = 200_000
+        private val TEXT_KEYS =
+            setOf(
+                "title", "dek", "heading", "md", "paragraphs", "question", "quote", "topic", "text", "items",
+                "caption", "subtitle", "term", "explanation", "expansion",
+            )
+        private val TAG_RE = Regex("<[^>]{0,500}>")
+        private val MARKDOWN_RE = Regex("[*_`#>|\\[\\]]+")
 
         /** The CSP source expression for an inline script body, hashed exactly as the browser does. */
         fun scriptHash(body: String): String {

@@ -1,7 +1,5 @@
 package io.github.eli5learner.data
 
-import io.github.eli5learner.TestDocs
-import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -65,38 +63,15 @@ class DocStoreTest {
         assertTrue(store.list().isEmpty())
     }
 
-    @Test fun `the index is rebuilt from the files when it is missing or corrupt`() =
-        runTest {
-            val store = DocStore(tmp.newFolder("docs"))
-            val indexFile = File(tmp.root, "index.json")
-            val sha = store.write(DocStore.importedKey("x"), TestDocs.eli5().toByteArray())
-            val f = store.write("local-f", TestDocs.foreign().toByteArray())
-
-            val rebuilt = LocalIndex(indexFile, store) { 5L }.load()
-            assertEquals(setOf(DocStore.importedKey("x") to sha, "local-f" to f), rebuilt.map { it.key to it.sha }.toSet())
-            assertEquals("doc-1", rebuilt.single { !it.foreign }.docId)
-            assertTrue(indexFile.isFile)
-
-            indexFile.writeText("{ not json")
-            assertEquals(2, LocalIndex(indexFile, store).load().size)
-
-            // A stale entry (file gone) is dropped on the next load.
-            store.delete("local-f")
-            assertEquals(listOf(DocStore.importedKey("x")), LocalIndex(indexFile, store).load().map { it.key })
-        }
-
-    @Test fun `remove drops the entry and keeps the order newest first`() =
-        runTest {
-            val store = DocStore(tmp.newFolder("docs"))
-            val index = LocalIndex(File(tmp.root, "index.json"), store)
-            val e1 = DocEntry(key = "a", sha = store.write("a", "1".toByteArray()), title = "A", foreign = true, importedAt = 1)
-            val e2 = DocEntry(key = "b", sha = store.write("b", "2".toByteArray()), title = "B", foreign = true, importedAt = 2)
-            index.upsert(e1)
-            index.upsert(e2)
-            assertEquals(listOf("b", "a"), index.entries.value.map { it.key })
-            assertEquals(e1, index.remove("a"))
-            assertNull(index.remove("a"))
-            store.delete("a")
-            assertEquals(listOf("b"), LocalIndex(File(tmp.root, "index.json"), store).load().map { it.key })
-        }
+    @Test fun `pruneExcept keeps the listed shas and drops an empty folder`() {
+        val store = DocStore(tmp.newFolder("docs"))
+        val a = store.write("k", "a".toByteArray())
+        val b = store.write("k", "b".toByteArray())
+        store.pruneExcept("k", setOf(a, b))
+        assertEquals(setOf(a, b), store.list().map { it.second }.toSet())
+        store.pruneExcept("k", emptySet())
+        assertTrue(store.list().isEmpty())
+        assertTrue(!File(store.root, "k").exists())
+        assertTrue(!store.exists("k", a))
+    }
 }

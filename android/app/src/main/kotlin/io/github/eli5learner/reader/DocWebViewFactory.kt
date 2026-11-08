@@ -69,7 +69,15 @@ object DocWebViewFactory {
         private val onExternal: (String) -> Unit,
         private val onHistoryChanged: (canGoBack: Boolean) -> Unit = {},
         private val onRendererGone: () -> Unit = {},
+        private val onPageFinished: (WebView) -> Unit = {},
     ) : WebViewClient() {
+        override fun onPageFinished(
+            view: WebView,
+            url: String?,
+        ) {
+            onPageFinished(view)
+        }
+
         override fun shouldInterceptRequest(
             view: WebView,
             request: WebResourceRequest,
@@ -128,11 +136,12 @@ object DocWebViewFactory {
         onExternal: (String) -> Unit,
         onHistoryChanged: (Boolean) -> Unit,
         onRendererGone: () -> Unit,
+        onPageFinished: (WebView) -> Unit = {},
     ): WebView {
         val view = WebView(context)
         applySettings(view.settings, foreign)
         CookieManager.getInstance().setAcceptThirdPartyCookies(view, false)
-        view.webViewClient = Client(assetLoader(store), docUrl, onExternal, onHistoryChanged, onRendererGone)
+        view.webViewClient = Client(assetLoader(store), docUrl, onExternal, onHistoryChanged, onRendererGone, onPageFinished)
         return view
     }
 }

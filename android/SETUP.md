@@ -11,7 +11,9 @@ stay on your machine. The design is in
 > Drive is unverified until gate G1** (spec 16 §13): the code is built and tested against an
 > in-memory fake Drive first, and the cross-client checks with a real Cloud project come after.
 > The desktop sync engine (push, primary claim, heartbeat, clean-up) is built and tested against
-> that fake Drive only; its behaviour against a real Drive is also unverified until G1.
+> that fake Drive only; its behaviour against a real Drive is also unverified until G1. The same
+> holds for library sync on the phone (pull, offline cache, search, the phone's device file): built
+> and tested against an in-memory Drive and database only, unverified against a real Drive until G1.
 > Until G1 passes, treat Stages B and C as a preview; details may change, and if the hidden app
 > folder turns out not to be shared between the desktop and Android clients, sync moves to a
 > visible Drive folder instead.
@@ -197,7 +199,8 @@ folder as described at the top.
 
 *(Unverified until G1. The phone's Connect button is built (Settings and the first-run screen),
 and so is the desktop Settings > Sync section with the sidebar sync indicator; both are tested only
-against a stand-in for Google so far. Library sync on the phone arrives in a later M5 slice.)*
+against a stand-in for Google so far. Library sync on the phone (step C2.3) is built and tested
+against an in-memory Drive only. "Send to my Mac" (step C2.4) arrives in a later M5 slice.)*
 
 ### C1. Desktop
 
@@ -221,6 +224,11 @@ off and leaves your library on the Mac as it is.
 1. Open ELI5 Learner > Settings (or the onboarding screen) > **Connect Google Drive**.
 2. Pick the same Google account and allow access.
 3. The app shows "Waiting for your Mac…" until it sees the desktop, then downloads the library.
+   The cloud icon in the Library shows the state (tap it for "Your Mac was last seen…" and **Sync
+   now**); pull down on the list to sync. Settings > Sync chooses what is kept offline (all
+   documents, the 20 most recent, or only the ones you mark **Keep offline** in a row's menu) and
+   whether documents over 5 MB wait for Wi-Fi. The phone also syncs when you open the app and about
+   every 15 minutes in the background while online.
 4. Share a link or a photo from any app to ELI5 Learner, add an optional note, tap **Send to my
    Mac**. The Inbox shows its progress. The Mac must be running ELI5 Learner (the menu bar is enough)
    for the job to start.
@@ -246,6 +254,7 @@ Manage apps > ELI5 Learner > Options > **Delete hidden app data**. To revoke acc
 | Sync stops every 7 days | Project still in Testing | Publish the app (Stage B). |
 | Desktop: "access_denied" in the browser | Your account isn't a test user | Add it under Audience > Test users. |
 | `adb install` fails with "signatures do not match" | Installed app was signed with another key | Use the same keystore; or uninstall first (deletes the phone's cached data, not your library). |
+| Phone: a document says "Not on this phone yet" | The offline policy skips it, it is over 5 MB on mobile data, or the Mac is still uploading it | Open it to download it now, or pull down to sync later. |
 | Inbox job stays "Waiting for your Mac" | ELI5 Learner isn't running on the Mac, "Accept jobs from phone" is off, or the Mac is asleep | Open the app on the Mac; check Settings > Sync. |
 | `sdkmanager: command not found` | `PATH`/`ANDROID_HOME` not set in this shell | Open a new terminal after editing your profile. |
 | Gradle says the Java version is unsupported | `JAVA_HOME` points to an old JDK | Point it at JDK 21 (A1). |

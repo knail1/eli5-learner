@@ -28,11 +28,19 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // Only a fresh launch carries a new intent; after a configuration change it was handled.
         if (savedInstanceState == null) handleImportIntent(intent)
+        val container = AppContainer.from(this)
+        container.syncScheduler.start(container.authorizer.state)
         setContent {
             Eli5Theme {
                 AppNav(container = AppContainer.from(this), library = library, account = account)
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Foreground pull (16 §4.8), at most every 30 s; a no-op in local mode.
+        AppContainer.from(this).syncScheduler.onForeground()
     }
 
     override fun onNewIntent(intent: Intent) {
