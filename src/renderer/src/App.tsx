@@ -22,6 +22,8 @@ import { SuggestionsPanel } from './suggestions/SuggestionsPanel';
 import { TopStatus } from './top-status/TopStatus';
 import { BottomHandle, useBottomPanel } from './layout/BottomPanel';
 import { DocHeader } from './viewer/DocHeader';
+import { PanelHandle } from './viewer/PanelHandle';
+import { useVersionTree, VersionTreePanel } from './viewer/VersionTreePanel';
 import { FindBar, type FindBarHandle } from './viewer/FindBar';
 import { NotFound, Welcome } from './viewer/ViewerEmpty';
 import { ViewerSlot } from './viewer/ViewerSlot';
@@ -64,6 +66,28 @@ function readSidebar(): { width: number; collapsed: boolean } {
 
 const clampSidebar = (w: number) => Math.round(Math.min(SIDEBAR.max, Math.max(SIDEBAR.min, w)));
 
+/** Versions panel (11 §5.7): closed by default; the viewer slot always keeps `slotMin` px. */
+const VERSIONS = { def: 300, min: 220, max: 420, step: 16, slotMin: 360 };
+const VERSIONS_KEY = 'eli5.versionPanel';
+
+function readVersionPanel(): { open: boolean; width: number } {
+  try {
+    const v = JSON.parse(window.localStorage.getItem(VERSIONS_KEY) ?? 'null') as unknown;
+    if (v && typeof v === 'object') {
+      const o = v as { open?: unknown; width?: unknown };
+      return {
+        open: o.open === true,
+        width: typeof o.width === 'number' && Number.isFinite(o.width) ? clampVersions(o.width) : VERSIONS.def,
+      };
+    }
+  } catch {
+    // per-viewer convenience only
+  }
+  return { open: false, width: VERSIONS.def };
+}
+
+const clampVersions = (w: number) => Math.round(Math.min(VERSIONS.max, Math.max(VERSIONS.min, w)));
+
 function Shell() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [hasKey, setHasKey] = useState<boolean | null>(null);
@@ -75,7 +99,8 @@ function Shell() {
   const previous = useRef<UiRoute>({ view: 'welcome' });
   const startupDone = useRef(false);
   const [sidebar, setSidebar] = useState(readSidebar);
-  const [narrow, setNarrow] = useState(() => window.innerWidth < SIDEBAR.narrow);
+  const [winWidth, setWinWidth] = useState(() => window.innerWidth);
+  const narrow = winWidth < SIDEBAR.narrow;
   // Below 1000 px the sidebar starts collapsed, but Cmd+\ and Cmd+F can still open it; this
   // override is per narrow spell and never touches the persisted collapsed flag (11 §5.2, §12).
   const [narrowOpen, setNarrowOpen] = useState(false);
@@ -214,7 +239,7 @@ function Shell() {
     }
   }, [sidebar]);
   useEffect(() => {
-    const onResize = () => setNarrow(window.innerWidth < SIDEBAR.narrow);
+    const onResize = () => setWinWidth(window.innerWidth);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
@@ -225,6 +250,28 @@ function Shell() {
   const narrowRef = useRef(narrow);
   narrowRef.current = narrow;
 
+  // ---- Versions panel: toggle (header, Cmd+Y, View > Show Versions), resize, narrow hint (11 §5.7) ----
+  const [versionPanel, setVersionPanel] = useState(readVersionPanel);
+  const [versionsHint, setVersionsHint] = useState(false);
+  const [versionTree, setVersionTree] = useVersionTree(selectedSlug);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(VERSIONS_KEY, JSON.stringify(versionPanel));
+    } catch {
+      // per-viewer convenience only
+    }
+  }, [versionPanel]);
+  // The panel never makes room by collapsing another panel: it shrinks to fit, or stays closed.
+  const versionsRoom = winWidth - (collapsed ? 0 : sidebar.width) - VERSIONS.slotMin;
+  const versionsFit = versionsRoom >= VERSIONS.min;
+  const versionsShown = versionPanel.open && versionsFit && selectedSlug !== null;
+  const versionsWidth = Math.min(versionPanel.width, versionsRoom);
+  useEffect(() => {
+    if (versionsFit) setVersionsHint(false);
+  }, [versionsFit]);
+  const versionsRef = useRef({ panel: versionPanel, fit: versionsFit });
+  versionsRef.current = { panel: versionPanel, fit: versionsFit };
+
   // ---- shortcuts (11 §9) ----
   const catalogRef = useRef(catalog);
   catalogRef.current = catalog;
@@ -232,6 +279,12 @@ function Shell() {
   selectedRef.current = selectedSlug;
   const routeRef = useRef(route);
   routeRef.current = route;
+  const toggleVersions = useCallback(() => {
+    if (!selectedRef.current) return;
+    const { panel, fit } = versionsRef.current;
+    if (panel.open || fit) setVersionPanel({ ...panel, open: !panel.open });
+    setVersionsHint(!panel.open && !fit);
+  }, []);
 
   // ---- find in document (11 §5.3 find bar, §9) ----
   // The bar belongs to the document on screen: another document, or any other route, closes it.
@@ -304,6 +357,9 @@ function Shell() {
           if (narrowRef.current) setNarrowOpen((o) => !o);
           else setSidebar((s) => ({ ...s, collapsed: !s.collapsed }));
           break;
+        case 'toggle-versions':
+          toggleVersions();
+          break;
         case 'find':
         case 'find-next':
         case 'find-previous':
@@ -335,9 +391,9 @@ function Shell() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [leaveSettings, openDoc, openSettings, runFind]);
+  }, [leaveSettings, openDoc, openSettings, runFind, toggleVersions]);
 
-  const layoutKey = `${collapsed ? 0 : sidebar.width}:${findOpen ? 1 : 0}:${bottom.height ?? 'auto'}`;
+  const layoutKey = `${collapsed ? 0 : sidebar.width}:${findOpen ? 1 : 0}:${bottom.height ?? 'auto'}:${versionsShown ? versionsWidth : 0}`;
   const style = useMemo(
     () => ({ '--sidebar-w': collapsed ? '0px' : `${sidebar.width}px` }) as CSSProperties,
     [collapsed, sidebar.width],
@@ -378,13 +434,31 @@ function Shell() {
         </footer>
       </aside>
       {!collapsed && (
-        <SidebarHandle width={sidebar.width} onChange={(w) => setSidebar((s) => ({ ...s, width: clampSidebar(w) }))} />
+        <PanelHandle
+          side="left"
+          className="sidebar-handle"
+          label="Resize sidebar"
+          width={sidebar.width}
+          min={SIDEBAR.min}
+          max={SIDEBAR.max}
+          step={SIDEBAR.step}
+          onChange={(w) => setSidebar((s) => ({ ...s, width: clampSidebar(w) }))}
+        />
       )}
       <div className="main-col">
         <main className="viewer-area" data-region="viewer" tabIndex={-1} aria-label="Viewer">
           {shown.view === 'doc' && (
             <>
-              <DocHeader slug={shown.slug} entry={entry} />
+              <DocHeader
+                slug={shown.slug}
+                entry={entry}
+                versions={{
+                  open: versionsShown,
+                  count: versionTree?.nodes.length ?? 0,
+                  hint: (versionPanel.open || versionsHint) && !versionsFit,
+                  onToggle: toggleVersions,
+                }}
+              />
               {openError?.slug === shown.slug && (
                 <p className="inline-error open-error" role="alert">
                   {openError.message}{' '}
@@ -401,7 +475,32 @@ function Shell() {
                   onClose={closeFind}
                 />
               )}
-              <ViewerSlot slug={shown.slug} layoutKey={layoutKey} />
+              <div className="viewer-body">
+                <ViewerSlot slug={shown.slug} layoutKey={layoutKey} />
+                {versionsShown && (
+                  <>
+                    <PanelHandle
+                      side="right"
+                      className="panel-handle panel-handle-right"
+                      label="Resize versions panel"
+                      width={versionsWidth}
+                      min={VERSIONS.min}
+                      max={Math.min(VERSIONS.max, versionsRoom)}
+                      step={VERSIONS.step}
+                      onChange={(w) =>
+                        setVersionPanel((v) => ({ ...v, width: clampVersions(Math.min(w, versionsRoom)) }))
+                      }
+                    />
+                    <VersionTreePanel
+                      slug={shown.slug}
+                      tree={versionTree}
+                      width={versionsWidth}
+                      onTree={setVersionTree}
+                      onClose={() => setVersionPanel((v) => ({ ...v, open: false }))}
+                    />
+                  </>
+                )}
+              </div>
             </>
           )}
           {shown.view === 'welcome' && (
@@ -441,54 +540,24 @@ function Shell() {
   );
 }
 
-/** Keyboard `separator`; arrow keys move 16 px (11 §5.2). */
-function SidebarHandle(p: { width: number; onChange(w: number): void }) {
-  return (
-    <div
-      className="sidebar-handle"
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="Resize sidebar"
-      aria-valuenow={p.width}
-      aria-valuemin={SIDEBAR.min}
-      aria-valuemax={SIDEBAR.max}
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-          e.preventDefault();
-          p.onChange(p.width + (e.key === 'ArrowRight' ? SIDEBAR.step : -SIDEBAR.step));
-        }
-      }}
-      onPointerDown={(e) => {
-        const startX = e.clientX;
-        const startW = p.width;
-        const el = e.currentTarget;
-        el.setPointerCapture?.(e.pointerId);
-        const move = (ev: PointerEvent) => p.onChange(startW + ev.clientX - startX);
-        const up = () => {
-          el.removeEventListener('pointermove', move);
-          el.removeEventListener('pointerup', up);
-        };
-        el.addEventListener('pointermove', move);
-        el.addEventListener('pointerup', up);
-      }}
-    />
-  );
-}
-
 /**
- * F6 / Shift+F6: sidebar → viewer → input zone → status → suggestions (11 §9, §12). `from` names
+ * F6 / Shift+F6: sidebar → viewer → versions (when open) → input zone → status → suggestions (11 §9, §12). `from` names
  * the region focus is leaving when it was the viewer view, whose focus the app cannot see. With a
  * document shown, entering the viewer region focuses the view itself; the doc runtime then moves
  * focus to its active tab.
  */
 function cycleRegion(dir: 1 | -1, from?: 'viewer'): void {
-  const order = ['sidebar', 'viewer', 'input', 'status', 'suggestions'];
+  const order = ['sidebar', 'viewer', 'versions', 'input', 'status', 'suggestions'];
   const regions = order
     .map((r) => document.querySelector<HTMLElement>(`[data-region="${r}"]`))
     .filter((el): el is HTMLElement => !!el && !el.closest('[hidden]') && el.childElementCount > 0);
   if (regions.length === 0) return;
-  const current = regions.findIndex((r) => (from ? r.dataset.region === from : r.contains(document.activeElement)));
+  // The Versions panel sits inside the viewer region, so it wins when it holds focus.
+  const inVersions = regions.findIndex((r) => r.dataset.region === 'versions' && r.contains(document.activeElement));
+  const current =
+    !from && inVersions >= 0
+      ? inVersions
+      : regions.findIndex((r) => (from ? r.dataset.region === from : r.contains(document.activeElement)));
   const next = regions[(current + dir + regions.length) % regions.length];
   if (next?.dataset.region === 'viewer' && next.querySelector('[data-testid="viewer-slot"]')) {
     next.focus();
@@ -496,6 +565,9 @@ function cycleRegion(dir: 1 | -1, from?: 'viewer'): void {
     return;
   }
   const target =
-    next?.querySelector<HTMLElement>('button, input, textarea, [tabindex="0"], [tabindex="-1"]') ?? next ?? null;
+    next?.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]') ??
+    next?.querySelector<HTMLElement>('button, input, textarea, [tabindex="0"], [tabindex="-1"]') ??
+    next ??
+    null;
   target?.focus();
 }

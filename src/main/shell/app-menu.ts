@@ -18,13 +18,14 @@ import type { FindCommand, HelpTopic, LibraryFolder, LibraryLocation } from '../
  */
 
 /** Window shortcuts mirrored as menu items (11 §9). */
-export type MenuShortcutId = 'new-draft' | 'focus-url' | 'toggle-sidebar' | 'prev-doc' | 'next-doc';
+export type MenuShortcutId = 'new-draft' | 'focus-url' | 'toggle-sidebar' | 'toggle-versions' | 'prev-doc' | 'next-doc';
 
 /** `sendInputEvent` keyCode (with the `meta` modifier) that the renderer maps back to each id. */
 export const MENU_SHORTCUT_KEYS: Record<MenuShortcutId, string> = {
   'new-draft': 'N',
   'focus-url': 'L',
   'toggle-sidebar': '\\',
+  'toggle-versions': 'Y',
   'prev-doc': '[',
   'next-doc': ']',
 };
@@ -153,6 +154,8 @@ export function appMenuTemplate(
       label: 'View',
       submenu: [
         shortcutItem(actions, 'toggle-sidebar', 'Toggle Sidebar', 'CmdOrCtrl+\\'),
+        // The Versions panel (11 §5.7); the app renderer ignores it when no document is shown.
+        shortcutItem(actions, 'toggle-versions', 'Show Versions', 'CmdOrCtrl+Y'),
         {
           id: MENU_IDS.reloadViewer,
           label: 'Reload Document',

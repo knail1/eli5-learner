@@ -28,6 +28,7 @@ describe('window shortcuts mirrored by the application menu (11 §9)', () => {
     ['N', 'new-draft'],
     ['L', 'focus-url'],
     ['\\', 'toggle-sidebar'],
+    ['Y', 'toggle-versions'],
     ['[', 'prev-doc'],
     [']', 'next-doc'],
   ];

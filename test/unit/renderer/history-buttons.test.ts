@@ -1,5 +1,5 @@
 import { act } from 'react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DocHistoryState } from '../../../src/preload/contract';
 import { button, click, flush, installFakeApi, key, loadRenderer, ok, render, type FakeApi } from './harness';
 
@@ -74,6 +74,19 @@ describe('HistoryButtons (11 §5.3)', () => {
     expect(button(host, 'Undo')?.disabled).toBe(false);
     expect(button(host, 'Undo')?.title).toBe("Undo: re-explained 'The particular…' (⌘Z)");
     expect(button(host, 'Redo')?.disabled).toBe(true);
+  });
+
+  it('enables both at once when the version has a parent and a child (08 §6.7)', async () => {
+    const host = await mount({ ...UNDO, canRedo: true, redoLabel: "added an analogy to 'Pricing'" });
+    expect(button(host, 'Undo')?.disabled).toBe(false);
+    expect(button(host, 'Redo')?.disabled).toBe(false);
+    expect(button(host, 'Undo')?.title).toBe("Undo: re-explained 'The particular…' (⌘Z)");
+    expect(button(host, 'Redo')?.title).toBe("Redo: added an analogy to 'Pricing' (⇧⌘Z)");
+    undoMock().mockResolvedValue(ok({ ...UNDO, canRedo: true }));
+    await click(button(host, 'Redo'));
+    expect(redoMock().mock.calls).toEqual([[SLUG]]);
+    await key(document.body, 'z', { metaKey: true });
+    expect(undoMock().mock.calls).toEqual([[SLUG]]);
   });
 
   it('disables both while the document has a busy section', async () => {
@@ -204,5 +217,25 @@ describe('DocHeader (11 §5.3)', () => {
     const host = await render(DocHeader as never, { slug: SLUG, entry: undefined });
     const names = Array.from(host.querySelectorAll('button')).map((b) => b.getAttribute('aria-label') ?? b.textContent);
     expect(names.slice(0, 3)).toEqual(['Undo', 'Redo', 'Reveal in Finder']);
+  });
+
+  it('puts the Versions toggle after Undo and Redo when the shell provides it', async () => {
+    historyMock().mockResolvedValue(ok(UNDO));
+    const onToggle = vi.fn();
+    const host = await render(DocHeader as never, {
+      slug: SLUG,
+      entry: undefined,
+      versions: { open: false, count: 1, hint: false, onToggle },
+    });
+    const names = Array.from(host.querySelectorAll('button')).map((b) =>
+      (b.getAttribute('aria-label') ?? b.textContent)?.trim(),
+    );
+    expect(names.slice(0, 4)).toEqual(['Undo', 'Redo', 'Versions', 'Reveal in Finder']);
+    const toggle = host.querySelector('button[aria-controls="version-panel"]');
+    // One version: no badge.
+    expect(toggle?.querySelector('.count-badge')).toBeNull();
+    expect(toggle?.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+    await click(toggle);
+    expect(onToggle).toHaveBeenCalledOnce();
   });
 });

@@ -3,8 +3,8 @@ import type { DocHistoryState, IpcResult } from '../../../preload/contract';
 import { isTextEntry, matchHistoryKey } from '../a11y/shortcuts';
 
 /**
- * Undo / Redo for the open document (11 §5.3, 09 §4.1): main keeps exactly one prior version, so
- * one of the two is available at a time. State comes from `eli5:doc:history` and follows
+ * Undo / Redo for the open document (11 §5.3, 09 §4.1): Undo opens the current version's parent and
+ * Redo the child on the branch last visited, so both may be available at once. State comes from `eli5:doc:history` and follows
  * `eli5:doc:history-changed`. Cmd+Z / Shift+Cmd+Z act here only when focus is not in a text field;
  * text fields keep the Edit menu's own undo (11 §9).
  */

@@ -8,6 +8,7 @@ export type ShortcutId =
   | 'new-draft'
   | 'settings'
   | 'toggle-sidebar'
+  | 'toggle-versions'
   | 'find'
   | 'find-next'
   | 'find-previous'
@@ -39,6 +40,7 @@ export const SHORTCUTS: readonly { keys: string; id: ShortcutId; label: string }
   { keys: 'Cmd+N', id: 'new-draft', label: 'Focus drop box and clear the draft' },
   { keys: 'Cmd+,', id: 'settings', label: 'Open Settings' },
   { keys: 'Cmd+\\', id: 'toggle-sidebar', label: 'Toggle sidebar' },
+  { keys: 'Cmd+Y', id: 'toggle-versions', label: 'Show or hide the Versions panel' },
   { keys: 'Cmd+F', id: 'find', label: 'Find in document (Library filter when no document is open)' },
   { keys: 'Cmd+G', id: 'find-next', label: 'Find next match' },
   { keys: 'Shift+Cmd+G', id: 'find-previous', label: 'Find previous match' },
@@ -68,6 +70,8 @@ export function matchShortcut(e: KeyLike): ShortcutMatch | null {
       return { id: 'settings' };
     case '\\':
       return { id: 'toggle-sidebar' };
+    case 'y':
+      return { id: 'toggle-versions' };
     case 'f':
       return { id: 'find' };
     case 'g':

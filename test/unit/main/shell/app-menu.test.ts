@@ -101,6 +101,7 @@ describe('application menu mirrors the window shortcuts (11 §9)', () => {
     ['new-draft', 'CmdOrCtrl+N'],
     ['focus-url', 'CmdOrCtrl+L'],
     ['toggle-sidebar', 'CmdOrCtrl+\\'],
+    ['toggle-versions', 'CmdOrCtrl+Y'],
     ['prev-doc', 'CmdOrCtrl+['],
     ['next-doc', 'CmdOrCtrl+]'],
   ];
@@ -115,6 +116,13 @@ describe('application menu mirrors the window shortcuts (11 §9)', () => {
 
   it('forwards each shortcut as the Cmd+key its accelerator names (the renderer maps it back, settings-shortcuts test)', () => {
     for (const [id, accel] of mirrored) expect(`CmdOrCtrl+${MENU_SHORTCUT_KEYS[id]}`, id).toBe(accel);
+  });
+
+  it('View > Show Versions sits under Toggle Sidebar (11 §5.7, §9)', () => {
+    const view = appMenuTemplate(actions, { appName: 'ELI5 Learner', devTools: false }).find((m) => m.label === 'View');
+    const sub = view?.submenu as MenuItemConstructorOptions[];
+    expect(sub.slice(0, 2).map((i) => i.label)).toEqual(['Toggle Sidebar', 'Show Versions']);
+    expect(sub[1]).toMatchObject({ id: 'shortcut-toggle-versions', accelerator: 'CmdOrCtrl+Y' });
   });
 
   it('Edit > Find holds Find in Document, Find Next, Find Previous and Find in Library (macOS convention)', () => {

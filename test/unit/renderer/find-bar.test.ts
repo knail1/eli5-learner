@@ -192,7 +192,9 @@ describe('find shortcuts in the app (11 §9)', () => {
     const bar = findBar(host);
     expect(bar).not.toBeNull();
     // Above the slot, so it takes layout space instead of sitting under the native view.
-    expect(bar?.nextElementSibling?.getAttribute('data-testid')).toBe('viewer-slot');
+    // The slot shares .viewer-body with the Versions panel (11 §5.1, §5.7); the bar stays a row above it.
+    expect(bar?.nextElementSibling?.className).toBe('viewer-body');
+    expect(bar?.nextElementSibling?.firstElementChild?.getAttribute('data-testid')).toBe('viewer-slot');
     expect(document.activeElement).toBe(bar?.querySelector('input'));
     expect(document.activeElement).not.toBe(filter(host));
     await key(bar?.querySelector('input'), 'Escape');

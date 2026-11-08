@@ -629,6 +629,230 @@ button.icon-button {
 .viewer-slot {
   flex: 1;
   min-height: 0;
+  min-width: 0;
+}
+/* The slot and the Versions panel side by side (11 §5.1, §5.7): the panel shrinks the slot. */
+.viewer-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.versions-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.count-badge {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--chip);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.versions-hint {
+  width: 100%;
+  color: var(--muted);
+}
+.panel-handle {
+  flex: none;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 1;
+}
+.panel-handle-right {
+  margin-right: -3px;
+  margin-left: -3px;
+}
+.panel-handle:hover,
+.panel-handle:focus-visible {
+  background: var(--line);
+}
+
+/* ---- Versions panel (11 §5.7) ---- */
+.version-panel {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  min-height: 0;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+}
+.version-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 10px 12px 6px;
+}
+.version-header h2 {
+  font-size: 14px;
+  margin: 0;
+}
+.version-nav {
+  display: flex;
+  gap: 4px;
+}
+.version-nav button {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.version-banners {
+  padding: 0 12px;
+}
+.version-banner {
+  margin: 4px 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+}
+.version-busy,
+.version-loading {
+  margin: 4px 0;
+  font-size: 12px;
+}
+.version-loading {
+  padding: 0 12px;
+}
+.version-tree,
+.version-group {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.version-tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 8px 8px;
+}
+.version-group {
+  margin-left: 14px;
+}
+.version-item {
+  position: relative;
+  outline: none;
+}
+.version-item > .version-row {
+  position: relative;
+  display: flex;
+  gap: 8px;
+  padding: 4px 6px 6px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+/* The rail: solid accent on the path to the current version, dashed elsewhere. */
+.version-item > .version-row::before {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 0;
+  bottom: 0;
+  border-left: 2px dashed var(--line);
+}
+.version-item.on-path > .version-row::before {
+  border-left: 2px solid var(--accent);
+}
+.version-item.lane-end > .version-row::before {
+  bottom: calc(100% - 12px);
+}
+.version-item.branch-start > .version-row {
+  margin-top: 6px;
+}
+.version-dot {
+  position: absolute;
+  left: 5px;
+  top: 8px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--muted);
+  background: var(--panel);
+}
+.version-item.on-path > .version-row .version-dot {
+  border-color: var(--accent);
+}
+.version-item.current > .version-row .version-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.version-item:focus-visible > .version-row {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.version-item > .version-row:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.version-item.current > .version-row {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.version-item[aria-disabled='true'] > .version-row {
+  cursor: default;
+  opacity: 0.7;
+}
+.version-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.version-topic {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.version-meta,
+.version-question {
+  font-size: 12px;
+}
+.version-question {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.version-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.version-chips:empty {
+  display: none;
+}
+.version-chip {
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--chip);
+  font-size: 11px;
+}
+.version-pending {
+  margin: 2px 0 4px 20px;
+  padding: 2px 6px;
+  font-size: 12px;
+  font-style: italic;
+}
+.version-new > .version-row {
+  animation: version-fade 1s ease-out;
+}
+@keyframes version-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.version-footer {
+  border-top: 1px solid var(--line);
+  padding: 6px 12px 8px;
+  font-size: 12px;
+}
+.version-detail p {
+  margin: 0 0 2px;
+  overflow-wrap: anywhere;
 }
 .welcome {
   margin: auto;

@@ -2,7 +2,7 @@ import { act, createElement, type ComponentType } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, vi } from 'vitest';
 import type { Eli5Api } from '../../../src/preload/api';
-import type { EditionInfo, IpcResult, Settings } from '../../../src/preload/contract';
+import type { DocVersionNode, DocVersionTree, EditionInfo, IpcResult, Settings } from '../../../src/preload/contract';
 import { DEFAULTS } from '../../../src/main/config/schema';
 
 /**
@@ -67,12 +67,38 @@ export interface FakeApi {
       | 'auth'
       | 'doc'
       | 'doc-history'
+      | 'doc-versions'
       | 'publish',
     payload: unknown,
   ): void;
 }
 
 const resolved = <T>(v: IpcResult<T>) => vi.fn(async () => v);
+
+/** A version node for tests; the default is the original. */
+export const versionNode = (over: Partial<DocVersionNode> = {}): DocVersionNode => ({
+  id: 'v0',
+  parentId: null,
+  createdAt: '2026-01-01T00:00:00.000Z',
+  kind: 'initial',
+  label: 'Original',
+  topic: 'Original',
+  available: true,
+  published: false,
+  ...over,
+});
+
+/** A document's version tree for tests: just the original unless `over` says otherwise. */
+export const versionTree = (slug: string, over: Partial<DocVersionTree> = {}): DocVersionTree => ({
+  slug,
+  nodes: [versionNode()],
+  currentId: 'v0',
+  detached: false,
+  busy: false,
+  pending: [],
+  readOnly: false,
+  ...over,
+});
 
 /** Every invoke answers like the M1b main process: M2-owned handlers return E_INTERNAL. */
 export function installFakeApi(edition: EditionInfo = PUBLIC_EDITION): FakeApi {
@@ -131,6 +157,9 @@ export function installFakeApi(edition: EditionInfo = PUBLIC_EDITION): FakeApi {
       undo: resolved(notImplemented),
       redo: resolved(notImplemented),
       onHistoryChanged: on('doc-history'),
+      versions: vi.fn(async (slug: string) => ok(versionTree(slug))),
+      checkout: resolved(notImplemented),
+      onVersionsChanged: on('doc-versions'),
     },
     viewer: {
       setBounds: resolved(ok(undefined)),

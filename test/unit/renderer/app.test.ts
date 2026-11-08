@@ -13,6 +13,8 @@ import {
   render,
   settings,
   type,
+  versionNode,
+  versionTree,
   type Component,
   type FakeApi,
 } from './harness';
@@ -280,6 +282,194 @@ describe('App layout and routes (11 §5, §6)', () => {
     expect(host.querySelector('.sign-in')?.textContent).toBe('Sign in');
     await click(button(host, 'Settings'));
     expect(host.querySelector('#settings-enterprise')).not.toBeNull();
+  });
+});
+
+describe('Versions panel in the shell (11 §5.1, §5.3, §5.7)', () => {
+  const frame = () => act(async () => new Promise((r) => requestAnimationFrame(() => r(undefined))));
+  const toggle = (host: HTMLElement) => host.querySelector<HTMLButtonElement>('button[aria-controls="version-panel"]');
+  const panel = (host: HTMLElement) => host.querySelector<HTMLElement>('aside#version-panel');
+  const withWidth = async (w: number, run: () => Promise<void>) => {
+    const width = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: w });
+    try {
+      await run();
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+    }
+  };
+  const openTopic = async () => {
+    fake.api.library.list = async () => ok([entry('Topic A', '2026-01-01T00:00:00Z')]);
+    const host = await render(App);
+    await click(host.querySelector('.library-item'));
+    return host;
+  };
+
+  it('the header toggle opens the panel beside the slot, which shrinks, and shows a count badge', async () => {
+    fake.api.doc.versions = vi.fn(async (slug: string) =>
+      ok(
+        versionTree(slug, {
+          nodes: [versionNode(), versionNode({ id: 'v1', parentId: 'v0', kind: 'expand', topic: 'Pricing' })],
+          currentId: 'v1',
+        }),
+      ),
+    ) as typeof fake.api.doc.versions;
+    // A flex row in miniature: the slot gets the viewer area's width minus the panel's.
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const aside = document.querySelector<HTMLElement>('#version-panel');
+      const width = this.classList.contains('viewer-slot') ? 752 - (aside ? parseInt(aside.style.width, 10) : 0) : 0;
+      return { x: 272, y: 80, left: 272, top: 80, width, height: 500, right: 272 + width, bottom: 580 } as DOMRect;
+    });
+    const host = await openTopic();
+    const t = toggle(host);
+    expect(t?.getAttribute('aria-expanded')).toBe('false');
+    expect(t?.getAttribute('aria-keyshortcuts')).toBe('Meta+Y');
+    expect(t?.querySelector('.count-badge')?.textContent).toBe('2');
+    expect(panel(host)).toBeNull();
+    await frame();
+    expect(fake.api.viewer.setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ width: 752 }));
+
+    await click(t);
+    expect(t?.getAttribute('aria-expanded')).toBe('true');
+    const aside = panel(host);
+    expect(aside?.style.width).toBe('300px');
+    // The panel is a column of .viewer-body after the slot and its handle, inside the viewer area.
+    const body = host.querySelector('main .viewer-body');
+    expect(Array.from(body?.children ?? []).map((c) => c.className)).toEqual([
+      'viewer-slot',
+      'panel-handle panel-handle-right',
+      'version-panel',
+    ]);
+    expect(aside?.querySelector('[role="treeitem"][aria-current="true"]')?.textContent).toContain('Pricing');
+    await frame();
+    expect(fake.api.viewer.setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ width: 452 }));
+
+    // The panel's Close button hides it again.
+    await click(button(aside!, 'Close'));
+    expect(panel(host)).toBeNull();
+    await frame();
+    expect(fake.api.viewer.setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ width: 752 }));
+  });
+
+  it('Cmd+Y toggles the panel with a document open and does nothing without one', async () => {
+    fake.api.library.list = async () => ok([entry('Topic A', '2026-01-01T00:00:00Z')]);
+    const host = await render(App);
+    await key(document.body, 'y', { metaKey: true });
+    expect(panel(host)).toBeNull();
+    expect(JSON.parse(window.localStorage.getItem('eli5.versionPanel') ?? '{}')).toMatchObject({ open: false });
+    await click(host.querySelector('.library-item'));
+    await key(document.body, 'y', { metaKey: true });
+    expect(panel(host)).not.toBeNull();
+    // The View > Show Versions item forwards an uppercase Y.
+    await key(document.body, 'Y', { metaKey: true });
+    expect(panel(host)).toBeNull();
+  });
+
+  it('persists open state and width; the handle resizes within 220..420', async () => {
+    // withWidth restores the real width after the resize below.
+    await withWidth(window.innerWidth, async () => {
+      window.localStorage.setItem('eli5.versionPanel', JSON.stringify({ open: true, width: 999 }));
+      const host = await openTopic();
+      // 1024 - 272 - 360 = 392 px of room: the stored (clamped to 420) width shrinks to fit.
+      expect(panel(host)?.style.width).toBe('392px');
+      // The handle cannot widen past the room the slot leaves; the stored width matches the screen.
+      const narrowHandle = host.querySelector<HTMLElement>('[aria-label="Resize versions panel"]');
+      expect(narrowHandle?.getAttribute('aria-valuemax')).toBe('392');
+      await key(narrowHandle, 'ArrowLeft');
+      expect(panel(host)?.style.width).toBe('392px');
+      expect(JSON.parse(window.localStorage.getItem('eli5.versionPanel') ?? '{}')).toEqual({ open: true, width: 392 });
+      await act(async () => {
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1400 });
+        window.dispatchEvent(new Event('resize'));
+      });
+      expect(panel(host)?.style.width).toBe('392px');
+      await key(narrowHandle, 'ArrowLeft');
+      await key(narrowHandle, 'ArrowLeft');
+      expect(panel(host)?.style.width).toBe('420px');
+      const handle = host.querySelector<HTMLElement>('[role="separator"][aria-label="Resize versions panel"]');
+      expect(handle?.getAttribute('aria-orientation')).toBe('vertical');
+      // The panel is on the right: Arrow Right narrows it.
+      await key(handle, 'ArrowRight');
+      expect(panel(host)?.style.width).toBe('404px');
+      expect(JSON.parse(window.localStorage.getItem('eli5.versionPanel') ?? '{}')).toEqual({ open: true, width: 404 });
+      await key(document.body, 'y', { metaKey: true });
+      expect(JSON.parse(window.localStorage.getItem('eli5.versionPanel') ?? '{}')).toEqual({ open: false, width: 404 });
+    });
+  });
+
+  it('dragging the handle left widens the panel', async () => {
+    window.localStorage.setItem('eli5.versionPanel', JSON.stringify({ open: true, width: 240 }));
+    const host = await openTopic();
+    const handle = host.querySelector<HTMLElement>('[aria-label="Resize versions panel"]');
+    const at = (type: string, clientX: number) =>
+      act(async () => {
+        handle?.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX }));
+      });
+    await at('pointerdown', 600);
+    await at('pointermove', 560);
+    expect(panel(host)?.style.width).toBe('280px');
+    await at('pointerup', 560);
+    await at('pointermove', 400);
+    expect(panel(host)?.style.width).toBe('280px');
+  });
+
+  it('ignores a malformed stored value', async () => {
+    window.localStorage.setItem('eli5.versionPanel', '{not json');
+    const host = await openTopic();
+    expect(panel(host)).toBeNull();
+    await click(toggle(host));
+    expect(panel(host)?.style.width).toBe('300px');
+  });
+
+  it('the panel width clamps so the slot keeps 360 px', async () => {
+    await withWidth(900, async () => {
+      // Narrow: the sidebar starts collapsed, leaving 900 - 360 = 540 px, so 420 fits as is.
+      window.localStorage.setItem('eli5.versionPanel', JSON.stringify({ open: true, width: 420 }));
+      const host = await render(App);
+      fake.emit('navigate', { route: { view: 'doc', slug: 'topic-a' } });
+      await flush();
+      expect(panel(host)?.style.width).toBe('420px');
+      // Opening the sidebar (272 px) leaves 268 px for the panel.
+      await key(document.body, '\\', { metaKey: true });
+      expect(host.querySelector('aside.sidebar')?.hasAttribute('hidden')).toBe(false);
+      expect(panel(host)?.style.width).toBe('268px');
+    });
+  });
+
+  it('a too-narrow window shows the hint instead of opening, and never collapses the sidebar', async () => {
+    await withWidth(800, async () => {
+      fake.api.library.list = async () => ok([entry('Topic A', '2026-01-01T00:00:00Z')]);
+      const host = await render(App);
+      await key(document.body, '\\', { metaKey: true });
+      await click(host.querySelector('.library-item'));
+      // 800 - 272 - 360 = 168 px: less than the 220 px minimum.
+      await click(toggle(host));
+      expect(panel(host)).toBeNull();
+      expect(toggle(host)?.getAttribute('aria-expanded')).toBe('false');
+      expect(host.querySelector('.doc-header [role="status"]')?.textContent).toBe(
+        'Widen the window or hide the library to show versions.',
+      );
+      expect(host.querySelector('aside.sidebar')?.hasAttribute('hidden')).toBe(false);
+      // Hiding the library makes room: the hint goes and the toggle works.
+      await key(document.body, '\\', { metaKey: true });
+      expect(host.querySelector('.doc-header [role="status"]')).toBeNull();
+      await key(document.body, 'y', { metaKey: true });
+      expect(panel(host)).not.toBeNull();
+    });
+  });
+
+  it('F6 cycles viewer → versions → input when the panel is open', async () => {
+    window.localStorage.setItem('eli5.versionPanel', JSON.stringify({ open: true, width: 300 }));
+    const host = await openTopic();
+    fake.emit('cycle-region', { dir: 1 });
+    expect(document.activeElement?.getAttribute('role')).toBe('treeitem');
+    expect(panel(host)?.contains(document.activeElement)).toBe(true);
+    await key(document.activeElement, 'F6');
+    expect(host.querySelector('[data-region="input"]')?.contains(document.activeElement)).toBe(true);
+    await key(document.activeElement, 'F6', { shiftKey: true });
+    expect(panel(host)?.contains(document.activeElement)).toBe(true);
+    await key(document.activeElement, 'F6', { shiftKey: true });
+    expect(document.activeElement).toBe(host.querySelector('main[data-region="viewer"]'));
   });
 });
 
