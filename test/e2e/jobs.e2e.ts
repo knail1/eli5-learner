@@ -124,7 +124,7 @@ test('E7: jobs started while one runs wait as Queued, then all finish; the Libra
     /^Reading sources$/,
     /^Extracting content$/,
     // The bare PRD wording shows while the stage starts, before a step is running.
-    /^Generating document( \((in-depth and ELI5|in-depth explainer|ELI5 version|glossary notes|finishing up)\))?$/,
+    /^Generating document( \((in-depth and ELI5|in-depth explainer|ELI5 version|ASD-STE100 version, simplifying the ELI5 version|ASD-STE100 version|simplifying the ELI5 version|glossary notes|finishing up)\))?$/,
     /^Saving$/,
     new RegExp(`^Done: ${TITLE}$`),
   ];

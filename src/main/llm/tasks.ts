@@ -15,6 +15,14 @@ import {
 } from './budget';
 import { LLMError } from './errors';
 import { prepareImages, toImageInput, type ImageReencoder } from './images';
+import { critiqueGate, eli5FindingsText, lintEli5, type CritiqueGateResult } from './lint/eli5-lint';
+import {
+  lintSte,
+  STE_REPAIR_MIN_SENTENCES,
+  STE_REPAIR_THRESHOLD,
+  steFindingsText,
+  type SteLintResult,
+} from './lint/ste-lint';
 import { defaultPromptPolicy } from './policy';
 import type { FragmentId, PromptCatalogue } from './prompts';
 import { cancelled } from './retry';
@@ -28,11 +36,30 @@ import type {
   MergePlanDraft,
   SectionAnswerDraft,
   SectionDraft,
+  SteDraft,
   SummaryDraft,
 } from './schemas/draft';
 import type { SkillLibrary, SkillSlot, SkillTask, SkillTexts } from './skills';
-import { addUsage, generateStructured, OutputTruncated, ZERO_USAGE, type DraftOf } from './structured';
-import type { GenerationRequest, ImageInput, LLMProvider, PromptId, PromptPolicy, TokenUsage } from './types';
+import {
+  critiqueInput,
+  indepthOutline,
+  isKeepable,
+  resolveSte,
+  restoreAnimations,
+  SteResolveError,
+  steInputJson,
+  type ResolvedSte,
+} from './ste';
+import { addUsage, generateStructured, OutputTruncated, usageOf, ZERO_USAGE, type DraftOf } from './structured';
+import type {
+  ChatMessage,
+  GenerationRequest,
+  ImageInput,
+  LLMProvider,
+  PromptId,
+  PromptPolicy,
+  TokenUsage,
+} from './types';
 
 /**
  * Task functions (02 §12): the only surface other main-process modules call. Each step makes one
@@ -68,6 +95,33 @@ export interface StepResult<T> {
   draft: T;
   usage: TokenUsage;
   prompt: string; // "id@version"
+}
+
+/** The ASD-STE100 step's output (02 §12, D15, D16). */
+export interface SteStepDraft extends ResolvedSte {
+  /** The one-word-one-meaning list the model declared (not rendered). */
+  terms: SteDraft['terms'];
+  lint: {
+    /** STE lint of the first valid draft. */
+    first: SteLintSummary;
+    /** STE lint of the accepted draft (equals `first` when no repair ran or it was not better). */
+    final: SteLintSummary;
+    /** A lint repair call ran (more than 20 % failing sentences). */
+    repairTried: boolean;
+    /** Its draft was better and replaced the first one. */
+    repairAccepted: boolean;
+  };
+}
+
+export interface SteLintSummary {
+  sentences: number;
+  failing: number;
+  score: number;
+}
+
+/** The ELI5 critique step's output (D17): the revised view and the code-owned accept decision. */
+export interface Eli5CritiqueResult extends StepResult<DocumentDraftTab> {
+  gate: CritiqueGateResult;
 }
 
 export type SectionAction = 'expand' | 'reexplain' | 'analogy' | 'deeper' | 'revise' | 'eli5-tab' | 'eli5-selection';
@@ -165,6 +219,14 @@ const CONTENT_MODE_FRAGMENT: Record<PreparedContent['mode'], FragmentId> = {
   notes: 'content-mode-notes',
 };
 
+/** `{{register}}` of the section prompts (08 §6.2): the writing rules of the section's tab. */
+const REGISTER_FRAGMENT: Record<TabKind, FragmentId> = {
+  indepth: 'register-indepth',
+  eli5: 'register-eli5',
+  'section-eli5': 'register-section-eli5',
+  ste: 'register-ste',
+};
+
 const SKILL_FALLBACK: Record<SkillSlot, FragmentId> = {
   'beautiful-doc': 'skill-fallback-beautiful-doc',
   eli5: 'skill-fallback-eli5',
@@ -172,8 +234,8 @@ const SKILL_FALLBACK: Record<SkillSlot, FragmentId> = {
 
 /** Task kind for a skill's `appliesTo` front matter (02 §11). */
 function skillTask(id: PromptId): SkillTask | undefined {
-  if (id === 'in-depth') return 'indepth';
-  if (id === 'eli5') return 'eli5';
+  if (id === 'in-depth' || id === 'ste') return 'indepth';
+  if (id === 'eli5' || id === 'eli5-critique') return 'eli5';
   return id.startsWith('section-') || id === 'merge-weave' ? 'section' : undefined;
 }
 
@@ -261,6 +323,18 @@ export interface LlmTasks {
   ): Promise<PreparedContent>;
   generateIndepth(p: PreparedContent, ctx: StepCtx & { glossary: boolean }): Promise<StepResult<DocumentDraftTab>>;
   generateEli5(p: PreparedContent, ctx: StepCtx): Promise<StepResult<DocumentDraftTab>>;
+  /**
+   * D15/D16: the ASD-STE100 tab from the final In depth draft. One schema repair (including a wrong
+   * section count), one overflow retry, and one lint repair when more than 20 % of sentences break an
+   * STE rule (kept only when its lint score is better). Throws when no usable tab results.
+   */
+  generateSte(indepth: DocumentDraftTab, ctx: StepCtx): Promise<StepResult<SteStepDraft>>;
+  /**
+   * D17: one editing pass over the ELI5 draft with the In depth outline and the ELI5 lint findings.
+   * Returns the revision and the accept gate's verdict; the caller keeps the first draft when the
+   * gate rejects it.
+   */
+  critiqueEli5(eli5: DocumentDraftTab, indepth: DocumentDraftTab, ctx: StepCtx): Promise<Eli5CritiqueResult>;
   generateGlossary(indepth: DocumentDraftTab, ctx: StepCtx): Promise<StepResult<GlossaryDraft>>;
   summarize(indepth: DocumentDraftTab, ctx: StepCtx): Promise<StepResult<SummaryDraft>>;
   runSectionAction(input: SectionActionInput): Promise<SectionDraft | DocumentDraftTab>;
@@ -286,6 +360,11 @@ interface RunOpts {
   labels?: readonly string[];
   signal?: AbortSignal;
   onRetry?: StepCtx['onRetry'];
+  /** Turns appended after the rendered user message (the STE lint repair transcript). */
+  followUp?: ChatMessage[];
+  /** SteDraft: the section count the draft must have (02 §10.1). */
+  steSectionCount?: number;
+  steKeepable?: number[][];
 }
 
 export function createTasks(deps: TaskDeps): LlmTasks {
@@ -321,7 +400,10 @@ export function createTasks(deps: TaskDeps): LlmTasks {
     const req: Omit<GenerationRequest, 'jsonSchema'> = {
       taskId: id,
       system: preamble ? `${preamble}\n\n${rendered.system}` : rendered.system,
-      messages: [{ role: 'user', text: rendered.user, ...(opts.images?.length ? { images: opts.images } : {}) }],
+      messages: [
+        { role: 'user', text: rendered.user, ...(opts.images?.length ? { images: opts.images } : {}) },
+        ...(opts.followUp ?? []),
+      ],
       maxOutputTokens: Math.min(def.maxOutputTokens, setting),
       ...(def.temperature !== undefined ? { temperature: def.temperature } : {}),
       ...(def.effort ? { effort: def.effort } : {}),
@@ -348,7 +430,11 @@ export function createTasks(deps: TaskDeps): LlmTasks {
       provider,
       request: filtered,
       schema: built.schema,
-      validation: { imageLabels: labels },
+      validation: {
+        imageLabels: labels,
+        ...(opts.steSectionCount !== undefined ? { steSectionCount: opts.steSectionCount } : {}),
+        ...(opts.steKeepable ? { steKeepable: opts.steKeepable } : {}),
+      },
       filter: (req) => policy().preSendFilter(req),
       repairText: (errors) => frag('json-repair', { errors }),
       noOutputText: () => frag('json-no-output'),
@@ -357,8 +443,18 @@ export function createTasks(deps: TaskDeps): LlmTasks {
     return { data: r.data as DraftOf<DraftSchemaName> as T, usage: r.usage, tag: built.tag };
   }
 
+  /** Shared rule fragments of the writing prompts (02 §9): charts, diagrams, animations. */
+  function ruleVars(): Record<string, string> {
+    return {
+      chartRules: frag('chart-rules'),
+      diagramRules: frag('diagram-rules'),
+      animationRules: frag('animation-rules'),
+    };
+  }
+
   function writingVars(p: PreparedContent, ctx: StepCtx, provider: LLMProvider): Record<string, string> {
     return {
+      ...ruleVars(),
       contentMode: frag(CONTENT_MODE_FRAGMENT[p.mode]),
       visibleOutputTokens: String(visibleOutput(provider.limits, deps.settings().llm.maxOutputTokens)),
       imageLabels: p.images.length ? p.images.map((i) => `- ${i.label}`).join('\n') : '',
@@ -379,6 +475,7 @@ export function createTasks(deps: TaskDeps): LlmTasks {
     const vars = { ...writingVars(p, ctx, provider), ...extra };
     const opts: RunOpts = { images: p.images, signal: ctx.signal, ...(ctx.onRetry ? { onRetry: ctx.onRetry } : {}) };
     let r: { data: DocumentDraftTab; usage: TokenUsage; tag: string };
+    let spent: TokenUsage = ZERO_USAGE;
     try {
       r = await run<DocumentDraftTab>(id, { ...vars, overflowAddendum: '' }, opts);
     } catch (e) {
@@ -387,13 +484,19 @@ export function createTasks(deps: TaskDeps): LlmTasks {
       const count = (e.partialText.match(/"heading"\s*:/g) ?? []).length;
       const n = count > 0 ? Math.max(1, Math.floor(count * 0.7)) : 6;
       log.warn('llm.output-overflow', { taskId: id, count: n });
-      r = await run<DocumentDraftTab>(
-        id,
-        { ...vars, overflowAddendum: frag('overflow-addendum', { n: String(n) }) },
-        opts,
-      );
+      spent = e.usage ?? ZERO_USAGE;
+      try {
+        r = await run<DocumentDraftTab>(
+          id,
+          { ...vars, overflowAddendum: frag('overflow-addendum', { n: String(n) }) },
+          opts,
+        );
+      } catch (e2) {
+        if (e2 instanceof LLMError) e2.usage = addUsage(spent, e2.usage ?? ZERO_USAGE);
+        throw e2;
+      }
     }
-    return { draft: { ...r.data, kind }, usage: r.usage, prompt: r.tag };
+    return { draft: { ...r.data, kind }, usage: addUsage(spent, r.usage), prompt: r.tag };
   }
 
   async function prepareContent(
@@ -411,6 +514,7 @@ export function createTasks(deps: TaskDeps): LlmTasks {
     // The in-depth call's system prompt as it will be sent (preamble + rendered template + skills).
     const preamble = policy().preamble;
     const vars = {
+      ...ruleVars(),
       skills: skillsText(deps.prompts.get('in-depth'), limits.contextTokens),
       glossaryInstructions: '',
       contentMode: frag(CONTENT_MODE_FRAGMENT.raw),
@@ -421,7 +525,6 @@ export function createTasks(deps: TaskDeps): LlmTasks {
       overflowAddendum: '',
       // The longer variant, so the budget holds whichever the write uses.
       photoInstructions: frag(photoFragment('indepth', true)),
-      animationRules: frag('animation-rules'),
     };
     const rendered = deps.prompts.render('in-depth', { ...vars, content: '' });
     const system = preamble ? `${preamble}\n\n${rendered.system}` : rendered.system;
@@ -627,21 +730,147 @@ export function createTasks(deps: TaskDeps): LlmTasks {
     return { draft: { picks }, usage, prompt: tag };
   }
 
+  async function generateSte(indepth: DocumentDraftTab, ctx: StepCtx): Promise<StepResult<SteStepDraft>> {
+    const provider = deps.provider();
+    const sectionCount = indepth.sections.length;
+    const vars: Record<string, string> = {
+      clarifyingInput: ctx.clarifyingInput,
+      indepthDraft: wrapSource('in-depth view', steInputJson(indepth)),
+      sectionCount: String(sectionCount),
+      visibleOutputTokens: String(visibleOutput(provider.limits, deps.settings().llm.maxOutputTokens)),
+    };
+    const opts: RunOpts = {
+      signal: ctx.signal,
+      steSectionCount: sectionCount,
+      steKeepable: indepth.sections.map((s) => s.blocks.flatMap((b, n) => (isKeepable(b) ? [n] : []))),
+      ...(ctx.onRetry ? { onRetry: ctx.onRetry } : {}),
+    };
+    let overflow = '';
+    let spent: TokenUsage = ZERO_USAGE;
+    let r: { data: SteDraft; usage: TokenUsage; tag: string };
+    try {
+      r = await run<SteDraft>('ste', { ...vars, overflowAddendum: overflow }, opts);
+    } catch (e) {
+      // 02 §8.5 for STE: one retry asking for shorter text (the section count is fixed).
+      if (!(e instanceof OutputTruncated)) throw e;
+      spent = e.usage ?? ZERO_USAGE;
+      log.warn('llm.output-overflow', { taskId: 'ste', count: sectionCount });
+      overflow = frag('overflow-addendum-ste', { n: String(sectionCount) });
+      try {
+        r = await run<SteDraft>('ste', { ...vars, overflowAddendum: overflow }, opts);
+      } catch (e2) {
+        if (e2 instanceof LLMError) e2.usage = addUsage(spent, e2.usage ?? ZERO_USAGE);
+        throw e2;
+      }
+    }
+    let usage = addUsage(spent, r.usage);
+    let draft = r.data;
+    const first = lintSte(draft);
+    let final: SteLintResult = first;
+    let repairTried = false;
+    let repairAccepted = false;
+    if (first.score > STE_REPAIR_THRESHOLD) {
+      // D16: one repair with the findings; kept only when its lint score is better and it did not
+      // reach that score by dropping text.
+      repairTried = true;
+      try {
+        const again = await run<SteDraft>(
+          'ste',
+          { ...vars, overflowAddendum: overflow },
+          {
+            ...opts,
+            followUp: [
+              { role: 'assistant', text: JSON.stringify(draft) },
+              {
+                role: 'user',
+                text: frag('ste-lint-repair', {
+                  findings: wrapSource('checker findings', steFindingsText(first)),
+                }),
+              },
+            ],
+          },
+        );
+        usage = addUsage(usage, again.usage);
+        const lint = lintSte(again.data);
+        if (lint.score < first.score && lint.sentences >= first.sentences * STE_REPAIR_MIN_SENTENCES) {
+          draft = again.data;
+          final = lint;
+          repairAccepted = true;
+        }
+      } catch (e) {
+        if (ctx.signal.aborted) throw cancelled();
+        usage = addUsage(usage, usageOf(e) ?? ZERO_USAGE);
+        log.info('llm.ste-repair-failed', { errorKind: e instanceof LLMError ? e.kind : 'unknown' });
+      }
+    }
+    let resolved: ResolvedSte;
+    try {
+      resolved = resolveSte(indepth, draft);
+    } catch (e) {
+      if (e instanceof SteResolveError) {
+        const err = new LLMError('invalid_output', `STE draft unusable: ${e.message}`);
+        err.usage = usage;
+        throw err;
+      }
+      throw e;
+    }
+    if (resolved.fixes.length) log.info('llm.ste-resolved', { count: resolved.fixes.length });
+    const summary = (l: SteLintResult): SteLintSummary => ({
+      sentences: l.sentences,
+      failing: l.failing,
+      score: l.score,
+    });
+    return {
+      draft: {
+        ...resolved,
+        terms: draft.terms,
+        lint: { first: summary(first), final: summary(final), repairTried, repairAccepted },
+      },
+      usage,
+      prompt: r.tag,
+    };
+  }
+
+  async function critiqueEli5(
+    eli5: DocumentDraftTab,
+    indepth: DocumentDraftTab,
+    ctx: StepCtx,
+  ): Promise<Eli5CritiqueResult> {
+    const provider = deps.provider();
+    const findings = eli5FindingsText(lintEli5(eli5, indepth));
+    // Figure labels of the draft stay valid: the critique keeps figure blocks as they are.
+    const labels = eli5.sections.flatMap((s) => s.blocks.flatMap((b) => (b.type === 'figure' ? [b.imageLabel] : [])));
+    const r = await run<DocumentDraftTab>(
+      'eli5-critique',
+      {
+        clarifyingInput: ctx.clarifyingInput,
+        eli5Draft: wrapSource('eli5 draft', JSON.stringify(critiqueInput(eli5))),
+        indepthOutline: wrapSource('in-depth outline', indepthOutline(indepth)),
+        lintFindings: findings ? wrapSource('checker findings', findings) : '',
+        diagramRules: frag('diagram-rules'),
+        visibleOutputTokens: String(visibleOutput(provider.limits, deps.settings().llm.maxOutputTokens)),
+      },
+      { signal: ctx.signal, labels, ...(ctx.onRetry ? { onRetry: ctx.onRetry } : {}) },
+    );
+    const revised = restoreAnimations({ ...r.data, kind: 'eli5' }, eli5);
+    return { draft: revised, usage: r.usage, prompt: r.tag, gate: critiqueGate(eli5, revised, indepth) };
+  }
+
   return {
     prepareContent,
     pickPhotos,
+    generateSte,
+    critiqueEli5,
 
     generateIndepth: (p, ctx) =>
       writeTab('in-depth', 'indepth', p, ctx, {
         photoInstructions: frag(photoFragment('indepth', !!ctx.photos)),
         glossaryInstructions: ctx.glossary ? frag('glossary-instructions') : '',
-        animationRules: frag('animation-rules'),
       }),
 
     generateEli5: (p, ctx) =>
       writeTab('eli5', 'eli5', p, ctx, {
         photoInstructions: frag(photoFragment('eli5', !!ctx.photos)),
-        animationRules: frag('animation-rules'),
       }),
 
     async generateGlossary(indepth, ctx) {
@@ -673,7 +902,7 @@ export function createTasks(deps: TaskDeps): LlmTasks {
     async runSectionAction(input) {
       const id = ACTION_PROMPT[input.action];
       const vars: Record<string, string> = {
-        tabKind: input.tabKind,
+        register: frag(REGISTER_FRAGMENT[input.tabKind]),
         outline: input.outline.map((t, i) => `${i + 1}. ${t}`).join('\n'),
         section: wrapSource('current section', JSON.stringify(input.section)),
         prevText: input.prev ? wrapSource('previous section', sectionText(input.prev)) : '',
@@ -693,7 +922,7 @@ export function createTasks(deps: TaskDeps): LlmTasks {
 
     async answerSectionQuestion(input) {
       const vars: Record<string, string> = {
-        tabKind: input.tabKind,
+        register: frag(REGISTER_FRAGMENT[input.tabKind]),
         outline: input.outline.map((t, i) => `${i + 1}. ${t}`).join('\n'),
         section: wrapSource('current section', JSON.stringify(input.section)),
         prevText: input.prev ? wrapSource('previous section', sectionText(input.prev)) : '',

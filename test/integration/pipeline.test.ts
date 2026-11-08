@@ -206,7 +206,14 @@ describe('pipeline integration (06 acceptance, 13 §2)', () => {
       ['policy-memo.docx', 'file'],
       [server.url('/article/'), 'url'],
     ]);
-    expect(meta.tabs.map((t) => t.key)).toEqual(['indepth', 'eli5']);
+    // Three tabs: the ASD-STE100 view follows ELI5 (07 §12).
+    expect(meta.tabs.map((t) => t.key)).toEqual(['indepth', 'eli5', 'ste']);
+    expect(meta.generation.prompts).toEqual(expect.arrayContaining(['ste@1', 'eli5-critique@1']));
+    // The fixture's topic animation (safety stock) passes the checks in In depth and is mirrored,
+    // unchanged, in the ASD-STE100 tab; the accepted ELI5 critique replaced the first ELI5 draft.
+    expect(html.split('<figure class="animation">')).toHaveLength(3);
+    expect(html).toContain('A thin buffer leaves shelves empty in the busy weeks');
+    expect(html).toContain('It is like buying snacks for a party when you do not know how many friends will come.');
     expect(meta.generation.promptSet).toBe('default');
     expect(meta.generation.promptDigest).toMatch(/^[0-9a-f]{16}$/);
     // The model saw all three sources, delimited (02 §9).
@@ -220,7 +227,7 @@ describe('pipeline integration (06 acceptance, 13 §2)', () => {
       entries: { id: string; topicSlug: string; title: string; summary: string; tabCount: number }[];
     };
     expect(catalog.entries).toEqual([
-      expect.objectContaining({ id: meta.id, topicSlug: slug, title: meta.title, summary: meta.summary, tabCount: 2 }),
+      expect.objectContaining({ id: meta.id, topicSlug: slug, title: meta.title, summary: meta.summary, tabCount: 3 }),
     ]);
     // References list every source; staging is gone.
     expect(html).toContain('notes.md');

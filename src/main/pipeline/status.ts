@@ -24,6 +24,10 @@ export const STATUS_LINES = {
   generatingBoth: 'Generating document (in-depth and ELI5)',
   generatingIndepth: 'Generating document (in-depth explainer)',
   generatingEli5: 'Generating document (ELI5 version)',
+  /** Step 1b (06 §5.4): the ASD-STE100 tab and the ELI5 critique run together. */
+  generatingSteCritique: 'Generating document (ASD-STE100 version, simplifying the ELI5 version)',
+  generatingSte: 'Generating document (ASD-STE100 version)',
+  generatingCritique: 'Generating document (simplifying the ELI5 version)',
   generatingGlossary: 'Generating document (glossary notes)',
   generatingSummary: 'Generating document (finishing up)',
   saving: 'Saving',
@@ -89,6 +93,11 @@ function generatingLine(job: StatusLineJob, ctx: StatusLineContext): string {
   if (indepth && eli5) return STATUS_LINES.generatingBoth;
   if (indepth) return STATUS_LINES.generatingIndepth;
   if (eli5) return STATUS_LINES.generatingEli5;
+  const ste = running.has('ste');
+  const critique = running.has('eli5-critique');
+  if (ste && critique) return STATUS_LINES.generatingSteCritique;
+  if (ste) return STATUS_LINES.generatingSte;
+  if (critique) return STATUS_LINES.generatingCritique;
   if (running.has('glossary')) return STATUS_LINES.generatingGlossary;
   if (running.has('summary')) return STATUS_LINES.generatingSummary;
   return STATUS_LINES.generating;

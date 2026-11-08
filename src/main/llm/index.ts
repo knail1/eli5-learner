@@ -49,7 +49,7 @@ export {
 export type { CatalogueOptions, FragmentDef, FragmentId, PromptDef, PromptOrigin } from './prompts';
 export { SkillLibrary, SKILL_SLOTS } from './skills';
 export type { Skill, SkillTexts } from './skills';
-export { generateStructured, validateDraft, OutputTruncated } from './structured';
+export { generateStructured, validateDraft, OutputTruncated, usageOf } from './structured';
 export { createTasks, deserializePrepared, serializePrepared, sectionText, MODEL_ERROR_WHILE_READING } from './tasks';
 export type {
   LlmTasks,
@@ -63,8 +63,17 @@ export type {
   SectionAskInput,
   StepCtx,
   StepResult,
+  SteLintSummary,
+  SteStepDraft,
+  Eli5CritiqueResult,
   TaskDeps,
 } from './tasks';
+export { resolveSte, steInputJson, indepthOutline, KEEPABLE_TYPES, SteResolveError } from './ste';
+export type { ResolvedSte, SteOrigin } from './ste';
+export { lintSte, steFindingsText, STE_REPAIR_THRESHOLD } from './lint/ste-lint';
+export type { SteFinding, SteLintResult } from './lint/ste-lint';
+export { lintEli5, eli5FindingsText, critiqueGate, countVisuals } from './lint/eli5-lint';
+export type { CritiqueGateResult, Eli5Finding, Eli5LintResult } from './lint/eli5-lint';
 export { defaultPromptPolicy } from './policy';
 export { registerPublic } from './register';
 export * from './schemas/draft';

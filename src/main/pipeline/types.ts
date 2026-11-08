@@ -65,7 +65,7 @@ export type {
 };
 
 /** Sub-step shown while status === 'generating' (06 §3.1). */
-export type JobStep = 'indepth' | 'eli5' | 'glossary' | 'summary';
+export type JobStep = 'indepth' | 'eli5' | 'ste' | 'eli5-critique' | 'glossary' | 'summary';
 
 export interface JobProgress {
   sourcesTotal: number;
@@ -73,7 +73,7 @@ export interface JobProgress {
   sourcesDone: number;
   /** Only while generating. */
   step?: JobStep;
-  /** e.g. ['indepth','eli5','summary'] when glossary is off. */
+  /** e.g. ['indepth','eli5','ste','eli5-critique','summary'] when glossary is off. */
   stepsPlanned: JobStep[];
 }
 
@@ -87,7 +87,8 @@ export interface JobFailure {
 
 /** Partial-failure notes, persisted into meta.json (06 §7.1). */
 export interface JobWarning {
-  kind: 'source-skipped' | 'glossary-omitted' | 'summary-fallback' | 'eli5-placeholder' | 'input-truncated';
+  kind:
+    'source-skipped' | 'glossary-omitted' | 'summary-fallback' | 'eli5-placeholder' | 'input-truncated' | 'ste-omitted';
   message: string;
 }
 

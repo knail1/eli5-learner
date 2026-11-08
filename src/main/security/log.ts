@@ -37,6 +37,7 @@ export const LOG_FIELD_ALLOWLIST: ReadonlySet<string> = new Set([
   'durationMs',
   'inputTokens',
   'outputTokens',
+  'cacheRead',
   'stopReason',
   'count',
   'bytes',

@@ -41,10 +41,10 @@ describe('createJob (06 §3.1, §5.1 step 3)', () => {
     expect(j.progress).toEqual({
       sourcesTotal: 1,
       sourcesDone: 0,
-      stepsPlanned: ['indepth', 'eli5', 'glossary', 'summary'],
+      stepsPlanned: ['indepth', 'eli5', 'ste', 'eli5-critique', 'glossary', 'summary'],
     });
     const noGlossary = createJob({ ...j, now: new Date(0), options: { clarifyingInput: '', glossary: false } });
-    expect(noGlossary.progress.stepsPlanned).toEqual(['indepth', 'eli5', 'summary']);
+    expect(noGlossary.progress.stepsPlanned).toEqual(['indepth', 'eli5', 'ste', 'eli5-critique', 'summary']);
   });
 });
 

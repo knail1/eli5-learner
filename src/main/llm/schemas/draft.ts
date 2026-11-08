@@ -59,11 +59,30 @@ export const AnimationBlockSchema = z.object({
   js: z.string(),
 });
 
+const ParagraphBlockSchema = z.object({ type: z.literal('paragraph'), md: z.string() });
+const ListBlockSchema = z.object({ type: z.literal('list'), ordered: z.boolean(), items: z.array(z.string()) });
+const PullquoteBlockSchema = z.object({
+  type: z.literal('pullquote'),
+  text: z.string(),
+  attribution: z.string().optional(),
+});
+const CalloutBlockSchema = z.object({
+  type: z.literal('callout'),
+  tone: z.enum(['note', 'warning', 'keypoint']),
+  md: z.string(),
+});
+const StepperBlockSchema = z.object({
+  type: z.literal('stepper'),
+  title: z.string(),
+  steps: z.array(z.object({ label: z.string(), md: z.string() })),
+});
+const AnalogyBlockSchema = z.object({ type: z.literal('analogy'), md: z.string() });
+
 export const DraftBlockSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('paragraph'), md: z.string() }),
-  z.object({ type: z.literal('list'), ordered: z.boolean(), items: z.array(z.string()) }),
-  z.object({ type: z.literal('pullquote'), text: z.string(), attribution: z.string().optional() }),
-  z.object({ type: z.literal('callout'), tone: z.enum(['note', 'warning', 'keypoint']), md: z.string() }),
+  ParagraphBlockSchema,
+  ListBlockSchema,
+  PullquoteBlockSchema,
+  CalloutBlockSchema,
   z.object({ type: z.literal('table'), ...TableShape }),
   z.object({ type: z.literal('chart'), chart: ChartSpecSchema }),
   z.object({ type: z.literal('diagram'), title: z.string(), svg: z.string(), alt: z.string() }),
@@ -73,12 +92,8 @@ export const DraftBlockSchema = z.discriminatedUnion('type', [
     caption: z.string(),
     annotations: z.array(z.object({ x: z.number(), y: z.number(), text: z.string() })).optional(),
   }),
-  z.object({
-    type: z.literal('stepper'),
-    title: z.string(),
-    steps: z.array(z.object({ label: z.string(), md: z.string() })),
-  }),
-  z.object({ type: z.literal('analogy'), md: z.string() }),
+  StepperBlockSchema,
+  AnalogyBlockSchema,
   // A request for an open-licensed stock photo of a real-world scene (07 §7.4). The app searches for
   // it with `query` (short and generic, never names or source text) and replaces the block with a
   // credited figure, or drops it when nothing fits.
@@ -198,6 +213,34 @@ export const SectionAnswerDraftSchema = z.object({
 });
 export type SectionAnswerDraft = z.infer<typeof SectionAnswerDraftSchema>;
 
+/**
+ * The ASD-STE100 tab as the `ste` prompt writes it (02 §10, D15): text blocks rewritten in STE, and
+ * `keep` references to the visuals of the same in-depth section, which `resolveSte` (ste.ts) copies
+ * byte for byte, so the tab cannot add or change a chart, diagram, table, photo, figure or animation.
+ * `terms` is the one-word-one-meaning list the STE lint checks; it is not rendered.
+ */
+export const SteTextBlockSchema = z.discriminatedUnion('type', [
+  ParagraphBlockSchema,
+  ListBlockSchema,
+  CalloutBlockSchema,
+  StepperBlockSchema,
+  AnalogyBlockSchema,
+  PullquoteBlockSchema,
+]);
+export const SteKeepBlockSchema = z.object({ type: z.literal('keep'), block: z.number().int() });
+export const SteBlockSchema = z.discriminatedUnion('type', [...SteTextBlockSchema.options, SteKeepBlockSchema]);
+export type SteBlock = z.infer<typeof SteBlockSchema>;
+export const SteDraftSchema = z.object({
+  title: z.string(),
+  dek: z.string().optional(),
+  terms: z.array(z.object({ term: z.string(), meaning: z.string() })).max(30),
+  sections: z
+    .array(z.object({ heading: z.string(), blocks: z.array(SteBlockSchema).min(1).max(60) }))
+    .min(1)
+    .max(40),
+});
+export type SteDraft = z.infer<typeof SteDraftSchema>;
+
 /** Schema names usable in prompt front matter `output:` (02 §9, §16 prompt lint). */
 export const DRAFT_SCHEMAS = {
   DocumentDraftTab: DocumentDraftTabSchema,
@@ -209,6 +252,7 @@ export const DRAFT_SCHEMAS = {
   PhotoPickDraft: PhotoPickDraftSchema,
   MergePlanDraft: MergePlanDraftSchema,
   SectionAnswerDraft: SectionAnswerDraftSchema,
+  SteDraft: SteDraftSchema,
 } as const;
 export type DraftSchemaName = keyof typeof DRAFT_SCHEMAS;
 
@@ -279,7 +323,12 @@ export function toStrictJsonSchema(schema: z.ZodType): Json {
  * ten-shape block union nested in sections and tabs exceeds both. Their replies are parsed and
  * validated with the same zod schemas and single repair.
  */
-const PROMPTED_JSON: ReadonlySet<DraftSchemaName> = new Set(['DocumentDraftTab', 'SectionDraft', 'MergePlanDraft']);
+const PROMPTED_JSON: ReadonlySet<DraftSchemaName> = new Set([
+  'DocumentDraftTab',
+  'SectionDraft',
+  'MergePlanDraft',
+  'SteDraft',
+]);
 
 export function usesPromptedJson(name: DraftSchemaName): boolean {
   return PROMPTED_JSON.has(name);

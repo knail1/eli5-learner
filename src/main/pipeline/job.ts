@@ -37,7 +37,8 @@ export function isRetryable(code: JobFailureCode | undefined): boolean {
 
 /** Steps in 06 §5.4 order; glossary only when the per-job toggle is on. */
 export function plannedSteps(options: JobOptions): JobStep[] {
-  return options.glossary ? ['indepth', 'eli5', 'glossary', 'summary'] : ['indepth', 'eli5', 'summary'];
+  const first: JobStep[] = ['indepth', 'eli5', 'ste', 'eli5-critique'];
+  return options.glossary ? [...first, 'glossary', 'summary'] : [...first, 'summary'];
 }
 
 export interface CreateJobInput {
@@ -110,7 +111,8 @@ export function snapshotOf(job: Job, ctx: SnapshotContext = {}): JobSnapshot {
 // ---- persisted record schema (06 §9.1: "each file is validated with a schema") ----
 
 const STATUSES = ['queued', 'reading', 'extracting', 'generating', 'saving', 'done', 'failed'] as const;
-const STEPS = ['indepth', 'eli5', 'glossary', 'summary'] as const;
+/** Records written before step 1b (06 §5.4) lack 'ste' and 'eli5-critique' and still parse. */
+const STEPS = ['indepth', 'eli5', 'ste', 'eli5-critique', 'glossary', 'summary'] as const;
 
 /**
  * Structural check of a job record. Nested records owned by other modules (SourceInput,

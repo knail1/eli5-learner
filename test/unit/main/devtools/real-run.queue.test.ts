@@ -151,6 +151,8 @@ describe('real run over the JobQueue', () => {
       skipped: [expect.objectContaining({ code: 'login-required' })],
     });
     expect(app.fake.calls.length).toBeGreaterThan(0);
+    // Step 1b (06 §5.4) goes through the guard like every other call.
+    expect(app.fake.calls.map((c) => c.taskId)).toEqual(expect.arrayContaining(['ste', 'eli5-critique']));
     expect(summary.spentUsd).toBeGreaterThan(0);
     expect(summary.spentUsd).toBeLessThanOrEqual(5);
     expect(app.session.ledger.reservedUsd).toBe(0);

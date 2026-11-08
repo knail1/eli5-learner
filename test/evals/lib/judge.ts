@@ -40,7 +40,9 @@ export function criteriaFor(part: RubricId, o: { glossary?: boolean; note?: bool
     case 'indepth':
       return ['D1', 'D2', 'D3', 'D4', 'D5', ...(o.glossary ? ['D6'] : []), 'D7'];
     case 'eli5':
-      return ['E1', 'E2', 'E3', 'E4', 'E5'];
+      return ['E1', 'E2', 'E3', 'E4', 'E5', 'E6'];
+    case 'ste':
+      return ['T1', 'T2', 'T3', 'T4'];
     case 'section':
       return ['S1', 'S2', ...(o.note ? ['S3'] : [])];
   }
@@ -117,6 +119,7 @@ const PART_LABELS: Record<RubricId, string> = {
   indepth: 'the In depth tab',
   eli5: 'the ELI5 tab',
   section: 'one section rewritten by a section action',
+  ste: 'the ASD-STE100 (Simplified Technical English) tab',
 };
 
 /** Neutralizes a closing delimiter inside graded data so it cannot end its block early. */

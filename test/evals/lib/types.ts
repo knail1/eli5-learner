@@ -39,7 +39,7 @@ export const EvalCaseSchema = z
   .strict();
 export type EvalCase = z.infer<typeof EvalCaseSchema>;
 
-export const RUBRIC_IDS = ['indepth', 'eli5', 'section'] as const;
+export const RUBRIC_IDS = ['indepth', 'eli5', 'section', 'ste'] as const;
 export type RubricId = (typeof RUBRIC_IDS)[number];
 
 export const RubricSchema = z
@@ -50,7 +50,7 @@ export const RubricSchema = z
       .array(
         z
           .object({
-            id: z.string().regex(/^[DES][1-9]$/),
+            id: z.string().regex(/^[DEST][1-9]$/),
             name: z.string().min(1),
             fiveMeans: z.string().min(1),
             /** 13 §9.5: a score-2 and a score-5 excerpt from synthetic material. */
@@ -109,9 +109,11 @@ export interface CaseResult {
   domain: Domain;
   status: CaseStatus;
   /** Case score per part; 0 for a gate or generation failure (13 §9.3 step 2). */
-  scores: { indepth?: number; eli5?: number; section?: number };
+  scores: { indepth?: number; eli5?: number; section?: number; ste?: number };
   indepth?: JudgedPart;
   eli5?: JudgedPart;
+  /** The ASD-STE100 tab (T1-T4), judged only when the document has one. */
+  ste?: JudgedPart;
   sections?: SectionPartResult[];
   gates?: GateResult;
   /** Content-free reason for a non-scored status (error kind or code, never model output). */
@@ -123,6 +125,8 @@ export interface SuiteScores {
   indepth: number | null;
   eli5: number | null;
   section: number | null;
+  /** Present only when some case had an ASD-STE100 tab (older results have none). */
+  ste?: number | null;
 }
 
 export interface RegressionReport {

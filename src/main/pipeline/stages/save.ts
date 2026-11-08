@@ -25,10 +25,14 @@ import { addWarning, throwIfAborted, type StageContext } from './context';
 import {
   GEN,
   decodePhotos,
+  finalEli5,
   loadContents,
+  stepWarning,
   type DocumentStepOutput,
+  type Eli5CritiqueStepOutput,
   type GlossaryStepOutput,
   type PhotosStepOutput,
+  type SteStepOutput,
   type SummaryStepOutput,
 } from './generate';
 
@@ -110,6 +114,9 @@ export async function saveStage(ctx: StageContext): Promise<CatalogEntry> {
   // Optional (07 §7.4): absent when photos were off or the job predates them.
   const photosOut = (await store.readJson(job.id, GEN.photos)) as PhotosStepOutput | null;
   const photos = decodePhotos(photosOut);
+  // Step 1b (06 §5.4): absent in jobs that predate it, or when the steps failed.
+  const steOut = (await store.readJson(job.id, GEN.ste)) as SteStepOutput | null;
+  const critique = (await store.readJson(job.id, GEN.eli5Critique)) as Eli5CritiqueStepOutput | null;
   if (!doc || !summary || !prepJson) throw new PipelineFailure('INTERNAL', 'generation-artifact-missing');
   const prep = deserializePrepared(prepJson);
   skippedWarnings(job);
@@ -125,14 +132,26 @@ export async function saveStage(ctx: StageContext): Promise<CatalogEntry> {
   const lib = deps.library;
   const stagingDir = libraryStagingDir(lib.root, job.id);
 
-  const prompts = uniq([...prep.prompts, ...doc.prompts, glossary?.prompt, summary.prompt, photosOut?.prompt]);
+  const ste = steOut?.ste ?? null;
+  const eli5 = finalEli5(doc, critique);
+  // Tags of the prompts whose output the document uses (a rejected critique is not one).
+  const prompts = uniq([
+    ...prep.prompts,
+    ...doc.prompts,
+    ste ? steOut?.prompt : undefined,
+    critique?.eli5 ? critique.prompt : undefined,
+    glossary?.prompt,
+    summary.prompt,
+    photosOut?.prompt,
+  ]);
   const render = (slug: string): { html: string; meta: DocumentMeta } => {
     const built = buildDocumentModel({
       docId,
       slug,
       now,
       indepth: { ...doc.indepth, title },
-      eli5: doc.eli5,
+      eli5,
+      ste: ste ? { tab: ste.tab, origins: ste.origins } : null,
       glossary: glossary?.draft ?? null,
       images: prep.images.map((i) => ({ label: i.label, mime: i.mediaType, bytes: new Uint8Array(i.data) })),
       photos,
@@ -144,6 +163,8 @@ export async function saveStage(ctx: StageContext): Promise<CatalogEntry> {
       ...(deps.sectionIds ? { idSource: deps.sectionIds } : {}),
       ...(deps.referenceFormatter ? { referenceFormatter: deps.referenceFormatter } : {}),
     });
+    // An STE draft that converted to no sections leaves no tab (07 §5): say so like a failed step.
+    if (ste && !built.model.tabs.some((t) => t.kind === 'ste')) addWarning(job, stepWarning('ste-omitted'));
     const html = renderDocument(built.model, built.assets, { runtime, theme });
     const meta: DocumentMeta = {
       schemaVersion: META_SCHEMA_VERSION,

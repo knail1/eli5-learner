@@ -35,7 +35,10 @@
                   { "name": "Last year", "values": [40, 30, 20] },
                   { "name": "This year", "values": [42, 28, 40] }
                 ],
-                "highlight": { "category": "Online", "note": "Up 100%" }
+                "highlight": { "category": "Online", "note": "Up 100%" },
+                "order": "value",
+                "annotations": [{ "category": "Online", "text": "Doubled in a year" }],
+                "footnote": "Synthetic numbers for tests."
               }
             },
             {
@@ -67,6 +70,14 @@
               "type": "list",
               "ordered": false,
               "items": ["The SKU count stays at twelve.", "Lead time is six weeks."]
+            },
+            {
+              "type": "animation",
+              "title": "A thin buffer leaves shelves empty in the busy weeks",
+              "caption": "Drag the safety stock. With none, every week that demand beats the plan empties the shelves; a bigger buffer covers most weeks but ties up more widgets.",
+              "alt": "Bars of weekly demand around a plan line; the bars that rise above the plan plus safety stock are highlighted as weeks with empty shelves.",
+              "poster": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 400 200\"><line x1=\"10\" y1=\"180\" x2=\"390\" y2=\"180\" stroke=\"#8c8c8c\" stroke-width=\"1\"/><rect x=\"20\" y=\"90\" width=\"30\" height=\"90\" fill=\"#8c8c8c\"/><rect x=\"70\" y=\"60\" width=\"30\" height=\"120\" fill=\"#d55e00\"/><rect x=\"120\" y=\"100\" width=\"30\" height=\"80\" fill=\"#8c8c8c\"/><rect x=\"170\" y=\"50\" width=\"30\" height=\"130\" fill=\"#d55e00\"/><rect x=\"220\" y=\"95\" width=\"30\" height=\"85\" fill=\"#8c8c8c\"/><line x1=\"10\" y1=\"80\" x2=\"390\" y2=\"80\" stroke=\"#222222\" stroke-width=\"2\"/><text x=\"300\" y=\"70\" font-size=\"14\" text-anchor=\"middle\">plan + safety stock</text></svg>",
+              "js": "var W = 480, H = 200, WEEKS = 26, MEAN = 100;\nvar view = ELI5.canvas(W, H);\nvar out = ELI5.readout('Weeks with empty shelves');\nvar stock = 10, run = null;\n\nfunction simulate(buffer) {\n  var rng = ELI5.rng(7), weeks = [], empty = 0;\n  for (var w = 0; w < WEEKS; w++) {\n    var demand = MEAN + Math.round((rng() + rng() + rng() - 1.5) * 40);\n    var short = demand > MEAN + buffer;\n    if (short) empty++;\n    weeks.push({ demand: demand, short: short });\n  }\n  return { weeks: weeks, empty: empty };\n}\n\nfunction draw(sim, buffer, upTo) {\n  var c = view.ctx, p = ELI5.palette, top = MEAN + 60, base = H - 20;\n  var y = function (v) { return base - ((base - 10) * Math.min(v, top)) / top; };\n  c.clearRect(0, 0, W, H);\n  c.strokeStyle = p.grid;\n  c.lineWidth = 1;\n  c.beginPath();\n  c.moveTo(0, base);\n  c.lineTo(W, base);\n  c.stroke();\n  for (var i = 0; i < upTo; i++) {\n    var wk = sim.weeks[i], x = 6 + (i * (W - 12)) / WEEKS;\n    c.fillStyle = wk.short ? p.accent : p.muted;\n    c.fillRect(x, y(wk.demand), (W - 12) / WEEKS - 3, base - y(wk.demand));\n  }\n  c.strokeStyle = p.ink;\n  c.lineWidth = 2;\n  c.beginPath();\n  c.moveTo(0, y(MEAN + buffer));\n  c.lineTo(W, y(MEAN + buffer));\n  c.stroke();\n  c.fillStyle = p.ink;\n  c.font = '12px system-ui, sans-serif';\n  c.fillText('plan + safety stock', 8, y(MEAN + buffer) - 6);\n}\n\nfunction start() {\n  if (run) run.stop();\n  var sim = simulate(stock), t = 0;\n  out.set('counting…');\n  run = ELI5.raf(function (dt) {\n    t = Math.min(WEEKS, t + dt / 60);\n    draw(sim, stock, Math.floor(t));\n    if (t >= WEEKS) {\n      out.set(String(sim.empty) + ' of ' + WEEKS);\n      return false;\n    }\n  });\n}\n\nELI5.slider('Safety stock (widgets per week)', 0, 60, 5, stock, function (v) {\n  stock = v;\n  start();\n});\nELI5.button('Too little', function () { stock = 0; start(); });\nELI5.button('Replay', start);\nELI5.onTheme(start);\nstart();\n"
             }
           ]
         },
@@ -320,6 +331,162 @@
           "term": "Sell-through rate",
           "explanation": "The share of shipped widgets that buyers keep.",
           "anchorText": "sell-through rate"
+        }
+      ]
+    },
+    "ste": {
+      "title": "How Example Widgets Inc. plans its widget supply",
+      "dek": "The supply plan sets how many widgets the company builds each quarter.",
+      "terms": [
+        {
+          "term": "forecast",
+          "meaning": "the expected number of orders"
+        },
+        {
+          "term": "safety stock",
+          "meaning": "extra widgets that the company keeps for uncertainty"
+        }
+      ],
+      "sections": [
+        {
+          "heading": "The plan sets the number of widgets to build",
+          "blocks": [
+            {
+              "type": "paragraph",
+              "md": "Example Widgets Inc. sells widgets through three channels. The supply plan sets how many widgets the company builds each quarter. A bad plan keeps too much cash in stock or leaves the shelves empty."
+            },
+            {
+              "type": "callout",
+              "tone": "keypoint",
+              "md": "The plan balances two costs: too much stock and no stock."
+            }
+          ]
+        },
+        {
+          "heading": "Online demand grew the most",
+          "blocks": [
+            {
+              "type": "paragraph",
+              "md": "Online orders grew from 20 thousand to 40 thousand in one year. Retail and wholesale orders stayed almost the same."
+            },
+            {
+              "type": "keep",
+              "block": 0
+            },
+            {
+              "type": "keep",
+              "block": 1
+            }
+          ]
+        },
+        {
+          "heading": "The team makes the forecast in four steps",
+          "blocks": [
+            {
+              "type": "stepper",
+              "title": "Make the build plan",
+              "steps": [
+                {
+                  "label": "Collect",
+                  "md": "Collect the orders of the last quarter for each channel."
+                },
+                {
+                  "label": "Forecast",
+                  "md": "Calculate the forecast with a simple moving average."
+                },
+                {
+                  "label": "Buffer",
+                  "md": "Add safety stock for uncertainty."
+                },
+                {
+                  "label": "Commit",
+                  "md": "Send the build plan to the factory."
+                }
+              ]
+            },
+            {
+              "type": "list",
+              "ordered": false,
+              "items": ["The company sells twelve SKUs.", "The lead time is six weeks."]
+            },
+            {
+              "type": "keep",
+              "block": 2
+            }
+          ]
+        },
+        {
+          "heading": "Watch online growth",
+          "blocks": [
+            {
+              "type": "paragraph",
+              "md": "A planning memo says that safety stock is the cost of uncertainty."
+            },
+            {
+              "type": "keep",
+              "block": 1
+            },
+            {
+              "type": "paragraph",
+              "md": "If online growth continues, the company must increase the safety stock for that channel."
+            }
+          ]
+        }
+      ]
+    },
+    "eli5-critique": {
+      "kind": "eli5",
+      "title": "Widgets, explained simply",
+      "dek": "Why a company keeps a few extra widgets on the shelf.",
+      "sections": [
+        {
+          "heading": "Guessing how many to make",
+          "blocks": [
+            {
+              "type": "analogy",
+              "md": "It is like buying snacks for a party when you do not know how many friends will come."
+            },
+            {
+              "type": "paragraph",
+              "md": "Example Widgets Inc. has to guess how many widgets people will buy. It guesses before they buy."
+            }
+          ]
+        },
+        {
+          "heading": "Keeping a few extra",
+          "blocks": [
+            {
+              "type": "analogy",
+              "md": "Extra widgets are like a spare snack bag in the cupboard."
+            },
+            {
+              "type": "paragraph",
+              "md": "A small pile of extra widgets means nobody leaves empty-handed. But extras cost money to store."
+            }
+          ]
+        },
+        {
+          "heading": "More online shoppers",
+          "blocks": [
+            {
+              "type": "stepper",
+              "title": "Why the pile grows",
+              "steps": [
+                {
+                  "label": "More shoppers",
+                  "md": "More people buy widgets online."
+                },
+                {
+                  "label": "Bigger guess",
+                  "md": "The guess gets bigger."
+                },
+                {
+                  "label": "Bigger pile",
+                  "md": "So the extra pile gets bigger too."
+                }
+              ]
+            }
+          ]
         }
       ]
     }

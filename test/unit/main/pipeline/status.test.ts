@@ -56,6 +56,14 @@ describe('statusLine (06 §6)', () => {
     expect(statusLine(g, { runningSteps: ['indepth', 'eli5'] })).toBe('Generating document (in-depth and ELI5)');
     expect(statusLine(g, { runningSteps: ['indepth'] })).toBe('Generating document (in-depth explainer)');
     expect(statusLine(g, { runningSteps: ['eli5'] })).toBe('Generating document (ELI5 version)');
+    // Step 1b (06 §5.4): the ASD-STE100 tab and the ELI5 critique, together or alone.
+    expect(statusLine(g, { runningSteps: ['ste', 'eli5-critique'] })).toBe(
+      'Generating document (ASD-STE100 version, simplifying the ELI5 version)',
+    );
+    expect(statusLine(g, { runningSteps: ['ste'] })).toBe('Generating document (ASD-STE100 version)');
+    expect(statusLine(g, { runningSteps: ['eli5-critique'] })).toBe(
+      'Generating document (simplifying the ELI5 version)',
+    );
     expect(statusLine(g, { runningSteps: ['glossary'] })).toBe('Generating document (glossary notes)');
     expect(statusLine(g, { runningSteps: ['summary'] })).toBe('Generating document (finishing up)');
     const withStep = job({
@@ -71,6 +79,9 @@ describe('statusLine (06 §6)', () => {
     const skipped = [{}, {}] as unknown as StatusLineJob['skipped'];
     expect(statusLine(done({ skipped }))).toBe('Done: How DNS works · 2 source(s) skipped');
     expect(statusLine(done({ warnings: [{ kind: 'glossary-omitted', message: 'x' }] }))).toBe(
+      'Done: How DNS works · with notes',
+    );
+    expect(statusLine(done({ warnings: [{ kind: 'ste-omitted', message: 'x' }] }))).toBe(
       'Done: How DNS works · with notes',
     );
   });

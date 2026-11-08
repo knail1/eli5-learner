@@ -131,7 +131,7 @@ test.describe('reading a finished document', () => {
       .toBe(true);
     await expect(l.win.locator('.doc-header h1')).toHaveText(TITLE);
     viewer = await viewerPage(l.app, slug);
-    await expect(viewer.locator('nav.tabbar [role=tab]')).toHaveText(['In depth', 'ELI5']);
+    await expect(viewer.locator('nav.tabbar [role=tab]')).toHaveText(['In depth', 'ELI5', 'ASD-STE100']);
   });
 
   test('E8: Expand on a selection replaces only that section and scrolls the viewer to it', async () => {
@@ -184,25 +184,27 @@ test.describe('reading a finished document', () => {
     await viewer.keyboard.press('Enter'); // "Create a separate ELI5 for this section"
 
     const tabs = viewer.locator('nav.tabbar [role=tab]');
-    await expect(tabs).toHaveText(['In depth', 'ELI5', 'ELI5: Why the plan matters'], { timeout: 30_000 });
+    await expect(tabs).toHaveText(['In depth', 'ELI5', 'ASD-STE100', 'ELI5: Why the plan matters'], {
+      timeout: 30_000,
+    });
     await expect(tabs.last()).toHaveAttribute('aria-selected', 'true');
     const meta = await readJson<{ tabs: { key: string; kind: string; label: string }[] }>(metaFile());
     const added = meta.tabs.find((t) => t.kind === 'section-eli5');
     expect(added?.label).toBe('ELI5: Why the plan matters');
     expect(validateDocument(await readFile(docFile(), 'utf8')).errors).toEqual([]);
     // The probe walks the third tab too.
-    expect((await probeDocument(l.app, docFile())).tabs).toEqual(['indepth', 'eli5', added?.key]);
+    expect((await probeDocument(l.app, docFile())).tabs).toEqual(['indepth', 'eli5', 'ste', added?.key]);
 
     // Two-step inline confirm, no modal (08 §7.2).
     const close = viewer.getByRole('button', { name: 'Close tab ELI5: Why the plan matters' });
     await close.click();
     await expect(close).toHaveText('Delete?');
     await close.click();
-    await expect(tabs).toHaveText(['In depth', 'ELI5'], { timeout: 30_000 });
+    await expect(tabs).toHaveText(['In depth', 'ELI5', 'ASD-STE100'], { timeout: 30_000 });
     const html = await readFile(docFile(), 'utf8');
     expect(html).not.toContain(`data-tab-key="${added?.key ?? 'none'}"`);
     const after = await readJson<{ tabs: { kind: string }[]; retiredIds?: string[] }>(metaFile());
-    expect(after.tabs.map((t) => t.kind)).toEqual(['indepth', 'eli5']);
+    expect(after.tabs.map((t) => t.kind)).toEqual(['indepth', 'eli5', 'ste']);
     expect(after.retiredIds?.length ?? 0).toBeGreaterThan(0);
   });
 
@@ -218,10 +220,10 @@ test.describe('reading a finished document', () => {
     const plain = await opened;
     plain.on('pageerror', (e) => errors.push(e.message));
     await plain.waitForLoadState('load');
-    await expect(plain.locator('nav.tabbar [role=tab]')).toHaveText(['In depth', 'ELI5']);
+    await expect(plain.locator('nav.tabbar [role=tab]')).toHaveText(['In depth', 'ELI5', 'ASD-STE100']);
 
     // E8 replaced the forecast section; select in an untouched one.
-    await plain.getByText('The plan balances two costs', { exact: false }).click({ clickCount: 3 });
+    await plain.getByText('The plan balances two costs: holding', { exact: false }).click({ clickCount: 3 });
     expect(await plain.evaluate(() => document.getSelection()?.toString().trim())).toContain('two costs');
     // The runtime still ran (tabs work) but installed no bridge, menu host or close controls.
     await plain.getByRole('tab', { name: 'ELI5' }).click();
@@ -306,7 +308,7 @@ test.describe('reading a finished document', () => {
     await viewer.keyboard.press('Enter'); // "ELI5 this selection"
 
     const tabs = viewer.locator('nav.tabbar [role=tab]');
-    await expect(tabs).toHaveText(['In depth', 'ELI5', 'ELI5: Two costs'], { timeout: 30_000 });
+    await expect(tabs).toHaveText(['In depth', 'ELI5', 'ASD-STE100', 'ELI5: Two costs'], { timeout: 30_000 });
     await expect(tabs.last()).toHaveAttribute('aria-selected', 'true');
     const meta = await readJson<{
       tabs: { key: string; kind: string; label: string }[];

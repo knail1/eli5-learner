@@ -654,6 +654,8 @@ export class JobQueue {
     const has = async (rel: string): Promise<boolean> => (await this.store.readJson(job.id, rel)) !== null;
     const ok = new Set<JobStep>();
     if ((await has(GEN.prepared)) && (await has(GEN.document))) ok.add('indepth').add('eli5');
+    if (ok.has('indepth') && (await has(GEN.ste))) ok.add('ste');
+    if (ok.has('indepth') && (await has(GEN.eli5Critique))) ok.add('eli5-critique');
     if (ok.has('indepth') && (await has(GEN.glossary))) ok.add('glossary');
     if (ok.has('indepth') && (await has(GEN.summary))) ok.add('summary');
     cp.completedSteps = cp.completedSteps.filter((s) => ok.has(s));

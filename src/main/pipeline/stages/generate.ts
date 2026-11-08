@@ -9,9 +9,13 @@ import {
   type GlossaryDraft,
   type PreparedContent,
   type PreparedContentJson,
+  type SteStepDraft,
   type StepCtx,
+  type TokenUsage,
+  usageOf,
 } from '../../llm';
 import { PipelineFailure } from '../errors';
+import { plannedSteps } from '../job';
 import type { Job, JobStep, JobWarning } from '../types';
 import { addWarning, checkpointOf, stageIndex, throwIfAborted, type StageContext } from './context';
 
@@ -19,6 +23,8 @@ import { addWarning, checkpointOf, stageIndex, throwIfAborted, type StageContext
 export const GEN = {
   prepared: 'gen/prepared.json',
   document: 'gen/document.json',
+  ste: 'gen/ste.json',
+  eli5Critique: 'gen/eli5-critique.json',
   glossary: 'gen/glossary.json',
   summary: 'gen/summary.json',
   photos: 'gen/photos.json',
@@ -42,11 +48,33 @@ export interface DocumentStepOutput {
   photos?: boolean;
   /** The provider the job started generating with (06 §12). */
   provider: { id: string; model: string };
+  /** Token usage per call (D25); absent in records written before usage logging. */
+  usage?: { indepth?: TokenUsage; eli5?: TokenUsage };
+}
+
+/** gen/ste.json (06 §5.4 step 1b): the ASD-STE100 tab, or null when the step failed (`ste-omitted`). */
+export interface SteStepOutput {
+  ste: SteStepDraft | null;
+  prompt?: string;
+  usage?: TokenUsage;
+}
+
+/**
+ * gen/eli5-critique.json (06 §5.4 step 1b, D17): the revised ELI5 view when the accept gate took it;
+ * null keeps the step 1 draft (critique skipped, failed or rejected).
+ */
+export interface Eli5CritiqueStepOutput {
+  eli5: DocumentDraftTab | null;
+  outcome: 'accepted' | 'rejected' | 'failed' | 'skipped';
+  reason?: string;
+  prompt?: string;
+  usage?: TokenUsage;
 }
 
 export interface GlossaryStepOutput {
   draft: GlossaryDraft | null;
   prompt?: string;
+  usage?: TokenUsage;
 }
 
 export interface SummaryStepOutput {
@@ -54,6 +82,12 @@ export interface SummaryStepOutput {
   source: 'llm' | 'fallback';
   topicSlugHint?: string;
   prompt?: string;
+  usage?: TokenUsage;
+}
+
+/** The ELI5 view the document uses: the accepted critique revision, else the step 1 draft. */
+export function finalEli5(doc: DocumentStepOutput, critique: Eli5CritiqueStepOutput | null): DocumentDraftTab | null {
+  return critique?.eli5 ?? doc.eli5;
 }
 
 /** Fallback summary: the first 2 sentences of the in-depth lead section, at most 300 chars (06 §7.1). */
@@ -73,13 +107,14 @@ export function fallbackSummary(indepth: DocumentDraftTab): string {
   return text.length > 300 ? `${text.slice(0, 299).trimEnd()}…` : text;
 }
 
-function stepWarning(kind: JobWarning['kind']): JobWarning {
+export function stepWarning(kind: JobWarning['kind']): JobWarning {
   const messages: Record<JobWarning['kind'], string> = {
     'source-skipped': 'A source was skipped',
     'eli5-placeholder': 'The ELI5 version could not be generated',
     'glossary-omitted': 'Glossary notes were omitted',
     'summary-fallback': 'The summary was taken from the lead section',
     'input-truncated': 'Some source content was cut to fit the model',
+    'ste-omitted': 'The ASD-STE100 version could not be generated',
   };
   return { kind, message: messages[kind] };
 }
@@ -110,6 +145,7 @@ async function prepared(ctx: StageContext, step: StepCtx): Promise<PreparedConte
     ...step,
   });
   throwIfAborted(ctx.signal);
+  if (p.usage.inputTokens || p.usage.outputTokens) logUsage(ctx, 'prepare', p.usage);
   // Sources the model could not read (02 §8.3-§8.4) and truncation (02 §8.4 step 4, 06 §5.4 rule 3).
   for (const s of p.skipped) {
     if (!job.skipped.some((x) => x.ref === s.ref && x.code === s.code)) job.skipped.push(s);
@@ -141,17 +177,120 @@ async function documentStep(ctx: StageContext, p: PreparedContent, step: StepCtx
     settle('eli5', deps.tasks.generateEli5(p, write)),
   ]);
   throwIfAborted(ctx.signal);
-  if (indepth.status === 'rejected') throw indepth.reason; // required (06 §7.2); mapped by the runner
+  if (indepth.status === 'rejected') {
+    // Required (06 §7.2); mapped by the runner. The tokens already spent are still logged (D25).
+    logUsage(ctx, 'indepth', usageOf(indepth.reason));
+    if (eli5.status === 'fulfilled') logUsage(ctx, 'eli5', eli5.value.usage);
+    throw indepth.reason;
+  }
   const prompts = [indepth.value.prompt];
+  logUsage(ctx, 'indepth', indepth.value.usage);
   let eli5Draft: DocumentDraftTab | null = null;
+  const usage: NonNullable<DocumentStepOutput['usage']> = { indepth: indepth.value.usage };
   if (eli5.status === 'fulfilled') {
     eli5Draft = eli5.value.draft;
     prompts.push(eli5.value.prompt);
+    usage.eli5 = eli5.value.usage;
+    logUsage(ctx, 'eli5', eli5.value.usage);
   } else {
     deps.log.warn('pipeline.step-degraded', { jobId: job.id, step: 'eli5', errorKind: errorKind(eli5.reason) });
+    logUsage(ctx, 'eli5', usageOf(eli5.reason));
     addWarning(job, stepWarning('eli5-placeholder'));
   }
-  return { indepth: indepth.value.draft, eli5: eli5Draft, prompts, provider, photos };
+  return { indepth: indepth.value.draft, eli5: eli5Draft, prompts, provider, photos, usage };
+}
+
+/** D25: one `pipeline.usage` line per LLM step (token counts only, never content). */
+function logUsage(ctx: StageContext, step: string, u: TokenUsage | undefined): void {
+  if (!u) return;
+  ctx.deps.log.info('pipeline.usage', {
+    jobId: ctx.job.id,
+    step,
+    inputTokens: u.inputTokens,
+    outputTokens: u.outputTokens,
+    cacheRead: u.cachedInputTokens ?? 0,
+  });
+}
+
+/**
+ * Step 1b (06 §5.4): the ASD-STE100 tab from the final In depth draft and one critique pass over
+ * the ELI5 draft, concurrently. Both degrade: a failed STE step omits the tab (`ste-omitted`); a
+ * failed or rejected critique keeps the step 1 draft without a user-facing warning (D17).
+ */
+async function stepOneB(
+  ctx: StageContext,
+  doc: DocumentStepOutput,
+  step: StepCtx,
+  todo: { ste: boolean; critique: boolean },
+): Promise<{ ste: SteStepOutput | null; critique: Eli5CritiqueStepOutput | null }> {
+  const { job, deps } = ctx;
+  throwIfAborted(ctx.signal);
+  const order: JobStep[] = [];
+  if (todo.ste) order.push('ste');
+  if (todo.critique && doc.eli5) order.push('eli5-critique');
+  const running = new Set<JobStep>(order);
+  ctx.setRunningSteps(order);
+  const settle = <T>(s: JobStep, pr: Promise<T>): Promise<T> =>
+    pr.finally(() => {
+      running.delete(s);
+      if (!ctx.signal.aborted) ctx.setRunningSteps(order.filter((x) => running.has(x)));
+    });
+  const eli5 = doc.eli5;
+  const [steR, critR] = await Promise.allSettled([
+    todo.ste ? settle('ste', deps.tasks.generateSte(doc.indepth, step)) : Promise.resolve(null),
+    todo.critique && eli5
+      ? settle('eli5-critique', deps.tasks.critiqueEli5(eli5, doc.indepth, step))
+      : Promise.resolve(null),
+  ]);
+  throwIfAborted(ctx.signal);
+
+  let ste: SteStepOutput | null = null;
+  if (todo.ste) {
+    clearWarnings(job, 'ste-omitted');
+    if (steR.status === 'fulfilled' && steR.value) {
+      const r = steR.value;
+      ste = { ste: r.draft, prompt: r.prompt, usage: r.usage };
+      logUsage(ctx, 'ste', r.usage);
+      deps.log.info('pipeline.ste-lint', {
+        jobId: job.id,
+        count: r.draft.lint.final.failing,
+        status: r.draft.lint.repairTried ? (r.draft.lint.repairAccepted ? 'repaired' : 'repair-kept-first') : 'first',
+      });
+    } else {
+      const reason = steR.status === 'rejected' ? steR.reason : null;
+      deps.log.warn('pipeline.step-degraded', { jobId: job.id, step: 'ste', errorKind: errorKind(reason) });
+      addWarning(job, stepWarning('ste-omitted'));
+      const spent = usageOf(reason);
+      logUsage(ctx, 'ste', spent);
+      ste = { ste: null, ...(spent ? { usage: spent } : {}) };
+    }
+  }
+
+  let critique: Eli5CritiqueStepOutput | null = null;
+  if (todo.critique) {
+    if (!eli5) critique = { eli5: null, outcome: 'skipped' };
+    else if (critR.status === 'fulfilled' && critR.value) {
+      const r = critR.value;
+      logUsage(ctx, 'eli5-critique', r.usage);
+      if (r.gate.ok) critique = { eli5: r.draft, outcome: 'accepted', prompt: r.prompt, usage: r.usage };
+      else {
+        deps.log.info('pipeline.eli5-critique-rejected', { jobId: job.id, code: r.gate.reason ?? 'unknown' });
+        critique = {
+          eli5: null,
+          outcome: 'rejected',
+          ...(r.gate.reason ? { reason: r.gate.reason } : {}),
+          usage: r.usage,
+        };
+      }
+    } else {
+      const reason = critR.status === 'rejected' ? critR.reason : null;
+      deps.log.warn('pipeline.step-degraded', { jobId: job.id, step: 'eli5-critique', errorKind: errorKind(reason) });
+      const spent = usageOf(reason);
+      logUsage(ctx, 'eli5-critique', spent);
+      critique = { eli5: null, outcome: 'failed', ...(spent ? { usage: spent } : {}) };
+    }
+  }
+  return { ste, critique };
 }
 
 /** Stock photos are offered when the setting is on and a real (non-stub) provider is wired (07 §7.4). */
@@ -160,24 +299,28 @@ function photosOn(ctx: StageContext): boolean {
   return (s.images?.stockPhotos ?? false) && ctx.deps.photos !== undefined && ctx.deps.photos.available();
 }
 
-function hasPhotoBlocks(doc: DocumentStepOutput): boolean {
-  return [doc.indepth, doc.eli5].some((t) => t?.sections.some((s) => s.blocks.some((b) => b.type === 'photo')));
+function hasPhotoBlocks(drafts: { indepth: DocumentDraftTab; eli5: DocumentDraftTab | null }): boolean {
+  return [drafts.indepth, drafts.eli5].some((t) => t?.sections.some((s) => s.blocks.some((b) => b.type === 'photo')));
 }
 
 /**
  * 07 §7.4: after the drafts, find stock photos for their photo slots. Fire-and-forget: any failure
  * leaves the slots unresolved (build drops them) without a warning; only cancellation escapes.
  */
-async function photosStep(ctx: StageContext, doc: DocumentStepOutput): Promise<void> {
+async function photosStep(
+  ctx: StageContext,
+  doc: DocumentStepOutput,
+  drafts: { indepth: DocumentDraftTab; eli5: DocumentDraftTab | null },
+): Promise<void> {
   const { job, deps, store } = ctx;
   if ((await store.readJson(job.id, GEN.photos)) !== null) return;
   let out: PhotosStepOutput = { photos: [] };
   const service = deps.photos;
-  if (service && doc.photos && photosOn(ctx) && hasPhotoBlocks(doc)) {
+  if (service && doc.photos && photosOn(ctx) && hasPhotoBlocks(drafts)) {
     throwIfAborted(ctx.signal);
     ctx.setRunningSteps(['summary']);
     try {
-      const r = await service.resolve({ indepth: doc.indepth, eli5: doc.eli5 }, { jobId: job.id, signal: ctx.signal });
+      const r = await service.resolve(drafts, { jobId: job.id, signal: ctx.signal });
       out = {
         photos: r.photos.map((p) => ({ ...p, bytes: Buffer.from(p.bytes).toString('base64') })),
         ...(r.prompt ? { prompt: r.prompt } : {}),
@@ -204,6 +347,7 @@ async function optional<T>(ctx: StageContext, step: JobStep, run: () => Promise<
   } catch (err) {
     throwIfAborted(ctx.signal);
     ctx.deps.log.warn('pipeline.step-degraded', { jobId: ctx.job.id, step, errorKind: errorKind(err) });
+    logUsage(ctx, step, usageOf(err));
     return null;
   }
 }
@@ -212,6 +356,11 @@ export async function generateStage(ctx: StageContext): Promise<void> {
   const { job, deps, store } = ctx;
   const cp = checkpointOf(job);
   if (stageIndex(cp.stage) > stageIndex('generating')) return;
+  // A record written before step 1b plans the new steps on resume (06 §9.3).
+  const planned = plannedSteps(job.options);
+  if (job.kind === 'create' && planned.some((s) => !job.progress.stepsPlanned.includes(s))) {
+    job.progress.stepsPlanned = planned;
+  }
   const completed = new Set<JobStep>(cp.completedSteps);
   const step: StepCtx = { clarifyingInput: job.options.clarifyingInput, signal: ctx.signal };
   const persistStep = async (...steps: JobStep[]): Promise<void> => {
@@ -233,11 +382,23 @@ export async function generateStage(ctx: StageContext): Promise<void> {
   }
   const indepth = doc.indepth;
 
+  // Step 1b: ASD-STE100 tab || ELI5 critique (06 §5.4).
+  const todo = { ste: !completed.has('ste'), critique: !completed.has('eli5-critique') };
+  if (todo.ste || todo.critique) {
+    const r = await stepOneB(ctx, doc, step, todo);
+    if (r.ste) await store.writeJson(job.id, GEN.ste, r.ste);
+    if (r.critique) await store.writeJson(job.id, GEN.eli5Critique, r.critique);
+    await persistStep(...(['ste', 'eli5-critique'] as const).filter((s) => (s === 'ste' ? todo.ste : todo.critique)));
+  }
+  const critique = (await store.readJson(job.id, GEN.eli5Critique)) as Eli5CritiqueStepOutput | null;
+  const eli5 = finalEli5(doc, critique);
+
   if (job.options.glossary && !completed.has('glossary')) {
     clearWarnings(job, 'glossary-omitted');
     const r = await optional(ctx, 'glossary', () => deps.tasks.generateGlossary(indepth, step));
     if (!r) addWarning(job, stepWarning('glossary-omitted'));
-    const out: GlossaryStepOutput = r ? { draft: r.draft, prompt: r.prompt } : { draft: null };
+    logUsage(ctx, 'glossary', r?.usage);
+    const out: GlossaryStepOutput = r ? { draft: r.draft, prompt: r.prompt, usage: r.usage } : { draft: null };
     await store.writeJson(job.id, GEN.glossary, out);
     await persistStep('glossary');
   }
@@ -246,9 +407,10 @@ export async function generateStage(ctx: StageContext): Promise<void> {
     clearWarnings(job, 'summary-fallback');
     const r = await optional(ctx, 'summary', () => deps.tasks.summarize(indepth, step));
     const summary = r?.draft.summary.trim();
+    logUsage(ctx, 'summary', r?.usage);
     let out: SummaryStepOutput;
     if (r && summary) {
-      out = { summary, source: 'llm', topicSlugHint: r.draft.topicSlugHint, prompt: r.prompt };
+      out = { summary, source: 'llm', topicSlugHint: r.draft.topicSlugHint, prompt: r.prompt, usage: r.usage };
     } else {
       addWarning(job, stepWarning('summary-fallback'));
       out = { summary: fallbackSummary(indepth), source: 'fallback' };
@@ -256,7 +418,7 @@ export async function generateStage(ctx: StageContext): Promise<void> {
     await store.writeJson(job.id, GEN.summary, out);
     await persistStep('summary');
   }
-  await photosStep(ctx, doc);
+  await photosStep(ctx, doc, { indepth, eli5 });
   ctx.setRunningSteps([]);
   throwIfAborted(ctx.signal);
   cp.stage = 'saving';

@@ -154,9 +154,24 @@ test('a second launch exits at once and shows the running window (single instanc
   await expect.poll(() => windowState(l.app)).toMatchObject({ count: 1, visible: true, dock: true });
 });
 
+/**
+ * The default script without its animation: a sandboxed animation frame runs in its own renderer
+ * process, and Playwright's Electron driver trips an internal assertion when the page that hosts such
+ * a frame is crashed on purpose, which ends the test session (the app itself is not involved).
+ */
+async function noAnimationScript(dirs: Dirs): Promise<string> {
+  const base = JSON.parse(await readFile(DEFAULT_SCRIPT, 'utf8')) as {
+    responses: Record<string, { sections: { blocks: { type: string }[] }[] }>;
+  };
+  const indepth = structuredClone(base.responses['in-depth']);
+  if (!indepth) throw new Error('default script has no in-depth draft');
+  for (const sec of indepth.sections) sec.blocks = sec.blocks.filter((b) => b.type !== 'animation');
+  return writeScript(dirs, 'no-animation', { responses: { 'in-depth': indepth } });
+}
+
 test('a crashed viewer reloads its document once; a second crash shows "Could not display" (01 §9)', async () => {
   const dirs = await h.tempDirs('eli5-e2e-app-crash-');
-  const l = await h.launch(dirs);
+  const l = await h.launch(dirs, { script: await noAnimationScript(dirs) });
   const doc = await generate(l);
   await openFromLibrary(l.win, doc.title);
   const url = `eli5doc://doc/${doc.topicSlug}/index.html`;

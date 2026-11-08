@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { ExtractedContent } from '../../../../src/main/extract';
 import { fallbackLimits } from '../../../../src/main/llm/models';
 import { PromptCatalogue } from '../../../../src/main/llm/prompts';
+import type { DocumentDraftTab, SteDraft } from '../../../../src/main/llm/schemas/draft';
 import { SkillLibrary } from '../../../../src/main/llm/skills';
 import { createTasks, type LlmTasks, type PhotoPickSlot, type TaskDeps } from '../../../../src/main/llm/tasks';
 import { FakeProvider, loadFakeScript, type FakeScript } from '../../../../src/main/llm/testing/fake';
@@ -153,7 +154,7 @@ async function runAll(): Promise<Record<string, Recorded[]>> {
     const t = setup(rec);
     const section = { heading: 'Widgets', blocks: [{ type: 'paragraph' as const, md: 'Widgets are sold.' }] };
     const prev = { heading: 'Intro', blocks: [{ type: 'paragraph' as const, md: 'Before.' }] };
-    for (const tabKind of ['indepth', 'eli5'] as const) {
+    for (const tabKind of ['indepth', 'eli5', 'section-eli5', 'ste'] as const) {
       for (const action of ['expand', 'reexplain', 'analogy', 'deeper', 'revise'] as const) {
         await t.runSectionAction({
           action,
@@ -188,6 +189,29 @@ async function runAll(): Promise<Record<string, Recorded[]>> {
       question: 'Who buys them?',
       signal,
     });
+  });
+  await scenario('ste-and-critique', async (rec) => {
+    const t = setup(rec);
+    const script = defaultScript();
+    const indepth = script.responses['in-depth'] as DocumentDraftTab;
+    const eli5 = script.responses.eli5 as DocumentDraftTab;
+    await t.generateSte(indepth, ctx);
+    await t.critiqueEli5(eli5, indepth, ctx);
+  });
+  await scenario('ste-lint-repair', async (rec) => {
+    const script = defaultScript();
+    const ste = structuredClone(script.responses.ste) as SteDraft;
+    const long = Array.from({ length: 30 }, (_, i) => `Word${i}`).join(' ') + '.';
+    ste.sections[0]!.blocks.unshift({ type: 'paragraph', md: Array.from({ length: 8 }, () => long).join(' ') });
+    const t = setup(rec, {
+      script: { ...script, responses: { ...script.responses, ste: [ste, script.responses.ste as SteDraft] } },
+    });
+    await t.generateSte(script.responses['in-depth'] as DocumentDraftTab, ctx);
+  });
+  await scenario('ste-overflow-retry', async (rec) => {
+    const script = defaultScript();
+    const t = setup(rec, { script: { ...script, truncateTask: 'ste' } });
+    await t.generateSte(script.responses['in-depth'] as DocumentDraftTab, ctx).catch(() => undefined);
   });
   await scenario('merge', async (rec) => {
     const t = setup(rec);

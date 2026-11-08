@@ -64,12 +64,14 @@ export function aggregateRuns(runs: readonly JudgeOutput[], criteria: readonly s
 /** Statuses whose part scores count in the suite: scored cases, and gate/generation failures as 0. */
 const COUNTED = new Set<CaseResult['status']>(['scored', 'gate_failed', 'generation_failed']);
 
-const PARTS = ['indepth', 'eli5', 'section'] as const;
+const PARTS = ['indepth', 'eli5', 'section', 'ste'] as const;
 
 function suiteOf(scores: CaseResult['scores'][]): SuiteScores {
   const out: SuiteScores = { indepth: null, eli5: null, section: null };
   for (const p of PARTS) {
     const xs = scores.map((s) => s[p]).filter((x): x is number => typeof x === 'number');
+    // The optional ASD-STE100 part appears only when a case was judged on it.
+    if (p === 'ste' && xs.length === 0) continue;
     out[p] = xs.length ? mean(xs) : null;
   }
   return out;
@@ -81,7 +83,11 @@ export function suiteScores(cases: readonly CaseResult[]): SuiteScores {
 
 /** Every criterion median of one case; section actions are averaged per criterion. */
 export function caseMedians(c: CaseResult): Record<string, number> {
-  const out: Record<string, number> = { ...(c.indepth?.medians ?? {}), ...(c.eli5?.medians ?? {}) };
+  const out: Record<string, number> = {
+    ...(c.indepth?.medians ?? {}),
+    ...(c.eli5?.medians ?? {}),
+    ...(c.ste?.medians ?? {}),
+  };
   const sec: Record<string, number[]> = {};
   for (const s of c.sections ?? []) for (const [k, v] of Object.entries(s.medians)) (sec[k] ??= []).push(v);
   for (const [k, vs] of Object.entries(sec)) out[k] = mean(vs);
@@ -119,7 +125,7 @@ export function compareBaseline(cases: readonly CaseResult[], base: Baseline, la
   for (const p of PARTS) {
     const a = cur[p];
     const b = prev[p];
-    if (a === null || b === null) continue;
+    if (a === null || b === null || a === undefined || b === undefined) continue;
     suiteDelta[p] = a - b;
     if (b - a > SUITE_DROP + EPS) reasons.push(`${p} suite score fell ${(b - a).toFixed(2)} (> ${SUITE_DROP})`);
   }

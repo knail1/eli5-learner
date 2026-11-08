@@ -520,7 +520,7 @@ export interface Logger {
 
 ### 11.2 Rules
 
-1. **Field allowlist.** Only these field names are written: `jobId, taskId, slug, sectionId, tabKey, attempt, attempts, errorKind, from, to, status, step, code, kind, provider, model, latencyMs, durationMs, inputTokens, outputTokens, stopReason, count, bytes, sourceKind, sourceRef, path, channel, errno, hookId, capability, overlayName`. Other fields are dropped, and `log.unknown-field` is logged with the field name only (dev builds throw instead).
+1. **Field allowlist.** Only these field names are written: `jobId, taskId, slug, sectionId, tabKey, attempt, attempts, errorKind, from, to, status, step, code, kind, provider, model, latencyMs, durationMs, inputTokens, outputTokens, cacheRead, stopReason, count, bytes, sourceKind, sourceRef, path, channel, errno, hookId, capability, overlayName`. Other fields are dropped, and `log.unknown-field` is logged with the field name only (dev builds throw instead).
 2. **String caps and redaction.** String values are truncated to 200 characters and passed through `redact()`, which replaces any credential shape from §5.4 with `[REDACTED]`.
 3. **Source references.** `sourceRef` is a file **basename**, never a full path (full paths reveal the user name). For URLs it is `origin + pathname`, with query and fragment removed. Pasted items are logged as `clipboard:image` or `clipboard:text`.
 4. **Errors.** `error()` logs `err.name`, `err.code`, and a stack trace with absolute paths rewritten to be relative to the app. It never logs `err.message` from LLM SDKs or HTTP bodies, because provider errors can echo request content. Those are mapped to `LLMError.kind` (02).

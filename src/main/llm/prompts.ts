@@ -65,6 +65,13 @@ export const FRAGMENT_IDS = [
   'connection-test',
   'diagram-rules',
   'animation-rules',
+  'chart-rules',
+  'register-indepth',
+  'register-eli5',
+  'register-section-eli5',
+  'register-ste',
+  'overflow-addendum-ste',
+  'ste-lint-repair',
 ] as const;
 export type FragmentId = (typeof FRAGMENT_IDS)[number];
 
@@ -88,6 +95,13 @@ export const FRAGMENT_VARS: Readonly<Record<FragmentId, readonly string[]>> = {
   'connection-test': [],
   'diagram-rules': [],
   'animation-rules': [],
+  'chart-rules': [],
+  'register-indepth': [],
+  'register-eli5': [],
+  'register-section-eli5': [],
+  'register-ste': [],
+  'overflow-addendum-ste': ['n'],
+  'ste-lint-repair': ['findings'],
 };
 
 export interface FragmentDef extends FileOrigin {
@@ -107,6 +121,8 @@ export const UNTRUSTED_VARS: readonly string[] = [
   'content',
   'indepthDraft',
   'eli5Draft',
+  'indepthOutline',
+  'lintFindings',
   'section',
   'target',
   'incoming',
@@ -130,6 +146,8 @@ export const PROMPT_VARS: Readonly<Record<PromptId, readonly string[]>> = {
     'content',
     'overflowAddendum',
     'photoInstructions',
+    'chartRules',
+    'diagramRules',
     'animationRules',
   ],
   eli5: [
@@ -141,13 +159,24 @@ export const PROMPT_VARS: Readonly<Record<PromptId, readonly string[]>> = {
     'sourceList',
     'content',
     'photoInstructions',
+    'diagramRules',
     'animationRules',
+  ],
+  ste: ['skills', 'clarifyingInput', 'indepthDraft', 'sectionCount', 'visibleOutputTokens', 'overflowAddendum'],
+  'eli5-critique': [
+    'skills',
+    'clarifyingInput',
+    'eli5Draft',
+    'indepthOutline',
+    'lintFindings',
+    'diagramRules',
+    'visibleOutputTokens',
   ],
   glossary: ['clarifyingInput', 'indepthText'],
   'chunk-notes': ['chunkIndex', 'chunkCount', 'clarifyingInput', 'sourceList', 'content'],
   'section-expand': [
     'skills',
-    'tabKind',
+    'register',
     'outline',
     'section',
     'prevText',
@@ -158,7 +187,7 @@ export const PROMPT_VARS: Readonly<Record<PromptId, readonly string[]>> = {
   ],
   'section-reexplain': [
     'skills',
-    'tabKind',
+    'register',
     'outline',
     'section',
     'prevText',
@@ -169,7 +198,7 @@ export const PROMPT_VARS: Readonly<Record<PromptId, readonly string[]>> = {
   ],
   'section-analogy': [
     'skills',
-    'tabKind',
+    'register',
     'outline',
     'section',
     'prevText',
@@ -180,7 +209,7 @@ export const PROMPT_VARS: Readonly<Record<PromptId, readonly string[]>> = {
   ],
   'section-revise': [
     'skills',
-    'tabKind',
+    'register',
     'outline',
     'section',
     'prevText',
@@ -189,10 +218,10 @@ export const PROMPT_VARS: Readonly<Record<PromptId, readonly string[]>> = {
     'note',
     'animationRules',
   ],
-  'section-ask': ['skills', 'tabKind', 'outline', 'section', 'prevText', 'nextText', 'selection', 'question'],
+  'section-ask': ['skills', 'register', 'outline', 'section', 'prevText', 'nextText', 'selection', 'question'],
   'section-deeper': [
     'skills',
-    'tabKind',
+    'register',
     'outline',
     'section',
     'prevText',
@@ -349,6 +378,9 @@ const VAR_FRAGMENTS: Readonly<Record<string, readonly FragmentId[]>> = {
   glossaryInstructions: ['glossary-instructions'],
   overflowAddendum: ['overflow-addendum'],
   animationRules: ['animation-rules'],
+  chartRules: ['chart-rules'],
+  diagramRules: ['diagram-rules'],
+  register: ['register-indepth', 'register-eli5', 'register-section-eli5', 'register-ste'],
 };
 
 /** The fragments a prompt can render, given its vars, output and skills. */
@@ -357,6 +389,11 @@ export function fragmentsFor(def: Pick<PromptDef, 'id' | 'vars' | 'output' | 'sk
   // The same test generateStructured uses, so the digest follows any change to the prompted-JSON set.
   if (def.output !== 'text' && usesPromptedJson(def.output)) out.add('json-contract');
   for (const v of def.vars) for (const f of VAR_FRAGMENTS[v] ?? []) out.add(f);
+  if (def.id === 'ste' && def.vars.includes('overflowAddendum')) {
+    out.delete('overflow-addendum');
+    out.add('overflow-addendum-ste');
+  }
+  if (def.id === 'ste') out.add('ste-lint-repair');
   if (def.vars.includes('photoInstructions')) {
     const eli5 = def.id === 'eli5';
     out.add(eli5 ? 'photo-eli5-on' : 'photo-indepth-on');

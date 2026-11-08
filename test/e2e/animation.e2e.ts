@@ -39,6 +39,9 @@ async function viewerPage(app: ElectronApplication, slug: string): Promise<Page>
   return page;
 }
 
+/** The packing animation (the default script's In depth draft also has its own safety-stock one). */
+const PACKING_FIG = '#tab-indepth figure.animation:has-text("One packer short")';
+
 test.describe('a document with an animation', () => {
   let l: Launched;
   let viewer: Page;
@@ -65,10 +68,10 @@ test.describe('a document with an animation', () => {
   test.afterAll(() => h.closeAll());
 
   test('the frame loads in the viewer, reports its height and runs its controls', async () => {
-    const fig = viewer.locator('#tab-indepth figure.animation');
+    const fig = viewer.locator(PACKING_FIG);
     await fig.scrollIntoViewIfNeeded();
     await expect(fig).toHaveClass(/\banim-live\b/, { timeout: 15_000 });
-    const frame = viewer.frameLocator('#tab-indepth figure.animation iframe');
+    const frame = viewer.frameLocator(`${PACKING_FIG} iframe`);
     const slider = frame.getByRole('slider', { name: 'Packers on shift' });
     await slider.fill('1');
     await expect(slider).toHaveAttribute('aria-valuetext', 'Packers on shift 1');
@@ -80,7 +83,7 @@ test.describe('a document with an animation', () => {
   });
 
   test('the frame cannot navigate itself or the viewer, and opens nothing', async () => {
-    const frame = viewer.frameLocator('#tab-indepth figure.animation iframe');
+    const frame = viewer.frameLocator(`${PACKING_FIG} iframe`);
     const body = frame.locator('body');
     const topNav = await body.evaluate(() => {
       try {

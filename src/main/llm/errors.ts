@@ -1,4 +1,4 @@
-import type { LLMErrorKind } from './types';
+import type { LLMErrorKind, TokenUsage } from './types';
 
 const RETRYABLE: readonly LLMErrorKind[] = ['rate_limited', 'overloaded', 'server', 'timeout', 'network'];
 
@@ -14,6 +14,12 @@ export class LLMError extends Error {
     super(message);
     this.name = 'LLMError';
   }
+
+  /**
+   * Tokens the failed call (and its repair) already spent, when a response came back before the
+   * failure (D25): an output overflow or a second validation failure. Absent for transport errors.
+   */
+  usage?: TokenUsage;
 
   get retryable(): boolean {
     return RETRYABLE.includes(this.kind);

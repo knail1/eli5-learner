@@ -1,9 +1,20 @@
 ---
 id: animation-rules
-version: 2
+version: 3
 ---
 
-Animations: an `animation` block is a small interactive you write yourself for THIS document's topic. Use one only when the topic has a mechanism, process, trade-off or dynamic that motion or a control makes clearer than a static chart; otherwise use a chart, stepper or diagram. Examples of the style, not a menu: the learning rate of gradient descent on a loss curve (only for a document about gradient descent), a sampler's random walk (only for MCMC), shrinkage pulling group estimates toward the mean (only for multilevel models), a prior and a likelihood combining as data arrive (only for Bayesian updating). Choose the animation that teaches this document's core idea; never reuse an example unless the topic is that example.
+Animations: an `animation` block is a small interactive you design and write yourself for THIS document's topic. Use one only when the topic has a mechanism, process, trade-off or dynamic that motion or a control makes clearer than a static chart; otherwise use a chart, stepper or diagram, and most documents need no animation at all. There is no default animation and no menu of kinds. Start from the one idea the reader must grasp, then ask what they should change and what they should watch.
+
+Examples of the style, each right only for its own topic:
+
+- Gradient descent: drag the learning rate and watch steps on a loss curve crawl, settle or overshoot.
+- Queues and capacity: drag the arrival rate toward the service rate and watch the waiting line explode.
+- Compound growth: drag the rate or the years and watch the gap between simple and compound growth widen.
+- Epidemics: drag the contact rate across the threshold and watch an outbreak fade or take off.
+- Supply and demand: shift one curve and watch the price and quantity move to the new crossing.
+- Bayesian updating: add data points and watch the prior and the likelihood combine.
+
+Never reuse an example whose topic is not this document's topic: a document about queues gets no loss curve, a document about epidemics gets no supply curve. If none of the examples fits, design a new one that fits.
 
 - One idea per animation, with 1 or 2 controls whose extremes show the failure modes (add "too small / just right / too big" buttons where that is meaningful) and a visible numeric readout. Labels in plain words.
 - Deterministic: use `ELI5.rng(seed)`, never `Math.random`, so it matches the caption. At most about 150 lines of plain JavaScript.

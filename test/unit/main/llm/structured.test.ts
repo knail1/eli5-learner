@@ -307,6 +307,8 @@ describe('default FakeProvider script (13 §6.1)', () => {
       'merge-match': 'MergeMatchDraft',
       'photo-pick': 'PhotoPickDraft',
       'merge-weave': 'MergePlanDraft',
+      ste: 'SteDraft',
+      'eli5-critique': 'DocumentDraftTab',
     };
     for (const [id, schema] of Object.entries(schemaFor)) {
       const r = validateDraft(schema, script.responses[id]);

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -67,6 +68,79 @@ describe('prompt lint (02 §9, §16)', () => {
   });
 });
 
+describe('animation guidance (07 §7.1 animation, owner correction 2026-11-08)', () => {
+  /** Every prompt and fragment file of every set, as text. */
+  const files = (): { file: string; text: string }[] => {
+    const out: { file: string; text: string }[] = [];
+    const walk = (dir: string): void => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, e.name);
+        if (e.isDirectory()) walk(full);
+        else if (e.name.endsWith('.md') && e.name !== 'README.md')
+          out.push({ file: path.relative(PROMPTS_ROOT, full), text: fs.readFileSync(full, 'utf8') });
+      }
+    };
+    walk(PROMPTS_ROOT);
+    return out;
+  };
+
+  it('no prompt or fragment offers gradient descent or Metropolis as a default or a fixed kind', () => {
+    const all = files();
+    expect(all.length).toBeGreaterThan(PROMPT_IDS.length);
+    for (const { file, text } of all) {
+      expect(text, file).not.toMatch(/metropolis|explorable|gradient-descent|metropolis-walk/i);
+      // Gradient descent appears only as one topic-bound example in animation-rules.
+      if (!file.endsWith('animation-rules.md')) expect(text, file).not.toMatch(/gradient descent/i);
+    }
+    const rules = PromptCatalogue.load({ root: PROMPTS_ROOT }).fragment('animation-rules').text;
+    const mentions = rules.split('\n').filter((l) => /gradient descent/i.test(l));
+    expect(mentions).toEqual([expect.stringMatching(/^- Gradient descent: /)]);
+    expect(rules).toMatch(/There is no default animation and no menu of kinds/);
+    expect(rules).toMatch(/THIS document's topic/);
+    expect(rules).toMatch(/Never reuse an example whose topic is not this document's topic/);
+    expect(rules).toMatch(/If none of the examples fits, design a new one that fits/);
+  });
+
+  it('the examples span several topics, each tied to its own topic', () => {
+    const rules = PromptCatalogue.load({ root: PROMPTS_ROOT }).fragment('animation-rules').text;
+    const list = rules.slice(rules.indexOf('Examples of the style, each right only for its own topic:'));
+    const examples = list
+      .split('\n')
+      .slice(1)
+      .filter((l) => l.startsWith('- '))
+      .slice(0, 20);
+    const topics: string[] = [];
+    for (const l of examples) {
+      const m = /^- ([A-Z][^:]+): /.exec(l);
+      if (!m) break;
+      topics.push(m[1] ?? '');
+    }
+    expect(topics.length).toBeGreaterThanOrEqual(5);
+    expect(new Set(topics).size).toBe(topics.length);
+  });
+
+  it('every writing prompt that may write an animation renders the topic rule', () => {
+    const c = PromptCatalogue.load({ root: PROMPTS_ROOT });
+    for (const id of [
+      'in-depth',
+      'eli5',
+      'section-expand',
+      'section-reexplain',
+      'section-analogy',
+      'section-deeper',
+      'section-revise',
+      'section-eli5-tab',
+      'selection-eli5-tab',
+    ] as const)
+      expect(c.get(id).vars, id).toContain('animationRules');
+    // The critique and the STE rewrite never write animation code; they keep what exists.
+    expect(c.get('eli5-critique').system).toMatch(/Never add an animation and never write animation code/);
+    expect(c.get('ste').system).toMatch(
+      /Never rewrite, add or invent a chart, diagram, table, photo, figure or animation/,
+    );
+  });
+});
+
 describe('section-ask prompt (08 Ask)', () => {
   const catalogue = PromptCatalogue.load({ root: PROMPTS_ROOT });
 
@@ -74,15 +148,15 @@ describe('section-ask prompt (08 Ask)', () => {
     const p = catalogue.get('section-ask');
     expect(p).toMatchObject({
       output: 'SectionAnswerDraft',
-      version: 1,
+      version: 2,
       temperature: 0.3,
       effort: 'medium',
       maxOutputTokens: 2500,
       skills: ['beautiful-doc', 'eli5'],
-      tag: 'section-ask@1',
+      tag: 'section-ask@2',
     });
     expect([...p.vars].sort()).toEqual([...PROMPT_VARS['section-ask']].sort());
-    expect(p.system).toContain('{{tabKind}}');
+    expect(p.system).toContain('{{register}}');
     expect(p.system).toMatch(/1 to 4 short paragraphs/);
     expect(p.system).toMatch(/No headings, lists, links/);
     expect(p.system).toMatch(/Never invent figures/);
@@ -146,7 +220,7 @@ describe('prompt loader and templating', () => {
     expect(c.get('summary').origin).toBe('override');
     expect(c.get('summary').tag).toBe('summary@2'); // no enterprise marker in public meta (D5)
     expect(c.render('summary', { title: 'T', outline: 'o', indepthExcerpt: 'e' }).system).toBe('OVERRIDE T');
-    expect(c.get('eli5').version).toBe(5);
+    expect(c.get('eli5').version).toBe(6);
     expect(c.get('eli5').origin).toBe('default');
     const empty = tmp();
     expect(() => PromptCatalogue.load({ root: empty })).toThrow(/Prompt file missing: /);
@@ -350,13 +424,20 @@ describe('prompt catalogue: fragments, sets and provenance (02 §9)', () => {
     expect(c.get('in-depth')).toMatchObject({ version: 3, origin: 'set', set: 'wsj-v1', tag: 'in-depth@3~wsj-v1' });
     expect(c.get('eli5')).toMatchObject({ version: 4, origin: 'set', tag: 'eli5@4~wsj-v1' });
     expect(c.get('summary').origin).toBe('default');
-    // The baseline set is frozen (D6): the default prompts have moved on (animation rules, 07 §7.1)
-    // while wsj-v1 keeps the versions that shipped before prompt sets.
-    for (const id of ['in-depth', 'eli5']) {
-      const frozen = fs.readFileSync(path.join(PROMPTS_ROOT, 'wsj-v1', `${id}.md`), 'utf8');
-      expect(frozen).not.toContain('{{animationRules}}');
-      expect(fs.readFileSync(path.join(PROMPTS_DIR, `${id}.md`), 'utf8')).toContain('{{animationRules}}');
-    }
+    // The baseline set is the pre-v4 files verbatim (D6): frozen by hash, never edited.
+    const frozen: Record<string, string> = {
+      'in-depth': 'a4ea1a6d1f092828e1b9848f82bd5f93afb3663dd734f76a55a70725e36450d3',
+      eli5: '5a01484b6e2ab5434fda413fd6ddc51c12c6ad3a9d6b9cd86af49fb7b7e78f6f',
+    };
+    for (const [id, sha] of Object.entries(frozen))
+      expect(
+        createHash('sha256')
+          .update(fs.readFileSync(path.join(PROMPTS_ROOT, 'wsj-v1', `${id}.md`)))
+          .digest('hex'),
+      ).toBe(sha);
+    expect(c.get('in-depth').version).toBeLessThan(
+      PromptCatalogue.load({ root: PROMPTS_ROOT }).get('in-depth').version,
+    );
   });
 
   it('precedence per id is overlay > set > default, for prompts and fragments', () => {
@@ -413,12 +494,12 @@ describe('prompt catalogue: fragments, sets and provenance (02 §9)', () => {
   it('promptDigest is 16 hex, stable, and changes with any prompt or fragment file it covers', () => {
     const root = rootWith({});
     const a = PromptCatalogue.load({ root });
-    const tags = ['in-depth@4', 'summary@2'];
+    const tags = ['in-depth@5', 'summary@2'];
     const d1 = a.digest(tags);
     expect(d1).toMatch(/^[0-9a-f]{16}$/);
     expect(a.digest([...tags].reverse())).toBe(d1);
     expect(PromptCatalogue.load({ root }).digest(tags)).toBe(d1);
-    expect(a.digest(['in-depth@4'])).not.toBe(d1);
+    expect(a.digest(['in-depth@5'])).not.toBe(d1);
     expect(fragmentsFor(a.get('in-depth'))).toEqual(
       expect.arrayContaining([
         'photo-indepth-on',

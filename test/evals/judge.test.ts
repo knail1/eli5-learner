@@ -34,10 +34,12 @@ const json = (scores: Record<string, number>, missing: string[] = []): string =>
 const all = (ids: string[], n: number): Record<string, number> => Object.fromEntries(ids.map((id) => [id, n]));
 
 describe('rubrics (13 §9.4, §9.5)', () => {
-  it('ship D1-D7, E1-E5 and S1-S3, each with a score-2 and a score-5 anchor', () => {
+  it('ship D1-D7, E1-E6, S1-S3 and T1-T4, each with a score-2 and a score-5 anchor', () => {
     expect(rubrics.indepth.criteria.map((c) => c.id)).toEqual(['D1', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7']);
-    expect(rubrics.eli5.criteria.map((c) => c.id)).toEqual(['E1', 'E2', 'E3', 'E4', 'E5']);
+    expect(rubrics.eli5.criteria.map((c) => c.id)).toEqual(['E1', 'E2', 'E3', 'E4', 'E5', 'E6']);
     expect(rubrics.section.criteria.map((c) => c.id)).toEqual(['S1', 'S2', 'S3']);
+    expect(rubrics.ste.criteria.map((c) => c.id)).toEqual(['T1', 'T2', 'T3', 'T4']);
+    expect(rubrics.indepth.criteria.find((c) => c.id === 'D5')?.fiveMeans).toMatch(/Dona M\. Wong/);
     for (const r of Object.values(rubrics))
       for (const c of r.criteria) expect(c.anchors.map((a) => a.score).sort()).toEqual([2, 5]);
   });

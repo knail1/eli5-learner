@@ -251,6 +251,7 @@ describe('a create job end to end (06 §3.2, §5, §6)', () => {
     expect(lines).toContain('Reading sources (0 of 2)');
     expect(lines).toContain('Extracting content');
     expect(lines).toContain('Generating document (in-depth and ELI5)');
+    expect(lines).toContain('Generating document (ASD-STE100 version, simplifying the ELI5 version)');
     expect(lines).toContain('Generating document (glossary notes)');
     expect(lines).toContain('Generating document (finishing up)');
     expect(lines).toContain('Saving');
@@ -259,7 +260,7 @@ describe('a create job end to end (06 §3.2, §5, §6)', () => {
     const slug = job.result?.topicSlug ?? '';
     expect(slug).toBe('widget-supply-planning');
     const entry = h.lib.getEntry(slug);
-    expect(entry).toMatchObject({ title: job.result?.title, summarySource: 'llm', tabCount: 2 });
+    expect(entry).toMatchObject({ title: job.result?.title, summarySource: 'llm', tabCount: 3 });
     const meta = await h.lib.getMeta(slug);
     expect(meta).toMatchObject({
       jobId,
@@ -275,7 +276,7 @@ describe('a create job end to end (06 §3.2, §5, §6)', () => {
       warnings: [],
     });
     expect(meta.generation.prompts).toEqual(
-      expect.arrayContaining(['in-depth@4', 'eli5@5', 'glossary@2', 'summary@1']),
+      expect.arrayContaining(['in-depth@5', 'eli5@6', 'ste@1', 'eli5-critique@1', 'glossary@2', 'summary@1']),
     );
     // 02 §9 provenance: the set in effect and the digest over the prompts and fragments used.
     expect(meta.generation.promptSet).toBe('default');
@@ -336,18 +337,22 @@ describe('a create job end to end (06 §3.2, §5, §6)', () => {
       [1, 1, 3, ['Queued: starts after the current run', 'Queued (2 ahead)', 'Queued (3 ahead)']],
       [2, 2, 3, ['Queued: starts when a run finishes', 'Queued (2 ahead)', 'Queued (3 ahead)']],
       [3, 3, 2, ['Queued: starts when a run finishes', 'Queued (2 ahead)']],
-    ] as const)('%i slot(s), %i running: waiting lines', async (slots, running, waiting, lines) => {
-      const g = gated();
-      const h = await harness({ settings: { maxConcurrentJobs: slots }, tasks: g.tasks });
-      const ids: string[] = [];
-      for (let i = 0; i < running + waiting; i++) ids.push((await start(h)).jobId);
-      await until(() => g.count() === running);
-      expect(ids.slice(running).map((id) => line(h, id))).toEqual(lines);
-      while (!ids.every((id) => h.queue.get(id)?.status === 'done')) {
-        g.releaseAll();
-        await new Promise((r) => setTimeout(r, 5));
-      }
-    });
+    ] as const)(
+      '%i slot(s), %i running: waiting lines',
+      async (slots, running, waiting, lines) => {
+        const g = gated();
+        const h = await harness({ settings: { maxConcurrentJobs: slots }, tasks: g.tasks });
+        const ids: string[] = [];
+        for (let i = 0; i < running + waiting; i++) ids.push((await start(h)).jobId);
+        await until(() => g.count() === running);
+        expect(ids.slice(running).map((id) => line(h, id))).toEqual(lines);
+        while (!ids.every((id) => h.queue.get(id)?.status === 'done')) {
+          g.releaseAll();
+          await new Promise((r) => setTimeout(r, 5));
+        }
+      },
+      15_000,
+    ); // four full fake pipelines (step 1b included) under a loaded parallel suite
 
     it('raising the setting from 1 to 3 with two waiting jobs starts both at once', async () => {
       const g = gated();

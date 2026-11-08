@@ -736,7 +736,7 @@ class MergeEngine implements MergeDelegate {
     }
     // 09 §10.3: the merge output has no ASD-STE100 tab; the pre-merge version keeps it in History.
     const retired = merged.retiredSectionIds ?? [];
-    if (merged.warnings?.includes('ste-dropped')) this.log.info('merge.ste-dropped', { sections: retired.length });
+    if (merged.warnings?.includes('ste-dropped')) this.log.info('merge.ste-dropped', { count: retired.length });
     // Step 6.
     let backup: string;
     try {

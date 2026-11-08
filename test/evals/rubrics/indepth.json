@@ -73,7 +73,7 @@
     {
       "id": "D5",
       "name": "Visual explanation",
-      "fiveMeans": "Charts, diagrams or annotated figures carry real information and match the data (WSJ-grade).",
+      "fiveMeans": "Charts, diagrams or annotated figures carry real information and match the data, and follow the WSJ graphics rules (Dona M. Wong): one point per chart with a takeaway title, bars from zero, at most four lines or series, sentence case, natural units, flat colours (WSJ-grade).",
       "anchors": [
         {
           "score": 2,

@@ -9,8 +9,10 @@ import {
   DocumentDraftTabSchema,
   SectionDraftSchema,
   type DocumentDraftTab,
+  type SteDraft,
 } from '../../../../src/main/llm/schemas/draft';
 import { SkillLibrary } from '../../../../src/main/llm/skills';
+import { isKeepable } from '../../../../src/main/llm/ste';
 import {
   createTasks,
   deserializePrepared,
@@ -19,7 +21,13 @@ import {
   type TaskDeps,
 } from '../../../../src/main/llm/tasks';
 import { FakeProvider, loadFakeScript, type FakeScript } from '../../../../src/main/llm/testing/fake';
-import type { GenerationRequest, LLMProvider, ModelLimits, PromptPolicy } from '../../../../src/main/llm/types';
+import type {
+  GenerationRequest,
+  LLMErrorKind,
+  LLMProvider,
+  ModelLimits,
+  PromptPolicy,
+} from '../../../../src/main/llm/types';
 import { PROMPTS_ROOT, REPO, SKILLS_DIR, settingsFor } from './helpers';
 
 const DEFAULT_SCRIPT = path.join(REPO, 'test/fixtures/llm/default.json');
@@ -70,10 +78,10 @@ describe('task functions (02 §12) with FakeProvider and the default script', ()
     expect(p.promptText).not.toContain('<source ref="x">'); // delimiter in content is neutralised
     const indepth = await tasks.generateIndepth(p, { ...ctx, glossary: true });
     expect(DocumentDraftTabSchema.parse(indepth.draft).kind).toBe('indepth');
-    expect(indepth.prompt).toBe('in-depth@4');
+    expect(indepth.prompt).toBe('in-depth@5');
     const eli5 = await tasks.generateEli5(p, ctx);
     expect(eli5.draft.kind).toBe('eli5');
-    expect(eli5.prompt).toBe('eli5@5');
+    expect(eli5.prompt).toBe('eli5@6');
     // SVG text rules (real-document regression): attributes, not style; readable, non-overlapping labels.
     for (const task of ['eli5', 'in-depth'] as const) {
       const sys = fake.calls.find((c) => c.taskId === task)?.system ?? '';
@@ -83,10 +91,25 @@ describe('task functions (02 §12) with FakeProvider and the default script', ()
     // The ELI5 view is picture-first: one picture per section (user request), a diagram for structure;
     // real-world scenes are photos, never SVG drawings of people or places (user feedback).
     const eli5System = fake.calls.find((c) => c.taskId === 'eli5')?.system ?? '';
-    expect(eli5System).toMatch(/give every section one picture/i);
-    expect(eli5System).toMatch(/Structured ideas .* get a `diagram` block/i);
+    expect(eli5System).toMatch(/Every section has at least one visual block/);
+    expect(eli5System).toMatch(/Structured ideas .* get a `diagram`/i);
     expect(eli5System).toMatch(/No human figures, faces, stick figures/);
-    expect(eli5System).toMatch(/At most 5 labeled elements/);
+    expect(eli5System).toMatch(/at most 5 labeled elements/i);
+    expect(eli5System).toMatch(/never more than 20/);
+    expect(eli5System).toMatch(/No formulas, no Greek letters/);
+    // Animations are designed for the topic (owner: the gradient descent one was only an example).
+    expect(eli5System).toMatch(/one simple animation/);
+    expect(eli5System).toMatch(/Never reuse an example whose topic is not this document's topic/);
+    // In depth v5: the WSJ five boxes, Wong chart rules, topic animations, flat diagram fills.
+    const v4 = fake.calls.find((c) => c.taskId === 'in-depth')?.system ?? '';
+    for (const box of ['Lede', 'Nut graf', 'Body', 'Boring but important', 'Kicker']) expect(v4).toContain(box);
+    expect(v4).toMatch(/Dona M\. Wong/);
+    expect(v4).toMatch(/Bars start at zero/);
+    expect(v4).toMatch(/five-second test/);
+    expect(v4).toMatch(/There is no default animation/);
+    expect(v4).toMatch(/not an example borrowed from another topic/);
+    expect(v4).toMatch(/Flat fills only/);
+    expect(v4).not.toMatch(UNRENDERED);
     const glossary = await tasks.generateGlossary(indepth.draft, ctx);
     expect(glossary.draft.entries.length).toBeGreaterThan(0);
     expect(glossary.prompt).toBe('glossary@2');
@@ -98,6 +121,28 @@ describe('task functions (02 §12) with FakeProvider and the default script', ()
     const indepthSystem = fake.calls.find((c) => c.taskId === 'in-depth')?.system ?? '';
     expect(indepthSystem).toMatch(/keep every acronym/i);
     expect(indepthSystem).toContain('(CAC)');
+    // Step 1b: the ASD-STE100 tab and the ELI5 critique.
+    const ste = await tasks.generateSte(indepth.draft, ctx);
+    expect(ste.prompt).toBe('ste@1');
+    expect(ste.draft.tab.kind).toBe('ste');
+    expect(ste.draft.tab.sections).toHaveLength(indepth.draft.sections.length);
+    expect(ste.draft.fixes).toEqual([]);
+    expect(ste.draft.lint.repairTried).toBe(false);
+    const steCall = fake.calls.find((c) => c.taskId === 'ste');
+    expect(steCall?.system).toMatch(/One word, one meaning/);
+    expect(steCall?.system).not.toMatch(UNRENDERED);
+    expect(steCall?.messages[0]?.text).toContain('<source ref="in-depth view"');
+    expect(steCall?.messages[0]?.text).not.toContain('<svg'); // visuals are summarized, never re-sent
+    expect(steCall?.messages[0]?.text).not.toContain('ELI5.canvas'); // nor animation code
+    expect(ste.draft.tab.sections[2]?.blocks.some((b) => b.type === 'animation')).toBe(true);
+    const critique = await tasks.critiqueEli5(eli5.draft, indepth.draft, ctx);
+    expect(critique.prompt).toBe('eli5-critique@1');
+    expect(critique.gate.ok).toBe(true);
+    const critiqueCall = fake.calls.find((c) => c.taskId === 'eli5-critique');
+    expect(critiqueCall?.messages[0]?.text).toContain('<source ref="eli5 draft"');
+    expect(critiqueCall?.messages[0]?.text).toContain('<source ref="in-depth outline"');
+    expect(critiqueCall?.messages[0]?.text).toContain('section has no picture'); // lint findings
+    expect(critiqueCall?.system).not.toMatch(UNRENDERED);
     const summary = await tasks.summarize(indepth.draft, ctx);
     expect(summary.draft.topicSlugHint).toBe('widget-supply-planning');
 
@@ -189,30 +234,59 @@ describe('task functions (02 §12) with FakeProvider and the default script', ()
     expect(user).toContain('1. Intro\n2. Widgets');
     expect(user).not.toMatch(UNRENDERED);
     expect(call?.system).not.toMatch(UNRENDERED);
-    expect(call?.system).toContain('kind "eli5"');
+    expect(call?.system).toContain('belongs to the ELI5 tab');
     expect(call?.system).toContain('## Style guide: eli5');
     expect(call?.jsonSchema).toBeDefined(); // native strict output, not prompted JSON
   });
 
-  it('applies the ELI5 register to section ELI5 tabs in every in-place prompt (08 §6.2)', async () => {
+  it.each([
+    ['indepth', /In depth tab: keep the tone of a WSJ feature/],
+    ['eli5', /belongs to the ELI5 tab: plain everyday words/],
+    ['section-eli5', /ELI5 tab made for one section: plain everyday words/],
+    ['ste', /ASD-STE100 tab \(Simplified Technical English\)/],
+  ] as const)('renders the %s register in every in-place prompt and Ask (08 §6.2)', async (tabKind, register) => {
     const fake = new FakeProvider(defaultScript());
     const tasks = createTasks(deps(fake));
     const section = { heading: 'Widgets', blocks: [{ type: 'paragraph' as const, md: 'Widgets are sold.' }] };
-    for (const action of ['expand', 'reexplain', 'analogy', 'deeper'] as const) {
+    for (const action of ['expand', 'reexplain', 'analogy', 'deeper', 'revise'] as const) {
       await tasks.runSectionAction({
         action,
-        tabKind: 'section-eli5',
+        tabKind,
         section,
         outline: ['Widgets'],
         selection: 'Widgets',
         signal: ctx.signal,
       });
     }
-    const systems = new Map<string, string | undefined>(fake.calls.map((c) => [c.taskId, c.system]));
-    for (const id of ['section-expand', 'section-reexplain', 'section-analogy', 'section-deeper']) {
-      expect(systems.get(id)).toContain('For an "eli5" or "section-eli5" tab: plain words, no jargon, no glossary');
+    await tasks.answerSectionQuestion({
+      tabKind,
+      section,
+      outline: ['Widgets'],
+      selection: 'Widgets',
+      question: 'Why?',
+      signal: ctx.signal,
+    });
+    const ids = [
+      'section-expand',
+      'section-reexplain',
+      'section-analogy',
+      'section-deeper',
+      'section-revise',
+      'section-ask',
+    ];
+    expect(fake.calls.map((c) => c.taskId)).toEqual(ids);
+    for (const c of fake.calls) {
+      expect(c.system, c.taskId).toMatch(register);
+      expect(c.system, c.taskId).not.toMatch(UNRENDERED);
+      // Exactly one register: the others never leak in.
+      const others = ['In depth tab:', 'belongs to the ELI5 tab:', 'made for one section:', 'ASD-STE100 tab'].filter(
+        (x) => c.system.includes(x),
+      );
+      expect(others, c.taskId).toHaveLength(1);
     }
-    expect(systems.get('section-deeper')).toContain('stay at ELI5 reading level');
+    expect(fake.calls.find((c) => c.taskId === 'section-deeper')?.system).toContain(
+      'stay at the reading level of the tab',
+    );
   });
 
   it('sends images with labels and lets figure blocks cite them', async () => {
@@ -476,3 +550,156 @@ async function loadDraft(): Promise<unknown> {
   const script = JSON.parse(read(DEFAULT_SCRIPT)) as { responses: Record<string, unknown> };
   return Promise.resolve(script.responses['in-depth']);
 }
+
+describe('ASD-STE100 step (02 §12, D15, D16)', () => {
+  const indepth = (): DocumentDraftTab => defaultScript().responses['in-depth'] as DocumentDraftTab;
+  const steFixture = (): SteDraft => structuredClone(defaultScript().responses.ste) as SteDraft;
+  const withSte = (ste: unknown, extra: Partial<FakeScript> = {}): FakeScript => {
+    const s = defaultScript();
+    return { ...s, ...extra, responses: { ...s.responses, ste: ste as never } };
+  };
+  /** A paragraph of `n` sentences of 30 words each: every one breaks the 25-word limit. */
+  const longParagraph = (n: number) => ({
+    type: 'paragraph' as const,
+    md: Array.from({ length: n }, () => `Big ${Array.from({ length: 29 }, () => 'word').join(' ')}.`).join(' '),
+  });
+
+  it('asks for one repair when the section count is wrong; a second miss throws invalid_output', async () => {
+    const short = steFixture();
+    short.sections.pop();
+    const fixed = new FakeProvider(withSte([short, steFixture()]));
+    const ok = await createTasks(deps(fixed)).generateSte(indepth(), ctx);
+    expect(ok.draft.tab.sections).toHaveLength(4);
+    const calls = fixed.calls.filter((c) => c.taskId === 'ste');
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.messages.at(-1)?.text).toContain('the In depth view has 4; return exactly 4');
+
+    const never = new FakeProvider(withSte(short));
+    const e = await createTasks(deps(never))
+      .generateSte(indepth(), ctx)
+      .catch((x: unknown) => x);
+    expect((e as LLMError).kind).toBe('invalid_output');
+    expect(never.calls.filter((c) => c.taskId === 'ste')).toHaveLength(2);
+  });
+
+  it('asks for a repair when a section would resolve to nothing, instead of omitting the tab', async () => {
+    const src = indepth();
+    const textOnly = src.sections.findIndex((sec) => sec.blocks.every((b) => !isKeepable(b)));
+    if (textOnly < 0) throw new Error('fixture: the in-depth draft has a section without visuals');
+    const empty = steFixture();
+    const sec = empty.sections[textOnly];
+    if (sec) sec.blocks = [{ type: 'keep', block: 0 }];
+    const fake = new FakeProvider(withSte([empty, steFixture()]));
+    const r = await createTasks(deps(fake)).generateSte(src, ctx);
+    expect(r.draft.tab.sections).toHaveLength(src.sections.length);
+    const calls = fake.calls.filter((c) => c.taskId === 'ste');
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.messages.at(-1)?.text).toContain(`sections[${textOnly}]: has no text`);
+  });
+
+  it('runs one lint repair above 20% failing sentences and keeps it only when it scores better', async () => {
+    const bad = steFixture();
+    bad.sections[0]?.blocks.unshift(longParagraph(8));
+    // The repair splits each long sentence in two: same content, every sentence within the limit.
+    const split = steFixture();
+    split.sections[0]?.blocks.unshift({
+      type: 'paragraph',
+      md: Array.from({ length: 16 }, () => `Big ${Array.from({ length: 14 }, () => 'word').join(' ')}.`).join(' '),
+    });
+    const better = new FakeProvider(withSte([bad, split]));
+    const a = await createTasks(deps(better)).generateSte(indepth(), ctx);
+    expect(a.draft.lint).toMatchObject({ repairTried: true, repairAccepted: true });
+    expect(a.draft.lint.final.score).toBeLessThan(a.draft.lint.first.score);
+    expect(a.draft.tab.sections[0]?.blocks[0]).toEqual(split.sections[0]?.blocks[0]);
+    const repair = better.calls.filter((c) => c.taskId === 'ste')[1];
+    expect(repair?.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+    // A dedicated repair turn; the quoted sentences stay inside the untrusted-content wrapper.
+    expect(repair?.messages[2]?.text).toContain('break the ASD-STE100 rules');
+    expect(repair?.messages[2]?.text).not.toContain('failed validation');
+    expect(repair?.messages[2]?.text).toMatch(
+      /<source ref="checker findings">[^]*30 words \(descriptive limit 25\)[^]*<\/source>/,
+    );
+
+    // A repair that scores better only by dropping most of the text is not kept.
+    const shrunk = new FakeProvider(withSte([bad, steFixture()]));
+    const d = await createTasks(deps(shrunk)).generateSte(indepth(), ctx);
+    expect(d.draft.lint).toMatchObject({ repairTried: true, repairAccepted: false });
+    expect(d.draft.tab.sections[0]?.blocks[0]).toEqual(bad.sections[0]?.blocks[0]);
+
+    // A repair call that fails keeps the first draft and still counts the tokens spent.
+    const failing = new FakeProvider(
+      withSte([bad], { errors: { ste: [undefined, 'bad_request'] as unknown as LLMErrorKind[] } }),
+    );
+    const f = await createTasks(deps(failing)).generateSte(indepth(), ctx);
+    expect(f.draft.lint).toMatchObject({ repairTried: true, repairAccepted: false });
+    expect(f.draft.tab.sections[0]?.blocks[0]).toEqual(bad.sections[0]?.blocks[0]);
+    expect(failing.calls.filter((c) => c.taskId === 'ste')).toHaveLength(2);
+
+    const worse = steFixture();
+    worse.sections[0]?.blocks.unshift(longParagraph(12));
+    const notBetter = new FakeProvider(withSte([bad, worse]));
+    const b = await createTasks(deps(notBetter)).generateSte(indepth(), ctx);
+    expect(b.draft.lint).toMatchObject({ repairTried: true, repairAccepted: false });
+    expect(b.draft.tab.sections[0]?.blocks[0]).toEqual(bad.sections[0]?.blocks[0]);
+    expect(b.usage.inputTokens).toBeGreaterThan(0);
+
+    const clean = new FakeProvider(defaultScript());
+    const c = await createTasks(deps(clean)).generateSte(indepth(), ctx);
+    expect(c.draft.lint).toMatchObject({ repairTried: false, repairAccepted: false, first: { failing: 0 } });
+    expect(clean.calls.filter((x) => x.taskId === 'ste')).toHaveLength(1);
+  });
+
+  it('retries once after an output overflow, keeping every section; a second overflow is invalid_output', async () => {
+    const always = new FakeProvider(withSte(steFixture(), { truncateTask: 'ste' }));
+    const e = await createTasks(deps(always))
+      .generateSte(indepth(), ctx)
+      .catch((x: unknown) => x);
+    expect((e as LLMError).kind).toBe('invalid_output');
+    // Both overflowed calls were paid for: the error carries their tokens (D25).
+    expect((e as LLMError).usage?.outputTokens).toBeGreaterThan(0);
+    const calls = always.calls.filter((c) => c.taskId === 'ste');
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.system).toContain(catalogue.fragment('overflow-addendum-ste', { n: '4' }).text);
+    expect(calls[0]?.system).not.toContain('ran out of space');
+  });
+
+  it('the ELI5 critique returns the revision with the gate verdict, and rejects a weaker one', async () => {
+    const s = defaultScript();
+    const eli5 = s.responses.eli5 as DocumentDraftTab;
+    const good = await createTasks(deps(new FakeProvider(s))).critiqueEli5(eli5, indepth(), ctx);
+    expect(good.gate.ok).toBe(true);
+    expect(good.draft.kind).toBe('eli5');
+    const weak = structuredClone(s.responses['eli5-critique']) as DocumentDraftTab;
+    weak.sections[0]?.blocks.push({ type: 'paragraph', md: 'Sales rose by 73 percent last spring.' });
+    const fake = new FakeProvider({ ...s, responses: { ...s.responses, 'eli5-critique': weak as never } });
+    const r = await createTasks(deps(fake)).critiqueEli5(eli5, indepth(), ctx);
+    expect(r.gate).toMatchObject({ ok: false, reason: 'new-number' });
+  });
+
+  it('the ELI5 critique sees animations as keep markers, restores their code, and rejects dropping one', async () => {
+    const s = defaultScript();
+    const anim = (indepth().sections[2]?.blocks ?? []).find((b) => b.type === 'animation');
+    if (anim?.type !== 'animation') throw new Error('fixture: the in-depth draft has an animation');
+    const eli5 = structuredClone(s.responses.eli5) as DocumentDraftTab;
+    eli5.sections[1]?.blocks.push(anim);
+    // The editor returns the animation as its keep marker with simpler words.
+    const revised = structuredClone(s.responses['eli5-critique']) as DocumentDraftTab;
+    revised.sections[1]?.blocks.push({
+      ...anim,
+      title: 'Extra widgets cover the busy weeks',
+      poster: 'keep:0',
+      js: 'keep:0',
+    });
+    const fake = new FakeProvider({ ...s, responses: { ...s.responses, 'eli5-critique': revised as never } });
+    const r = await createTasks(deps(fake)).critiqueEli5(eli5, indepth(), ctx);
+    const sent = fake.calls.find((c) => c.taskId === 'eli5-critique')?.messages[0]?.text ?? '';
+    expect(sent).not.toContain('ELI5.canvas');
+    expect(sent).toContain('"js":"keep:0"');
+    const back = r.draft.sections[1]?.blocks.find((b) => b.type === 'animation');
+    expect(back).toEqual({ ...anim, title: 'Extra widgets cover the busy weeks' });
+    expect(r.gate.ok).toBe(true);
+    // The plain fixture revision leaves the animation out: the gate keeps the first draft.
+    const dropped = await createTasks(deps(new FakeProvider(s))).critiqueEli5(eli5, indepth(), ctx);
+    expect(dropped.gate).toMatchObject({ ok: false, reason: 'media' });
+  });
+});

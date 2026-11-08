@@ -309,13 +309,13 @@ The model gets the section plus its surroundings, not the whole document ([02](0
 5. **Budget:** if the target plus neighbors exceed 60% of the model's input budget (`inputBudget(limitsFor(provider, model), 0, llm.maxOutputTokens)`, [02](02-llm-provider.md) §8, read at request time), shrink each neighbor to its heading plus its first 1500 characters. If the target alone still does not fit, fail with `SECTION_TOO_LARGE` (§9).
 6. Call `runSectionAction({action, tabKind, section: ctx.draft, outline: ctx.outline, prev: ctx.prev, next: ctx.next, selection: selectionText, note, sourceExcerpt, signal})`. `eli5-tab` and `eli5-selection` return a `DocumentDraftTab` of kind `section-eli5`; the other five return one `SectionDraft`. Ask calls `answerSectionQuestion` instead (§6.8). The model never returns an ID. A returned animation whose `poster` and `js` are `"keep"` keeps the section's existing animation (new title, caption and alt allowed; 07 §5.2); leaving it out removes it. `eli5-selection` sends `context` (§7.5) instead of `prev`/`next` and skips step 5.
 
-**Register rules by tab kind** (sent as part of the prompt input; prompt text is in [02](02-llm-provider.md)):
+**Register rules by tab kind** (the section prompts' `{{register}}` is the `register-<kind>` fragment of the section's tab: `register-indepth`, `register-eli5`, `register-section-eli5`, `register-ste`; prompt text is in [02](02-llm-provider.md) §9):
 
 | `tabKind` | Rules |
 | --- | --- |
-| `indepth` | WSJ register; visuals allowed; glossary re-anchoring applies (§6.5) |
+| `indepth` | WSJ register (clear, declarative sentences, takeaway headings, numbers with context, the chart rules); visuals allowed; glossary re-anchoring applies (§6.5) |
 | `eli5`, `section-eli5` | Plain words, no jargon, no glossary. "Go deeper" adds depth but stays at ELI5 reading level. "Create a separate ELI5" from an ELI5 tab makes an even more focused explainer of the selected passage |
-| `ste` | ASD-STE100 register: short sentences, one instruction each, one meaning per word, active voice; no glossary. Until the `register-ste` prompt fragment ships, the section prompts receive `tabKind = "ste"` with no extra register text |
+| `ste` | ASD-STE100 register: short sentences, one instruction each, one meaning per word, active voice; no glossary. Charts, diagrams, tables and animations are kept, never added or changed |
 
 ### 6.3 Section hash (staleness precondition)
 

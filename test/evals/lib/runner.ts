@@ -118,7 +118,7 @@ export async function runEval(o: RunEvalOptions): Promise<{ results: EvalResults
   let aborted: { caseId: string; error: unknown } | undefined;
 
   const judgeWith = async (
-    part: 'indepth' | 'eli5' | 'section',
+    part: 'indepth' | 'eli5' | 'section' | 'ste',
     input: Omit<Parameters<typeof judgePart>[1], 'part'>,
   ): Promise<JudgedPart> => {
     try {
@@ -158,7 +158,8 @@ export async function runEval(o: RunEvalOptions): Promise<{ results: EvalResults
       }
       results.push(r);
       log(
-        `[eval] ${c.id}: ${r.status} indepth=${fmt(r.scores.indepth)} eli5=${fmt(r.scores.eli5)} section=${fmt(r.scores.section)}`,
+        `[eval] ${c.id}: ${r.status} indepth=${fmt(r.scores.indepth)} eli5=${fmt(r.scores.eli5)} section=${fmt(r.scores.section)}` +
+          (r.scores.ste !== undefined ? ` ste=${fmt(r.scores.ste)}` : ''),
       );
     }
   } catch (e) {
@@ -193,6 +194,7 @@ export async function runEval(o: RunEvalOptions): Promise<{ results: EvalResults
     };
     let indepth: JudgedPart;
     let eli5: JudgedPart;
+    let ste: JudgedPart | undefined;
     const sections: SectionPartResult[] = [];
     try {
       indepth = await judgeWith('indepth', {
@@ -205,6 +207,14 @@ export async function runEval(o: RunEvalOptions): Promise<{ results: EvalResults
         criteria: criteriaFor('eli5', {}),
         material: tabText(doc.html, 'eli5'),
       });
+      // The optional ASD-STE100 tab (D14): judged against the sources like the other tabs.
+      if (doc.meta.tabs.some((t) => t.key === 'ste')) {
+        ste = await judgeWith('ste', {
+          ...shared,
+          criteria: criteriaFor('ste', {}),
+          material: tabText(doc.html, 'ste'),
+        });
+      }
       let current = doc;
       for (const a of c.sectionActions ?? []) {
         const res = await runSectionAction(h, current, a);
@@ -225,9 +235,11 @@ export async function runEval(o: RunEvalOptions): Promise<{ results: EvalResults
         indepth: indepth.score,
         eli5: eli5.score,
         ...(sections.length ? { section: mean(sections.map((s) => s.score)) } : {}),
+        ...(ste ? { ste: ste.score } : {}),
       },
       indepth,
       eli5,
+      ...(ste ? { ste } : {}),
       ...(sections.length ? { sections } : {}),
       gates,
       skippedSources,

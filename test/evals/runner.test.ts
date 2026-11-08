@@ -175,7 +175,9 @@ describe('runEval end to end (FakeProvider generator, scripted judge, no network
     const [ops, advisory, soc, fake] = results.cases;
     // Glossary off: D6 is not scored.
     expect(Object.keys(ops?.indepth?.medians ?? {})).toEqual(['D1', 'D2', 'D3', 'D4', 'D5', 'D7']);
-    expect(ops?.scores).toEqual({ indepth: 4, eli5: 4 });
+    expect(ops?.scores).toEqual({ indepth: 4, eli5: 4, ste: 4 });
+    // The ASD-STE100 tab is judged on T1-T4 when the document has one.
+    expect(Object.keys(ops?.ste?.medians ?? {})).toEqual(['T1', 'T2', 'T3', 'T4']);
     // Gate failures score 0 without a judge call; the skipped login-wall source is recorded.
     expect(soc?.scores).toEqual({ indepth: 0, eli5: 0 });
     expect(soc?.gates?.failures).toEqual([
@@ -189,10 +191,10 @@ describe('runEval end to end (FakeProvider generator, scripted judge, no network
       ['analogy', ['S1', 'S2', 'S3']],
       ['section-eli5', ['S1', 'S2']],
     ]);
-    expect(fake?.scores).toEqual({ indepth: 4, eli5: 4, section: 4 });
+    expect(fake?.scores).toEqual({ indepth: 4, eli5: 4, section: 4, ste: 4 });
     expect(fake?.indepth?.runs).toHaveLength(3);
-    // Judge calls: 3 per tab for 2 scored cases, 3 per section action: none for gate failures.
-    expect(r.judge.calls).toHaveLength(3 * 2 * 2 + 3 * 2);
+    // Judge calls: 3 per tab (three tabs) for 2 scored cases, 3 per section action: none for gate failures.
+    expect(r.judge.calls).toHaveLength(3 * 3 * 2 + 3 * 2);
 
     // The built sources reached the pipeline: the docx spec as text, the PNG as a vision image.
     const prompts = r.fake.calls.filter((c) => c.taskId === 'in-depth');
@@ -204,7 +206,7 @@ describe('runEval end to end (FakeProvider generator, scripted judge, no network
     expect(first?.system).toContain('Accuracy');
 
     // Suite: gate failures count as 0.
-    expect(results.suite).toEqual({ indepth: 2, eli5: 2, section: 4 });
+    expect(results.suite).toEqual({ indepth: 2, eli5: 2, section: 4, ste: 4 });
     expect(results.criteria.D1).toBe(4);
     expect(results.status).toBe('complete');
     expect(results.judge).toEqual({ provider: 'openai', model: 'fake-judge', runs: 3 });
@@ -234,7 +236,16 @@ describe('runEval end to end (FakeProvider generator, scripted judge, no network
       .split('\n')
       .map((l) => JSON.parse(l) as { taskId: string });
     expect(new Set(ledgerLines.map((l) => l.taskId))).toEqual(
-      new Set(['in-depth', 'eli5', 'glossary', 'summary', 'section-analogy', 'section-eli5-tab']),
+      new Set([
+        'in-depth',
+        'eli5',
+        'ste',
+        'eli5-critique',
+        'glossary',
+        'summary',
+        'section-analogy',
+        'section-eli5-tab',
+      ]),
     );
   });
 
@@ -276,7 +287,7 @@ describe('runEval end to end (FakeProvider generator, scripted judge, no network
       ['general-ops-pdf', 'scored'],
       ['general-plain-text', 'judge_error'],
     ]);
-    expect(results.suite).toEqual({ indepth: 4, eli5: 4, section: null });
+    expect(results.suite).toEqual({ indepth: 4, eli5: 4, section: null, ste: 4 });
     const retries = r.judge.calls.filter((c) => c.user.includes('Weekly operations note'));
     expect(retries).toHaveLength(2);
     expect(retries[1]?.user).toMatch(/previous reply was rejected/);
@@ -370,7 +381,7 @@ describe('runEval end to end (FakeProvider generator, scripted judge, no network
     const file = path.join(w.opts.baselinesDir, 'claude.json');
     expect(existsSync(file)).toBe(true);
     const written = JSON.parse(readFileSync(file, 'utf8')) as Baseline;
-    expect(written.cases['general-ops-pdf']?.scores).toEqual({ indepth: 4, eli5: 4 });
-    expect(written.suite).toEqual({ indepth: 4, eli5: 4, section: null });
+    expect(written.cases['general-ops-pdf']?.scores).toEqual({ indepth: 4, eli5: 4, ste: 4 });
+    expect(written.suite).toEqual({ indepth: 4, eli5: 4, section: null, ste: 4 });
   });
 });

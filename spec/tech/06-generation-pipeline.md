@@ -43,7 +43,7 @@ export type JobStatus =
   | 'queued' | 'reading' | 'extracting' | 'generating' | 'saving' | 'done' | 'failed';
 
 /** Sub-step shown while status === 'generating'. */
-export type JobStep = 'indepth' | 'eli5' | 'glossary' | 'summary';
+export type JobStep = 'indepth' | 'eli5' | 'ste' | 'eli5-critique' | 'glossary' | 'summary';
 
 export type JobKind = 'create' | 'section';   // 'section' jobs: see §8
 
@@ -58,7 +58,7 @@ export interface JobProgress {
   sourcesTotal: number;
   sourcesDone: number;                         // resolved + skipped so far
   step?: JobStep;                              // only while generating
-  stepsPlanned: JobStep[];                     // e.g. ['indepth','eli5','summary'] when glossary is off
+  stepsPlanned: JobStep[];                     // e.g. ['indepth','eli5','ste','eli5-critique','summary'], glossary off
 }
 
 export interface JobFailure {
@@ -71,7 +71,8 @@ export interface JobFailure {
 
 export interface JobWarning {                  // partial-failure notes, persisted into meta.json
   kind: 'source-skipped' | 'glossary-omitted' | 'summary-fallback'
-      | 'eli5-placeholder' | 'input-truncated';     // input-truncated: recorded from doc 02 §8.4's warning
+      | 'eli5-placeholder' | 'input-truncated'      // input-truncated: recorded from doc 02 §8.4's warning
+      | 'ste-omitted';                              // the ASD-STE100 step failed: no third tab
   message: string;
 }
 
@@ -196,11 +197,12 @@ This file is the single place that fixes the step order. The steps run in this o
 | # | Step | Call (doc 02 §12) | Input | Output | Required? | On failure |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `indepth` + `eli5` | `prepareContent()`, then `generateIndepth()` ∥ `generateEli5()` | All `ExtractedContent`, clarifying input, glossary flag | In-depth draft with a proposed title; ELI5 draft (built from the sources, not the in-depth text, per PRD "Output document") | In-depth: **yes**. ELI5: always attempted | In-depth: job fails (mapping below). ELI5 `null`: placeholder tab (§7.1) |
+| 1b | `ste` + `eli5-critique` | `generateSte()` ∥ `critiqueEli5()` (02 §12.1, §12.2), after step 1 | Final in-depth draft (STE); the ELI5 draft and the in-depth outline (critique) | The ASD-STE100 tab draft with each block's in-depth origin; the ELI5 revision and the code gate's verdict | Both optional. The critique is skipped when the ELI5 draft is a placeholder | STE: no third tab, `ste-omitted` warning. Critique failed or rejected by the gate: keep the step 1 ELI5 draft, no warning |
 | 2 | `glossary` | `generateGlossary()`, after in-depth | In-depth draft | Term notes, anchored to section IDs by doc 07 | Only if `options.glossary` | `null`: omit glossary, add warning |
 | 3 | `summary` | `summarize()` | In-depth draft | `SummaryDraft` (summary text, `topicSlugHint`) | Yes, with a fallback | Deterministic fallback (§7.1) |
 | 4 | stock photos (not a `JobStep`) | `PipelinePhotos.resolve()` ([07](07-output-document.md) §7.4; one `pickPhotos()` call, 02 §12) | Both drafts' `photo` blocks | `gen/photos.json`: downscaled, credited photos keyed by slot | Only when step 1 offered photos and the drafts contain `photo` blocks | Quietly none: no warning, the build drops unresolved slots |
 
-The pipeline calls 02 §12's step functions directly: `prepareContent` (persisted as `gen/prepared.json`), then `generateIndepth` and `generateEli5` concurrently (`gen/document.json`), `generateGlossary` (`gen/glossary.json`) and `summarize` (`gen/summary.json`). It derives the running steps for the status line from which of those promises are pending, so no `onStep` extension of doc 02 is needed. The provider id and model recorded in `meta.json` are read when step 1 starts.
+The pipeline calls 02 §12's step functions directly: `prepareContent` (persisted as `gen/prepared.json`), then `generateIndepth` and `generateEli5` concurrently (`gen/document.json`), then `generateSte` and `critiqueEli5` concurrently (`gen/ste.json`, `gen/eli5-critique.json`), `generateGlossary` (`gen/glossary.json`) and `summarize` (`gen/summary.json`). It derives the running steps for the status line from which of those promises are pending, so no `onStep` extension of doc 02 is needed. The provider id and model recorded in `meta.json` are read when step 1 starts.
 
 Within step 1, doc 02 runs the in-depth and ELI5 calls concurrently and may parallelize chunk calls, all within `llm.maxConcurrency`. The summary runs after generation and **before** saving, because slug allocation (§5.5) and the catalog entry both need it. Doc 02 §9's "pipeline after save" label for the `summary` task is superseded by this order.
 
@@ -218,11 +220,13 @@ Rules:
    | `cancelled` | `CANCELLED` |
 
 3. **Truncation.** When doc 02's budgeting has to truncate input (02 §8.4 step 4), the pipeline records its warning as an `input-truncated` `JobWarning` naming the affected sources. The pipeline does no budgeting of its own.
-4. **Progress.** The pipeline tracks which step calls are pending (the in-depth and ELI5 calls, then glossary, then summary). `status.ts` derives the status line from that set of running steps (§6). The stock photo step shows the summary's "finishing up" line.
+4. **Progress.** The pipeline tracks which step calls are pending (the in-depth and ELI5 calls, then the STE and critique calls, then glossary, then summary). `status.ts` derives the status line from that set of running steps (§6). The stock photo step shows the summary's "finishing up" line.
 8. **Stock photos.** Step 1 offers `photo` blocks (`StepCtx.photos`) only when `settings.images.stockPhotos` is on and `deps.photos` exists and is `available()` (the registered `StockImageProvider` is not a stub, HOOK-DOC-03); `gen/document.json` records the decision. Step 4 runs after the summary, writes `gen/photos.json` (empty when skipped or failed) and is skipped on resume when that file exists. `createPipelineDeps` wires `deps.photos` only with Electron (`nativeImage` sizes the photos); a failure other than cancellation is logged as `pipeline.photos-skipped` and never fails the job or adds a warning. The saving stage passes the photos to the build (07 §5) and adds the `photo-pick@<version>` tag to `meta.json` `generation.prompts` when a pick call ran.
-5. **Checkpoints.** After step 1 returns, persist its drafts to `jobs/<jobId>/gen/document.json` and add `indepth` and `eli5` to `checkpoint.completedSteps`; the glossary output goes to `gen/glossary.json` and adds `glossary`. After step 3, persist `gen/summary.json` and add `summary`. On resume, finished steps are not re-run.
+5. **Checkpoints.** After step 1 returns, persist its drafts to `jobs/<jobId>/gen/document.json` and add `indepth` and `eli5` to `checkpoint.completedSteps`. After step 1b, persist `gen/ste.json` (`{ste: SteStepDraft | null, prompt?, usage?}`) and `gen/eli5-critique.json` (`{eli5: revision | null, outcome: 'accepted' | 'rejected' | 'failed' | 'skipped', reason?, prompt?, usage?}`) and add `ste` and `eli5-critique`; the ELI5 view used from then on (glossary, photos, saving) is the accepted revision, else the step 1 draft. The glossary output goes to `gen/glossary.json` and adds `glossary`. After step 3, persist `gen/summary.json` and add `summary`. On resume, finished steps are not re-run.
 6. Once the in-depth draft exists, an `LLM_AUTH` or `LLM_UNAVAILABLE` class error in a later step never fails the job. The later-step failure rules apply instead, so the user still gets a document.
 7. Retry, timeout and concurrency values come from doc 02. The enterprise `PipelinePolicy` (HOOK-PIPE-01) can override doc 02's retry policy and timeouts by passing an override into doc 02's retry module; it never adds a second retry loop.
+9. **Step 1b.** `generateSte` sees only the final in-depth draft; `critiqueEli5` sees the ELI5 draft, the in-depth outline and the ELI5 lint findings. A failed STE step logs `pipeline.step-degraded` (`step: 'ste'`) and adds `ste-omitted`; a failed critique logs `pipeline.step-degraded` (`step: 'eli5-critique'`); a revision the gate rejects logs `pipeline.eli5-critique-rejected` with the reason as `code`. Neither ever fails the job. `meta.json` `generation.prompts` gets `ste@<v>` when the tab is saved and `eli5-critique@<v>` when the revision was accepted. Saving passes the STE tab and its origins to the build (07 §5 `BuildInput.ste`); an STE draft that converts to no sections also adds `ste-omitted`.
+10. **Usage.** After every LLM step (`prepare` when chunk notes ran, `indepth`, `eli5`, `ste`, `eli5-critique`, `glossary`, `summary`) the pipeline logs `pipeline.usage {jobId, step, inputTokens, outputTokens, cacheRead}` (token counts only; `cacheRead` = cached input tokens; providers report no cache-write count) and stores the usage in that step's `gen/*.json`. A step that fails after a response came back (02 §12, `LLMError.usage`) still logs the tokens it spent, and a failed STE or critique step stores them in its `gen/*.json` record.
 
 ### 5.5 Title and slug
 
@@ -263,6 +267,9 @@ Doc 11 renders the status line (lower right). `status.ts` is the only producer o
 | `generating`, `indepth` and `eli5` both running | `Generating document (in-depth and ELI5)` |
 | `generating`, only `indepth` still running | `Generating document (in-depth explainer)` |
 | `generating`, only `eli5` still running | `Generating document (ELI5 version)` |
+| `generating`, `ste` and `eli5-critique` both running | `Generating document (ASD-STE100 version, simplifying the ELI5 version)` |
+| `generating`, only `ste` still running | `Generating document (ASD-STE100 version)` |
+| `generating`, only `eli5-critique` still running | `Generating document (simplifying the ELI5 version)` |
 | `generating` / `glossary` | `Generating document (glossary notes)` |
 | `generating` / `summary` | `Generating document (finishing up)` |
 | `saving` | `Saving` |
@@ -306,6 +313,8 @@ Behavior:
 | Some sources fail to resolve or extract | Skip them, list them in references and `meta.json` | `source-skipped` |
 | Content exceeds the context budget | Doc 02 chunks, then truncates as a last resort (02 §8.4); the pipeline records its warning (§5.4 rule 3) | `input-truncated` |
 | `eli5` draft is `null` (doc 02 failed it after its retries) | Insert a placeholder ELI5 tab with one section (normal `SectionId`) reading "The ELI5 version could not be generated. Select this text and choose *This isn't clear, re-explain it* to try again." Doc 08's regenerate-in-place can then fill it | `eli5-placeholder` |
+| `ste` step fails (02 threw: repair, overflow or resolution failed) | Save without the ASD-STE100 tab; never a placeholder | `ste-omitted` |
+| `eli5-critique` fails, or the gate (02 §12.2) rejects the revision | Keep the step 1 ELI5 draft; logged only | (none) |
 | `glossary` step fails | Save without margin notes | `glossary-omitted` |
 | `summary` step fails | Summary = first 2 sentences of the in-depth lead section, truncated to 300 chars | `summary-fallback` |
 
@@ -386,7 +395,7 @@ export interface JobCheckpoint {
 }
 ```
 
-A checkpoint is valid only when every artifact it names exists and parses. Otherwise the resume point moves back to the earliest stage with missing artifacts.
+A checkpoint is valid only when every artifact it names exists and parses. Otherwise the resume point moves back to the earliest stage with missing artifacts. `ste` and `eli5-critique` count as done only when `gen/ste.json` and `gen/eli5-critique.json` exist. A record written before step 1b (no `ste` or `eli5-critique` in `stepsPlanned`) still parses; when it resumes in `generating`, its `stepsPlanned` is recomputed and the new steps run before the glossary. A record already in `saving` is saved without them.
 
 ### 9.4 Recovery on launch
 
@@ -490,11 +499,13 @@ Renderer payloads are validated with a schema in the main process. Main cannot t
 - [ ] A second job started while one is `generating` shows `Queued` and runs automatically when the first finishes (default concurrency 1).
 - [ ] No dialog, modal or prompt appears at any point between Enter and `done`/`failed`, including on crash resume and quit.
 - [ ] A `create` job reaching `done` fires the queue's `done` event exactly once; section jobs and failed jobs never lead to a completion notification.
-- [ ] Status lines match §6 exactly for every state. While generating, the line starts with `Generating document` and its suffix reflects the running steps (in-depth and ELI5 together, then glossary, then finishing up).
+- [ ] Status lines match §6 exactly for every state. While generating, the line starts with `Generating document` and its suffix reflects the running steps (in-depth and ELI5 together, then ASD-STE100 and the ELI5 simplification together, then glossary, then finishing up).
 - [ ] A job with 3 sources where 1 URL requires login finishes `done`, shows `· 1 source(s) skipped`, and the document's references list the skipped URL with its reason.
 - [ ] A job whose sources all fail ends `failed/NO_USABLE_CONTENT` and leaves no Library entry.
 - [ ] An invalid API key ends the job `failed/LLM_AUTH` without retries and with the Settings hint.
 - [ ] When doc 02 returns a `null` ELI5 draft, the document is still saved with a placeholder ELI5 tab that can be regenerated in place.
+- [ ] Step 1b runs the STE and ELI5 critique calls concurrently after step 1 and before the glossary; an STE failure ends `done` with two tabs and `ste-omitted`; a failed or rejected critique keeps the first ELI5 draft without a warning; both outputs are checkpointed and never re-run on resume.
+- [ ] Every LLM step logs `pipeline.usage` with token counts only.
 - [ ] With the glossary toggle off, no glossary LLM call is made.
 - [ ] The pipeline never retries an LLM call itself: a transient error is retried only by doc 02 (02 §7.1), and an exhausted retryable error on the in-depth call ends the job `failed/LLM_UNAVAILABLE`.
 - [ ] All standalone images are reserved in the job `ImageBudget` before any other source is extracted.

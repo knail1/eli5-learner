@@ -1,0 +1,74 @@
+{
+  "id": "ste",
+  "title": "ASD-STE100 tab (13 §9.4, T1-T4)",
+  "criteria": [
+    {
+      "id": "T1",
+      "name": "Sentence rules",
+      "fiveMeans": "Procedural sentences have at most 20 words and one instruction each, in the imperative; descriptive sentences have at most 25 words.",
+      "anchors": [
+        {
+          "score": 2,
+          "excerpt": "'Before you commit the plan, which the factory needs by Friday, check the forecast and then add the safety stock, and send it once the manager agrees.'",
+          "why": "One 28-word step with three instructions joined by 'and then'."
+        },
+        {
+          "score": 5,
+          "excerpt": "'1. Check the forecast. 2. Add the safety stock. 3. Get approval from the manager. 4. Send the plan to the factory.'",
+          "why": "Short imperative steps, one instruction each."
+        }
+      ]
+    },
+    {
+      "id": "T2",
+      "name": "One word, one meaning",
+      "fiveMeans": "Each concept has one term, used the same way every time; no synonyms, idioms or phrasal verbs.",
+      "anchors": [
+        {
+          "score": 2,
+          "excerpt": "'The forecast is high. The estimate assumes growth. If the guess is wrong, ramp up the buffer.'",
+          "why": "Three words for one concept, and an idiom."
+        },
+        {
+          "score": 5,
+          "excerpt": "'The forecast is high. The forecast assumes growth. If the forecast is wrong, increase the safety stock.'",
+          "why": "One term per concept, plain verbs."
+        }
+      ]
+    },
+    {
+      "id": "T3",
+      "name": "Faithful to In depth",
+      "fiveMeans": "Every fact, number and caveat of the In depth view is kept, and nothing is added; the visuals are the same.",
+      "anchors": [
+        {
+          "score": 2,
+          "excerpt": "In depth: 'Online orders doubled, from 20,000 to 40,000.' STE: 'Online orders increased by a large quantity. The company will open new stores.'",
+          "why": "Drops the numbers and adds a claim that is not in the source."
+        },
+        {
+          "score": 5,
+          "excerpt": "STE: 'Online orders increased from 20,000 to 40,000 in one year. This is an increase of 100 percent.'",
+          "why": "Same facts, written in STE."
+        }
+      ]
+    },
+    {
+      "id": "T4",
+      "name": "Clear active text",
+      "fiveMeans": "Active voice, simple common words, articles kept, warnings before the text they apply to; a newcomer understands it on the first read.",
+      "anchors": [
+        {
+          "score": 2,
+          "excerpt": "'Stock levels are reviewed weekly and adjustments are made as deemed necessary by planning.'",
+          "why": "Passive voice hides who does the action; vague words."
+        },
+        {
+          "score": 5,
+          "excerpt": "'The planning team examines the stock levels every week. The team changes the build plan when the stock is too low.'",
+          "why": "Active voice, plain words, clear actors."
+        }
+      ]
+    }
+  ]
+}

@@ -7,6 +7,8 @@ import {
   DocumentDraftTabSchema,
   DraftBlockSchema,
   SectionDraftSchema,
+  SteBlockSchema,
+  SteDraftSchema,
   draftJsonSchema,
   draftPromptSchema,
   usesPromptedJson,
@@ -35,6 +37,13 @@ export class OutputTruncated extends LLMError {
 export interface ValidationContext {
   /** Labels of the ImageInputs sent with the request; `figure.imageLabel` must be one of them. */
   imageLabels?: ReadonlySet<string>;
+  /** SteDraft only: the in-depth section count the STE tab must match (D15); a mismatch asks for a repair. */
+  steSectionCount?: number;
+  /**
+   * SteDraft only: per In depth section, the indexes of its visual blocks a `keep` may name. A section
+   * with no text of its own and no keep of one of these would resolve to nothing, so it asks for a repair.
+   */
+  steKeepable?: readonly (readonly number[])[];
 }
 
 export type ValidationOutcome<T> = { ok: true; data: T; dropped: string[] } | { ok: false; errors: string[] };
@@ -115,6 +124,10 @@ interface BlockCheck {
 function checkBlocks(
   c: BlockCheck,
   ctx: ValidationContext,
+  checkOne: (raw: unknown, at: string) => string[] = (raw, at) => {
+    const parsed = DraftBlockSchema.safeParse(raw);
+    return parsed.success ? blockErrors(parsed.data, at, ctx) : zodErrors(parsed.error, at);
+  },
 ): { ok: true; dropped: string[] } | { ok: false; errors: string[] } {
   const bad: { s: number; b: number; errs: string[] }[] = [];
   let total = 0;
@@ -122,8 +135,7 @@ function checkBlocks(
     sec.blocks.forEach((raw, b) => {
       total++;
       const at = c.at(s, b);
-      const parsed = DraftBlockSchema.safeParse(raw);
-      const errs = parsed.success ? blockErrors(parsed.data, at, ctx) : zodErrors(parsed.error, at);
+      const errs = checkOne(raw, at);
       if (errs.length) bad.push({ s, b, errs });
     });
   });
@@ -142,6 +154,7 @@ export function validateDraft<N extends DraftSchemaName>(
   ctx: ValidationContext = {},
 ): ValidationOutcome<DraftOf<N>> {
   const json = stripNullProperties(input);
+  if (name === 'SteDraft') return validateSte(json, ctx) as ValidationOutcome<DraftOf<N>>;
   if (name === 'DocumentDraftTab' || name === 'SectionDraft') {
     const lenient = name === 'DocumentDraftTab' ? LenientTab.safeParse(json) : LenientSection.safeParse(json);
     if (!lenient.success) return { ok: false, errors: zodErrors(lenient.error) };
@@ -175,6 +188,53 @@ export function validateDraft<N extends DraftSchemaName>(
     return { ok: true, data: notes as DraftOf<N>, dropped };
   }
   return { ok: true, data: parsed.data as DraftOf<N>, dropped: [] };
+}
+
+const LenientSte = SteDraftSchema.extend({
+  sections: z
+    .array(z.object({ heading: z.string(), blocks: z.array(z.unknown()).min(1).max(60) }))
+    .min(1)
+    .max(40),
+});
+
+/**
+ * SteDraft checks (02 §10.1, D15): text blocks are dropped like any draft block (at most 20 %);
+ * `keep` numbers are resolved later by resolveSte (bad ones dropped, never repaired). The one
+ * structural rule that asks for a repair is the section count: the tab mirrors In depth section by section.
+ */
+function validateSte(json: unknown, ctx: ValidationContext): ValidationOutcome<DraftOf<'SteDraft'>> {
+  const lenient = LenientSte.safeParse(json);
+  if (!lenient.success) return { ok: false, errors: zodErrors(lenient.error) };
+  const data = lenient.data;
+  const errors: string[] = [];
+  const want = ctx.steSectionCount;
+  if (want !== undefined && data.sections.length !== want) {
+    errors.push(
+      `sections: has ${data.sections.length} sections but the In depth view has ${want}; return exactly ${want}`,
+    );
+  }
+  const blocks = checkBlocks(
+    { sections: data.sections, at: (s, b) => `sections[${s}].blocks[${b}]` },
+    ctx,
+    (raw, at) => {
+      const parsed = SteBlockSchema.safeParse(raw);
+      return parsed.success ? [] : zodErrors(parsed.error, at);
+    },
+  );
+  if (!blocks.ok) errors.push(...blocks.errors);
+  if (errors.length) return { ok: false, errors };
+  const final = SteDraftSchema.safeParse(data);
+  if (!final.success) return { ok: false, errors: zodErrors(final.error) };
+  const keepable = ctx.steKeepable;
+  if (keepable) {
+    const empty = final.data.sections.flatMap((sec, si) =>
+      sec.blocks.some((b) => b.type !== 'keep' || keepable[si]?.includes(b.block))
+        ? []
+        : [`sections[${si}]: has no text and keeps no visual of the In depth section; write its STE text`],
+    );
+    if (empty.length) return { ok: false, errors: empty };
+  }
+  return { ok: true, data: final.data, dropped: blocks.ok ? blocks.dropped : [] };
 }
 
 function mergePlanErrors(plan: MergePlanDraft, ctx: ValidationContext): string[] {
@@ -261,6 +321,21 @@ function check<N extends DraftSchemaName>(
   return validateDraft(name, r.json, ctx);
 }
 
+/** Runs `f`; an LLMError it throws carries the tokens spent so far (D25). */
+function withUsage<T>(usage: TokenUsage, f: () => T): T {
+  try {
+    return f();
+  } catch (e) {
+    if (e instanceof LLMError) e.usage = usage;
+    throw e;
+  }
+}
+
+/** The tokens a failed call already spent (D25), or undefined. */
+export function usageOf(err: unknown): TokenUsage | undefined {
+  return err instanceof LLMError ? err.usage : undefined;
+}
+
 /**
  * Schema-constrained call (02 §10.1): native structured output, zod + semantic validation, block
  * dropping for small failures, otherwise exactly one repair call; a second failure is invalid_output.
@@ -277,7 +352,7 @@ export async function generateStructured<N extends DraftSchemaName>(
     : { ...call.request, jsonSchema: { name: schemaToolName(call.schema), schema: draftJsonSchema(call.schema) } };
   const first = await send(call.provider, req);
   let usage = first.usage;
-  const outcome = check(first, call.schema, ctx);
+  const outcome = withUsage(usage, () => check(first, call.schema, ctx));
   if (outcome.ok) {
     if (outcome.dropped.length) log.warn('llm.blocks-dropped', { taskId: req.taskId, count: outcome.dropped.length });
     return {
@@ -300,9 +375,12 @@ export async function generateStructured<N extends DraftSchemaName>(
   log.info('llm.repair', { taskId: req.taskId, count: outcome.errors.length });
   const second = await send(call.provider, call.filter ? await call.filter(repairReq) : repairReq);
   usage = addUsage(usage, second.usage);
-  const again = check(second, call.schema, ctx);
+  const spent = usage;
+  const again = withUsage(spent, () => check(second, call.schema, ctx));
   if (!again.ok) {
-    throw new LLMError('invalid_output', 'The model returned output that failed validation twice.');
+    const e = new LLMError('invalid_output', 'The model returned output that failed validation twice.');
+    e.usage = spent;
+    throw e;
   }
   return {
     data: again.data,

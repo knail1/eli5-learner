@@ -1,6 +1,6 @@
 {
   "id": "eli5",
-  "title": "ELI5 tab (13 §9.4, E1-E5)",
+  "title": "ELI5 tab (13 §9.4, E1-E6)",
   "criteria": [
     {
       "id": "E1",
@@ -84,6 +84,23 @@
           "score": 5,
           "excerpt": "'A data lake is like a big storage unit where you put boxes in as they are, and sort them only when you need something.'",
           "why": "Maps the key property (store raw now, organize later) onto a familiar thing."
+        }
+      ]
+    },
+    {
+      "id": "E6",
+      "name": "Pictures",
+      "fiveMeans": "Every section has a picture (diagram, stepper, analogy, simple chart, simple animation or photo) that carries the idea; the words explain the picture.",
+      "anchors": [
+        {
+          "score": 2,
+          "excerpt": "Sections: 'What a forecast is' (three paragraphs), 'Why stock runs out' (two paragraphs), 'The extra pile' (one paragraph and one analogy).",
+          "why": "Only one of three sections has a picture; the rest is a wall of text."
+        },
+        {
+          "score": 5,
+          "excerpt": "Each section opens with a picture: a three-box diagram 'Orders -> Guess -> Build', a stepper 'Count, guess, add a little extra', and an analogy about spare snacks for a party.",
+          "why": "Every idea has a simple picture, and the text walks the reader through it."
         }
       ]
     }
