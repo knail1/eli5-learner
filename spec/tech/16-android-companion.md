@@ -9,7 +9,10 @@ Status: M5, specified and being built in slices (build order in [README.md](./RE
 that touches the real Google Drive (cross-client visibility of the app-data folder, change feeds, the
 consent flows) is **unverified until gate G1** (§13) runs with a real Cloud project. Until then the
 sync code is built and tested against the in-memory fake Drive and the `SyncStore` contract suite
-(§12) only.
+(§12) only. The desktop sync engine (§4.5–§4.7: push, claims, heartbeat, garbage collection) was
+built ahead of G1 against the fake store, because G1 needs the owner's Cloud project; it must not be
+trusted with a real Drive until G1 passes, and a G1 failure moves it to the `google-drive-folder`
+store as §13 says.
 
 Related: [01-architecture.md](./01-architecture.md) · [06-generation-pipeline.md](./06-generation-pipeline.md) ·
 [07-output-document.md](./07-output-document.md) · [08-interactive-reading.md](./08-interactive-reading.md) ·
@@ -192,8 +195,11 @@ Registry slots (01 §6.2): `registerSyncStore(id, factory)` (HOOK-SYNC-01) and
 
 All files live flat in the app-data folder (`parents: ["appDataFolder"]`). Names are cosmetic; Drive
 names are not unique. Identity comes from `appProperties` and the cached file id:
-`{ k: <kind>, d?: <docId>, s?: <sha256 or id>, dev: <deviceId>, n?: <seq> }` (each key+value at most
-124 bytes).
+`{ k: <kind>, d?: <docId>, s?: <sha256 or id>, dev: <deviceId>, n?: <seq>, seen?: <epoch s> }` (each
+key+value at most 124 bytes). `d` is set on `tree` and `blob` files. `s` is the content sha256 on
+`blob` and `att` files and the `jobId` on `job`, `cancel` and `status` files. `n` is the `seq` on
+`lib` and `tree` files and the claim time in epoch milliseconds on `claim` files, so ordering claims
+never downloads one. `seen` is the heartbeat on `device` files (§4.3).
 
 | File | Kind | Writer | Mutability | Content |
 | --- | --- | --- | --- | --- |
@@ -276,6 +282,12 @@ Trigger: bootstrap subscribes `library.on('changed' | 'organization' | 'moved')`
    inbox: {...}}`. A session resumes only for the same bytes (size and sha256) and only on Drive's
    upload endpoint.
    Sync state never goes into `meta.json`, so a push never changes `updatedAt` or catalog order.
+   `pendingCreates` is keyed by a create key (`<role>` or `doc:<docId>:<role>`), not the file name,
+   because two documents can hold blobs with the same sha. Per document the state also keeps the
+   tree's root version id (to recognize a re-minted id), the last pushed current version (id, sha,
+   size, headings, so headings are parsed once per sha), content hashes of the last tree, manifest
+   and device record written (unchanged files are not rewritten), and the Trash and GC bookkeeping of
+   §4.7.
 2. Upload missing blobs for each document's versions selected by `sync.history`:
    `'current'`, `'recent'` (default: the 10 newest snapshots that still have blobs), or `'all'`
    (bounded by the 09 caps: 60 snapshots, 48 MiB, 300 nodes). Blob bytes are read under
@@ -283,7 +295,14 @@ Trigger: bootstrap subscribes `library.on('changed' | 'organization' | 'moved')`
 3. Rewrite changed `tree-<docId>.json` (seq + 1), then `lib-<deviceId>.json` (seq + 1). Order is
    always blobs, then trees, then manifest, so a reader never sees a reference to a blob that was
    not uploaded first. A reader that still cannot see a blob (Drive listing is eventually
-   consistent) retries on its next pass without an error.
+   consistent) retries on its next pass without an error. A new `seq` is one more than the larger
+   of this device's last `seq` and the highest `n` of any `lib` (or that document's `tree`) file in
+   the store, so after a takeover the new primary's files continue above the old primary's.
+   Documents in the desktop Trash stay in the manifest with placement `trash` and keep their blobs
+   until they are purged (a Trash entry stays in every later manifest until then; a document that
+   leaves the manifest while it was in the Trash counts as purged). A document with a section job in flight is listed with `busy: true` and
+   is re-read only after the job ends. A re-minted id is detected by its version tree's root id: a
+   new docId whose tree root matches a document that left the library gets `replaces`.
 4. Creates call `generateIds` first and persist the id before uploading, so a retried create never
    duplicates. Bodies of 5 MiB or less use multipart upload; larger ones use resumable upload in
    8 MiB chunks with the session URI persisted (valid one week). After upload, the returned
@@ -293,8 +312,11 @@ Trigger: bootstrap subscribes `library.on('changed' | 'organization' | 'moved')`
 5. Errors: 403 `userRateLimitExceeded`, 429 and 5xx retry with exponential backoff and full jitter,
    capped at 64 s. Sync never blocks generation. A failed push stays pending in `state.json`.
 6. Sync does not start, and stops, while the library is read-only (09 §8.5), while signed out, or
-   while `sync-info.json` has a `formatVersion` major this app does not know. In those states the
-   app never deletes anything remotely.
+   while `sync-info.json` has a `formatVersion` major (or `minWriterVersion`) this app does not
+   know. In those states the app never deletes anything remotely. With an unknown format it writes
+   nothing at all; a `sync-info.json` whose version fields cannot be read counts as unknown (the
+   check reads only the version fields, so a newer format's extra fields do not hide it). While the library is read-only it still keeps its own device file current (with
+   `inbox: 'paused-read-only'`, so the phone can say why) and its heartbeat, and pushes nothing.
 
 ### 4.6 Primary desktop
 
@@ -305,6 +327,13 @@ Trigger: bootstrap subscribes `library.on('changed' | 'organization' | 'moved')`
   new claim, then waits until the old primary's device file shows `role: 'mirror'` or its `seen` is
   older than 15 minutes, and only then pushes. The old primary checks claims on every poll and stops
   writing as soon as it sees a newer one. Both steps write only files the writing device owns.
+- A device that never wrote a device file is judged by its claim time for the 15 minutes. Until it
+  has taken over, a claiming device describes itself as `role: 'mirror'`. Besides the previous claim
+  holder, the new claimer also waits for any older claimer whose device file still says `primary`
+  and that was seen in the last 15 minutes (it may not have seen the newer claims yet).
+- After a takeover, the old primary's `lib`, `tree` and `blob` files stay in the store: no other
+  device may delete them (§4.2), and readers follow the newest claim's device. "Delete cloud copy"
+  clears them.
 
 ### 4.7 Garbage collection (primary only)
 
@@ -318,6 +347,12 @@ a normal state (§4.5 step 6), and only:
   sender's `acks-<deviceId>.json`, or terminal for more than 30 days regardless;
 - device files and acks of phones not seen for 180 days; claims older than the newest one.
 
+A job is terminal when the primary's own `jobstatus` file says `done`, `failed`, `rejected` or
+`cancelled`; the 30 days count from its `updatedAt`. An `att` file goes with the last collected job
+that names it; one that no job names is removed 30 days after it was written (a phone that stopped
+between the attachment and the job). Collection runs at most every 6 hours, and at once when a
+document was purged from the Trash.
+
 Settings > Sync > "Delete cloud copy" deletes every file in the store (paged). The user can do the
 same from Google Drive > Settings > Manage apps > Delete hidden app data. Either way the desktop keeps
 its library and a later enable pushes everything again.
@@ -329,9 +364,12 @@ its library and a later enable pushes everything again.
 - Steady state: `changes.list` with `spaces=appDataFolder`, `includeRemoved=true`, `pageSize=1000`
   and `fields=nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,appProperties,sha256Checksum,size,modifiedTime))`.
   Follow `nextPageToken` to the end, apply, then persist `newStartPageToken`. A 410 or invalid token
-  triggers a full rescan.
-- Cadence. Desktop: every `sync.pollSeconds` (default 60) while the app runs, on window focus, on
-  `powerMonitor` `resume`, and right after a push. Phone: on app foreground, pull-to-refresh, "Sync
+  triggers a full rescan. Signing out drops the desktop's index and store, so the next sign-in
+  (perhaps as another account) starts with a full listing.
+- The desktop downloads small JSON files written by other devices (info, device, job, status, acks)
+  only up to 4 MiB; a larger or unparsable one is treated as invalid.
+- Cadence. Desktop: every `sync.pollSeconds` (default 60) while the app runs, on window focus (at
+  most once per 30 s), on `powerMonitor` `resume`, and right after a push. Phone: on app foreground, pull-to-refresh, "Sync
   now", a `WorkManager` periodic request (15 minutes, `NetworkType.CONNECTED`, unique, `KEEP`), and
   expedited one-time work after queueing a job. While a job is pending and the app is in the
   foreground, the phone polls every 30 s.
@@ -630,7 +668,8 @@ failures after retries) and `E_SYNC_ABORTED`.
 
 ## 13. Gates
 
-- **G1 (before any sync engine code).** In one Cloud project, the desktop client writes
+- **G1 (before trusting the sync engine with a real Drive; the engine itself was built ahead of it
+  against the fake store).** In one Cloud project, the desktop client writes
   `probe-desktop.json` to the app-data folder and an Android debug build lists and reads it; the
   phone writes `probe-phone.json` and the desktop lists it; `changes.list` on each side reports the
   other's file; the desktop can delete the phone's file. If any check fails, the same layout ships on

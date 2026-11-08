@@ -413,6 +413,10 @@ enum class VersionChangeKind {
 
     @SerialName("initial")
     INITIAL,
+
+    /** Reserved for a later desktop pull (16 §8); never written in this version. */
+    @SerialName("sync")
+    SYNC,
 }
 
 @Serializable

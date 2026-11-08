@@ -122,6 +122,8 @@ export const VERSION_CHANGE_KINDS = [
   'merge',
   'outside',
   'initial',
+  /** Reserved for a later desktop pull (16 §8); never written in this version. */
+  'sync',
 ] as const;
 
 export const JOB_KINDS = ['capture', 'checkout', 'ask'] as const;

@@ -88,6 +88,8 @@ export interface InteractiveReading {
    * rejects: on any failure the document keeps its old runtime.
    */
   refreshRuntimeOnOpen(slug: string): Promise<void>;
+  /** True while a section job of the document is in flight (08 §8.1); sync mirrors it as `busy` (16 §4.4). */
+  isBusy(slug: string): boolean;
   dispose(): void;
 }
 
@@ -543,6 +545,7 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
     notifyUpdated,
     refreshViewer: (e) => refresh.updated(e),
     refreshRuntimeOnOpen,
+    isBusy: busyFor,
     attachJobs(q) {
       unsubJobs?.();
       jobs = q;

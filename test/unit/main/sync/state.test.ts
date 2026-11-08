@@ -94,7 +94,7 @@ describe('sync state (16 §4.5 step 1)', () => {
 
   it('never holds tokens or client values', async () => {
     expect(Object.keys(freshState()).sort()).toEqual(
-      ['deviceId', 'docs', 'inbox', 'manifestSeq', 'pendingCreates', 'primary', 'resumable', 'v'].sort(),
+      ['deviceId', 'docs', 'files', 'inbox', 'manifestSeq', 'pendingCreates', 'primary', 'resumable', 'v'].sort(),
     );
     await expect(new SyncStateStore({ dir, mintDeviceId: () => 'NOT-A-UUID' }).load()).rejects.toThrow();
   });

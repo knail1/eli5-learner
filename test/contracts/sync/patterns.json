@@ -64,7 +64,8 @@
     "close-tab",
     "merge",
     "outside",
-    "initial"
+    "initial",
+    "sync"
   ],
   "jobKinds": ["capture", "checkout", "ask"],
   "focusChips": ["big-picture", "how-it-works", "numbers", "beginner"],

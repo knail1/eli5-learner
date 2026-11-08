@@ -203,6 +203,7 @@ export const VersionNodeRecordSchema = z.object({
     'merge',
     'outside',
     'initial',
+    'sync', // reserved for a later desktop pull (16 §8); never written now
   ]),
   label: z.string().min(1).max(200),
   topic: z.string().min(1).max(48),

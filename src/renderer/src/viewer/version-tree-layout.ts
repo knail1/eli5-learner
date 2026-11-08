@@ -156,6 +156,7 @@ export const VERSION_VERBS: Record<DocVersionNode['kind'], string> = {
   merge: 'Merged',
   outside: 'Changed outside the app',
   initial: 'Original',
+  sync: 'Synced',
 };
 
 /** Provisional row text while a section job runs, e.g. "Answering…". */

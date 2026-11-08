@@ -258,6 +258,7 @@ const EVENT_CHANNELS = new Set<string>([
   IPC.viewer.findResult,
   IPC.settings.changed,
   IPC.publish.progress,
+  IPC.sync.changed,
   IPC.test.trayClick,
 ]);
 

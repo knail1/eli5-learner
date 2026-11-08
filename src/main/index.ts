@@ -11,6 +11,7 @@ import {
   ipcMain,
   nativeImage,
   Notification,
+  powerMonitor,
   powerSaveBlocker,
   protocol,
   session,
@@ -27,7 +28,7 @@ import { registerPublicCapabilities } from './editions/public';
 import { loadOverlay } from './editions/load-overlay';
 import { edition } from './editions/types';
 import { prepareRealRun, startRealRun } from './devtools';
-import { createElectronViewerPort, createInteractiveReading } from './document';
+import { createElectronViewerPort, createInteractiveReading, parseDocument } from './document';
 import { PDF_RENDER_SCHEME_PRIVILEGES } from './extract';
 import { configureFetch } from './fetch';
 import {
@@ -54,6 +55,7 @@ import { createPublishService } from './publish';
 import { hardenApp } from './security/harden';
 import { RotatingFileSink, createLogger, installLogger, log } from './security/log';
 import { registerSurface, safeOpenExternal } from './security';
+import { FOCUS_POLL_GAP_MS, GoogleOAuth, SyncEngine, SyncStateStore, openSyncStore, syncActive } from './sync';
 import {
   APP_SCHEME_PRIVILEGES,
   createMainWindow,
@@ -129,6 +131,27 @@ hardenApp();
 const MAIN_SENDER_ID = -1;
 /** config/electron-builder.yml appId; macOS Notification settings deep link (11 §14.7). */
 const APP_BUNDLE_ID = 'io.github.eli5-learner';
+
+/** Section headings of a document's in-depth tab, for the sync manifest (16 §4.4); [] when it does not parse. */
+function documentHeadings(html: Uint8Array): string[] {
+  try {
+    const { model } = parseDocument(Buffer.from(html.buffer, html.byteOffset, html.byteLength).toString('utf8'));
+    const tab = model.tabs.find((t) => t.kind === 'indepth');
+    return (tab?.sections ?? []).filter((x) => x.kind === 'content').map((x) => x.heading);
+  } catch {
+    return [];
+  }
+}
+
+/** The name this Mac shows to the phone (16 §4.3): the host name without `.local`. */
+function deviceName(): string {
+  return (
+    os
+      .hostname()
+      .replace(/\.local$/i, '')
+      .slice(0, 100) || 'Mac'
+  );
+}
 
 /** Bootstrap order (01 §6.3). */
 async function bootstrap(): Promise<void> {
@@ -372,6 +395,43 @@ async function bootstrap(): Promise<void> {
     });
     return;
   }
+
+  // v2 (16 §8): optional personal sync, created after the library. While `sync.enabled` is false
+  // (the default) or the policy does not allow it (HOOK-SYNC-01), nothing is built, read or sent.
+  const syncOAuth = new GoogleOAuth({
+    keys: keyStore,
+    enabled: () => syncActive(registry, settings.get()),
+    clientSource: () => registry.syncPolicy().clientSource,
+    openExternal: (u) => safeOpenExternal(u, MAIN_SENDER_ID),
+    isPackaged: app.isPackaged,
+    env: process.env,
+    onSignedOut: () => sync.refresh(),
+  });
+  const syncState = new SyncStateStore({ dir: path.join(userData, 'sync') });
+  const sync = new SyncEngine({
+    library,
+    state: syncState,
+    active: () => syncActive(registry, settings.get()),
+    openStore: (guard) => openSyncStore(registry, settings.get(), { auth: syncOAuth, sessions: syncState }, guard),
+    auth: { configured: () => syncOAuth.configured(), signedIn: () => syncOAuth.signedIn() },
+    history: () => settings.get().sync.history,
+    pollSeconds: () => settings.get().sync.pollSeconds,
+    policy: () => registry.syncPolicy(),
+    outline: documentHeadings,
+    isBusy: (slug) => interactive.isBusy(slug),
+    device: { name: deviceName(), appVersion: app.getVersion() },
+  });
+  // 16 §4.5 trigger and §4.8 cadence: library events push (debounced 5 s); resume and focus poll.
+  library.on('changed', (e) => sync.schedulePush(e.slugs));
+  library.on('organization', () => sync.schedulePush());
+  library.on('moved', () => sync.schedulePush());
+  settings.onChanged((_s, changed) => {
+    if (changed.some((c) => c === 'sync' || c.startsWith('sync.'))) sync.refresh();
+  });
+  powerMonitor.on('resume', () => sync.pollSoon());
+  app.on('browser-window-focus', () => sync.pollSoon(FOCUS_POLL_GAP_MS));
+  quitSteps.unshift({ name: 'sync', run: async () => sync.stop() });
+  sync.start();
 
   // The viewer loads catalogued documents only through main (09 §11, 12 §7.7). A trashed one is not
   // loaded; the renderer's route shows it in the Trash with Put Back (11 §8).

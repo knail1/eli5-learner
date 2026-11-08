@@ -10,6 +10,8 @@ stay on your machine. The design is in
 > (the local-mode reader). Stages B and C describe the planned sync. **Sync against a real Google
 > Drive is unverified until gate G1** (spec 16 §13): the code is built and tested against an
 > in-memory fake Drive first, and the cross-client checks with a real Cloud project come after.
+> The desktop sync engine (push, primary claim, heartbeat, clean-up) is built and tested against
+> that fake Drive only; its behaviour against a real Drive is also unverified until G1.
 > Until G1 passes, treat Stages B and C as a preview; details may change, and if the hidden app
 > folder turns out not to be shared between the desktop and Android clients, sync moves to a
 > visible Drive folder instead.

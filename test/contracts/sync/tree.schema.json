@@ -30,7 +30,8 @@
               "close-tab",
               "merge",
               "outside",
-              "initial"
+              "initial",
+              "sync"
             ]
           },
           "label": { "type": "string", "minLength": 1, "maxLength": 200 },

@@ -24,6 +24,30 @@ const DocStateSchema = z
     uploadedShas: z.array(z.string()).default([]),
     /** Remote file ids by local role (for example `tree`, or `blob:<sha>`). */
     fileIds: z.record(z.string(), z.string()).default({}),
+    /** Root version id: tells a re-minted id (same tree, new docId) from a new document (09 §7). */
+    rootId: z.string().max(64).optional(),
+    /** The old docId this one replaces in the manifest (16 §4.4). */
+    replaces: z.string().max(64).optional(),
+    /** The live version as last pushed: id, sha, size and in-depth headings (16 §4.4). */
+    current: z
+      .object({
+        versionId: z.string().max(64),
+        sha: z.string().regex(/^[0-9a-f]{64}$/),
+        sizeBytes: z.number().int().min(0),
+        headings: z.array(z.string().max(400)).max(200),
+      })
+      .strict()
+      .optional(),
+    /** Content hash of the last uploaded tree (without seq): unchanged trees are not rewritten. */
+    treeHash: z.string().max(64).optional(),
+    /** In the desktop Trash at the last push. */
+    trashed: z.boolean().default(false),
+    /** Purged from the Trash: its remote files are collected at once (16 §4.7). */
+    purged: z.boolean().default(false),
+    /** When the document left the manifest (16 §4.7: collected after 30 days). */
+    absentSince: z.string().optional(),
+    /** sha -> when it stopped being selected by `sync.history` (collected after 7 days). */
+    unselectedSince: z.record(z.string(), z.string()).default({}),
   })
   .strict();
 
@@ -47,10 +71,20 @@ export const SyncStateSchema = z
     manifestSeq: z.number().int().min(0).default(0),
     lastSyncAt: z.string().optional(),
     docs: z.record(z.string(), DocStateSchema).default({}),
-    /** File name -> preallocated id, persisted before the upload so a retried create never duplicates. */
+    /**
+     * Create key (`<role>` or `doc:<docId>:<role>`) -> preallocated id, persisted before the upload
+     * so a retried create never duplicates (16 §4.5 step 4).
+     */
     pendingCreates: z.record(z.string(), z.string()).default({}),
     /** Remote file id -> open resumable session. */
     resumable: z.record(z.string(), SessionSchema).default({}),
+    /** This device's own single files by role (`info`, `claim`, `device`, `lib`) -> remote id. */
+    files: z.record(z.string(), z.string()).default({}),
+    /** Content hashes of the last manifest and device record written (unchanged ones are not rewritten). */
+    manifestHash: z.string().max(64).optional(),
+    deviceHash: z.string().max(64).optional(),
+    /** Last garbage collection run (16 §4.7). */
+    lastGcAt: z.string().optional(),
     /** Owned by the inbox (S10); kept opaque here. */
     inbox: z.record(z.string(), z.unknown()).default({}),
   })

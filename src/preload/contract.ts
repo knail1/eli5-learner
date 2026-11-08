@@ -186,6 +186,18 @@ export const IPC = {
     accountStatus: 'eli5:publish:account-status',
     accountAction: 'eli5:publish:account-action',
   },
+  /** v2, optional (16 §8): personal sync. App-window only; the viewer gets E_FORBIDDEN. */
+  sync: {
+    status: 'eli5:sync:status',
+    setClient: 'eli5:sync:set-client',
+    clearClient: 'eli5:sync:clear-client',
+    signIn: 'eli5:sync:sign-in',
+    signOut: 'eli5:sync:sign-out',
+    now: 'eli5:sync:now',
+    makePrimary: 'eli5:sync:make-primary',
+    deleteRemote: 'eli5:sync:delete-remote',
+    changed: 'eli5:sync:changed',
+  },
 } as const;
 
 type Leaves<T> = T extends string ? T : { [K in keyof T]: Leaves<T[K]> }[keyof T];
@@ -258,7 +270,8 @@ export type HelpTopic = 'readme' | 'publish-pages' | 'licenses';
 // Sources and auth (03)
 // ---------------------------------------------------------------------------
 
-export type SourceOrigin = 'drop' | 'paste' | 'url-field' | 'picker';
+/** `inbox`: staged by main from a phone job (16 §5.3); never sent by a renderer and never user-typed. */
+export type SourceOrigin = 'drop' | 'paste' | 'url-field' | 'picker' | 'inbox';
 
 export interface FileSnapshot {
   /** <userData>/jobs/<jobId>/inputs/<index>-<basename>, when size ≤ 200 MB. */
@@ -550,8 +563,11 @@ export interface DocHistoryChangedEvent {
   state: DocHistoryState;
 }
 
-/** What made a version (09 §4.1): a menu action, a tab close, a merge, an outside edit or the first version. */
-export type VersionChangeKind = MenuAction | 'close-tab' | 'merge' | 'outside' | 'initial';
+/**
+ * What made a version (09 §4.1): a menu action, a tab close, a merge, an outside edit or the first
+ * version. `sync` is reserved for a later desktop pull (16 §8) and is never written in this version.
+ */
+export type VersionChangeKind = MenuAction | 'close-tab' | 'merge' | 'outside' | 'initial' | 'sync';
 
 /** Where a version's change is, so opening it lands there. */
 export interface VersionTarget {
@@ -624,7 +640,29 @@ export interface ViewerBounds {
   height: number;
 }
 
-export type SettingsSection = 'ai' | 'documents' | 'library' | 'publishing' | 'notifications' | 'about' | 'enterprise';
+export type SettingsSection =
+  'ai' | 'documents' | 'library' | 'publishing' | 'notifications' | 'sync' | 'about' | 'enterprise';
+
+// ---------------------------------------------------------------------------
+// Sync (16 §8), v2 and optional
+// ---------------------------------------------------------------------------
+
+/** `eli5:sync:status` and `eli5:sync:changed`. Carries no token, client value or document content. */
+export interface SyncStatus {
+  state: 'off' | 'not-configured' | 'signed-out' | 'idle' | 'syncing' | 'error' | 'paused-read-only' | 'mirror';
+  /** An OAuth client is available (Settings > Sync, or the policy's managed source). */
+  configured: boolean;
+  /** Account email, a display hint. */
+  account?: string;
+  lastSyncAt?: string;
+  /** Documents with changes not yet in the store. */
+  pendingUploads: number;
+  /** Phone jobs received and not yet finished (16 §5.3). */
+  inboxPending: number;
+  devices: Array<{ name: string; platform: 'macos' | 'android'; role: string; lastSeen: string }>;
+  /** One line for the user (an error, or why this Mac only mirrors). */
+  message?: string;
+}
 
 /** `eli5:app:test-notification` (11 §14.7). */
 export interface TestNotificationResult {
