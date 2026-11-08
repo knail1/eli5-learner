@@ -7,13 +7,22 @@ macOS app that turns decks, docs, PDFs, screenshots and URLs into interactive HT
 
 ## Download
 
-**Latest release: [v0.2.0](https://github.com/knail1/eli5-learner/releases/tag/v0.2.0)**, an
-unsigned build for Apple silicon Macs. Download
-[`ELI5.Learner-0.2.0-arm64.dmg`](https://github.com/knail1/eli5-learner/releases/download/v0.2.0/ELI5.Learner-0.2.0-arm64.dmg)
-from the [release page](https://github.com/knail1/eli5-learner/releases/latest), open it and drag the
-app to Applications. The build is unsigned, so on first launch macOS may block it: open **System Settings >
-Privacy & Security** and click **Open Anyway**. Then add a Claude (default) or ChatGPT (OpenAI) API key
-in **Settings > AI**. To build it yourself, see [Packaging (macOS)](#packaging-macos).
+**Latest release: [v0.3.0](https://github.com/knail1/eli5-learner/releases/tag/v0.3.0).**
+
+- **Mac (Apple silicon, unsigned):**
+  [`ELI5.Learner-0.3.0-arm64.dmg`](https://github.com/knail1/eli5-learner/releases/download/v0.3.0/ELI5.Learner-0.3.0-arm64.dmg).
+  Open it and drag the app to Applications. The build is unsigned, so on first launch macOS may block
+  it: open **System Settings > Privacy & Security** and click **Open Anyway**. Then add a Claude
+  (default) or ChatGPT (OpenAI) API key in **Settings > AI**. To build it yourself, see
+  [Packaging (macOS)](#packaging-macos).
+- **Android (sideload, v2 companion):**
+  [`eli5-learner-0.3.0.apk`](https://github.com/knail1/eli5-learner/releases/download/v0.3.0/eli5-learner-0.3.0.apk).
+  Install it with `adb install -r` or open it on the phone and allow "Install unknown apps". It reads
+  exported documents offline right away; syncing with the Mac through your own Google Drive needs the
+  one-time setup in [android/SETUP.md](android/SETUP.md) and is not yet verified against a real Drive.
+  Note: this APK is signed with the project owner's release key, so Google sign-in in it only works
+  with the owner's Google Cloud project. Forks build and sign their own (see
+  [android/README.md](android/README.md)).
 
 ## What it does
 
@@ -243,7 +252,7 @@ npm run package:arm64      # clean build, then an unsigned arm64 dmg
 npm run test:package       # optional: check the packaged app
 ```
 
-The dmg lands in `release/` (for example `release/ELI5 Learner-0.2.0-arm64.dmg`). Build one dmg
+The dmg lands in `release/` (for example `release/ELI5 Learner-0.3.0-arm64.dmg`). Build one dmg
 per architecture on (or with `npm install --cpu=<arch>` for) that architecture; on an Intel Mac use
 `CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dmg --x64` after `npm run build`.
 Signing and notarization run only when credentials are set (`CSC_LINK`/`CSC_KEY_PASSWORD`, and
