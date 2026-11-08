@@ -62,13 +62,7 @@ export default tseslint.config(
             {
               target: './src/doc-runtime',
               from: ['./src/preload', './src/renderer'],
-              message: 'The doc-runtime imports nothing outside its own folder and src/shared.',
-            },
-            // src/shared (01 module map): pure code for main and the doc-runtime; imports only src/shared.
-            {
-              target: './src/shared',
-              from: ['./src/main', './src/preload', './src/renderer', './src/doc-runtime'],
-              message: 'src/shared imports only src/shared.',
+              message: 'The doc-runtime imports nothing outside its own folder.',
             },
             // Modules import each other only through index.ts.
             ...mainModules.map((m) => ({
@@ -136,16 +130,6 @@ export default tseslint.config(
             },
           ],
         },
-      ],
-    },
-  },
-  {
-    // src/shared runs in main and in every generated document: no Node built-ins or packages.
-    files: ['src/shared/**/*.ts'],
-    rules: {
-      'no-restricted-imports': [
-        'error',
-        { patterns: [{ regex: '^(?!\\.{1,2}/)', message: 'src/shared imports only src/shared (relative paths).' }] },
       ],
     },
   },

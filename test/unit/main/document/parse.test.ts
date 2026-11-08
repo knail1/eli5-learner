@@ -6,8 +6,12 @@ import {
   locateSection,
   parseDocument,
   renderDocument,
+  scriptHash,
   spliceSection,
 } from '../../../../src/main/document';
+import { convertBlocks } from '../../../../src/main/document/validate';
+import { PACKING_ANIMATION } from '../../../fixtures/documents/animation';
+import { validateDocument } from '../../../helpers/doc-validity';
 import { fixtureDocument, SECTION_ELI5_DRAFT } from '../../../fixtures/documents/models';
 import { SeededIdSource } from '../../../helpers/ids';
 import { STUB_RUNTIME } from '../../../fixtures/documents/runtime';
@@ -199,5 +203,36 @@ describe('locate / splice primitives (08 §6.4)', () => {
     next.updatedAt = '2026-09-28T00:00:00.000Z';
     const spliced = spliceSection(html, next, target.id, doc.assets);
     expect(spliced).toBe(renderDocument(next, doc.assets, { runtime: STUB_RUNTIME, theme: doc.theme }));
+  });
+
+  it('splices a section that adds and then removes an animation, rewriting the CSP frame hashes', () => {
+    const anim = convertBlocks([PACKING_ANIMATION], {
+      idSource: new SeededIdSource(7),
+      resolveFigure: () => undefined,
+      warn: () => {},
+    })[0];
+    if (anim?.type !== 'animation') throw new Error('fixture animation was dropped');
+    const opts = { runtime: STUB_RUNTIME, theme: doc.theme };
+
+    const added = structuredClone(doc.model);
+    const target = added.tabs[1]?.sections[1];
+    if (!target) throw new Error('fixture');
+    target.blocks = [...target.blocks, anim];
+    added.updatedAt = '2026-09-28T00:00:00.000Z';
+    const withAnim = spliceSection(html, added, target.id, doc.assets);
+    expect(withAnim).toBe(renderDocument(added, doc.assets, opts));
+    expect(withAnim).not.toBe(html);
+    expect(withAnim).toContain(scriptHash(PACKING_ANIMATION.js));
+    expect(validateDocument(withAnim).errors).toEqual([]);
+
+    const removed = structuredClone(added);
+    const again = removed.tabs[1]?.sections[1];
+    if (!again) throw new Error('fixture');
+    again.blocks = again.blocks.filter((b) => b.type !== 'animation');
+    removed.updatedAt = '2026-09-29T00:00:00.000Z';
+    const without = spliceSection(withAnim, removed, again.id, doc.assets);
+    expect(without).toBe(renderDocument(removed, doc.assets, opts));
+    expect(without).not.toContain(scriptHash(PACKING_ANIMATION.js));
+    expect(validateDocument(without).errors).toEqual([]);
   });
 });

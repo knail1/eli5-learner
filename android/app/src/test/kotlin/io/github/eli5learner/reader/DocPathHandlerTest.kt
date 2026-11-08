@@ -45,13 +45,15 @@ class DocPathHandlerTest {
         assertTrue(cspOf(html).contains("script-src $hash;"))
     }
 
-    @Test fun `explorables need no new script hash or frame source (07 section 6_3)`() {
+    @Test fun `an animation frame's scripts are pinned with the runtime and frame-src stays none (07 section 6_2)`() {
         val html = TestDocs.fixture("showcase.html").toString(Charsets.UTF_8)
-        assertTrue(html.contains("<figure class=\"explorable\""))
-        val hash = HtmlImporter.inspect(html).scriptHashes.single()
+        assertTrue(html.contains("<figure class=\"animation\">"))
+        val hashes = HtmlImporter.inspect(html).scriptHashes
+        assertEquals(3, hashes.size)
         val csp = cspOf(html)
-        assertTrue(csp, csp.contains("script-src $hash;"))
+        assertTrue(csp, csp.contains("script-src ${hashes.joinToString(" ")};"))
         assertTrue(csp, csp.contains("frame-src 'none'"))
+        assertTrue(csp, csp.contains("connect-src 'none'"))
     }
 
     @Test fun `a foreign file gets script-src none`() {

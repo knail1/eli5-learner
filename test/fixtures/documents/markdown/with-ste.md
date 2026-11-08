@@ -30,37 +30,17 @@ Packing is the slowest step. Shipping depends on the courier, not on the warehou
 | Pack | 9 |
 | Ship | 30 |
 
-### How the routing model learns
+### Why the packing line backs up
 
-The model that plans picker routes learns by small corrections. The size of each correction is its learning rate.
+Orders arrive at about five a minute and each packer packs two. One packer too few, and the queue grows all shift.
 
-*Too small crawls, too big overshoots*
+#### One packer short and the line never catches up
 
-Drag the learning rate. Small steps crawl toward the bottom; big steps overshoot and fly off.
+A line chart of orders waiting over 60 minutes: with 3 packers the line stays near zero, with 2 packers it climbs steadily.
 
-An error curve shaped like a bowl with three paths of a ball: one barely moves, one settles at the bottom, one bounces away.
+Drag the number of packers. With 3 or more the queue stays short; with 2 or fewer it grows all hour, because orders arrive faster than they are packed.
 
-| Learning rate | Outcome | Steps | Result |
-| --- | --- | --- | --- |
-| 0.001 | crawls | 60 | x = -3.655 |
-| 0.1 | converges | 37 | x = -0.009785 |
-| 1.5 | diverges | 12 | flew off |
-
-### Guessing delivery times
-
-To estimate how long deliveries take, the planner walks through likely values at random.
-
-*Step size decides how well the walker explores*
-
-Drag the step size and press Play. Watch where the walker spends its time.
-
-A bell-shaped curve with three strips under it: one narrow, one as wide as the curve, one with a few scattered marks.
-
-| Step size | Outcome | Steps | Result |
-| --- | --- | --- | --- |
-| 0.05 | sticks | 300 | 100% accepted |
-| 1 | mixes | 300 | 71% accepted |
-| 20 | stuck | 300 | 7% accepted |
+*(interactive animation in the HTML version)*
 
 ## ELI5
 
@@ -100,37 +80,17 @@ Packing is the slowest step. The courier, not the warehouse, sets the shipping t
 | Pack | 9 |
 | Ship | 30 |
 
-### How the routing model learns
+### Why the packing line gets long
 
-The routing model makes small corrections. The learning rate sets the size of each correction.
+About five orders arrive each minute. Each packer packs two orders each minute. With too few packers, the line gets longer during the shift.
 
-*Too small crawls, too big overshoots*
+#### One packer short and the line never catches up
 
-Drag the learning rate. Small steps crawl toward the bottom; big steps overshoot and fly off.
+A line chart of orders waiting over 60 minutes: with 3 packers the line stays near zero, with 2 packers it climbs steadily.
 
-An error curve shaped like a bowl with three paths of a ball: one barely moves, one settles at the bottom, one bounces away.
+Drag the number of packers. With 3 or more the queue stays short; with 2 or fewer it grows all hour, because orders arrive faster than they are packed.
 
-| Learning rate | Outcome | Steps | Result |
-| --- | --- | --- | --- |
-| 0.001 | crawls | 60 | x = -3.655 |
-| 0.1 | converges | 37 | x = -0.009785 |
-| 1.5 | diverges | 12 | flew off |
-
-### How the planner estimates delivery times
-
-The planner tries likely values at random. It keeps the values that agree with the data.
-
-*Step size decides how well the walker explores*
-
-Drag the step size and press Play. Watch where the walker spends its time.
-
-A bell-shaped curve with three strips under it: one narrow, one as wide as the curve, one with a few scattered marks.
-
-| Step size | Outcome | Steps | Result |
-| --- | --- | --- | --- |
-| 0.05 | sticks | 300 | 100% accepted |
-| 1 | mixes | 300 | 71% accepted |
-| 20 | stuck | 300 | 7% accepted |
+*(interactive animation in the HTML version)*
 
 ## ELI5: From click to doorstep
 

@@ -310,7 +310,7 @@ Conversion (`markdown.ts`), in reading order:
 | chart | italic title line, a data table (missing values as `-`), then the highlight and a `Source:` note |
 | diagram, figure | one italic line: title or caption, then the alt text |
 | stepper | bold title, then a numbered list of bold step labels with their text |
-| explorable | italic title, the caption, the alt text, then the outcome table the app computed (setting, outcome, steps, result; 07 §7.1) |
+| animation | `#### title` (one level under the section heading), the alt text, the caption, then `*(interactive animation in the HTML version)*`; never the code or the poster SVG (07 §7.1) |
 
 For completion notifications (11 §14) Export copy and Export Markdown are both local publishers;
 neither counts as a remote published link.

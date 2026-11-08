@@ -39,8 +39,9 @@ src/main/document/
   validate.ts         semantic checks, user-question stripping, limits
   inline-md.ts        inline markdown subset -> escaped HTML
   svg-sanitize.ts     allowlist sanitizer for model-supplied diagram SVG
-  charts/             ChartSpec -> inline SVG (bar, stacked-bar, line, area, pie, scatter);
-                      explorable.ts: explorable block -> static SVG + outcome table (7.1)
+  charts/             ChartSpec -> inline SVG (bar, stacked-bar, line, area, pie, scatter)
+  animation/          AI-authored animation block (7.1): limits, lint, frame shell, srcdoc + CSP,
+                      figure renderer, frame validity
   glossary.ts         anchor resolution and placement
   references.ts       ResolvedSource / SkippedSource -> ReferenceEntry[]
   render/             one file per component, plus page.ts (skeleton) and csp.ts
@@ -51,15 +52,13 @@ src/main/photos/      stock photos (7.4): providers, query guard, slot resolutio
 src/doc-runtime/
   index.ts            boot: feature detection, module init order
   tabs.ts  glossary.ts  charts.ts  stepper.ts  figure.ts  theme.ts  print.ts  scroll.ts
-  explorable.ts       explorable controls and animation (7.1)
+  animation.ts        animation frames: theme in, height out (7.1)
   selection.ts        owned by 08
   index.css           all document styles (tokens, layout, components, print)
-src/shared/explorable/  pure math shared by main and the runtime (7.1, 01 §3)
 ```
 
 The doc-runtime is built to one IIFE plus one CSS file and imported into main as `?raw` strings
-(`DOC_RUNTIME_JS`, `DOC_RUNTIME_CSS`, [01](01-architecture.md) §8.1). It has no imports at run
-time (the build inlines `src/shared`), no
+(`DOC_RUNTIME_JS`, `DOC_RUNTIME_CSS`, [01](01-architecture.md) §8.1). It has no imports, no
 `fetch`, no `XMLHttpRequest`, no `WebSocket`, no `eval`, and must run unchanged over `file://`,
 `eli5doc://`, and `https://`. Budget: JS ≤ 40 KB minified, CSS ≤ 30 KB.
 
@@ -124,9 +123,9 @@ export type BlockEnhancement =
 export interface SectionEnhancement { added?: string; blocks: BlockEnhancement[] }  // added: whole section new
 
 // DraftBlock (02 §10) with figures resolved to assets, plus the doc-only answer box; every other
-// variant is identical. Photos become figures at build time (7.4). An `explorable` block keeps the
-// draft shape { type, title, caption, alt, sim } with every number clamped at build time (5.2, 7.1).
-// `sim` types and limits live in src/shared/explorable/clamp.ts (ExplorableSim).
+// variant is identical. Photos become figures at build time (7.4). An `animation` block keeps the
+// draft shape { type, title, caption, alt, poster, html?, css?, js } with the poster sanitized and
+// the code checked at build time (5.2, 7.1).
 export type DocBlock =
   | Exclude<DraftBlock, { type: 'figure' } | { type: 'photo' }>
   | FigureDocBlock               // { type: 'figure'; assetId; caption; alt; annotations? }
@@ -268,8 +267,8 @@ export function buildDocumentModel(input: BuildInput): { model: DocumentModel; w
    `SectionDraft` mint an ID (never one in `reservedIds`) and convert blocks (5.2). Drop sections
    left with zero blocks after validation. A kept visual in the `ste` tab resolves its stock photo
    slot through its origin, `photoSlotKey('indepth', section, block)`, so it shows the in-depth
-   asset; its kept explorables mirror in-depth ones and are counted but not dropped by the tab and
-   document caps, and the tab never holds more explorables than the in-depth tab.
+   asset; its kept animations mirror in-depth ones and are counted but not dropped by the tab and
+   document caps, and the tab never holds more animations than the in-depth tab.
    An `ste` tab left with zero sections is omitted with warning `ste-omitted` (no placeholder).
 3. If `indepth` has zero sections after step 2, throw `DocumentBuildError('empty_indepth')`
    ([06](06-generation-pipeline.md) counts it as a retryable invalid output).
@@ -304,10 +303,10 @@ export function buildDocumentModel(input: BuildInput): { model: DocumentModel; w
 | Table row width ≠ header width | Pad with empty cells or truncate; warning |
 | Table > 200 rows | Keep 200, add caption suffix "(first 200 rows)" |
 | Stepper with < 2 steps | Convert to an ordered list |
-| Explorable numbers (`src/shared/explorable` `clampSim`) | Clamp into range (scale 0.1–10, start −10–10, `lr` 0.0001–3, gradient-descent steps 10–200, `stepSize` 0.01–50, walk steps 50–500, seed 0–2³¹−1), 4 significant digits; reversed ranges ordered, a collapsed range widened tenfold each way; presets clamped into the slider range, sorted, deduplicated, at most 3, never empty (the draft schema does not bound the preset count, so a wrong count is never a drop or a repair). Never an error |
-| Explorable with a non-finite number, an unknown kind, surface or target, an empty title, or parameters over 1.5 KB of JSON | Drop block, warning `explorable-dropped` |
-| Explorable text | Title ≤ 90, caption ≤ 300, alt ≤ 400 characters (word-boundary cut); empty alt falls back to the title |
-| More than 1 explorable per section, 2 per tab or 4 per document | Keep the first ones in build order (a regenerated section counts the tab's other sections; a merge counts what the target holds, minus the explorables of each section it revises, and kept blocks always stay), drop the rest, warning `explorable-dropped` |
+| Animation without a title or alt, with a poster that does not survive the diagram sanitizer (7.3, ≤ 64 KB after it), with empty `js`, with `js` > 16 KiB, `html` > 4 KiB or `css` > 4 KiB (UTF-8), or with a lint hit (7.1 animation lint) | Drop block, warning `animation-dropped`; never a repair request (02 §10.1) |
+| Animation text and code | Title ≤ 90, caption ≤ 300, alt ≤ 400 characters (word-boundary cut); control characters stripped and CR normalized in `html`, `css` and `js` (attribute escaping would otherwise change the code its hash pins); empty `html`/`css` omitted |
+| Animation keep marker (`poster` and `js` both `"keep"`, 8) | In a regenerated section: the section's own animation in order, with the new title, caption and alt when given; anywhere else, or with none left: drop, warning `animation-dropped` |
+| More than 1 animation per section, 2 per tab or 4 per document | Keep the first ones in build order (a regenerated section counts the tab's other sections; a merge counts what the target holds, minus the animations of each section it revises, and kept blocks always stay), drop the rest, warning `animation-dropped` |
 | Duplicate heading in the same tab | Allowed; `aria-labelledby` uses the ID, not text |
 
 ### 5.3 Heading levels
@@ -336,7 +335,7 @@ the runtime changed) the runtime blocks.
 
 **Runtime upgrades.** A document keeps its embedded runtime (`generator.runtimeVersion`, the
 `eli5-css` and `eli5-runtime` blocks) until one of these explicit exceptions re-renders the same
-model with the bundled runtime (`bundledDocRuntime()`, `DOC_RUNTIME_VERSION`, currently `1.2.0`, the first runtime with explorables, 7.1):
+model with the bundled runtime (`bundledDocRuntime()`, `DOC_RUNTIME_VERSION`, currently `1.3.0`, the first runtime with animation frames, 7.1; `1.2.0` was an unreleased runtime with declarative explorables, now removed):
 
 1. **On open** ([08](08-interactive-reading.md) §5.1): when a document with an older runtime is
    opened in the app's viewer, the library is writable, the document parses and nothing in it is
@@ -446,14 +445,17 @@ The hash is computed at render time. The JSON model block is not executed (non-s
 so it needs no hash. `style-src 'unsafe-inline'` is needed for the theme block and chart SVG
 presentation attributes; no remote styles are possible.
 
-Explorables (7.1) change nothing here: no new hash, no new directive, `frame-src 'none'` stays. Their
-only code is the hashed runtime. Rejected alternatives and why: model-authored JavaScript in an
-`<iframe sandbox srcdoc>` (an about:srcdoc document inherits this CSP, so its script would need a
-pinned hash, the validator's iframe ban would have to go, the Android importer would need a second
-HTML parser, and it would still allow CPU denial of service and phishing UI), and an expression
-language (a new parser inside the trusted runtime). Sources can prompt-inject the model, and hash
-pinning proves integrity, not safety; so the model supplies only numbers for a closed set of kinds,
-and validity (13 §7.1) still rejects any `<iframe>`. The viewer's protocol-level CSP
+**Animation frames (7.1).** A document with animations admits, after the runtime hash, the two
+script hashes of each animation frame (the trusted shell, then the model's code; deduplicated, in
+document order): an `about:srcdoc` document inherits this policy in Chromium (Electron, Android
+WebView), WebKit and Firefox, so a frame script runs only if both this policy and the frame's own
+allow it. Nothing else changes: `frame-src 'none'` stays and still lets a srcdoc frame load in all
+three engines, while any network navigation of the frame (a frame re-navigating itself) is blocked
+by it; no `child-src` is added (`frame-src` governs frames and there are no workers). A document
+without animations carries exactly the policy above, byte for byte. Validity (13 §7.1) checks that
+no inline script of the document itself has a frame hash. After a section splice that adds or removes
+an animation, the frame hashes in this policy are rewritten so the file still equals a full render
+(8, `spliceSection`). The viewer's protocol-level CSP
 ([01](01-architecture.md) §2.2) also applies in the app; both policies are enforced, and the
 stricter one wins. `frame-ancestors` cannot be set by meta and is not relied on.
 
@@ -469,8 +471,8 @@ The same file must work in the app viewer and when double-clicked in Chrome, Saf
   failure falls back to in-memory state.
 - Progressive enhancement: the runtime adds `class="js"` to `<html>`. Without JS, all tab panels
   render stacked with their tab label as a heading, glossary notes render inline, steppers show all
-  steps, and charts and explorables are already complete SVG (an explorable's preset runs, labels
-  and outcome table are computed at build time). The document is fully readable with JS disabled.
+  steps, charts are already complete SVG, and an animation shows its poster, title and caption
+  (its frame is hidden). The document is fully readable with JS disabled.
 - External links: `target="_blank" rel="noopener noreferrer"`. In the app, the runtime intercepts
   clicks and calls `window.eli5Doc.openExternal(url)`.
 
@@ -594,7 +596,7 @@ translated into those choices by the prompt, never into raw HTML. Adding a compo
 | `photo` | A credited `<figure class="annotated stock-photo">` (7.4), or nothing when no photo fits | A real-world scene: people, places, objects, what an experience looks like; never data or structure | Credit links open in a new tab |
 | `stepper` | `<div class="stepper">` with ordered steps | A process with 3–8 stages | Prev/next buttons and step dots; all steps visible without JS and in print |
 | `analogy` | `<aside class="analogy">` with a "Think of it like" label | Mainly ELI5 and "Give me an analogy" actions | None |
-| `explorable` | `<figure class="explorable" data-kind data-params>`: title, caption, a static SVG of each preset's run with direct labels, and an outcome table in `<details>` (below) | A reader learns most by changing one setting and watching an iterative process respond (learning rate, MCMC step size); at most 1 per section, 2 per tab | Slider (log-mapped), preset buttons, Play/Pause, Step, Reset, polite status; static without JS and in print |
+| `animation` | `<figure class="animation">`: title, an SVG poster, the sandboxed frame running the model's code over it, and the caption the frame is described by (below) | The topic has a mechanism, process, trade-off or dynamic that motion or a control makes clearer than a static chart; at most 1 per section, 2 per tab, 4 per document | Whatever the model wrote, inside the frame: sliders, buttons, readouts through the shell's `ELI5.*` helpers; poster without JS and in print |
 | `qa` (doc-only, not a DraftBlock) | `<aside class="qa">` answer box with a question reveal (6.5) | Never: only the reader's Ask adds it | Native `<details>`; opened when the app lands on it |
 
 Page-level elements the renderer adds (not model blocks): kicker, `h1`, dek, meta line, merge
@@ -608,40 +610,118 @@ marker whose center is closer than a diameter plus 2 px to an earlier one moves 
 it to that distance (coincident centers move right, or down at the right edge), up to 8 times, so
 the layout is deterministic and the first marker never moves.
 
-**Explorables** (`src/shared/explorable/`, `charts/explorable.ts`, `src/doc-runtime/explorable.ts`).
-No model-authored code in any form: a closed `kind` enum the runtime implements, and numbers only.
+**Animations** (`src/main/document/animation/`, `src/doc-runtime/animation.ts`; design addendum
+2026-11-08). There are no fixed animation kinds: the model designs and writes a small, topic-specific
+interactive (`html`, `css`, `js`, about 150 lines at most) whenever motion or a control the reader can
+drag clearly helps understanding of THAT document's topic, plus an SVG `poster` still frame of the
+key insight. Gradient descent's learning rate is only an example of the style; the prompt fragment
+`animation-rules` (02 §9) gives the guidance and the helper API, and tells the model never to reuse an
+example unless the topic is that example.
 
-| Kind | Model fields | Math (`src/shared/explorable`) | Outcome words (code-computed) |
-| --- | --- | --- | --- |
-| `gradient-descent` | `surface` (`bowl`, `ravine`, `double-well`, `plateau`), `scale`, `start`, `lr {min,max,value}`, `steps`, 1–3 `presets` (learning rates) | x ← x − lr·f′(x) on a fixed surface: bowl `s/2·x²`; ravine `s/2·x² + 0.075·s·(1 − cos 4x)`; double-well `s/16·(x² − 4)²`; plateau `4s·(1 − exp(−x²/4))`, each with its analytic derivative. Stops when \|x\| > 50 or non-finite, or within 0.01 of a minimum | `diverges` (left the cutoff, "after N steps"); `oscillates` (the step changed direction ≥ 6 times); `converges` (reached a minimum, "in N steps", or covered at least half the way); `crawls` (otherwise) |
-| `metropolis-walk` | `target` (`normal`, `bimodal`, `skewed`), `start`, `stepSize {min,max,value}`, `steps`, `seed`, 1–3 `presets` (step sizes) | Seeded xorshift32, Gaussian proposals (Box-Muller), Metropolis acceptance on unnormalized log densities: N(0,1); two unit normals at ±2.5; a gamma (shape 2, scale 1.5) shifted to start at −3. A start where the density is zero begins at the mode | `sticks` (> 85 % accepted), `mixes` (15–85 %), `stuck` (< 15 %), with the acceptance rate |
+Markup, attributes in this fixed order:
 
-The model chooses only the family and its numbers; no expression is ever parsed. Main simulates
-each preset with the same shared math the runtime runs, so the labels ("lr 0.1: converges in 37
-steps"), the `<desc>`, the outcome table (setting, outcome, steps, final position or acceptance)
-and Markdown (10 §5.2) cannot contradict the animation. Captions are model text but are told not to
-state outcomes. The static SVG (480 × 280 viewBox, ≤ 560 px wide): gradient descent draws the curve,
-each preset's run as dots on it (a run that leaves the plot is drawn to the edge it leaves through)
-and a ring at the start; the walk draws the density and, under it, one strip per preset shading the
-positions it visited. All marks use the `viz-*` classes (7.2 rule 11). `render` re-clamps
-`sim`, so a hand-edited model cannot make the static simulation unbounded; if it cannot be clamped
-only the text renders.
+```html
+<figure class="animation"><h3 class="chart-title">TITLE</h3><div class="anim-stage">
+<div class="anim-poster">POSTER SVG</div><iframe sandbox="allow-scripts" srcdoc="…" title="TITLE"
+referrerpolicy="no-referrer" loading="lazy" aria-describedby="{idBase}-cap"></iframe></div>
+<figcaption class="anim-cap" id="{idBase}-cap">CAPTION</figcaption></figure>
+```
 
-The runtime (`safe('explorable')`, §14) reads `data-params` with `JSON.parse`, re-clamps with the
-shared math, and adds controls with `createElement`/`textContent` only, inside a
-`[data-eli5-noact]` box after the SVG: a labelled native range input (positions 0–1000 mapped
-logarithmically over the range, `aria-valuetext` "learning rate 0.1"), one button per preset
-(`aria-pressed`), Play/Pause, Step, Reset and an `aria-live="polite"` status (announced on setting
-change, Step, pause and the end of a run, never per frame). A marker and its trail move inside the
-existing SVG via `requestAnimationFrame` only (a whole run plays in about 4 s, 12–150 ms per step),
-bounded by `steps` and the cutoff; a divergent run stops by itself. It pauses on `visibilitychange`
-to hidden, on any tab change and when the figure leaves the viewport (IntersectionObserver, when
-present). With `prefers-reduced-motion: reduce` there is no animation loop: a setting change or
-Play shows the whole run at once and Step advances manually. Never: timers, workers, storage,
-network, `postMessage`, `window.eli5Doc`, `innerHTML`. `figure.explorable` is outside the select-and-
-act menu (08 §5.6). Budget: about 9 KiB of the 40 KiB runtime JS (both kinds and the shared math;
-the design estimate was 6 KiB) and under 1.5 KiB of CSS; a golden test caps them at 10 KiB and
-1.5 KiB.
+(one line in the file). The sandbox is exactly `allow-scripts`: no `allow-same-origin`, forms,
+popups, modals, top navigation, downloads, pointer lock or presentation, so the frame has an opaque
+origin, cannot read the parent (`top.document` throws) and cannot navigate the top window. The
+srcdoc is one exact skeleton:
+
+```html
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy"
+content="default-src 'none'; script-src 'sha256-<shell>' 'sha256-<model js>'; style-src 'unsafe-inline';
+img-src data:; font-src 'none'; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none';
+worker-src 'none'; form-action 'none'; base-uri 'none'"><meta http-equiv="x-dns-prefetch-control"
+content="off"><meta name="viewport" …><style id="eli5-anim-shell">
+SHELL CSS</style><style>MODEL CSS</style></head><body><main id="eli5-anim">MODEL HTML</main>
+<script>SHELL JS</script><script>MODEL JS</script></body></html>
+```
+
+**Shell** (`animation/shell.ts`, frozen; a change adds a version next to it so older documents
+still validate and round-trip, and bumps `DOC_RUNTIME_VERSION`). Before the model's code runs it
+captures the parent window, then makes `fetch`, `XMLHttpRequest`, `WebSocket`, `WebTransport`,
+`EventSource`, `RTCPeerConnection` (and the `webkit` form and data channels), `Worker`,
+`SharedWorker`, `BroadcastChannel`, `MessageChannel`, `importScripts`, `open`, `opener`, `parent`,
+`frameElement`, storage, `caches`, `Notification` and `navigator.sendBeacon`/`serviceWorker`
+undefined (defense in depth; the CSP is the boundary). It also closes the ways to a second realm or
+to markup the lint cannot see: `contentWindow`/`contentDocument`/`getSVGDocument` of frame-like
+elements return null, `createElement`/`createElementNS` throw for `iframe`, `frame`, `frameset`,
+`object`, `embed`, `portal`, `fencedframe`, `link`, `meta`, `base`, `form`, `a`, `area` and
+`script`, and the HTML-string sinks (`innerHTML`/`outerHTML` setters, `insertAdjacentHTML`,
+`setHTMLUnsafe`, `document.write`, `execCommand`, `createContextualFragment`, `DOMParser`,
+`XSLTProcessor`) throw or are undefined. It sets theme tokens as CSS variables (light,
+dark by `prefers-color-scheme`, overridden by `data-theme` from the parent), measures the body and
+posts `{type:'eli5-anim-height', h}` to the parent on load, on resize (deduplicated) and in answer
+to a theme message, but only once the model's code has run: an uncaught error or rejection before
+`load` means no height message ever, so the poster stays in place of a broken frame, and accepts only `{type:'eli5-anim-theme', theme:'light'|'dark'}` from the
+parent window. Animation loops pause while the document is hidden (`visibilitychange`) or the frame
+is off screen (IntersectionObserver against the top-level viewport, so a hidden tab panel pauses
+too). Helper API, frozen as `window.ELI5`: `slider(label, min, max, step, value, onChange, into?)`
+(a labelled native range input, a visible `<output>` and `aria-valuetext` "label value"),
+`button(label, onClick, into?)`, `readout(label, into?)` (a polite live region), `canvas(w, h, into?)`
+(device-pixel scaled, responsive, `aria-hidden`), `svg(w, h, into?)`, `el(name, attrs, parent?)`
+(an allowlist of SVG shapes and text and simple HTML; `on…`, `href`, `src`, `srcdoc`, `rel`,
+`http-equiv`, `action`, `formaction`, `ping`, `background`, `poster` and `data` attributes throw),
+`raf(fn)` (`fn(dtMs, tMs)` each frame until it returns false; with `prefers-reduced-motion: reduce`
+it runs to the end at once, at most 5000 steps, so the final state shows), `rng(seed)` (seeded, so
+the animation matches its caption), `palette` (the chart palette, 7.2 rule 11, for the current
+theme), `onTheme(fn)`, `reducedMotion`, `theme`, `stage`. Controls go in a row under the stage and
+work at 320 px wide.
+
+**Lint** (`animation/lint.ts`, at build, at parse and in validity; defense in depth, a hit drops the
+block). Word rules run on the code with strings, template text, regular expression literals and
+comments removed, so label text ("Cookies left", "cost of import") and ordinary variable names never
+hit; a quote or `/` that does not close on its line is kept as code, so a confused scanner never hides
+the rest of a line. On that code: `fetch`, `Worker`, `import`, `eval`, `Function(`, `.cookie`,
+storage, `BroadcastChannel`/`MessageChannel`, `navigator`, `.constructor`, `Reflect`, `atob`,
+computed access on `window`/`globalThis`/`self`/`frames`/`top`/`parent`/`document`/`this`, bare
+`window`/`globalThis`/`frames` not followed by a member (aliasing), `contentWindow`,
+`contentDocument`, `getSVGDocument`, `defaultView`, the HTML-string sinks, `location` (after any
+receiver too), `open(`, `opener`, `frameElement`, `top`/`parent` through a global (`window.top`,
+`self.parent`) or followed by a window-only member (`top.document`, `parent.postMessage`), and bare
+`top`/`parent`/`self` unless the code declares a binding of that name (a margin variable or a
+parameter; object keys are not references). On the raw `js`: `XMLHttpRequest`, `WebSocket`,
+`WebTransport`, `EventSource`, `sendBeacon`, `RTC…`/`PeerConnection`, `SharedWorker`/`serviceWorker`,
+`importScripts`, `postMessage`, `setTimeout`/`setInterval` with a string, `['constructor`, computed
+keys built by string concatenation (`x['fe' + 'tch']`), creating a banned element by name
+(`createElement`, `createElementNS`, `ELI5.el`), a string holding an external URL (`//host`, any
+scheme; the SVG namespace is allowed), `</script` and `<!--`. In `js`, `html` and `css`: `<iframe`,
+`<frame`, `<form`, `<a href`, `<meta`, `<base`, `<script src`, `<link`, `<object`/`<embed`/`<portal`,
+`javascript:` and `url(` with anything but `data:`; in `html` also `<script`, inline `on…=` handlers and
+any `src`/`href`/`action` … that is not `data:` or a fragment; in `css` also `@import`, `</style` and
+`expression(`. A block whose `js` is the keep marker outside a regenerated section is dropped too.
+The lint cannot close every alias (a declared `top` that is later assigned the real one, indexed
+child windows reached through an event's `view`); the shell and the sandbox cover those (12 §9).
+
+**Parent side** (`safe('animation')`, §14). Sends each frame `{type:'eli5-anim-theme', theme}` (the
+document's `data-theme`, else the system scheme) on boot, on the frame's load and on every change,
+with target `'*'` (an opaque origin cannot be targeted; the message holds only the theme). It
+accepts exactly one message shape, `{type:'eli5-anim-height', h:number}` with no other keys, and
+only when `event.source` is one of its own frames' windows; the height is clamped to 120–800 px and
+set on the stage, and the figure gets `anim-live`. Before that the frame sits over the poster in a
+16:10 box (max 560 px tall, 720 px wide) at opacity 0, so the poster shows until the frame has run.
+Without JS the frame is hidden (`html:not(.js)`). `figure.animation` is outside the select-and-act
+menu (08 §5.6). Budget: the parent side ≤ 2 KiB minified JS and ≤ 1.5 KiB CSS; the shell ≤ 12 KiB JS
+and 2.5 KiB CSS (golden test).
+
+**Validity** (13 §7.1, `checkAnimationFrame`): the only allowed `<iframe>` is inside
+`figure.animation`, has exactly the attributes above in that order with the exact sandbox, and a
+srcdoc that is exactly the skeleton around a known shell version, whose CSP is exactly the policy
+above with the hashes of its two scripts, and whose code passes the lint; the document's own CSP
+must admit both hashes. Anything else is an `animation-frame` error.
+
+**Model, regenerate, merge.** The model JSON stores the block as canonical JSON (5.5) and parse
+re-runs every check (poster sanitizer with its existing id prefix, caps, lint), so
+render(parse(html)) is byte-identical and a hand-edited block that fails is dropped. When a section is
+sent back to the model (08 §6.2) its animation is shown with `poster` and `js` equal to `"keep"`;
+returning that marker keeps the animation (new text allowed), leaving it out removes it. Merges keep
+animations with `keep` blocks like other visuals (a colliding poster id prefix is re-minted, as for
+diagrams); the ASD-STE100 tab keeps In depth's animations; an ELI5 tab may have its own simpler one.
 
 ### 7.2 Charts (`src/main/document/charts/`)
 
@@ -1227,8 +1307,8 @@ disk changes at its next re-render.
 - Steppers print all steps; chart data disclosures stay closed; tooltips are not printed.
 - The ASD-STE100 hint (4.1) prints although it carries `data-eli5-noact`
   (`.tab-hint[data-eli5-noact] { display: block !important }`).
-- Explorables print their static SVG with every preset at full strength; the live marker and the
-  controls (`[data-eli5-noact]`) are hidden. The figure itself never carries `data-eli5-noact`.
+- Animations print their poster, title and caption; the frame is never printed. The figure never
+  carries `data-eli5-noact`.
 - External links print their URL after the link text (`a[href^="http"]::after`).
 - `break-inside: avoid` on figures, charts, tables ≤ 30 rows, callouts, pull quotes; `h2` has
   `break-after: avoid`. Page margins 18 mm, body 11 pt.
@@ -1239,9 +1319,8 @@ disk changes at its next re-render.
 
 1. Add `js` class; read theme preference; apply `data-theme`.
 2. `tabs.init()` (resolves hash), `glossary.init()`, `charts.init()`, `stepper.init()`,
-   `figure.init()`, `explorable.init(tabs)` (7.1; reads `prefers-reduced-motion` only when the
-   document has an explorable), `print.init()`, theme toggle, `enhancements.init()` (6.4 Hide
-   highlights).
+   `figure.init()`, `animation.init()` (7.1; only when the document has an animation), `print.init()`,
+   theme toggle, `enhancements.init()` (6.4 Hide highlights).
 3. If `window.eli5Doc` exists: `selection.init()` ([08](08-interactive-reading.md)), un-hide close
    buttons, `scroll.init()`, link interception.
 4. Every module is wrapped in `try/catch`; a failing module logs to the console and leaves the
@@ -1301,11 +1380,13 @@ open-on-landing is part of `scroll.init()`, 08 §7.4), and the menu is part of `
       button, and two-tab documents stay valid.
 - [ ] Every `DraftBlock` variant renders per 7.1, and every chart kind renders per 7.2 in both
       themes with a data table disclosure.
-- [ ] An explorable renders its static SVG, labels and outcome table with no extra script; the CSP
-      is byte-identical to a document without one; out-of-range numbers are clamped and
-      non-finite ones drop the block; caps 1/2/4 hold; the runtime's slider has `aria-valuetext`,
-      a divergent run stops by itself, reduced motion runs no animation loop, and the whole thing
-      works over `file://` in Chromium and WebKit from the keyboard.
+- [ ] An animation renders the exact sandboxed frame (sandbox `allow-scripts` only, srcdoc, no src)
+      whose own CSP hashes match its shell and model scripts, and the document CSP adds exactly
+      those hashes (a document without animations keeps the old policy byte for byte); the lint
+      drops each listed API and obfuscated form; a missing poster or alt, a size cap or the caps
+      1/2/4 drop it; in Chromium, WebKit and Firefox over `file://` and in the Electron viewer the
+      slider updates the readout inside the frame, `top.document` throws, network loads are blocked,
+      navigation goes nowhere, reduced motion shows the final state, and print shows the poster.
 - [ ] Sanitizer fixtures: script, `foreignObject`, `on*`, external `href`, `url(http…)`, and
       `style` payloads are all removed.
 - [ ] Glossary notes appear in the right margin at ≥ 1100 px aligned with their anchor block, as

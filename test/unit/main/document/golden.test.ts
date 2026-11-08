@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 import { build, type Rollup } from 'vite';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { parseDocument, renderDocument, type DocRuntime } from '../../../../src/main/document';
+import { ANIMATION_SHELL_CSS, ANIMATION_SHELL_JS } from '../../../../src/main/document/animation';
 import { GOLDEN_NAMES, fixtureDocument, type GoldenName } from '../../../fixtures/documents/models';
 import { buildRuntime } from '../../../fixtures/documents/build-runtime';
 import { goldenPath, readGolden } from '../../../fixtures/documents/runtime';
@@ -34,12 +35,11 @@ describe('doc-runtime bundle (07 §2)', () => {
 });
 
 /**
- * Explorables' share of the runtime (07 §7.1, design D26). Measured: about 9.1 KiB of JS for both
- * kinds with the shared math (over the design's 6 KiB estimate, still inside the 40 KiB total) and
- * under 1 KiB of CSS. The ceilings catch growth.
+ * Animations' share (07 §7.1, design addendum): the parent side of the runtime is small (theme in,
+ * height out), and the trusted shell that every frame embeds stays compact. Ceilings catch growth.
  */
-describe('explorable runtime budget (07 §2, design D26)', () => {
-  it('JS <= 10 KiB minified for both kinds, CSS <= 1.5 KiB', async () => {
+describe('animation budget (07 §2, §7.1)', () => {
+  it('runtime part <= 2 KiB minified JS and <= 1.5 KiB CSS; shell <= 8 KiB JS and 2.5 KiB CSS', async () => {
     const out = (await build({
       configFile: false,
       logLevel: 'silent',
@@ -47,14 +47,16 @@ describe('explorable runtime budget (07 §2, design D26)', () => {
         write: false,
         target: 'es2020',
         minify: true,
-        lib: { entry: resolve(process.cwd(), 'src/doc-runtime/explorable.ts'), formats: ['iife'], name: 'X' },
+        lib: { entry: resolve(process.cwd(), 'src/doc-runtime/animation.ts'), formats: ['iife'], name: 'X' },
       },
     })) as Rollup.RollupOutput[];
     const js = out.flatMap((o) => o.output).find((o) => o.type === 'chunk');
-    expect(js?.type === 'chunk' && Buffer.byteLength(js.code)).toBeLessThanOrEqual(10 * 1024);
-    const rules = runtime.css.match(/[^{}]*explorable[^{}]*\{[^}]*\}/g) ?? [];
+    expect(js?.type === 'chunk' && Buffer.byteLength(js.code)).toBeLessThanOrEqual(2 * 1024);
+    const rules = runtime.css.match(/[^{}]*anim-[^{}]*\{[^}]*\}/g) ?? [];
     expect(rules.length).toBeGreaterThan(5);
     expect(Buffer.byteLength(rules.join(''))).toBeLessThanOrEqual(1536);
+    expect(Buffer.byteLength(ANIMATION_SHELL_JS)).toBeLessThanOrEqual(12 * 1024);
+    expect(Buffer.byteLength(ANIMATION_SHELL_CSS)).toBeLessThanOrEqual(2560);
   }, 60_000);
 });
 

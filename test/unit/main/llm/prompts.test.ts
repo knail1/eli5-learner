@@ -146,7 +146,7 @@ describe('prompt loader and templating', () => {
     expect(c.get('summary').origin).toBe('override');
     expect(c.get('summary').tag).toBe('summary@2'); // no enterprise marker in public meta (D5)
     expect(c.render('summary', { title: 'T', outline: 'o', indepthExcerpt: 'e' }).system).toBe('OVERRIDE T');
-    expect(c.get('eli5').version).toBe(4);
+    expect(c.get('eli5').version).toBe(5);
     expect(c.get('eli5').origin).toBe('default');
     const empty = tmp();
     expect(() => PromptCatalogue.load({ root: empty })).toThrow(/Prompt file missing: /);
@@ -350,11 +350,13 @@ describe('prompt catalogue: fragments, sets and provenance (02 §9)', () => {
     expect(c.get('in-depth')).toMatchObject({ version: 3, origin: 'set', set: 'wsj-v1', tag: 'in-depth@3~wsj-v1' });
     expect(c.get('eli5')).toMatchObject({ version: 4, origin: 'set', tag: 'eli5@4~wsj-v1' });
     expect(c.get('summary').origin).toBe('default');
-    // The baseline set is today's files verbatim (D6).
-    for (const id of ['in-depth', 'eli5'])
-      expect(fs.readFileSync(path.join(PROMPTS_ROOT, 'wsj-v1', `${id}.md`), 'utf8')).toBe(
-        fs.readFileSync(path.join(PROMPTS_DIR, `${id}.md`), 'utf8'),
-      );
+    // The baseline set is frozen (D6): the default prompts have moved on (animation rules, 07 §7.1)
+    // while wsj-v1 keeps the versions that shipped before prompt sets.
+    for (const id of ['in-depth', 'eli5']) {
+      const frozen = fs.readFileSync(path.join(PROMPTS_ROOT, 'wsj-v1', `${id}.md`), 'utf8');
+      expect(frozen).not.toContain('{{animationRules}}');
+      expect(fs.readFileSync(path.join(PROMPTS_DIR, `${id}.md`), 'utf8')).toContain('{{animationRules}}');
+    }
   });
 
   it('precedence per id is overlay > set > default, for prompts and fragments', () => {
@@ -411,18 +413,19 @@ describe('prompt catalogue: fragments, sets and provenance (02 §9)', () => {
   it('promptDigest is 16 hex, stable, and changes with any prompt or fragment file it covers', () => {
     const root = rootWith({});
     const a = PromptCatalogue.load({ root });
-    const tags = ['in-depth@3', 'summary@2'];
+    const tags = ['in-depth@4', 'summary@2'];
     const d1 = a.digest(tags);
     expect(d1).toMatch(/^[0-9a-f]{16}$/);
     expect(a.digest([...tags].reverse())).toBe(d1);
     expect(PromptCatalogue.load({ root }).digest(tags)).toBe(d1);
-    expect(a.digest(['in-depth@3'])).not.toBe(d1);
+    expect(a.digest(['in-depth@4'])).not.toBe(d1);
     expect(fragmentsFor(a.get('in-depth'))).toEqual(
       expect.arrayContaining([
         'photo-indepth-on',
         'glossary-instructions',
         'json-contract',
         'skill-fallback-beautiful-doc',
+        'animation-rules',
       ]),
     );
     // A fragment the in-depth prompt renders changes the digest; one it never renders does not.

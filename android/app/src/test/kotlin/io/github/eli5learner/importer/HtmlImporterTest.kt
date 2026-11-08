@@ -29,17 +29,34 @@ class HtmlImporterTest {
             assertTrue(i.title.isNotBlank())
             assertTrue(i.tabs.size >= 2)
             assertTrue(i.headings.isNotEmpty())
-            assertEquals(1, i.scriptHashes.size)
+            // The runtime, plus the shell and model scripts of the showcase's animation frame.
+            assertEquals(name, if (name == "showcase.html") 3 else 1, i.scriptHashes.size)
         }
     }
 
-    @Test fun `a document with explorables (data-params JSON) imports with its single pinned script`() {
+    @Test fun `a document with an animation frame imports with the runtime and the frame's two scripts pinned`() {
         val html = TestDocs.fixture("showcase.html").toString(Charsets.UTF_8)
-        assertTrue(html.contains("data-params=\"{&quot;kind&quot;:&quot;gradient-descent&quot;"))
+        assertTrue(html.contains("<iframe sandbox=\"allow-scripts\" srcdoc=\""))
         val i = HtmlImporter.inspect(html)
         assertTrue(i.isEli5)
-        assertTrue(i.headings.contains("How the routing model learns"))
-        assertEquals(1, i.scriptHashes.size)
+        assertTrue(i.headings.contains("Why the packing line backs up"))
+        assertEquals(3, i.scriptHashes.size)
+        for (h in i.scriptHashes) assertTrue(h, html.substring(0, html.indexOf("</head>")).contains(h))
+    }
+
+    @Test fun `an iframe of any other shape, or frame scripts the meta CSP does not pin, make the file foreign`() {
+        val html = TestDocs.fixture("showcase.html").toString(Charsets.UTF_8)
+        val head = html.substring(0, html.indexOf("</head>"))
+        val frameHash = HtmlImporter.inspect(html).scriptHashes.last()
+        val cases =
+            listOf(
+                html.replace("sandbox=\"allow-scripts\"", "sandbox=\"allow-scripts allow-same-origin\""),
+                html.replace("<iframe sandbox=\"allow-scripts\"", "<iframe src=\"https://x.example/\" sandbox=\"allow-scripts\""),
+                html.replace(" loading=\"lazy\"", ""),
+                html.replace("</main>", "<iframe sandbox=\"allow-scripts\"></iframe></main>"),
+                head.replace(" $frameHash", "") + html.substring(head.length),
+            )
+        for (c in cases) assertFalse(HtmlImporter.inspect(c).isEli5)
     }
 
     @Test fun `the runtime hash matches the one the desktop pinned in the meta CSP`() {

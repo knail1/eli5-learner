@@ -590,10 +590,16 @@ Documents are LLM-generated HTML and are untrusted.
   request has a user gesture; everything else is dropped.
 - No `addJavascriptInterface`, and nothing named `eli5Doc`. The runtime's bridge check (08 §4,
   `src/doc-runtime/bridge.ts`) then keeps it in its plain-browser, read-only mode, where tabs,
-  glossary, charts, stepper, explorables, theme and print work.
-- Explorables (07 §7.1, runtime 1.2.0) need nothing new here: their only code is the hashed runtime,
-  so the header policy, `script-src` pinning and the importer are unchanged; their `data-params`
-  attribute is inert JSON.
+  glossary, charts, stepper, animations, theme and print work.
+- Animation frames (07 §7.1, runtime 1.3.0): a srcdoc document inherits the reader's header policy,
+  so `HtmlImporter.inspect` adds each frame's two script hashes (shell and model code, read from the
+  decoded `srcdoc`) to `scriptHashes`, and the header pins the runtime and those hashes; `frame-src
+  'none'` stays. The importer accepts only the desktop's exact frame shape (attributes `sandbox`,
+  `srcdoc`, `title`, `referrerpolicy`, `loading`, `aria-describedby` in that order, `sandbox` exactly
+  `allow-scripts`, two attribute-less inline scripts that the frame's own CSP pins, both also pinned
+  by the document's meta CSP); any other `<iframe>` makes the file foreign (no JavaScript).
+  `UrlPolicy` allows the one subframe navigation such a frame makes, `about:srcdoc`, and nothing
+  else in a subframe. The frame makes no request, so `DocPathHandler` serves nothing new.
 - `BackHandler` goes back in WebView history first. The WebView is destroyed when the screen leaves.
 
 ### 6.4 Local storage on the phone

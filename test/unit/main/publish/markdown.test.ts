@@ -35,7 +35,7 @@ const ALL_BLOCKS: readonly DocBlockType[] = [
   'stepper',
   'analogy',
   'qa',
-  'explorable',
+  'animation',
 ];
 
 describe('documentToMarkdown (golden)', () => {
@@ -129,33 +129,22 @@ describe('blockToMarkdown', () => {
   });
 });
 
-describe('blockToMarkdown: explorables (10 §5.2)', () => {
-  const gd = {
-    type: 'explorable' as const,
-    title: 'Step size',
-    caption: 'Try it.',
-    alt: 'A bowl.',
-    sim: {
-      kind: 'gradient-descent' as const,
-      surface: 'bowl' as const,
-      scale: 1.5,
-      start: -4,
-      lr: { min: 0.001, max: 2, value: 0.1 },
-      steps: 60,
-      presets: [1.5],
-    },
+describe('blockToMarkdown: animations (10 §5.2)', () => {
+  const anim = {
+    type: 'animation' as const,
+    title: 'One packer short',
+    caption: 'Drag the packers.\nWatch the queue.',
+    alt: 'A rising line.',
+    poster: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"></svg>',
+    js: 'ELI5.button("Go")',
   };
 
-  it('re-clamps a hand-edited model, so the outcome table stays bounded', () => {
-    const md = blockToMarkdown({ ...gd, sim: { ...gd.sim, steps: 1e12 } });
-    expect(md).toContain('| 1.5 | diverges | 12 | flew off |');
-    const many = blockToMarkdown({ ...gd, sim: { ...gd.sim, presets: [1.5, 1, 0.5, 0.1, 0.01] } });
-    expect(many.split('\n').filter((l) => /^\| [0-9]/.test(l))).toHaveLength(3);
-  });
-
-  it('keeps only the text when the numbers are unusable', () => {
-    const broken = { ...gd, sim: { ...gd.sim, kind: 'eval' } } as unknown as Parameters<typeof blockToMarkdown>[0];
-    expect(blockToMarkdown(broken)).toBe('*Step size*\n\nTry it.\n\nA bowl.');
+  it('prints the title as a heading under the section heading, the alt and caption, and a note instead of any code', () => {
+    expect(blockToMarkdown(anim)).toBe(
+      '#### One packer short\n\nA rising line.\n\nDrag the packers. Watch the queue.\n\n*(interactive animation in the HTML version)*',
+    );
+    expect(blockToMarkdown(anim)).not.toContain('ELI5');
+    expect(blockToMarkdown(anim)).not.toContain('<svg');
   });
 });
 

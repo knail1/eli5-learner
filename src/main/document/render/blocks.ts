@@ -1,5 +1,6 @@
 // Block renderers (07 §7.1) and glossary note markup (07 §9.2).
-import { renderChartFigure, renderExplorableFigure } from '../charts';
+import { renderAnimationFigure } from '../animation';
+import { renderChartFigure } from '../charts';
 import { attrs, esc, escAttr } from '../html';
 import { toDataUri } from '../images';
 import { renderInline, renderInlineMany, type DfnAnchor, type InlineMarks } from '../inline-md';
@@ -255,8 +256,8 @@ export function renderBlock(b: DocBlock, ctx: BlockContext): string {
     case 'figure':
       html = renderFigure(b, ctx);
       break;
-    case 'explorable':
-      html = renderExplorableFigure(b, ctx.idBase);
+    case 'animation':
+      html = renderAnimationFigure(b, ctx.idBase);
       break;
     case 'qa':
       html = renderQa(b);

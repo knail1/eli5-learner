@@ -11,7 +11,6 @@ import { renderScatter } from './scatter';
 
 export { formatValue, niceScale, COMPACT_WIDTH, COMPACT_BELOW } from './common';
 export { isHorizontal } from './bar';
-export { renderExplorableFigure } from './explorable';
 export { lineAxis } from './line';
 export {
   normalizeChart,

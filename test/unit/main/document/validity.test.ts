@@ -38,7 +38,7 @@ describe('validateDocument (13 §7.1)', () => {
       'single-file',
     ],
     ['stylesheet link', (h) => h.replace('</head>', '<link rel="stylesheet" href="x.css"></head>'), 'single-file'],
-    ['iframe', (h) => h.replace('<main>', '<main><iframe></iframe>'), 'single-file'],
+    ['iframe', (h) => h.replace('<main>', '<main><iframe></iframe>'), 'animation-frame'],
     [
       'remote image',
       (h) => h.replace('<main>', '<main><img src="https://example.com/p.png" alt="">'),
@@ -88,14 +88,14 @@ describe('validateDocument (13 §7.1)', () => {
     expect(rules(mutate(good))).toContain(rule);
   });
 
-  it('accepts explorables and still rejects model code in an <iframe srcdoc> next to one (07 §6.2)', () => {
+  it('accepts an animation frame and still rejects any other iframe (07 §6.2)', () => {
     const show = fixtureDocument('showcase');
     const html = renderDocument(show.model, show.assets, { runtime: STUB_RUNTIME, theme: show.theme });
-    expect(html).toContain('<figure class="explorable"');
+    expect(html).toContain('<figure class="animation"');
     expect(validateDocument(html).errors).toEqual([]);
     const frame = '<iframe sandbox="allow-scripts" srcdoc="&lt;script&gt;run()&lt;/script&gt;"></iframe>';
-    const bad = html.replace('<figure class="explorable"', `${frame}<figure class="explorable"`);
-    expect(rules(bad)).toContain('single-file');
+    const bad = html.replace('<figure class="animation"', `${frame}<figure class="animation"`);
+    expect(rules(bad)).toContain('animation-frame');
   });
 
   it('checks tabs and sources against meta', () => {

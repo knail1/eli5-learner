@@ -91,6 +91,10 @@ class HtmlImporter(
         private val SCRIPT_RE = Regex("<script\\b([^>]*)>(.*?)</script\\s*>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
         private val META_RE = Regex("<meta\\b([^>]*)>", RegexOption.IGNORE_CASE)
         private val TITLE_RE = Regex("<title\\b[^>]*>(.*?)</title\\s*>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        private val IFRAME_RE = Regex("<iframe\\b([^>]*)>", RegexOption.IGNORE_CASE)
+
+        /** The desktop's animation frame attributes, in order (src/main/document/animation). */
+        private val FRAME_ATTRS = listOf("sandbox", "srcdoc", "title", "referrerpolicy", "loading", "aria-describedby")
         private val ATTR_RE = Regex("([A-Za-z_:][-A-Za-z0-9_:.]*)\\s*=\\s*(\"([^\"]*)\"|'([^']*)'|([^\\s\"'=<>`]+))")
 
         // Same set as the desktop validator (src/main/document/validity.ts, JS_TYPES).
@@ -124,10 +128,11 @@ class HtmlImporter(
             val tabs = (model["tabs"] as? JsonArray)?.mapNotNull { it as? JsonObject } ?: return foreign
             if (formatVersion < 1 || tabs.size < 2) return foreign
 
+            val frameHashes = animationFrameHashes(html) ?: return foreign
             val hashes =
                 scripts
                     .filter { (a, _) -> a["src"] == null && JS_TYPES.matches(a["type"]?.trim() ?: "") }
-                    .map { (_, body) -> scriptHash(body) }
+                    .map { (_, body) -> scriptHash(body) } + frameHashes
             val cspMetas =
                 META_RE
                     .findAll(html)
@@ -149,6 +154,35 @@ class HtmlImporter(
                     },
                 scriptHashes = hashes.distinct(),
             )
+        }
+
+        /**
+         * The script hashes of every animation frame (07 section 7.1), or null when any `<iframe>`
+         * is not exactly the desktop's shape: attributes [FRAME_ATTRS] with `sandbox="allow-scripts"`
+         * and a srcdoc holding two plain inline scripts that its own CSP pins. A srcdoc document
+         * inherits the reader's CSP header, so these hashes go into the header with the runtime's.
+         */
+        private fun animationFrameHashes(html: String): List<String>? {
+            val out = mutableListOf<String>()
+            for (m in IFRAME_RE.findAll(html)) {
+                val a = attributes(m.groupValues[1])
+                val names = ATTR_RE.findAll(m.groupValues[1]).map { it.groupValues[1].lowercase() }.toList()
+                if (names != FRAME_ATTRS || a["sandbox"] != "allow-scripts") return null
+                val doc = a["srcdoc"] ?: return null
+                val inner = SCRIPT_RE.findAll(doc).map { attributes(it.groupValues[1]) to it.groupValues[2] }.toList()
+                if (inner.size != 2 || inner.any { (attrs, _) -> attrs.isNotEmpty() }) return null
+                val innerHashes = inner.map { (_, body) -> scriptHash(body) }
+                val innerCsp =
+                    META_RE
+                        .findAll(doc)
+                        .map { attributes(it.groupValues[1]) }
+                        .filter { it["http-equiv"]?.lowercase() == "content-security-policy" }
+                        .toList()
+                if (innerCsp.size != 1) return null
+                if (directive(innerCsp.single()["content"] ?: "", "script-src") != innerHashes) return null
+                out += innerHashes
+            }
+            return out
         }
 
         /**

@@ -375,10 +375,13 @@ test('E24: a document from an older runtime gets the new menu once opened (runti
   const tree = await versions(l, slug);
   expect(tree.nodes).toHaveLength(1);
   expect(tree.currentId).toBe(tree.nodes[0]?.id);
-  // Only the stamped runtime version moves.
+  // Only the stamped runtime version moves, plus parse's palette remap of diagrams stored by a
+  // runtime older than the colour-blind-safe palette (07 §7.3, PALETTE_RUNTIME_VERSION).
   type Stamped = { generator: Record<string, unknown> };
   const oldModel = modelOf(oldHtml) as Stamped;
-  const newModel = modelOf(refreshed) as Stamped;
+  const refreshedModel = modelOf(refreshed) as Stamped;
+  expect(JSON.stringify(refreshedModel)).toContain(' viz-pal-2');
+  const newModel = JSON.parse(JSON.stringify(refreshedModel).split(' viz-pal-2').join('')) as Stamped;
   expect(newModel.generator.runtimeVersion).not.toBe('1.0.0');
   expect(newModel).toEqual({
     ...oldModel,

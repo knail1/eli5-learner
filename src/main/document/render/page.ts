@@ -14,6 +14,7 @@ import type {
   Tab,
   TabKind,
 } from '../types';
+import { animationScriptHashes } from '../animation';
 import { renderBlock, type MergeMarkup } from './blocks';
 import { documentCsp } from './csp';
 import { formatDate } from './date';
@@ -284,6 +285,14 @@ export function modelJson(model: DocumentModel): string {
   return scriptSafeJson(canonicalJson(model));
 }
 
+/** Script hashes of every animation frame, in document order (07 §6.2, §7.1). */
+function frameHashes(model: DocumentModel): string[] {
+  const blocks = model.tabs.flatMap((t) =>
+    t.sections.flatMap((s) => s.blocks.flatMap((b) => (b.type === 'animation' ? [b] : []))),
+  );
+  return animationScriptHashes(blocks);
+}
+
 /** Renders the document with an explicit runtime (07 §5.5). */
 export function renderWithRuntime(
   model: DocumentModel,
@@ -301,7 +310,7 @@ export function renderWithRuntime(
     '<head>',
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    `<meta http-equiv="Content-Security-Policy" content="${esc(documentCsp(js))}">`,
+    `<meta http-equiv="Content-Security-Policy" content="${esc(documentCsp(js, frameHashes(model)))}">`,
     '<meta name="referrer" content="no-referrer">',
     `<meta${attrs([
       ['name', 'generator'],

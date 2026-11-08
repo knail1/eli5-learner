@@ -155,13 +155,17 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(stepper).toHaveScreenshot(shot('showcase-stepper-step3'));
     });
 
-    test('explorables: static picture with presets and the controls (reduced motion: whole run)', async ({ page }) => {
+    test('animation: the live frame (reduced motion: final state), and its poster in print', async ({ page }) => {
       await open(page, 'showcase');
-      for (const kind of ['gradient-descent', 'metropolis-walk']) {
-        const fig = page.locator(`#tab-indepth figure.explorable[data-kind="${kind}"]`);
-        await expect(fig.locator('.explorable-status')).toHaveText(/^(lr|step) [\d.]+: /);
-        await expect(fig).toHaveScreenshot(shot(`showcase-explorable-${kind}`));
-      }
+      const fig = page.locator('#tab-indepth figure.animation');
+      await fig.scrollIntoViewIfNeeded();
+      await expect(fig).toHaveClass(/\banim-live\b/);
+      const frame = page.frameLocator('#tab-indepth figure.animation iframe');
+      await expect(frame.locator('.eli5-readout strong')).toHaveText(/^\d+$/);
+      await page.mouse.move(0, 0);
+      await expect(fig).toHaveScreenshot(shot('showcase-animation'));
+      await page.emulateMedia({ media: 'print' });
+      await expect(fig).toHaveScreenshot(shot('showcase-animation-print'));
     });
 
     test('stock photo with its credit caption', async ({ page }) => {

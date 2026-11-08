@@ -34,6 +34,14 @@ export function surfaceOf(wc: WebContents): Surface {
 
 const BLOCKED_SCHEMES = new Set(['file:', 'data:', 'javascript:']);
 
+/**
+ * 12 §7.2: the viewer allows exactly one kind of subframe navigation, a direct child of the
+ * document loading `about:srcdoc` (an animation frame, 07 §7.1).
+ */
+export function isViewerSubframeNavigationAllowed(url: string, directChild: boolean): boolean {
+  return directChild && url === 'about:srcdoc';
+}
+
 function allowed(wc: WebContents, target: string): boolean {
   let url: URL;
   try {
@@ -114,6 +122,9 @@ export function hardenApp(): void {
 
   app.on('web-contents-created', (_e, wc) => {
     wc.on('will-attach-webview', (ev) => ev.preventDefault());
+    // 12 §9: nothing in the app uses WebRTC, and CSP does not cover its ICE/STUN traffic, so no
+    // renderer (a document's animation frame included) may send UDP outside a proxy.
+    wc.setWebRTCIPHandlingPolicy('disable_non_proxied_udp');
 
     wc.setWindowOpenHandler(({ url }) => {
       if (surfaceOf(wc) === 'viewer' && isSafeExternalUrl(url)) void safeOpenExternal(url, wc.id);
@@ -131,7 +142,15 @@ export function hardenApp(): void {
     wc.on('will-redirect', guard);
     wc.on('will-frame-navigate', (details) => {
       if (details.isMainFrame) return;
-      if (surfaceOf(wc) === 'viewer' || !allowed(wc, details.url)) details.preventDefault();
+      if (surfaceOf(wc) === 'viewer') {
+        // 07 §7.1: a document's only subframes are its sandboxed animation frames, which load
+        // their srcdoc once; any other subframe navigation (network, data:, a frame re-navigating
+        // itself) is denied.
+        if (!isViewerSubframeNavigationAllowed(details.url, details.frame?.parent === wc.mainFrame))
+          details.preventDefault();
+        return;
+      }
+      if (!allowed(wc, details.url)) details.preventDefault();
     });
 
     if (app.isPackaged) wc.on('devtools-opened', () => wc.closeDevTools());

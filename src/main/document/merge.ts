@@ -30,7 +30,13 @@ import type {
   Tab,
   TabKind,
 } from './types';
-import { MAX_EXPLORABLES_PER_SECTION, convertBlocks, countExplorables, explorableBudget } from './validate';
+import { MAX_ANIMATIONS_PER_SECTION } from './animation';
+import { animationBudget, convertBlocks, countAnimations } from './validate';
+
+/** The sanitized SVG a block carries (diagram, animation poster), whose ids need a unique prefix. */
+function svgOfBlock(b: DocBlock): string | undefined {
+  return b.type === 'diagram' ? b.svg : b.type === 'animation' ? b.poster : undefined;
+}
 
 /** 09 §5.2 TabRecord, structurally. */
 export interface MergeTabRecord {
@@ -140,8 +146,8 @@ function blockLine(b: DocBlock, i: number, label: (assetId: string) => string): 
     }
     case 'diagram':
       return `${at} diagram: "${one(b.title)}" (${one(b.alt)})`;
-    case 'explorable':
-      return `${at} explorable (${b.sim.kind}): "${one(b.title)}" (${one(b.alt)})`;
+    case 'animation':
+      return `${at} animation: "${one(b.title)}" (${one(b.alt)})`;
     case 'figure':
       return `${at} figure [${label(b.assetId)}]: ${one(b.caption)}`;
     case 'qa':
@@ -358,7 +364,7 @@ export function applyMergePlan(
   for (const tab of t.tabs)
     for (const sec of tab.sections)
       for (const b of sec.blocks) {
-        const p = b.type === 'diagram' ? DIAGRAM_PREFIX_RE.exec(b.svg)?.[1] : undefined;
+        const p = svgOfBlock(b) !== undefined ? DIAGRAM_PREFIX_RE.exec(svgOfBlock(b) ?? '')?.[1] : undefined;
         if (p) diagramPrefixes.add(p);
       }
   /** An incoming block moved into the target: figures re-pointed, colliding diagram ids re-minted. */
@@ -376,8 +382,10 @@ export function applyMergePlan(
       const assetId = importAsset(b.assetId);
       return assetId ? { ...b, assetId } : undefined;
     }
-    if (b.type === 'diagram') {
-      const p = DIAGRAM_PREFIX_RE.exec(b.svg)?.[1];
+    const svg = svgOfBlock(b);
+    if (svg !== undefined) {
+      // Diagrams and animation posters: a colliding SVG id prefix is re-minted (07 §7.3).
+      const p = DIAGRAM_PREFIX_RE.exec(svg)?.[1];
       if (!p) return b;
       if (!diagramPrefixes.has(p)) {
         diagramPrefixes.add(p);
@@ -386,7 +394,8 @@ export function applyMergePlan(
       let next = mintDiagramPrefix(idSource);
       while (diagramPrefixes.has(next)) next = mintDiagramPrefix(idSource);
       diagramPrefixes.add(next);
-      return { ...b, svg: b.svg.split(p).join(next) };
+      const moved = svg.split(p).join(next);
+      return b.type === 'diagram' ? { ...b, svg: moved } : b.type === 'animation' ? { ...b, poster: moved } : b;
     }
     return b;
   };
@@ -396,12 +405,12 @@ export function applyMergePlan(
     return hit.from === 'target' ? hit.assetId : importAsset(hit.assetId);
   };
 
-  // Explorable caps (07 §5.2): what the target already holds counts; weaveTab sets the tab budget.
-  const explorablesUsed = {
-    n: t.tabs.reduce((n, tab) => n + tab.sections.reduce((k, x) => k + countExplorables(x.blocks), 0), 0),
+  // Animation caps (07 §5.2): what the target already holds counts; weaveTab sets the tab budget.
+  const animationsUsed = {
+    n: t.tabs.reduce((n, tab) => n + tab.sections.reduce((k, x) => k + countAnimations(x.blocks), 0), 0),
   };
-  const tabExplorables = { n: 0 };
-  let takeExplorable: (force?: boolean) => boolean = () => false;
+  const tabAnimations = { n: 0 };
+  let takeAnimation: (force?: boolean) => boolean = () => false;
 
   /** Plan blocks -> DocBlocks with their origins; `old` is the section being revised. */
   const resolveBlocks = (
@@ -410,12 +419,12 @@ export function applyMergePlan(
   ): { blocks: DocBlock[]; origins: BlockOrigin[] } => {
     const out: DocBlock[] = [];
     const origins: BlockOrigin[] = [];
-    // 07 §5.2: one explorable per section; new ones also count against the tab and document caps.
+    // 07 §5.2: one animation per section; new ones also count against the tab and document caps.
     const roomFor = (b: DocBlock, isNew: boolean): boolean => {
-      if (b.type !== 'explorable') return true;
-      // A kept explorable always fits the tab and document caps (its section's were released).
-      if (countExplorables(out) < MAX_EXPLORABLES_PER_SECTION && takeExplorable(!isNew)) return true;
-      warn('explorable-dropped');
+      if (b.type !== 'animation') return true;
+      // A kept animation always fits the tab and document caps (its section's were released).
+      if (countAnimations(out) < MAX_ANIMATIONS_PER_SECTION && takeAnimation(!isNew)) return true;
+      warn('animation-dropped');
       return false;
     };
     for (const b of blocks) {
@@ -459,8 +468,8 @@ export function applyMergePlan(
 
   const weaveTab = (tab: Tab, tp: MergeTabPlan): Tab => {
     if (tab.placeholder && tp.revise.length === 0 && tp.insert.length === 0) return tab;
-    tabExplorables.n = tab.sections.reduce((n, x) => n + countExplorables(x.blocks), 0);
-    takeExplorable = explorableBudget(explorablesUsed, tabExplorables);
+    tabAnimations.n = tab.sections.reduce((n, x) => n + countAnimations(x.blocks), 0);
+    takeAnimation = animationBudget(animationsUsed, tabAnimations);
     const byId = new Map(tab.sections.map((x) => [x.id as string, x]));
     const aliasOf = (alias: string): SectionId | undefined => {
       const id = prep.targetAliases.get(alias.trim().toUpperCase());
@@ -477,14 +486,14 @@ export function applyMergePlan(
         warn('merge-unknown-section');
         continue;
       }
-      // The revised section's own explorables are released, then recounted as its blocks resolve.
-      const freed = countExplorables(old.blocks);
-      tabExplorables.n -= freed;
-      explorablesUsed.n -= freed;
+      // The revised section's own animations are released, then recounted as its blocks resolve.
+      const freed = countAnimations(old.blocks);
+      tabAnimations.n -= freed;
+      animationsUsed.n -= freed;
       const resolved = resolveBlocks(r.blocks, old);
       if (resolved.blocks.length === 0) {
-        tabExplorables.n += freed;
-        explorablesUsed.n += freed;
+        tabAnimations.n += freed;
+        animationsUsed.n += freed;
         warn('merge-section-empty');
         continue;
       }

@@ -223,10 +223,11 @@ closestSection(node):
 
 isExcluded(node):
   closest match of: [data-eli5-noact], nav.tabbar, details.gl-note, details.qa-q,
-                    section[data-eli5-actionable='false'], header.doc-head, footer.doc-foot
+                    figure.animation, section[data-eli5-actionable='false'],
+                    header.doc-head, footer.doc-foot
 ```
 
-Selectors are the markup emitted by [07](07-output-document.md) §6.1 and §9.2: the tab bar is `nav.tabbar[role=tablist]`, glossary notes are `details.gl-note`, the references section is `section[data-kind='references'][data-eli5-actionable='false']`, and the header and footer are `header.doc-head` and `footer.doc-foot`.
+Selectors are the markup emitted by [07](07-output-document.md) §6.1, §7.1 and §9.2 (an animation's frame is a separate sandboxed document the menu never reaches): the tab bar is `nav.tabbar[role=tablist]`, glossary notes are `details.gl-note`, the references section is `section[data-kind='references'][data-eli5-actionable='false']`, and the header and footer are `header.doc-head` and `footer.doc-foot`.
 
 - The target is the innermost `section[data-section-id]` that contains the range start. [07](07-output-document.md) emits flat sections, so nesting is defensive only.
 - A selection that spans sections is clipped to the start section. The menu then shows a one-line hint `Applies to: {heading}`.
@@ -302,11 +303,11 @@ Implemented in `src/main/document/interactive/regenerate.ts`. The five in-place 
 The model gets the section plus its surroundings, not the whole document ([02](02-llm-provider.md) §9 "Section actions"). All context comes from the embedded `DocumentModel` through 07's API; this module does not read section HTML.
 
 1. Read `index.html` (no lock) and run `parseDocument(html)`. A missing file fails the job with `DOC_GONE`; a `DocumentFormatError` fails it with `INTERNAL` (detail `document_corrupt`).
-2. `ctx = getSectionContext(model, sectionId)` ([07](07-output-document.md) §8). It returns `{tab, section, draft, prev?, next?, outline}`: the target and its neighbors in `SectionDraft` form (figure assets mapped back to labels), and the headings of every section in the tab. An unknown ID fails the job with `SECTION_GONE`.
+2. `ctx = getSectionContext(model, sectionId)` ([07](07-output-document.md) §8). It returns `{tab, section, draft, prev?, next?, outline}`: the target and its neighbors in `SectionDraft` form (figure assets mapped back to labels; an animation ([07](07-output-document.md) §7.1) appears with its title, caption and alt and with `poster` and `js` set to the keep marker `"keep"`, so its code never goes to the model), and the headings of every section in the tab. An unknown ID fails the job with `SECTION_GONE`.
 3. Document framing: `model.title`, `model.dek`, and `tabKind = ctx.tab.kind` (`indepth` | `eli5` | `ste` | `section-eli5`).
 4. `sourceExcerpt` (only for `deeper`): if [09](09-library-storage.md) retained extracted source text for this document, take up to 6000 characters around the best lexical match for `selectionText`. Otherwise omit it.
 5. **Budget:** if the target plus neighbors exceed 60% of the model's input budget (`inputBudget(limitsFor(provider, model), 0, llm.maxOutputTokens)`, [02](02-llm-provider.md) §8, read at request time), shrink each neighbor to its heading plus its first 1500 characters. If the target alone still does not fit, fail with `SECTION_TOO_LARGE` (§9).
-6. Call `runSectionAction({action, tabKind, section: ctx.draft, outline: ctx.outline, prev: ctx.prev, next: ctx.next, selection: selectionText, note, sourceExcerpt, signal})`. `eli5-tab` and `eli5-selection` return a `DocumentDraftTab` of kind `section-eli5`; the other five return one `SectionDraft`. Ask calls `answerSectionQuestion` instead (§6.8). The model never returns an ID. `eli5-selection` sends `context` (§7.5) instead of `prev`/`next` and skips step 5.
+6. Call `runSectionAction({action, tabKind, section: ctx.draft, outline: ctx.outline, prev: ctx.prev, next: ctx.next, selection: selectionText, note, sourceExcerpt, signal})`. `eli5-tab` and `eli5-selection` return a `DocumentDraftTab` of kind `section-eli5`; the other five return one `SectionDraft`. Ask calls `answerSectionQuestion` instead (§6.8). The model never returns an ID. A returned animation whose `poster` and `js` are `"keep"` keeps the section's existing animation (new title, caption and alt allowed; 07 §5.2); leaving it out removes it. `eli5-selection` sends `context` (§7.5) instead of `prev`/`next` and skips step 5.
 
 **Register rules by tab kind** (sent as part of the prompt input; prompt text is in [02](02-llm-provider.md)):
 

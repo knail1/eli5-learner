@@ -9,7 +9,7 @@ import { DOC_RUNTIME_VERSION } from './runtime-assets';
 import { cryptoIdSource, ELI5_TAB_KEY, INDEPTH_TAB_KEY, mintSectionId, STE_TAB_KEY, type IdSource } from './section-id';
 import { docThemeRef } from './theme';
 import type { AssetCredit, AssetRef, BuildInput, BuildResult, DocumentModel, Section, Tab } from './types';
-import { convertBlocks, countExplorables, explorableBudget } from './validate';
+import { convertBlocks, countAnimations, animationBudget } from './validate';
 
 export const MAX_TITLE = 120;
 export const MAX_DEK = 300;
@@ -72,8 +72,8 @@ export interface SectionBuildContext {
     blockIndex: number,
   ): { assetId: string; alt: string; caption: string } | undefined;
   warn(w: string): void;
-  /** Tab and document explorable caps (validate.ts explorableBudget); absent: per section only. */
-  takeExplorable?(): boolean;
+  /** Tab and document animation caps (validate.ts animationBudget); absent: per section only. */
+  takeAnimation?(): boolean;
   /** When given, receives the draft index of each kept section (07 §9.1 step 2 indexes drafts). */
   draftIndices?: number[];
 }
@@ -91,7 +91,7 @@ export function buildSections(drafts: DocumentDraftTab['sections'], ctx: Section
       idSource: ctx.idSource,
       resolveFigure: ctx.resolveFigure,
       ...(resolvePhoto ? { resolvePhoto: (bi: number) => resolvePhoto(di, bi) } : {}),
-      ...(ctx.takeExplorable ? { takeExplorable: ctx.takeExplorable } : {}),
+      ...(ctx.takeAnimation ? { takeAnimation: ctx.takeAnimation } : {}),
       warn: ctx.warn,
     });
     if (blocks.length === 0) {
@@ -181,12 +181,12 @@ export function buildDocumentModel(input: BuildInput): BuildResult {
   const dek = input.indepth.dek ? capText(collapseWs(input.indepth.dek), MAX_DEK) : '';
   const sctx = { now, idSource, taken, resolveFigure, warn };
   const draftIndices: number[] = [];
-  const explorables = { n: 0 };
+  const animations = { n: 0 };
   const indepthSections = buildSections(input.indepth.sections, {
     ...sctx,
     tabKey: INDEPTH_TAB_KEY,
     resolvePhoto: resolvePhotoIn('indepth'),
-    takeExplorable: explorableBudget(explorables),
+    takeAnimation: animationBudget(animations),
     draftIndices,
   });
   if (indepthSections.length === 0) throw new DocumentBuildError('empty_indepth');
@@ -195,7 +195,7 @@ export function buildDocumentModel(input: BuildInput): BuildResult {
         ...sctx,
         tabKey: ELI5_TAB_KEY,
         resolvePhoto: resolvePhotoIn('eli5'),
-        takeExplorable: explorableBudget(explorables),
+        takeAnimation: animationBudget(animations),
       })
     : [];
 
@@ -235,16 +235,16 @@ export function buildDocumentModel(input: BuildInput): BuildResult {
 
   // ASD-STE100 tab (07 §5, D14): optional, never a placeholder. Kept visuals carry the in-depth
   // origin of their draft block, so a photo slot resolves to the same asset as in In depth. Kept
-  // explorables mirror In depth ones that already passed the caps, so they are counted but not
+  // animations mirror In depth ones that already passed the caps, so they are counted but not
   // dropped by the tab and document caps (a mirror must stay identical to its original); the tab
-  // never holds more explorables than In depth does, whatever the draft says.
+  // never holds more animations than In depth does, whatever the draft says.
   let ste: Tab | null = null;
   if (input.ste) {
     const origins = input.ste.origins;
     const fromIndepth = resolvePhotoIn('indepth');
-    const countKept = explorableBudget(explorables);
-    let steLeft = indepthSections.reduce((n, s) => n + countExplorables(s.blocks), 0);
-    const steExplorables = (): boolean => {
+    const countKept = animationBudget(animations);
+    let steLeft = indepthSections.reduce((n, s) => n + countAnimations(s.blocks), 0);
+    const steAnimations = (): boolean => {
       if (steLeft <= 0) return false;
       steLeft--;
       return countKept(true);
@@ -256,7 +256,7 @@ export function buildDocumentModel(input: BuildInput): BuildResult {
         const o = origins[si]?.[bi];
         return o ? fromIndepth(o.section, o.block) : undefined;
       },
-      takeExplorable: steExplorables,
+      takeAnimation: steAnimations,
     });
     if (steSections.length > 0)
       ste = { key: STE_TAB_KEY, kind: 'ste', label: STE_TAB_LABEL, createdAt: now, sections: steSections };

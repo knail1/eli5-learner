@@ -5,9 +5,9 @@
 import './index.css';
 import { initCloseButtons, initFocusHandoff, initLinks, initScroll } from './app';
 import { getBridge } from './bridge';
+import { initAnimations } from './animation';
 import { initCharts, initFigures, initPrint, initSteppers } from './components';
 import { initEnhancements } from './enhancements';
-import { initExplorables } from './explorable';
 import { initGlossary, type GlossaryApi } from './glossary';
 import { initSelection, type SelectionController } from './selection';
 import { initSelectionZones } from './selection/zones';
@@ -39,7 +39,7 @@ export function boot(win: Window = window, doc: Document = document): RuntimeHan
   safe('charts', () => initCharts(doc));
   safe('stepper', () => initSteppers(doc));
   safe('figure', () => initFigures(doc));
-  safe('explorable', () => initExplorables(doc, win, tabs));
+  safe('animation', () => initAnimations(doc, win));
   safe('print', () => initPrint(win, doc));
   safe('theme-toggle', () => initThemeToggle(doc, win));
   safe('enhancements', () => initEnhancements(doc, win));

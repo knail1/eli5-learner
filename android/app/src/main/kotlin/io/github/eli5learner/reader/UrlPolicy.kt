@@ -22,12 +22,16 @@ sealed interface UrlDecision {
  * - Only `https://appassets.androidplatform.net/docs/<key>/<sha>.html` is ever loaded.
  * - Navigation stays inside the current document (fragment changes).
  * - An `http(s)` link opens in a Custom Tab, and only with a user gesture.
+ * - A sub-frame may load `about:srcdoc` (a sandboxed animation frame, 07 section 7.1).
  * - Everything else (`javascript:`, `intent:`, `file:`, `content:`, `data:`, other documents,
- *   script-initiated or sub-frame navigations) is dropped.
+ *   script-initiated or other sub-frame navigations) is dropped.
  */
 object UrlPolicy {
     const val HOST = "appassets.androidplatform.net"
     const val DOCS_PREFIX = "/docs/"
+
+    /** The only subframe navigation a document makes: an animation frame loading its srcdoc. */
+    const val SRCDOC = "about:srcdoc"
 
     private val DOC_PATH = Regex("^/docs/([A-Za-z0-9][A-Za-z0-9_-]{0,127})/([0-9a-f]{64})\\.html$")
 
@@ -56,6 +60,8 @@ object UrlPolicy {
         hasGesture: Boolean,
         isMainFrame: Boolean,
     ): UrlDecision {
+        // 07 section 7.1: an animation frame (sandboxed, scripts only) loads its own srcdoc once.
+        if (url == SRCDOC) return if (isMainFrame) UrlDecision.Block else UrlDecision.Allow
         val target = parse(url) ?: return UrlDecision.Block
         val current = currentDocUrl?.let(::parse)
         if (current != null && sameDocument(target, current)) return UrlDecision.Allow

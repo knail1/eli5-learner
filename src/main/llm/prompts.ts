@@ -64,6 +64,7 @@ export const FRAGMENT_IDS = [
   'skill-fallback-eli5',
   'connection-test',
   'diagram-rules',
+  'animation-rules',
 ] as const;
 export type FragmentId = (typeof FRAGMENT_IDS)[number];
 
@@ -86,6 +87,7 @@ export const FRAGMENT_VARS: Readonly<Record<FragmentId, readonly string[]>> = {
   'skill-fallback-eli5': [],
   'connection-test': [],
   'diagram-rules': [],
+  'animation-rules': [],
 };
 
 export interface FragmentDef extends FileOrigin {
@@ -128,6 +130,7 @@ export const PROMPT_VARS: Readonly<Record<PromptId, readonly string[]>> = {
     'content',
     'overflowAddendum',
     'photoInstructions',
+    'animationRules',
   ],
   eli5: [
     'skills',
@@ -138,13 +141,54 @@ export const PROMPT_VARS: Readonly<Record<PromptId, readonly string[]>> = {
     'sourceList',
     'content',
     'photoInstructions',
+    'animationRules',
   ],
   glossary: ['clarifyingInput', 'indepthText'],
   'chunk-notes': ['chunkIndex', 'chunkCount', 'clarifyingInput', 'sourceList', 'content'],
-  'section-expand': ['skills', 'tabKind', 'outline', 'section', 'prevText', 'nextText', 'selection', 'note'],
-  'section-reexplain': ['skills', 'tabKind', 'outline', 'section', 'prevText', 'nextText', 'selection', 'note'],
-  'section-analogy': ['skills', 'tabKind', 'outline', 'section', 'prevText', 'nextText', 'selection', 'note'],
-  'section-revise': ['skills', 'tabKind', 'outline', 'section', 'prevText', 'nextText', 'selection', 'note'],
+  'section-expand': [
+    'skills',
+    'tabKind',
+    'outline',
+    'section',
+    'prevText',
+    'nextText',
+    'selection',
+    'note',
+    'animationRules',
+  ],
+  'section-reexplain': [
+    'skills',
+    'tabKind',
+    'outline',
+    'section',
+    'prevText',
+    'nextText',
+    'selection',
+    'note',
+    'animationRules',
+  ],
+  'section-analogy': [
+    'skills',
+    'tabKind',
+    'outline',
+    'section',
+    'prevText',
+    'nextText',
+    'selection',
+    'note',
+    'animationRules',
+  ],
+  'section-revise': [
+    'skills',
+    'tabKind',
+    'outline',
+    'section',
+    'prevText',
+    'nextText',
+    'selection',
+    'note',
+    'animationRules',
+  ],
   'section-ask': ['skills', 'tabKind', 'outline', 'section', 'prevText', 'nextText', 'selection', 'question'],
   'section-deeper': [
     'skills',
@@ -156,9 +200,10 @@ export const PROMPT_VARS: Readonly<Record<PromptId, readonly string[]>> = {
     'selection',
     'note',
     'sourceExcerpt',
+    'animationRules',
   ],
-  'section-eli5-tab': ['skills', 'outline', 'section', 'selection', 'note'],
-  'selection-eli5-tab': ['skills', 'outline', 'context', 'selection', 'note'],
+  'section-eli5-tab': ['skills', 'outline', 'section', 'selection', 'note', 'animationRules'],
+  'selection-eli5-tab': ['skills', 'outline', 'context', 'selection', 'note', 'animationRules'],
   summary: ['title', 'outline', 'indepthExcerpt'],
   'merge-match': ['summary', 'candidates'],
   'photo-pick': ['slots'],
@@ -303,6 +348,7 @@ const VAR_FRAGMENTS: Readonly<Record<string, readonly FragmentId[]>> = {
   contentMode: ['content-mode-raw', 'content-mode-notes'],
   glossaryInstructions: ['glossary-instructions'],
   overflowAddendum: ['overflow-addendum'],
+  animationRules: ['animation-rules'],
 };
 
 /** The fragments a prompt can render, given its vars, output and skills. */

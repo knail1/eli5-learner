@@ -205,8 +205,8 @@ export function sectionText(s: SectionDraft): string {
       case 'diagram':
         lines.push(`Diagram: ${b.title}. ${b.alt}`);
         break;
-      case 'explorable':
-        lines.push(`Explorable: ${b.title}. ${b.alt}`);
+      case 'animation':
+        lines.push(`Animation: ${b.title}. ${b.alt}`);
         break;
       case 'figure':
         lines.push(`Figure: ${b.caption}`);
@@ -421,6 +421,7 @@ export function createTasks(deps: TaskDeps): LlmTasks {
       overflowAddendum: '',
       // The longer variant, so the budget holds whichever the write uses.
       photoInstructions: frag(photoFragment('indepth', true)),
+      animationRules: frag('animation-rules'),
     };
     const rendered = deps.prompts.render('in-depth', { ...vars, content: '' });
     const system = preamble ? `${preamble}\n\n${rendered.system}` : rendered.system;
@@ -634,11 +635,13 @@ export function createTasks(deps: TaskDeps): LlmTasks {
       writeTab('in-depth', 'indepth', p, ctx, {
         photoInstructions: frag(photoFragment('indepth', !!ctx.photos)),
         glossaryInstructions: ctx.glossary ? frag('glossary-instructions') : '',
+        animationRules: frag('animation-rules'),
       }),
 
     generateEli5: (p, ctx) =>
       writeTab('eli5', 'eli5', p, ctx, {
         photoInstructions: frag(photoFragment('eli5', !!ctx.photos)),
+        animationRules: frag('animation-rules'),
       }),
 
     async generateGlossary(indepth, ctx) {
@@ -679,6 +682,7 @@ export function createTasks(deps: TaskDeps): LlmTasks {
         note: input.note ?? '',
         sourceExcerpt: input.sourceExcerpt ? wrapSource('original source excerpt', input.sourceExcerpt) : '',
         context: input.context ? wrapSource('surrounding context', input.context) : '',
+        animationRules: frag('animation-rules'),
       };
       if (input.action === 'eli5-tab' || input.action === 'eli5-selection') {
         const r = await run<DocumentDraftTab>(id, vars, { signal: input.signal });

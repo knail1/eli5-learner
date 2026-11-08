@@ -41,45 +41,22 @@ export type ChartSpec = z.infer<typeof ChartSpecSchema>;
 
 const TableShape = { caption: z.string().optional(), header: z.array(z.string()), rows: z.array(z.array(z.string())) };
 
-/** A slider range (07 §7.1): min < value < max; bounds are clamped by validation, never repaired. */
-const SimRangeSchema = z.object({ min: z.number(), max: z.number(), value: z.number() });
-
 /**
- * What an explorable simulates (07 §7.1): a closed set of kinds the doc-runtime implements. The
- * model supplies numbers only; document/validate.ts clamps each into its range (src/shared/explorable).
+ * An AI-authored animation (07 §7.1 animation): a small topic-specific interactive the model writes
+ * (html, css, js using the shell's ELI5.* helpers) plus an SVG `poster` still frame. It runs in a
+ * sandboxed srcdoc frame with its own CSP; document/validate.ts lints it and drops it on a hit, so
+ * nothing here is ever a repair. `poster` and `js` equal to "keep" stand for a regenerated
+ * section's existing animation (08 §6.2).
  */
-export const ExplorableSimSchema = z.discriminatedUnion('kind', [
-  z.object({
-    kind: z.literal('gradient-descent'),
-    surface: z.enum(['bowl', 'ravine', 'double-well', 'plateau']),
-    scale: z.number(),
-    start: z.number(),
-    lr: SimRangeSchema,
-    steps: z.number().int(),
-    presets: z.array(z.number()), // 1-3; validation dedupes, caps and fills, never a repair
-  }),
-  z.object({
-    kind: z.literal('metropolis-walk'),
-    target: z.enum(['normal', 'bimodal', 'skewed']),
-    start: z.number(),
-    stepSize: SimRangeSchema,
-    steps: z.number().int(),
-    seed: z.number().int(),
-    presets: z.array(z.number()), // 1-3; validation dedupes, caps and fills, never a repair
-  }),
-]);
-export type ExplorableSimDraft = z.infer<typeof ExplorableSimSchema>;
-
-/**
- * A declarative interactive animation (07 §7.1): no model-authored code in any form. The app draws
- * it, computes and labels each preset's outcome, and the doc-runtime animates it.
- */
-export const ExplorableBlockSchema = z.object({
-  type: z.literal('explorable'),
+export const AnimationBlockSchema = z.object({
+  type: z.literal('animation'),
   title: z.string(),
   caption: z.string(),
   alt: z.string(),
-  sim: ExplorableSimSchema,
+  poster: z.string(),
+  html: z.string().optional(),
+  css: z.string().optional(),
+  js: z.string(),
 });
 
 export const DraftBlockSchema = z.discriminatedUnion('type', [
@@ -113,7 +90,7 @@ export const DraftBlockSchema = z.discriminatedUnion('type', [
     caption: z.string().optional(),
     sensitive: z.boolean().optional(),
   }),
-  ExplorableBlockSchema,
+  AnimationBlockSchema,
 ]);
 export type DraftBlock = z.infer<typeof DraftBlockSchema>;
 

@@ -46,7 +46,7 @@ export const TOO_LONG_NOTE = 'Too long to ELI5 as a selection (12,000 characters
 const DEBOUNCE_MS = 150;
 const NOTICE_MS = 6000;
 const EXCLUDED =
-  "[data-eli5-noact], nav.tabbar, details.gl-note, details.qa-q, figure.explorable, section[data-eli5-actionable='false'], header.doc-head, footer.doc-foot";
+  "[data-eli5-noact], nav.tabbar, details.gl-note, details.qa-q, figure.animation, section[data-eli5-actionable='false'], header.doc-head, footer.doc-foot";
 /** Never part of the text the menu sends: glossary notes (08 §5.6) and the other excluded regions. */
 const TEXT_EXCLUDED = EXCLUDED;
 

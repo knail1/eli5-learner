@@ -1,9 +1,19 @@
 // Block conversion and semantic validation (07 §5.2): DraftBlock -> DocBlock, user-question
-// stripping, table/chart/diagram/stepper/explorable limits.
-import { clampSim } from '../../shared/explorable';
+// stripping, table/chart/diagram/stepper/animation limits.
 import type { DraftBlock } from '../llm';
+import {
+  ANIMATION_KEEP,
+  MAX_ANIMATIONS_PER_DOC,
+  MAX_ANIMATIONS_PER_SECTION,
+  MAX_ANIMATIONS_PER_TAB,
+  MAX_ANIMATION_ALT,
+  MAX_ANIMATION_CAPTION,
+  MAX_ANIMATION_POSTER,
+  MAX_ANIMATION_TITLE,
+  animationCodeProblems,
+} from './animation';
 import { normalizeChart } from './charts';
-import { capText, collapseWs } from './html';
+import { capText, collapseWs, stripControls } from './html';
 import { mintDiagramPrefix } from './ids';
 import { inlineText } from './inline-md';
 import type { IdSource } from './section-id';
@@ -31,46 +41,91 @@ export interface ConvertContext {
   resolvePhoto?(blockIndex: number): { assetId: string; alt: string; caption: string } | undefined;
   warn(w: string): void;
   /**
-   * Explorable caps beyond one section (07 §5.2: two per tab, four per document). Called once per
-   * explorable that passed every other check; false drops it. Absent: only the per-section cap.
+   * Animation caps beyond one section (07 §5.2: two per tab, four per document). Called once per
+   * animation that passed every other check; false drops it. Absent: only the per-section cap.
    */
-  takeExplorable?(): boolean;
+  takeAnimation?(): boolean;
+  /**
+   * A regenerated section's own animation, for a draft block whose `poster` and `js` are the keep
+   * marker (08 §6.2, ANIMATION_KEEP). Each call returns the next one not yet taken. Absent: the
+   * marker is dropped.
+   */
+  keepAnimation?(): AnimationDocBlock | undefined;
+}
+
+type AnimationDocBlock = Extract<DocBlock, { type: 'animation' }>;
+
+const SVG_ID_PREFIX_RE = /\bid="(d[0-9a-f]{8}-)/;
+
+/** The id prefix a sanitized diagram or poster SVG carries (07 §7.3), if it has any ids. */
+export function svgIdPrefix(svg: string): string | undefined {
+  return SVG_ID_PREFIX_RE.exec(svg)?.[1];
 }
 
 export const MAX_PHOTO_CAPTION = 200;
 
-/** Explorable limits (07 §5.2). */
-export const MAX_EXPLORABLE_TITLE = 90;
-export const MAX_EXPLORABLE_CAPTION = 300;
-export const MAX_EXPLORABLE_ALT = 400;
-export const MAX_EXPLORABLES_PER_SECTION = 1;
-export const MAX_EXPLORABLES_PER_TAB = 2;
-export const MAX_EXPLORABLES_PER_DOC = 4;
-/** Canonical JSON of the clamped parameters (the data-params attribute). */
-export const MAX_EXPLORABLE_PARAMS = 1536;
-
 /**
- * Tab and document explorable caps as a ConvertContext.takeExplorable: `docUsed` and `tabUsed`
- * count explorables already kept elsewhere (a counter object lets the caller release a revised
- * section's explorables). `force` counts a kept block without checking the caps.
+ * Tab and document animation caps as a ConvertContext.takeAnimation: `docUsed` and `tabUsed`
+ * count animations already kept elsewhere (a counter object lets the caller release a revised
+ * section's animations). `force` counts a kept block without checking the caps.
  */
-export function explorableBudget(
+export function animationBudget(
   docUsed: { n: number },
   tabUsed: { n: number } | number = 0,
 ): (force?: boolean) => boolean {
   const tab = typeof tabUsed === 'number' ? { n: tabUsed } : tabUsed;
   return (force = false) => {
-    if (!force && (tab.n >= MAX_EXPLORABLES_PER_TAB || docUsed.n >= MAX_EXPLORABLES_PER_DOC)) return false;
+    if (!force && (tab.n >= MAX_ANIMATIONS_PER_TAB || docUsed.n >= MAX_ANIMATIONS_PER_DOC)) return false;
     tab.n++;
     docUsed.n++;
     return true;
   };
 }
 
-/** Number of explorable blocks in `blocks`. */
-export function countExplorables(blocks: readonly { type: string }[]): number {
-  return blocks.filter((b) => b.type === 'explorable').length;
+/** Number of animation blocks in `blocks`. */
+export function countAnimations(blocks: readonly { type: string }[]): number {
+  return blocks.filter((b) => b.type === 'animation').length;
 }
+
+/**
+ * The checks an animation must pass to be kept (07 §5.2): a title, an alt text, a poster that
+ * survives the diagram sanitizer, and code within the caps that passes the lint. Returns the
+ * stored block, or null. `posterPrefix` keeps an already sanitized poster byte-identical (parse).
+ */
+export function checkAnimation(b: Omit<AnimationDocBlock, 'type'>, posterPrefix: string): AnimationDocBlock | null {
+  const title = capText(collapseWs(b.title), MAX_ANIMATION_TITLE);
+  const alt = capText(collapseWs(b.alt), MAX_ANIMATION_ALT);
+  const caption = capText(collapseWs(b.caption), MAX_ANIMATION_CAPTION);
+  if (!title || !alt) return null;
+  const poster = sanitizeSvg(b.poster, {
+    idPrefix: posterPrefix,
+    ariaLabel: alt,
+    rootClass: 'anim-poster-svg',
+    labelContrast: true,
+  });
+  if (poster === null || poster.length > MAX_ANIMATION_POSTER) return null;
+  // Control characters would be stripped by attribute escaping, so the frame's script would no
+  // longer match its hash: normalize them here, once.
+  const code = (s: string | undefined): string | undefined => {
+    const v = s === undefined ? '' : stripControls(s);
+    return v.trim() === '' ? undefined : v;
+  };
+  const js = code(b.js) ?? '';
+  const html = code(b.html);
+  const css = code(b.css);
+  if (animationCodeProblems({ js, html, css }).length > 0) return null;
+  return {
+    type: 'animation',
+    title,
+    caption,
+    alt,
+    poster,
+    ...(html !== undefined ? { html } : {}),
+    ...(css !== undefined ? { css } : {}),
+    js,
+  };
+}
+
 export const MAX_PHOTO_ALT = 300;
 
 /** Converts one draft block; null drops it. */
@@ -163,17 +218,28 @@ export function convertBlock(b: DraftBlock, ctx: ConvertContext, blockIndex = -1
       const alt = capText(collapseWs(r.alt), MAX_PHOTO_ALT) || caption;
       return { type: 'figure', assetId: r.assetId, caption, alt };
     }
-    case 'explorable': {
-      // 07 §5.2: every number clamped into its range; text capped; an unusable one is dropped.
-      const sim = clampSim(b.sim);
-      const title = capText(collapseWs(b.title), MAX_EXPLORABLE_TITLE);
-      if (!sim || !title || JSON.stringify(sim).length > MAX_EXPLORABLE_PARAMS) {
-        ctx.warn('explorable-dropped');
-        return null;
+    case 'animation': {
+      // 07 §5.2: a keep marker resolves to the section's existing animation (new text allowed);
+      // anything else must pass every check, or it is dropped (never a repair).
+      if (b.js === ANIMATION_KEEP && b.poster === ANIMATION_KEEP) {
+        const old = ctx.keepAnimation?.();
+        if (!old) {
+          ctx.warn('animation-dropped');
+          return null;
+        }
+        const title = capText(collapseWs(b.title), MAX_ANIMATION_TITLE) || old.title;
+        const caption = capText(collapseWs(b.caption), MAX_ANIMATION_CAPTION) || old.caption;
+        const alt = capText(collapseWs(b.alt), MAX_ANIMATION_ALT) || old.alt;
+        const again = checkAnimation(
+          { ...old, title, caption, alt },
+          svgIdPrefix(old.poster) ?? mintDiagramPrefix(ctx.idSource),
+        );
+        if (!again) ctx.warn('animation-dropped');
+        return again;
       }
-      const caption = capText(collapseWs(b.caption), MAX_EXPLORABLE_CAPTION);
-      const alt = capText(collapseWs(b.alt), MAX_EXPLORABLE_ALT) || title;
-      return { type: 'explorable', title, caption, alt, sim };
+      const kept = checkAnimation(b, mintDiagramPrefix(ctx.idSource));
+      if (!kept) ctx.warn('animation-dropped');
+      return kept;
     }
     case 'stepper': {
       const steps = b.steps.filter((s) => collapseWs(s.label) !== '' || collapseWs(s.md) !== '');
@@ -194,16 +260,16 @@ export function convertBlock(b: DraftBlock, ctx: ConvertContext, blockIndex = -1
 
 export function convertBlocks(blocks: readonly DraftBlock[], ctx: ConvertContext): DocBlock[] {
   const out: DocBlock[] = [];
-  let explorables = 0;
+  let animations = 0;
   for (const [i, b] of blocks.entries()) {
     const c = convertBlock(b, ctx, i);
     if (!c) continue;
-    if (c.type === 'explorable') {
-      if (explorables >= MAX_EXPLORABLES_PER_SECTION || (ctx.takeExplorable && !ctx.takeExplorable())) {
-        ctx.warn('explorable-dropped');
+    if (c.type === 'animation') {
+      if (animations >= MAX_ANIMATIONS_PER_SECTION || (ctx.takeAnimation && !ctx.takeAnimation())) {
+        ctx.warn('animation-dropped');
         continue;
       }
-      explorables++;
+      animations++;
     }
     out.push(c);
   }

@@ -70,10 +70,10 @@ describe('task functions (02 §12) with FakeProvider and the default script', ()
     expect(p.promptText).not.toContain('<source ref="x">'); // delimiter in content is neutralised
     const indepth = await tasks.generateIndepth(p, { ...ctx, glossary: true });
     expect(DocumentDraftTabSchema.parse(indepth.draft).kind).toBe('indepth');
-    expect(indepth.prompt).toBe('in-depth@3');
+    expect(indepth.prompt).toBe('in-depth@4');
     const eli5 = await tasks.generateEli5(p, ctx);
     expect(eli5.draft.kind).toBe('eli5');
-    expect(eli5.prompt).toBe('eli5@4');
+    expect(eli5.prompt).toBe('eli5@5');
     // SVG text rules (real-document regression): attributes, not style; readable, non-overlapping labels.
     for (const task of ['eli5', 'in-depth'] as const) {
       const sys = fake.calls.find((c) => c.taskId === task)?.system ?? '';

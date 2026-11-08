@@ -3,12 +3,14 @@
 import { DocumentFormatError } from './errors';
 import { attr, findAll, findById, innerSpan, outerSpan, parseTree, rawInner, textOf, type Span } from './html-tree';
 import { fromDataUri, sha256Hex } from './images';
+import { animationScriptHashes } from './animation';
 import { modelJson, renderSectionHtml } from './render/page';
 import { PALETTE_RUNTIME_VERSION, compareRuntimeVersions } from './runtime-assets';
 import { DocumentModelSchema } from './schema';
 import { sanitizeSvg } from './svg-sanitize';
 import { DEFAULT_FOOTER, parseThemeCss, parseThemeDarkCss } from './theme';
 import type { DocBlock, DocTheme, DocumentModel, ParsedDocument, Section } from './types';
+import { checkAnimation, svgIdPrefix } from './validate';
 
 /** The newest `formatVersion` this build understands (07 §3). */
 export const FORMAT_VERSION = 1;
@@ -37,8 +39,8 @@ function legacyPalette(model: DocumentModel): boolean {
 }
 
 /**
- * The model JSON is file content, not trusted build output: diagram SVG is re-run through the
- * 07 §7.3 sanitizer (a fixed point for builder output, so round-trips stay byte-exact) and
+ * The model JSON is file content, not trusted build output: diagram SVG (and every animation, 07
+ * §7.1) is re-run through the 07 §7.3 sanitizer (a fixed point for builder output, so round-trips stay byte-exact) and
  * diagrams that do not survive are dropped. SVG stored under the old palette has its theme
  * classes renumbered once (the sanitizer's palette mark stops a second pass).
  */
@@ -46,6 +48,13 @@ function resanitizeDiagrams(model: DocumentModel): void {
   const legacy = legacyPalette(model);
   const clean = (sec: Section): void => {
     sec.blocks = sec.blocks.flatMap((b): DocBlock[] => {
+      if (b.type === 'animation') {
+        // 07 §8: the same checks as at build (poster sanitizer, caps, lint); a fixed point for
+        // builder output, so round-trips stay byte-exact. A hand-edited one that fails is dropped.
+        const prefix = svgIdPrefix(b.poster) ?? `d${sha256Hex(new TextEncoder().encode(b.poster)).slice(0, 8)}-`;
+        const kept = checkAnimation(b, prefix);
+        return kept ? [kept] : [];
+      }
       if (b.type !== 'diagram') return [b];
       const idPrefix =
         DIAGRAM_PREFIX_RE.exec(b.svg)?.[1] ?? `d${sha256Hex(new TextEncoder().encode(b.svg)).slice(0, 8)}-`;
@@ -150,5 +159,22 @@ export function spliceSection(
   const [first, second] = sec.start > json.start ? [sec, json] : [json, sec];
   const firstRep = first === sec ? sectionHtml : newJson;
   const secondRep = second === sec ? sectionHtml : newJson;
-  return spliceSpan(spliceSpan(html, first, firstRep), second, secondRep);
+  return withFrameHashes(spliceSpan(spliceSpan(html, first, firstRep), second, secondRep), model);
+}
+
+const CSP_META_RE = /(<meta http-equiv="Content-Security-Policy" content="[^"]*?script-src '[^' ]+')([^;"]*)/;
+
+/**
+ * The head CSP admits the runtime and every animation frame's scripts (07 §6.2): after a splice
+ * that adds or removes an animation, the frame hashes after the runtime hash are rewritten, so the
+ * file still equals a full render. Every other byte stays.
+ */
+function withFrameHashes(html: string, model: DocumentModel): string {
+  const blocks = model.tabs.flatMap((t) =>
+    t.sections.flatMap((s) => s.blocks.flatMap((b) => (b.type === 'animation' ? [b] : []))),
+  );
+  const tail = animationScriptHashes(blocks)
+    .map((h) => ` ${h}`)
+    .join('');
+  return html.replace(CSP_META_RE, (_m, head: string) => head + tail);
 }

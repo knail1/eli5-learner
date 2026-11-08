@@ -54,6 +54,14 @@ class UrlPolicyTest {
         assertEquals(UrlDecision.Block, UrlPolicy.forNavigation("https://example.com", doc, hasGesture = true, isMainFrame = false))
     }
 
+    @Test fun `an animation frame may load its srcdoc in a subframe, and nothing else may load there`() {
+        assertEquals(UrlDecision.Allow, UrlPolicy.forNavigation("about:srcdoc", doc, hasGesture = false, isMainFrame = false))
+        assertEquals(UrlDecision.Block, UrlPolicy.forNavigation("about:srcdoc", doc, hasGesture = true, isMainFrame = true))
+        for (u in listOf("about:blank", "https://x.example/", "data:text/html,x", "javascript:alert(1)")) {
+            assertEquals(u, UrlDecision.Block, UrlPolicy.forNavigation(u, doc, hasGesture = true, isMainFrame = false))
+        }
+    }
+
     @Test fun `every other scheme, host or document is dropped`() {
         val other = UrlPolicy.docUrl("local-x", "f".repeat(64))
         for (bad in listOf(

@@ -275,7 +275,7 @@ describe('a create job end to end (06 §3.2, §5, §6)', () => {
       warnings: [],
     });
     expect(meta.generation.prompts).toEqual(
-      expect.arrayContaining(['in-depth@3', 'eli5@4', 'glossary@2', 'summary@1']),
+      expect.arrayContaining(['in-depth@4', 'eli5@5', 'glossary@2', 'summary@1']),
     );
     // 02 §9 provenance: the set in effect and the digest over the prompts and fragments used.
     expect(meta.generation.promptSet).toBe('default');

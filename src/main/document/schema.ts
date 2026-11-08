@@ -1,7 +1,6 @@
 // zod schema for the embedded `#eli5-model` (07 §3, §8: parseDocument validates it).
 import { z } from 'zod';
-import { ChartSpecSchema, ExplorableBlockSchema } from '../llm';
-import type { ExplorableSim } from '../../shared/explorable';
+import { AnimationBlockSchema, ChartSpecSchema } from '../llm';
 import { QA_ID_RE } from './ids';
 import { SECTION_ID_RE, TAB_KEY_RE, TAB_KINDS } from './section-id';
 import type { DocBlock, DocumentModel, SectionId } from './types';
@@ -51,7 +50,7 @@ export const DocBlockSchema = z.discriminatedUnion('type', [
     paragraphs: z.array(z.string().min(1).max(1200)).min(1).max(4),
     askedAt: z.string(),
   }),
-  ExplorableBlockSchema,
+  AnimationBlockSchema,
 ]);
 
 const EnhRangeSchema = z.object({ merge: z.string(), start: z.number().int().min(0), end: z.number().int().min(0) });
@@ -171,6 +170,4 @@ type Assert<T extends true> = T;
 export type _SchemaChecks = [
   Assert<Same<z.infer<typeof DocBlockSchema>, DocBlock>>,
   Assert<z.infer<typeof DocumentModelSchema> extends DocumentModel ? true : false>,
-  // The draft schema and the shared math describe the same parameters (07 §7.1).
-  Assert<Same<z.infer<typeof ExplorableBlockSchema>['sim'], ExplorableSim>>,
 ];

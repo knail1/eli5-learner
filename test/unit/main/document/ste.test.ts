@@ -36,6 +36,7 @@ import { readGolden, STUB_RUNTIME } from '../../../fixtures/documents/runtime';
 import { SHOWCASE_PHOTOS } from '../../../fixtures/documents/showcase';
 import { validateDocument } from '../../../helpers/doc-validity';
 import { SeededIdSource } from '../../../helpers/ids';
+import { PACKING_ANIMATION } from '../../../fixtures/documents/animation';
 
 const STE_DRAFT: DocumentDraftTab = {
   kind: 'ste',
@@ -100,33 +101,18 @@ describe('buildDocumentModel with an ASD-STE100 tab (07 §5)', () => {
     }
   });
 
-  it('never keeps more explorables in the STE tab than In depth holds', () => {
-    const gd = {
-      type: 'explorable' as const,
-      title: 'Too small crawls, too big overshoots',
-      caption: 'Drag the learning rate.',
-      alt: 'A bowl-shaped error curve with three paths.',
-      sim: {
-        kind: 'gradient-descent' as const,
-        surface: 'bowl' as const,
-        scale: 1.5,
-        start: -4,
-        lr: { min: 0.001, max: 2, value: 0.1 },
-        steps: 60,
-        presets: [0.001, 0.1, 1.5],
-      },
-    };
+  it('never keeps more animations in the STE tab than In depth holds', () => {
+    const gd = PACKING_ANIMATION;
     const sections = Array.from({ length: 5 }, (_, i) => ({ heading: `Part ${i + 1}`, blocks: [gd] }));
     const count = (m: DocumentModel, key: string): number =>
-      (m.tabs.find((t) => t.key === key)?.sections ?? [])
-        .flatMap((s) => s.blocks)
-        .filter((b) => b.type === 'explorable').length;
-    // In depth without explorables: the STE tab keeps none.
+      (m.tabs.find((t) => t.key === key)?.sections ?? []).flatMap((s) => s.blocks).filter((b) => b.type === 'animation')
+        .length;
+    // In depth without animations: the STE tab keeps none.
     const none = buildDocumentModel(steInput({ ste: { tab: { ...STE_DRAFT, sections }, origins: [] } }));
     expect(count(none.model, 'indepth')).toBe(0);
     expect(count(none.model, 'ste')).toBe(0);
-    expect(none.warnings).toContain('explorable-dropped');
-    // In depth with one explorable: the STE tab keeps at most one.
+    expect(none.warnings).toContain('animation-dropped');
+    // In depth with one animation: the STE tab keeps at most one.
     const base = fixtureInput('full');
     const indepth = {
       ...base.indepth,

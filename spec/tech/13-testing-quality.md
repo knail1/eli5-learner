@@ -77,7 +77,7 @@ format has one source of truth for both apps.
 | Contract | Vitest | Each seam implementation against its contract suite | Every push (public); private CI (enterprise) | < 1 min |
 | Document validity | Vitest + hidden `BrowserWindow` probe in e2e | Every golden and every e2e-generated `index.html` | Every push | inside unit/e2e budgets |
 | End-to-end | Playwright `_electron` against the built public app | User flows through the real UI | Every push to PR and `main` | < 10 min |
-| Cross-browser smoke | Playwright Chromium and WebKit | Golden documents opened as files | Every push | < 2 min |
+| Cross-browser smoke | Playwright Chromium and WebKit (animation frames also Firefox) | Golden documents opened as files | Every push | < 2 min |
 | Visual regression | Playwright `toHaveScreenshot` (Chromium, WebKit, Electron) | Golden document components and app screens against committed baselines (§7.4) | Every push, non-blocking in CI | < 2 min |
 | Evals | Vitest runner + real providers + LLM judge | Generation quality | Nightly and manual | cost-capped (§9.6) |
 
@@ -241,7 +241,8 @@ export type ValidityRule =
 | Rule | Check |
 | --- | --- |
 | `parse` | Parses with `parse5` with zero errors in the `<html>`, `<head>`, `<body>` structure; exactly one `<html>`. |
-| `single-file` | No `<link rel=stylesheet href>`, no `<script src>`, no `<iframe>`, `<object>`, `<embed>`. All CSS and JS inline. Images only as `data:` URIs or inline SVG. |
+| `single-file` | No `<link rel=stylesheet href>`, no `<script src>`, no `<object>`, `<embed>`. All CSS and JS inline. Images only as `data:` URIs or inline SVG. |
+| `animation-frame` | The only `<iframe>` is an animation frame of the exact 07 §7.1 shape: in `figure.animation`, attributes `sandbox="allow-scripts"`, `srcdoc`, `title`, `referrerpolicy`, `loading`, `aria-describedby` in that order, a srcdoc that is exactly the skeleton around a known shell whose CSP pins its two scripts, code that passes the lint, and both hashes in the document's `script-src`. |
 | `no-external-ref` | No attribute (`src`, `href` on non-anchor elements, `srcset`, `poster`, `action`, `formaction`, `xlink:href`) and no CSS `url(...)` / `@import` resolves to `http:`, `https:`, `//`, `file:` or a relative path. Anchor `href` may be external (references list) but must carry `rel="noopener noreferrer"` and `target="_blank"`. |
 | `csp` | `<meta http-equiv="Content-Security-Policy">` present, placed in `<head>` before any `<style>` or `<script>`, and at least as strict as the policy in [07](07-output-document.md) (`default-src 'none'`, no `connect-src` other than `'none'`); its `script-src` hash matches the embedded runtime script. |
 | `section-id-format` | Every `<section>` in a tab panel has `id` matching `SECTION_ID_RE` imported from `src/main/document/model.ts` (07 §3: `^sec-[a-z][a-z0-9]{1,15}-[0-9a-f]{8}$`; not restated in test code), and the tab key segment equals the enclosing tab's key. |

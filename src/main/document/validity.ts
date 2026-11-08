@@ -1,6 +1,7 @@
 // Static document validity checks (13 §7, §7.1). Used by test/helpers/doc-validity.ts and by the
 // writers before every save, so an invalid document is never written.
 import { createHash } from 'node:crypto';
+import { checkAnimationFrame } from './animation';
 import { attr, findAll, parseTree, textOf, walk, type P5Element } from './html-tree';
 import { SECTION_ID_RE } from './section-id';
 
@@ -19,6 +20,7 @@ export type ValidityRule =
   | 'references'
   | 'no-inline-handlers'
   | 'photo-credit'
+  | 'animation-frame'
   | 'size';
 
 export interface ValidityError {
@@ -128,11 +130,21 @@ export function checkDocumentHtml(html: string, meta?: ValidityMeta): ValidityRe
     all.push(el);
   });
 
+  // animation-frame (07 §6.2, §7.1): the only allowed iframe is an animation frame of the exact
+  // shape; its script hashes must also be in the document's script-src (srcdoc inherits the CSP).
+  const frameHashes: string[] = [];
+  walk(doc, (el, anc) => {
+    if (el.tagName !== 'iframe') return;
+    const inFigure = anc.some((a) => a.tagName === 'figure' && attr(a, 'class') === 'animation');
+    const r = checkAnimationFrame(el.attrs, inFigure);
+    if ('problems' in r) for (const p of r.problems) err('animation-frame', p);
+    else for (const h of r.hashes) if (!frameHashes.includes(h)) frameHashes.push(h);
+  });
+
   // single-file, no-external-ref, no-inline-handlers
   for (const el of all) {
     const tag = el.tagName;
-    if (tag === 'iframe' || tag === 'object' || tag === 'embed' || tag === 'frame' || tag === 'base')
-      err('single-file', `<${tag}>`);
+    if (tag === 'object' || tag === 'embed' || tag === 'frame' || tag === 'base') err('single-file', `<${tag}>`);
     if (tag === 'link') err('single-file', `<link rel="${attr(el, 'rel') ?? ''}">`);
     if (tag === 'script' && attr(el, 'src') !== undefined) err('single-file', '<script src>');
     for (const a of el.attrs) {
@@ -186,9 +198,11 @@ export function checkDocumentHtml(html: string, meta?: ValidityMeta): ValidityRe
       .filter((el) => attr(el, 'src') === undefined && JS_TYPES.test(attr(el, 'type') ?? ''))
       .map((el) => `'sha256-${sha256B64(textOf(el))}'`);
     if ((csp.get('default-src') ?? []).join(' ') !== "'none'") err('csp', "default-src is not 'none'");
+    for (const h of hashes)
+      if (frameHashes.includes(h)) err('csp', `an inline script of the document has an animation frame hash ${h}`);
     for (const [name, sources] of csp) {
       if (name === 'default-src') continue;
-      const allowed = name === 'script-src' ? hashes : (REFERENCE_CSP.get(name) ?? ["'none'"]);
+      const allowed = name === 'script-src' ? [...hashes, ...frameHashes] : (REFERENCE_CSP.get(name) ?? ["'none'"]);
       const extra = sources.filter((s) => !allowed.includes(s) && !(s === "'none'" && sources.length === 1));
       if (extra.length > 0) err('csp', `${name} looser than 07 §6.2: ${extra.join(' ')}`);
     }
@@ -196,6 +210,8 @@ export function checkDocumentHtml(html: string, meta?: ValidityMeta): ValidityRe
       if ((csp.get(name) ?? []).join(' ') !== "'none'") err('csp', `${name} is not 'none'`);
     const scriptSrc = csp.get('script-src') ?? [];
     for (const h of hashes) if (!scriptSrc.includes(h)) err('csp', `inline script ${h} not allowed by script-src`);
+    for (const h of frameHashes)
+      if (!scriptSrc.includes(h)) err('csp', `animation frame script ${h} not allowed by script-src`);
   }
 
   // sections and tabs

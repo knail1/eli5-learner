@@ -17,7 +17,8 @@ import type {
   SectionId,
   Tab,
 } from './types';
-import { convertBlocks, countExplorables, explorableBudget, isUserQuestion } from './validate';
+import { ANIMATION_KEEP } from './animation';
+import { animationBudget, convertBlocks, countAnimations, isUserQuestion } from './validate';
 
 /** 07 §5.4: up to 3 fixed tabs (indepth, eli5, ste) + 20 section ELI5 tabs. */
 export const MAX_SECTION_ELI5_TABS = 20;
@@ -34,10 +35,22 @@ function findSection(model: DocumentModel, id: SectionId): { tab: Tab; section: 
 
 /**
  * DocBlock -> DraftBlock: figure assetId mapped back to its image label (07 §8). Answer boxes are
- * doc-only and have no draft form (null), so the model never sees or echoes them.
+ * doc-only and have no draft form (null), so the model never sees or echoes them; an animation's
+ * code and poster are replaced by the keep marker (ANIMATION_KEEP).
  */
 function toDraftBlock(model: DocumentModel, b: DocBlock): DraftBlock | null {
   if (b.type === 'qa') return null;
+  if (b.type === 'animation') {
+    // 08 §6.2: the model sees an existing animation's text only; returning the keep marker keeps it.
+    return {
+      type: 'animation',
+      title: b.title,
+      caption: b.caption,
+      alt: b.alt,
+      poster: ANIMATION_KEEP,
+      js: ANIMATION_KEEP,
+    };
+  }
   if (b.type !== 'figure') return b;
   const label = model.assets.find((a) => a.id === b.assetId)?.label ?? b.assetId;
   return {
@@ -110,16 +123,21 @@ export function replaceSection(
   const warn = (w: string): void => {
     warnings.push(w);
   };
-  // 07 §5.2 explorable caps, counting every other section of the tab and the document.
+  // 07 §5.2 animation caps, counting every other section of the tab and the document. A keep
+  // marker in the draft takes the section's own animations back in order (08 §6.2).
+  const ownAnimations = hit.section.blocks.filter(
+    (b): b is Extract<DocBlock, { type: 'animation' }> => b.type === 'animation',
+  );
   const others = (secs: readonly Section[]): number =>
-    secs.reduce((n, s) => n + (s.id === id ? 0 : countExplorables(s.blocks)), 0);
+    secs.reduce((n, s) => n + (s.id === id ? 0 : countAnimations(s.blocks)), 0);
   const blocks = convertBlocks(draft.blocks, {
     idSource: opts.idSource ?? cryptoIdSource,
     resolveFigure: assetResolver(model, opts),
-    takeExplorable: explorableBudget(
+    takeAnimation: animationBudget(
       { n: model.tabs.reduce((n, t) => n + others(t.sections), 0) },
       others(hit.tab.sections),
     ),
+    keepAnimation: () => ownAnimations.shift(),
     warn,
   });
   if (blocks.length === 0) throw new DocumentBuildError('empty_section');
@@ -309,8 +327,8 @@ export function addSectionEli5Tab(
     idSource,
     taken,
     resolveFigure: assetResolver(model, opts),
-    takeExplorable: explorableBudget({
-      n: model.tabs.reduce((n, t) => n + t.sections.reduce((k, s) => k + countExplorables(s.blocks), 0), 0),
+    takeAnimation: animationBudget({
+      n: model.tabs.reduce((n, t) => n + t.sections.reduce((k, s) => k + countAnimations(s.blocks), 0), 0),
     }),
     warn: (w) => {
       warnings.push(w);

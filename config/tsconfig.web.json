@@ -10,7 +10,6 @@
     "../src/env.d.ts",
     "../src/renderer/**/*",
     "../src/doc-runtime/**/*",
-    "../src/shared/**/*",
     "../src/preload/contract.ts",
     "../src/main/config/schema.ts",
     "../src/preload/api.d.ts"

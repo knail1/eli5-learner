@@ -50,7 +50,7 @@ describe('validateDocument rules (13 §7.1)', () => {
     // single-file: self-contained
     ['script src', inHead('<script src="runtime.js"></script>'), 'single-file'],
     ['stylesheet link', inHead('<link rel="stylesheet" href="x.css">'), 'single-file'],
-    ['iframe', inMain('<iframe></iframe>'), 'single-file'],
+    ['iframe', inMain('<iframe></iframe>'), 'animation-frame'],
     ['object', inMain('<object></object>'), 'single-file'],
     ['embed', inMain('<embed>'), 'single-file'],
     ['base', inHead('<base href="#">'), 'single-file'],

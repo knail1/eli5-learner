@@ -1,6 +1,6 @@
 /**
  * The 'showcase' golden (13 §7, visual regression): the components the other goldens lack. A
- * four-step stepper, both explorable kinds (07 §7.1), open-licensed stock photos with their credits in both tabs (07 §7.4, so the
+ * four-step stepper, an AI-authored topic animation (07 §7.1, animation.ts), open-licensed stock photos with their credits in both tabs (07 §7.4, so the
  * references end with "Image credits"), and an "ELI5 this selection" tab that quotes the selection
  * (08 §7.5). Synthetic "Example Widgets Inc." content only; the photos are generated in memory.
  * `steModel` reuses these drafts for the 'with-ste' golden (an ASD-STE100 tab, 07 §5).
@@ -15,6 +15,7 @@ import {
 } from '../../../src/main/document';
 import type { DocumentDraftTab } from '../../../src/main/llm';
 import { SeededIdSource } from '../../helpers/ids';
+import { PACKING_ANIMATION } from './animation';
 import { fixtureInput, makePng } from './drafts';
 
 export const SHOWCASE_SELECTION = 'The warehouse picks, packs and ships every order within two days.';
@@ -65,51 +66,13 @@ export const SHOWCASE_INDEPTH: DocumentDraftTab = {
       ],
     },
     {
-      heading: 'How the routing model learns',
+      heading: 'Why the packing line backs up',
       blocks: [
         {
           type: 'paragraph',
-          md: 'The model that plans picker routes learns by small corrections. The size of each correction is its learning rate.',
+          md: 'Orders arrive at about five a minute and each packer packs two. One packer too few, and the queue grows all shift.',
         },
-        {
-          type: 'explorable',
-          title: 'Too small crawls, too big overshoots',
-          caption: 'Drag the learning rate. Small steps crawl toward the bottom; big steps overshoot and fly off.',
-          alt: 'An error curve shaped like a bowl with three paths of a ball: one barely moves, one settles at the bottom, one bounces away.',
-          sim: {
-            kind: 'gradient-descent',
-            surface: 'bowl',
-            scale: 1.5,
-            start: -4,
-            lr: { min: 0.001, max: 2, value: 0.1 },
-            steps: 60,
-            presets: [0.001, 0.1, 1.5],
-          },
-        },
-      ],
-    },
-    {
-      heading: 'Guessing delivery times',
-      blocks: [
-        {
-          type: 'paragraph',
-          md: 'To estimate how long deliveries take, the planner walks through likely values at random.',
-        },
-        {
-          type: 'explorable',
-          title: 'Step size decides how well the walker explores',
-          caption: 'Drag the step size and press Play. Watch where the walker spends its time.',
-          alt: 'A bell-shaped curve with three strips under it: one narrow, one as wide as the curve, one with a few scattered marks.',
-          sim: {
-            kind: 'metropolis-walk',
-            target: 'normal',
-            start: 0,
-            stepSize: { min: 0.01, max: 50, value: 1 },
-            steps: 300,
-            seed: 7,
-            presets: [0.05, 1, 20],
-          },
-        },
+        PACKING_ANIMATION,
       ],
     },
   ],
@@ -259,23 +222,13 @@ export const SHOWCASE_STE: DocumentDraftTab = {
       ],
     },
     {
-      heading: 'How the routing model learns',
+      heading: 'Why the packing line gets long',
       blocks: [
         {
           type: 'paragraph',
-          md: 'The routing model makes small corrections. The learning rate sets the size of each correction.',
+          md: 'About five orders arrive each minute. Each packer packs two orders each minute. With too few packers, the line gets longer during the shift.',
         },
         kept(2, 1),
-      ],
-    },
-    {
-      heading: 'How the planner estimates delivery times',
-      blocks: [
-        {
-          type: 'paragraph',
-          md: 'The planner tries likely values at random. It keeps the values that agree with the data.',
-        },
-        kept(3, 1),
       ],
     },
   ],
@@ -285,7 +238,6 @@ export const SHOWCASE_STE_ORIGINS: readonly (readonly (KeepOrigin | null)[])[] =
   [null, null, { section: 0, block: 2 }],
   [null, { section: 1, block: 1 }],
   [null, { section: 2, block: 1 }],
-  [null, { section: 3, block: 1 }],
 ];
 
 /**

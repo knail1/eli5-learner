@@ -1,9 +1,11 @@
 /**
- * The document CSP is unchanged by explorables (07 §6.2, §6.3; design §3.1): no new hash, no new
- * directive, no frame source. The policy text is pinned byte for byte.
+ * The document CSP (07 §6.2, §6.3): pinned byte for byte. A document without animations carries
+ * exactly the policy older documents have; one with animations adds only its frames' script hashes
+ * (an about:srcdoc frame inherits this policy), and frame-src stays 'none'.
  */
 import { describe, expect, it } from 'vitest';
 import { documentCsp, renderDocument, scriptHash } from '../../../../src/main/document';
+import { animationScriptHashes } from '../../../../src/main/document/animation';
 import { fixtureDocument } from '../../../fixtures/documents/models';
 import { STUB_RUNTIME } from '../../../fixtures/documents/runtime';
 
@@ -19,14 +21,20 @@ describe('document CSP (07 §6.2)', () => {
     );
   });
 
-  it('a document with explorables carries the same policy as one without', () => {
+  it('a document with an animation differs only by the frame hashes after the runtime hash', () => {
     const show = fixtureDocument('showcase');
     const full = fixtureDocument('full');
     const a = renderDocument(show.model, show.assets, { runtime: STUB_RUNTIME, theme: show.theme });
     const b = renderDocument(full.model, full.assets, { runtime: STUB_RUNTIME, theme: full.theme });
-    expect(a).toContain('<figure class="explorable"');
-    expect(cspOf(a)).not.toBe('');
-    expect(cspOf(a)).toBe(cspOf(b));
-    expect(cspOf(a)).toBe(documentCsp(STUB_RUNTIME.js));
+    expect(a).toContain('<figure class="animation"');
+    const frames = animationScriptHashes(
+      show.model.tabs.flatMap((t) =>
+        t.sections.flatMap((s) => s.blocks.flatMap((x) => (x.type === 'animation' ? [x] : []))),
+      ),
+    );
+    expect(frames).toHaveLength(2);
+    expect(cspOf(b)).toBe(documentCsp(STUB_RUNTIME.js));
+    expect(cspOf(a)).toBe(documentCsp(STUB_RUNTIME.js, frames));
+    expect(cspOf(a).replace(` ${frames.join(' ')}`, '')).toBe(cspOf(b));
   });
 });
