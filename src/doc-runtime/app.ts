@@ -39,26 +39,50 @@ export function initCloseButtons(doc: Document, bridge: DocBridge): void {
   }
 }
 
-/** 08 §7.4 step 5-6: activate, scroll under the tab bar, flash, focus the heading. */
+/** Flashes `el` once (08 §7.4 step 5); the CSS keeps a static outline under reduced motion. */
+function flash(el: Element): void {
+  el.classList.add('eli5-flash');
+  setTimeout(() => el.classList.remove('eli5-flash'), FLASH_MS);
+}
+
+/**
+ * 08 §7.4 step 5-6: activate, scroll under the tab bar, flash, focus the heading. With an `anchorId`
+ * that resolves inside the activated tab (an answer box, 08 Ask), that element is centred, flashed
+ * and focused instead, and an answer box opens its question.
+ */
 export function initScroll(doc: Document, win: Window, bridge: DocBridge, tabs: TabsApi): void {
   bridge.onScrollTo((e) => {
     const section = e.sectionId ? doc.getElementById(e.sectionId) : null;
-    const key = e.tabKey ?? (e.sectionId ? tabs.tabOfSection(e.sectionId) : undefined);
+    const anchor = e.anchorId ? doc.getElementById(e.anchorId) : null;
+    const anchorSection = anchor?.closest('section[data-section-id]')?.id;
+    const key =
+      e.tabKey ??
+      (e.sectionId ? tabs.tabOfSection(e.sectionId) : anchorSection ? tabs.tabOfSection(anchorSection) : undefined);
     if (!key || !tabs.activateTab(key, { history: false }) || (e.sectionId && !section)) {
       tabs.activateTab(tabs.keys()[0] ?? 'indepth', { history: false });
       return;
     }
-    const target = section ?? tabs.panel(key);
+    const panel = tabs.panel(key);
+    const box = anchor && panel?.contains(anchor) ? (anchor as HTMLElement) : null;
+    const target = section ?? panel;
     const raf =
       typeof win.requestAnimationFrame === 'function'
         ? win.requestAnimationFrame.bind(win)
         : (cb: () => void) => setTimeout(cb, 0);
     raf(() => {
-      target?.scrollIntoView?.({ block: 'start' });
-      if (section && e.flash) {
-        section.classList.add('eli5-flash');
-        setTimeout(() => section.classList.remove('eli5-flash'), FLASH_MS);
+      if (box) {
+        if (box.classList.contains('qa')) {
+          const q = box.querySelector<HTMLDetailsElement>('details.qa-q');
+          if (q) q.open = true;
+        }
+        box.scrollIntoView?.({ block: 'center' });
+        if (e.flash) flash(box);
+        box.tabIndex = -1;
+        box.focus({ preventScroll: true });
+        return;
       }
+      target?.scrollIntoView?.({ block: 'start' });
+      if (section && e.flash) flash(section);
       const h = section?.querySelector<HTMLElement>(':scope > h2');
       if (h) {
         h.tabIndex = -1;

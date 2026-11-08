@@ -14,7 +14,7 @@ export {
   runtimeFor,
 } from './regenerate';
 export type { RunnerEnv } from './regenerate';
-export { SELECTION_CONTEXT_CHARS, selectionContext } from './selection-context';
+export { SELECTION_CONTEXT_CHARS, blockIndexOfSelection, selectionContext } from './selection-context';
 export { NOTICES, createInteractiveReading } from './service';
 export type { InteractiveReading } from './service';
 export { SectionActionError, mirrorTabs, failureNotice } from './types';

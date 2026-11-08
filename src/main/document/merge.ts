@@ -12,7 +12,8 @@ import { enhanceBlocks, type BlockOrigin } from './enhance';
 import { DocumentBuildError } from './errors';
 import { MAX_GLOSSARY_NOTES, placeGlossary, reanchorSection } from './glossary';
 import { capText, collapseWs } from './html';
-import { mintDiagramPrefix, sectionIdsOf } from './ids';
+import { mintDiagramPrefix, mintQaId, qaIdsOf, sectionIdsOf } from './ids';
+import { carryAnswers } from './mutate';
 import { parseDocument } from './parse';
 import { renderDocument } from './render';
 import { cryptoIdSource, ELI5_TAB_KEY, INDEPTH_TAB_KEY, mintSectionId, type IdSource } from './section-id';
@@ -135,6 +136,8 @@ function blockLine(b: DocBlock, i: number, label: (assetId: string) => string): 
       return `${at} diagram: "${one(b.title)}" (${one(b.alt)})`;
     case 'figure':
       return `${at} figure [${label(b.assetId)}]: ${one(b.caption)}`;
+    case 'qa':
+      return `${at} Reader Q&A: ${one(b.topic)}`;
     case 'stepper':
       return [
         `${at} stepper: "${one(b.title)}"`,
@@ -323,6 +326,8 @@ export function applyMergePlan(
   };
 
   const used = new Set<string>([...sectionIdsOf(t.tabs), ...(opts.retiredIds ?? [])]);
+  /** Answer box ids in use; an incoming box whose id collides gets a fresh one (07 §7.1). */
+  const qaIds = new Set<string>([...qaIdsOf(t.tabs), ...t.glossary.map((n) => n.id)]);
   const assets = new Map(prep.target.assets);
   const assetRefs: AssetRef[] = [...t.assets];
   const sourceAssetRefs = new Map(s.assets.map((a) => [a.id, a]));
@@ -348,6 +353,15 @@ export function applyMergePlan(
       }
   /** An incoming block moved into the target: figures re-pointed, colliding diagram ids re-minted. */
   const moveIncoming = (b: DocBlock): DocBlock | undefined => {
+    if (b.type === 'qa') {
+      if (!qaIds.has(b.id) && !used.has(b.id)) {
+        qaIds.add(b.id);
+        return b;
+      }
+      const id = mintQaId(idSource, { has: (x) => qaIds.has(x) || used.has(x) });
+      qaIds.add(id);
+      return { ...b, id };
+    }
     if (b.type === 'figure') {
       const assetId = importAsset(b.assetId);
       return assetId ? { ...b, assetId } : undefined;
@@ -382,7 +396,8 @@ export function applyMergePlan(
     for (const b of blocks) {
       if (b.type === 'keep') {
         const kept = old?.blocks[b.block];
-        if (!kept) {
+        // An answer box kept twice would repeat its element id; the second copy is dropped.
+        if (!kept || (kept.type === 'qa' && out.some((x) => x.type === 'qa' && x.id === kept.id))) {
           warn('merge-block-dropped');
           continue;
         }
@@ -432,11 +447,16 @@ export function applyMergePlan(
         warn('merge-unknown-section');
         continue;
       }
-      const { blocks, origins } = resolveBlocks(r.blocks, old);
-      if (blocks.length === 0) {
+      const resolved = resolveBlocks(r.blocks, old);
+      if (resolved.blocks.length === 0) {
         warn('merge-section-empty');
         continue;
       }
+      // Answer boxes the plan dropped are re-appended unchanged (07 §7.1), so deep links survive.
+      const blocks = carryAnswers(old.blocks, resolved.blocks);
+      const origins = [...resolved.origins];
+      for (const b of blocks.slice(resolved.blocks.length))
+        origins.push({ kind: 'keep', index: old.blocks.indexOf(b) });
       const wasPlaceholder = old.origin === 'placeholder';
       if (wasPlaceholder) placeholderGone = true;
       const marks = wasPlaceholder

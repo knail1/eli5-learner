@@ -60,8 +60,18 @@ export {
   sectionEli5Label,
   sectionIdsOfTab,
   sectionToDraft,
+  insertAnswer,
+  carryAnswers,
   MAX_SECTION_ELI5_TABS,
+  MAX_QA_QUESTION,
+  MAX_QA_TOPIC,
+  MAX_QA_QUOTE,
+  MAX_QA_PARAGRAPHS,
+  MAX_QA_PARAGRAPH,
 } from './mutate';
+export type { AnswerInput } from './mutate';
+export { mintQaId, QA_ID_RE } from './ids';
+export { isUserQuestion } from './validate';
 export {
   DocumentFormatError,
   DocumentBuildError,

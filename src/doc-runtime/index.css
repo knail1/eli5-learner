@@ -466,6 +466,96 @@ ins.enh {
   margin-right: 6px;
 }
 
+/* ---- Reader questions (07 §7.1 answer box, 08 Ask) ---- */
+/* The box is content: it prints, and "Hide highlights" leaves it alone. The question sits behind a
+   chip that notches the top border like a fieldset legend; at rest the chip shows only "?". */
+.qa {
+  position: relative;
+  margin: 1.6em 0 1.2em;
+  padding: 1.1em 1.1em 0.6em;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--paper-2);
+  background: color-mix(in srgb, var(--paper-2) 55%, var(--paper));
+  scroll-margin-top: calc(var(--eli5-tabbar-h) + 12px);
+}
+.qa:focus {
+  outline: none;
+}
+.qa-a > p {
+  margin: 0 0 0.6em;
+}
+.qa-chip {
+  position: absolute;
+  top: -12px;
+  right: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 24px;
+  min-height: 24px;
+  box-sizing: border-box;
+  padding: 0 8px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--muted);
+  font: 600 13px/22px var(--font-sans);
+  cursor: pointer;
+  list-style: none;
+}
+.qa-chip::-webkit-details-marker {
+  display: none;
+}
+.qa-mark {
+  font-weight: 700;
+}
+.qa-cap {
+  display: inline-block;
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: top;
+  transition: max-width 0.2s ease-out;
+}
+.qa-chip:hover .qa-cap,
+.qa-chip:focus-visible .qa-cap,
+.qa-q[open] > .qa-chip .qa-cap {
+  max-width: 12em;
+}
+.qa-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* Open: accent colour plus a ▾ glyph, so colour is never the only cue. */
+.qa-q[open] > .qa-chip {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.qa-q[open] > .qa-chip::after {
+  content: '▾';
+  font-size: 0.85em;
+}
+.qa-q-text {
+  margin: 0 0 6px;
+  padding: 6px 12px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+  background: var(--paper);
+  font: italic 15px/1.5 var(--font-sans);
+  color: var(--ink-2);
+}
+.qa-q-about {
+  margin: 0 0 10px;
+  font: 13px/1.4 var(--font-sans);
+  color: var(--muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .qa-cap {
+    transition: none;
+  }
+}
+
 /* 08 §5.5 step 2: thin animated left rule plus "Updating…" / "Creating ELI5 tab…". */
 section[data-eli5-busy] {
   box-shadow: -4px 0 0 var(--accent);
@@ -521,12 +611,12 @@ section[data-eli5-busy] {
   padding: 6px 10px;
   cursor: pointer;
 }
-section.eli5-flash {
+.eli5-flash {
   background: var(--highlight);
   transition: background 1.5s ease-out;
 }
 @media (prefers-reduced-motion: reduce) {
-  section.eli5-flash {
+  .eli5-flash {
     background: none;
     outline: 2px solid var(--accent);
     transition: none;
@@ -1186,12 +1276,25 @@ html.js.eli5-sel-note .gl-note[data-eli5-sel] * {
   .stepper--js .step:not(.is-current) {
     display: block;
   }
+  /* The question prints as a static "You asked: …" line, open even before any script runs. */
+  .qa-chip {
+    display: none;
+  }
+  details.qa-q::details-content {
+    content-visibility: visible;
+  }
+  .qa-q-text::before {
+    content: 'You asked: ';
+    font-style: normal;
+    font-weight: 600;
+  }
   figure,
   .chart,
   .callout,
   .analogy,
   .pullquote,
   .stepper,
+  .qa,
   .table-wrap--short {
     break-inside: avoid;
   }
@@ -1199,6 +1302,7 @@ html.js.eli5-sel-note .gl-note[data-eli5-sel] * {
   .callout,
   .analogy,
   .gl-note,
+  .qa,
   ins.enh,
   .enh-swatch,
   .tabpanel > section > [data-enh]::before,

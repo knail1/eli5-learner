@@ -25,7 +25,10 @@ export interface DocBridge {
   }): Promise<BridgeResult>;
   closeTab(tabKey: string): Promise<BridgeResult>;
   openExternal(url: string): Promise<BridgeResult>;
-  onScrollTo(cb: (e: { sectionId?: string; tabKey?: string; flash: boolean; loadSeq: number }) => void): () => void;
+  /** `anchorId`: an element inside the section to land on instead (an answer box, 08 Ask). */
+  onScrollTo(
+    cb: (e: { sectionId?: string; tabKey?: string; anchorId?: string; flash: boolean; loadSeq: number }) => void,
+  ): () => void;
   onSectionBusy(
     cb: (e: {
       busy: { sectionId: string; action: string }[];

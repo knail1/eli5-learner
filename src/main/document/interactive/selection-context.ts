@@ -59,6 +59,39 @@ function locate(model: DocumentModel, sections: readonly Section[], selection: s
 }
 
 /**
+ * 08 Ask: index in `section.blocks` of the block where the selection ENDS, so an answer box goes right
+ * after the passage it was asked about. Answer boxes count (their answer text can be selected to ask a
+ * follow-up). The start of the selection is found first and the end is searched from there; undefined
+ * when the selection cannot be located (the caller then appends at the end of the section).
+ */
+export function blockIndexOfSelection(model: DocumentModel, section: Section, selection: string): number | undefined {
+  const texts = section.blocks.map((b) => {
+    if (b.type === 'qa') return loose(plain(b.paragraphs.join(' ')));
+    const d = sectionToDraft(model, { ...section, blocks: [b] }).blocks[0];
+    return d ? loose(blockText(d)) : '';
+  });
+  const words = loose(selection).split(' ');
+  const head = words.slice(0, PROBE_WORDS).join(' ');
+  const tail = words.slice(-PROBE_WORDS).join(' ');
+  if (head === '') return undefined;
+  const start = texts.findIndex((t) => t.includes(head));
+  if (start < 0) {
+    // The start may sit in text the model cannot see (a chart label); try the end alone.
+    const end = texts.findIndex((t) => t.includes(tail));
+    return end < 0 ? undefined : end;
+  }
+  if (texts[start]?.includes(loose(selection))) return start;
+  // A selection across blocks: its last words may straddle a block boundary, so the end probe
+  // shrinks until a later block holds it.
+  for (let n = Math.min(PROBE_WORDS, words.length); n >= 2; n--) {
+    const probe = words.slice(-n).join(' ');
+    const end = texts.findIndex((t, i) => i > start && t.includes(probe));
+    if (end >= 0) return end;
+  }
+  return start;
+}
+
+/**
  * 08 §7.5: `Section: …` (or `Sections: a; b`) plus `Just before the selection:` and `Just after the
  * selection:` blocks, each capped at SELECTION_CONTEXT_CHARS. When the selection cannot be found in
  * the model text (for example a chart label), the opening of the first section stands in.

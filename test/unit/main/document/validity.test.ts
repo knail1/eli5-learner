@@ -18,6 +18,19 @@ describe('validateDocument (13 §7.1)', () => {
     expect(r.warnings).toEqual([]);
   });
 
+  it('accepts a document with answer boxes and rejects a duplicated box id', () => {
+    const asked = fixtureDocument('asked');
+    const ok = renderDocument(asked.model, asked.assets, { runtime: STUB_RUNTIME, theme: asked.theme });
+    expect(validateDocument(ok).errors).toEqual([]);
+    const sec = asked.model.tabs[0]?.sections[0];
+    const box = sec?.blocks.find((b) => b.type === 'qa');
+    if (!sec || !box) throw new Error('fixture');
+    const dup = structuredClone(asked.model);
+    dup.tabs[0]?.sections[0]?.blocks.push(structuredClone(box));
+    const bad = renderDocument(dup, asked.assets, { runtime: STUB_RUNTIME, theme: asked.theme });
+    expect(rules(bad)).toContain('section-id-unique');
+  });
+
   it.each<[string, (h: string) => string, ValidityRule]>([
     [
       'external script',

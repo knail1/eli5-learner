@@ -3,6 +3,7 @@ import {
   DocumentBuildError,
   DocumentFormatError,
   SECTION_ID_RE,
+  insertAnswer,
   parseDocument,
   renderDocument,
   weaveMergedDocument,
@@ -314,5 +315,40 @@ describe('weaveMergedDocument (09 §10.6 step 5)', () => {
         failing,
       ),
     ).rejects.toThrow('budget exhausted');
+  });
+});
+
+describe('answer boxes through a woven merge (07 §7.1)', () => {
+  it('lists them in the prompt and re-appends the ones a revision drops, ids kept', async () => {
+    const t = mergeTarget();
+    const id = content(t.model, 0)[0]?.id;
+    if (!id) throw new Error('fixture');
+    const asked = insertAnswer(
+      t.model,
+      id,
+      0,
+      { question: 'Why ROAS?', topic: 'Why ROAS is used', quote: 'judges every channel', paragraphs: ['Because.'] },
+      MERGED_AT,
+      { idSource: new SeededIdSource(3) },
+    );
+    const parsed = parseDocument(t.html);
+    const targetHtml = renderDocument(asked.model, parsed.assets, { runtime: STUB_RUNTIME, theme: parsed.theme });
+    const s = mergeSource();
+    const plan = planner();
+    const w = await weaveMergedDocument(
+      { targetHtml, targetMeta: t.meta, sourceHtml: s.html, sourceMeta: s.meta, mergedAt: MERGED_AT },
+      plan,
+      { runtime: STUB_RUNTIME, idSource: new SeededIdSource(42) },
+    );
+    expect((plan.mock.calls[0]?.[0] as { target: string }).target).toContain('b1 Reader Q&A: Why ROAS is used');
+    const sec = content(parseDocument(w.html).model, 0)[0];
+    const last = sec?.blocks.at(-1);
+    expect(last?.type).toBe('qa');
+    expect(last?.type === 'qa' ? last.id : '').toBe(asked.qaId);
+    expect(sec?.blocks.filter((b) => b.type === 'qa')).toHaveLength(1);
+    // The carried box is not marked as merged content.
+    const n = (sec?.blocks.length ?? 0) - 1;
+    expect(sec?.enh?.blocks.some((e) => e.block === n)).toBe(false);
+    expect(validateDocument(w.html).errors).toEqual([]);
   });
 });

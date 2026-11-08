@@ -6,7 +6,9 @@ import {
   SECTION_ID_RE,
   TooManyTabsError,
   addSectionEli5Tab,
+  carryAnswers,
   getSectionContext,
+  insertAnswer,
   locateModelJson,
   locateSection,
   parseDocument,
@@ -15,7 +17,10 @@ import {
   replaceSection,
   sectionEli5Label,
   sectionIdsOfTab,
+  sectionToDraft,
+  type DocBlock,
   type DocumentModel,
+  type QaDocBlock,
   type SectionId,
 } from '../../../../src/main/document';
 import type { DocumentDraftTab, SectionDraft } from '../../../../src/main/llm';
@@ -298,5 +303,176 @@ describe('section ELI5 tabs (07 §4, §8)', () => {
     const all = ids(m);
     expect(new Set(all).size).toBe(all.length);
     for (const i of all) expect(i).toMatch(SECTION_ID_RE);
+  });
+});
+
+describe('insertAnswer (07 §7.1, 08 Ask)', () => {
+  const merged = fixtureDocument('merged');
+  const id = secAt(merged.model, 0, 0);
+  const answer = {
+    question: '  Is a ROAS of 4\n good?  ',
+    topic: 'What a good ROAS is',
+    quote: 'A channel with a ROAS of 4 returns four dollars.',
+    paragraphs: ['Yes, for most channels.', 'Would you like me to compare channels?', '  '],
+  };
+  const qaAt = (m: DocumentModel, i: number): QaDocBlock => {
+    const b = m.tabs[0]?.sections[0]?.blocks[i];
+    if (b?.type !== 'qa') throw new Error(`block ${i} is ${b?.type ?? 'missing'}`);
+    return b;
+  };
+
+  it('inserts after the block, keeps the SectionId and stamps lastAction, updatedAt', () => {
+    const { model, qaId } = insertAnswer(merged.model, id, 0, answer, LATER, { idSource: new SeededIdSource(5) });
+    expect(qaId).toMatch(/^q-[0-9a-f]{8}$/);
+    const sec = model.tabs[0]?.sections[0];
+    expect(sec?.id).toBe(id);
+    expect(sec?.origin).toBe(merged.model.tabs[0]?.sections[0]?.origin);
+    expect(sec?.lastAction).toBe('ask');
+    expect(sec?.updatedAt).toBe(LATER);
+    expect(model.updatedAt).toBe(LATER);
+    expect(sec?.blocks).toHaveLength((merged.model.tabs[0]?.sections[0]?.blocks.length ?? 0) + 1);
+    const box = qaAt(model, 1);
+    expect(box).toEqual({
+      type: 'qa',
+      id: qaId,
+      question: 'Is a ROAS of 4 good?',
+      topic: 'What a good ROAS is',
+      quote: 'A channel with a ROAS of 4 returns four dollars.',
+      // The reader-question paragraph and the empty one are dropped (isUserQuestion).
+      paragraphs: ['Yes, for most channels.'],
+      askedAt: LATER,
+    });
+    // Pure: the input model is untouched.
+    expect(merged.model.tabs[0]?.sections[0]?.blocks.some((b) => b.type === 'qa')).toBe(false);
+  });
+
+  it('shifts glossary anchors and merge marks at or after the box, and keeps the marks', () => {
+    const { model } = insertAnswer(merged.model, id, 0, answer, LATER, { idSource: new SeededIdSource(5) });
+    const before = merged.model.glossary.filter((n) => n.sectionId === id).map((n) => n.blockIndex);
+    const after = model.glossary.filter((n) => n.sectionId === id).map((n) => n.blockIndex);
+    expect(before).toEqual([0, 1]);
+    expect(after).toEqual([0, 2]);
+    const others = (m: DocumentModel) => m.glossary.filter((n) => n.sectionId !== id);
+    expect(others(model)).toEqual(others(merged.model));
+    expect(merged.model.tabs[0]?.sections[0]?.enh?.blocks.map((e) => e.block)).toEqual([0, 1, 5]);
+    expect(model.tabs[0]?.sections[0]?.enh?.blocks.map((e) => e.block)).toEqual([0, 2, 6]);
+    const html = renderDocument(model, merged.assets, { runtime: STUB_RUNTIME, theme: merged.theme });
+    expect(validateDocument(html).errors).toEqual([]);
+    expect(parseDocument(html).model).toEqual(model);
+  });
+
+  it('stacks later answers after earlier ones in the order asked', () => {
+    const src = new SeededIdSource(9);
+    const a = insertAnswer(merged.model, id, 0, { ...answer, question: 'First?' }, LATER, { idSource: src });
+    const b = insertAnswer(a.model, id, 0, { ...answer, question: 'Second?' }, LATER, { idSource: src });
+    expect(qaAt(b.model, 1).question).toBe('First?');
+    expect(qaAt(b.model, 2).question).toBe('Second?');
+    expect(b.qaId).not.toBe(a.qaId);
+    // A follow-up asked inside the first box also lands after the stack.
+    const c = insertAnswer(b.model, id, 1, { ...answer, question: 'Third?' }, LATER, { idSource: src });
+    expect(qaAt(c.model, 3).question).toBe('Third?');
+  });
+
+  it('falls back to the end of the section when the block is unknown', () => {
+    const n = merged.model.tabs[0]?.sections[0]?.blocks.length ?? 0;
+    for (const at of [undefined, -1, n, 1.5]) {
+      const { model } = insertAnswer(merged.model, id, at, answer, LATER, { idSource: new SeededIdSource(5) });
+      expect(model.tabs[0]?.sections[0]?.blocks[n]?.type).toBe('qa');
+    }
+  });
+
+  it('never reuses a section, glossary, answer or retired id', () => {
+    // The seeded source draws the same hex each time; the first draw is taken, so it redraws.
+    const first = insertAnswer(merged.model, id, 0, answer, LATER, { idSource: new SeededIdSource(5) }).qaId;
+    const again = insertAnswer(merged.model, id, 0, answer, LATER, {
+      idSource: new SeededIdSource(5),
+      retiredIds: [first],
+    }).qaId;
+    expect(again).not.toBe(first);
+    const twice = insertAnswer(
+      insertAnswer(merged.model, id, 0, answer, LATER, { idSource: new SeededIdSource(5) }).model,
+      id,
+      0,
+      answer,
+      LATER,
+      { idSource: new SeededIdSource(5) },
+    ).qaId;
+    expect(twice).not.toBe(first);
+  });
+
+  it('caps the stored strings and refuses an answer with nothing left', () => {
+    const long = insertAnswer(
+      merged.model,
+      id,
+      0,
+      {
+        question: 'q'.repeat(600),
+        topic: 't'.repeat(60),
+        quote: 'w '.repeat(200),
+        paragraphs: ['a', 'b', 'c', 'd', 'e'],
+      },
+      LATER,
+      { idSource: new SeededIdSource(5) },
+    ).model;
+    const box = qaAt(long, 1);
+    expect(box.question.length).toBeLessThanOrEqual(500);
+    expect(box.topic.length).toBeLessThanOrEqual(48);
+    expect(box.quote.length).toBeLessThanOrEqual(160);
+    expect(box.paragraphs).toEqual(['a', 'b', 'c', 'd']);
+    expect(() =>
+      insertAnswer(merged.model, id, 0, { ...answer, paragraphs: ['Do you want me to go on?'] }, LATER),
+    ).toThrow(DocumentBuildError);
+    expect(() => insertAnswer(merged.model, id, 0, { ...answer, question: '   ' }, LATER)).toThrow(DocumentBuildError);
+    const refs = merged.model.tabs[0]?.sections.find((x) => x.kind === 'references')?.id;
+    if (!refs) throw new Error('fixture');
+    expect(() => insertAnswer(merged.model, refs, 0, answer, LATER)).toThrow(DocumentMutationError);
+    expect(() => insertAnswer(merged.model, 'sec-indepth-00000000' as SectionId, 0, answer, LATER)).toThrow(
+      DocumentMutationError,
+    );
+  });
+
+  it('keeps answers through a rewrite, at the end, and hides them from the model', () => {
+    const src = new SeededIdSource(9);
+    const a = insertAnswer(doc.model, secAt(doc.model, 0, 0), 0, { ...answer, question: 'One?' }, LATER, {
+      idSource: src,
+    });
+    const b = insertAnswer(a.model, secAt(doc.model, 0, 0), 2, { ...answer, question: 'Two?' }, LATER, {
+      idSource: src,
+    });
+    const sec = b.model.tabs[0]?.sections[0];
+    if (!sec) throw new Error('fixture');
+    expect(sectionToDraft(b.model, sec).blocks.some((x) => (x.type as string) === 'qa')).toBe(false);
+    expect(getSectionContext(b.model, sec.id).draft.blocks).toHaveLength(sec.blocks.length - 2);
+    const rewritten = replaceSection(
+      b.model,
+      sec.id,
+      { heading: 'New', blocks: [{ type: 'paragraph', md: 'Rewritten text.' }] },
+      'expand',
+      LATER,
+      { idSource: new SeededIdSource(3) },
+    ).model;
+    const blocks = rewritten.tabs[0]?.sections[0]?.blocks ?? [];
+    expect(blocks.map((x) => x.type)).toEqual(['paragraph', 'qa', 'qa']);
+    expect(blocks.flatMap((x) => (x.type === 'qa' ? [x.id] : []))).toEqual([a.qaId, b.qaId]);
+  });
+});
+
+describe('carryAnswers (07 §7.1)', () => {
+  const qa = (id: string): QaDocBlock => ({
+    type: 'qa',
+    id,
+    question: 'Why?',
+    topic: 'Why',
+    quote: '',
+    paragraphs: ['Because.'],
+    askedAt: LATER,
+  });
+  const p = (md: string): DocBlock => ({ type: 'paragraph', md });
+
+  it('re-appends only the boxes the new blocks lack, in their old order', () => {
+    const old = [p('a'), qa('q-00000001'), p('b'), qa('q-00000002')];
+    expect(carryAnswers(old, [p('x')])).toEqual([p('x'), qa('q-00000001'), qa('q-00000002')]);
+    expect(carryAnswers(old, [qa('q-00000002'), p('x')])).toEqual([qa('q-00000002'), p('x'), qa('q-00000001')]);
+    expect(carryAnswers([p('a')], [p('x')])).toEqual([p('x')]);
   });
 });

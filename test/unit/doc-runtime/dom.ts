@@ -9,7 +9,7 @@ import { readGolden } from '../../fixtures/documents/runtime';
 const SRC = '../../../src/doc-runtime/';
 
 type BridgeResult = { ok: boolean; error?: { message?: string } };
-type ScrollTo = { sectionId?: string; tabKey?: string; flash: boolean; loadSeq: number };
+type ScrollTo = { sectionId?: string; tabKey?: string; anchorId?: string; flash: boolean; loadSeq: number };
 type Busy = { busy: { sectionId: string; action: string }[] };
 export interface DocBridge {
   regenerateSection(r: object): Promise<BridgeResult>;
@@ -109,6 +109,9 @@ export function loadGolden(name: string, opts: { url?: string; wide?: boolean; b
   };
 }
 
+/** The bridge's scroll-to callback once the runtime has subscribed (fakeBridge records it). */
+export type ScrollToCb = (e: ScrollTo) => void;
+
 export function fakeBridge() {
   const calls: Record<string, unknown[][]> = {};
   const rec =
@@ -123,7 +126,11 @@ export function fakeBridge() {
     createSectionEli5: vi.fn(rec('createSectionEli5')),
     closeTab: vi.fn(rec('closeTab')),
     openExternal: vi.fn(rec('openExternal')),
-    onScrollTo: vi.fn((_cb: (e: ScrollTo) => void) => () => undefined),
+    onScrollTo: vi.fn((cb: (e: ScrollTo) => void) => {
+      b.scrollCb = cb;
+      return () => undefined;
+    }),
+    scrollCb: undefined as ((e: ScrollTo) => void) | undefined,
     onSectionBusy: vi.fn((cb: (e: { busy: { sectionId: string; action: string }[] }) => void) => {
       b.busyCb = cb;
       return () => undefined;

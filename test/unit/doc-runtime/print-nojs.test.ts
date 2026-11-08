@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { readGolden } from '../../fixtures/documents/runtime';
-import { loadGolden } from './dom';
+import { loadGolden, loadRuntime } from './dom';
 
 const CSS = readFileSync(join(process.cwd(), 'src/doc-runtime/index.css'), 'utf8');
 
@@ -58,6 +58,14 @@ describe('print stylesheet (07 §13)', () => {
     expect(print).toMatch(/\.callout,[^{]*\{\s*print-color-adjust: exact;/);
   });
 
+  it('prints answer boxes with the question shown and the chip hidden (07 §7.1)', () => {
+    expect(print).toMatch(/\.qa-chip \{\s*display: none;/);
+    expect(print).toMatch(/details\.qa-q::details-content \{\s*content-visibility: visible;/);
+    expect(print).toMatch(/\.qa-q-text::before \{\s*content: 'You asked: ';/);
+    expect(print).toMatch(/\.qa,[^{]*\{\s*print-color-adjust: exact;/);
+    expect(print).not.toMatch(/\.qa[\s,][^{]*\{\s*display: none/);
+  });
+
   it('avoids breaks inside short tables only (<= 30 rows)', () => {
     expect(print).toContain('.table-wrap--short');
     expect(print).not.toMatch(/(^|[\s,])table\s*[,{]/);
@@ -81,5 +89,33 @@ describe('without JavaScript (07 §16)', () => {
     // Panel titles are hidden only once the runtime adds `js`; the tab bar only without it.
     expect(CSS).toMatch(/html\.js \.panel-title \{\s*display: none;/);
     expect(CSS).toMatch(/html:not\(\.js\) \.tabbar \{\s*display: none;/);
+  });
+});
+
+describe('answer boxes (07 §7.1)', () => {
+  it('are readable before the runtime boots: question and answer in the DOM, no script', () => {
+    const { doc } = loadGolden('asked');
+    const boxes = Array.from(doc.querySelectorAll<HTMLElement>('aside.qa'));
+    expect(boxes).toHaveLength(2);
+    for (const b of boxes) {
+      expect(b.querySelector('.qa-a p')?.textContent?.trim()).not.toBe('');
+      expect(b.querySelector('details.qa-q .qa-q-text')?.textContent?.trim()).not.toBe('');
+      expect(b.querySelector('script')).toBeNull();
+      expect(b.closest('[data-eli5-noact]')).toBeNull();
+    }
+  });
+
+  it('print opens every question and restores them afterwards', async () => {
+    const rt = await loadRuntime();
+    const { win, doc } = loadGolden('asked');
+    rt.boot(win, doc);
+    const qs = Array.from(doc.querySelectorAll<HTMLDetailsElement>('details.qa-q'));
+    const first = qs[0];
+    if (!first) throw new Error('fixture');
+    first.open = true; // opened by the reader: stays open after printing
+    win.dispatchEvent(new win.Event('beforeprint'));
+    expect(qs.every((d) => d.open)).toBe(true);
+    win.dispatchEvent(new win.Event('afterprint'));
+    expect(qs.map((d) => d.open)).toEqual([true, ...qs.slice(1).map(() => false)]);
   });
 });

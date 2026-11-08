@@ -84,7 +84,9 @@ export function initFigures(doc: Document): void {
 export function initPrint(win: Window, doc: Document): void {
   let closed: HTMLDetailsElement[] = [];
   win.addEventListener('beforeprint', () => {
-    closed = Array.from(doc.querySelectorAll<HTMLDetailsElement>('details.gl-note:not([open])'));
+    closed = Array.from(
+      doc.querySelectorAll<HTMLDetailsElement>('details.gl-note:not([open]), details.qa-q:not([open])'),
+    );
     for (const d of closed) d.open = true;
   });
   win.addEventListener('afterprint', () => {

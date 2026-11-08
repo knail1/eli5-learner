@@ -19,6 +19,39 @@ import { validateDocument } from '../../../helpers/doc-validity';
 const doc = fixtureDocument('with-tab');
 const html = renderDocument(doc.model, doc.assets, { runtime: STUB_RUNTIME, theme: doc.theme });
 
+describe('answer box (07 §7.1)', () => {
+  const asked = fixtureDocument('asked');
+  const out = renderDocument(asked.model, asked.assets, { runtime: STUB_RUNTIME, theme: asked.theme });
+  const boxes = out.match(/<aside class="qa"[^]*?<\/aside>/g) ?? [];
+
+  it('renders static, escaped markup with the question behind a chip', () => {
+    expect(boxes).toHaveLength(2);
+    const box = asked.model.tabs[0]?.sections[0]?.blocks.find((b) => b.type === 'qa');
+    if (box?.type !== 'qa') throw new Error('fixture');
+    expect(boxes[0]).toBe(
+      `<aside class="qa" id="${box.id}" aria-label="Answer to a reader question">` +
+        '<details class="qa-q"><summary class="qa-chip"><span class="qa-mark" aria-hidden="true">?</span>' +
+        '<span class="qa-cap">You asked</span></summary>' +
+        '<p class="qa-q-text">Is a ROAS of **4** good, and does &lt;b&gt;revenue&lt;/b&gt; mean profit here?</p>' +
+        '<p class="qa-q-about">About: “A channel with a ROAS of 4 returns four dollars for every dollar.”</p>' +
+        '</details><div class="qa-a">' +
+        '<p>A ROAS of 4 is <strong>healthy</strong> for most channels: each dollar of spend brings back four in revenue.</p>' +
+        '<p>Revenue is not profit. The document does not give margins, so it cannot say how much of that is <em>kept</em>.</p>' +
+        '</div></aside>',
+    );
+  });
+
+  it('has no section id, handlers or script, and is not excluded from print', () => {
+    for (const b of boxes) {
+      expect(b).not.toMatch(/data-section-id|data-eli5-noact|<script|\son[a-z]+=/);
+    }
+    // The in-depth box sits right after the first block, in the section.
+    const sec = asked.model.tabs[0]?.sections[0];
+    expect(sec?.blocks[1]?.type).toBe('qa');
+    expect(validateDocument(out).errors).toEqual([]);
+  });
+});
+
 describe('renderDocument (07 §6)', () => {
   it('emits the 07 §6.2 CSP with the hash of the inlined runtime', () => {
     const hash = createHash('sha256').update(STUB_RUNTIME.js).digest('base64');

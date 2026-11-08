@@ -21,8 +21,8 @@ import { readGolden } from '../../../fixtures/documents/runtime';
 
 const GOLDEN_DIR = path.join(import.meta.dirname, '../../../fixtures/documents/markdown');
 const UPDATE = process.env.ELI5_UPDATE_GOLDENS === '1';
-/** Between them, these two goldens cover every block type (asserted below). */
-const MD_GOLDENS: readonly GoldenName[] = ['full', 'showcase'];
+/** Between them, these goldens cover every block type (asserted below). */
+const MD_GOLDENS: readonly GoldenName[] = ['full', 'showcase', 'asked'];
 const ALL_BLOCKS: readonly DocBlockType[] = [
   'paragraph',
   'list',
@@ -34,6 +34,7 @@ const ALL_BLOCKS: readonly DocBlockType[] = [
   'figure',
   'stepper',
   'analogy',
+  'qa',
 ];
 
 describe('documentToMarkdown (golden)', () => {
@@ -70,6 +71,21 @@ describe('documentToMarkdown (golden)', () => {
 });
 
 describe('blockToMarkdown', () => {
+  it('writes an answer box as a quote: the question, then each answer paragraph', () => {
+    const md = blockToMarkdown({
+      type: 'qa',
+      id: 'q-00000001',
+      question: 'Is <b>4</b> good?',
+      topic: 'Good ROAS',
+      quote: 'ROAS of 4',
+      paragraphs: ['Yes, **mostly**.', 'Revenue is not profit.'],
+      askedAt: '2026-09-27T14:00:00.000Z',
+    });
+    expect(md).toBe(
+      '> **You asked:** Is &lt;b&gt;4&lt;/b&gt; good?\n>\n> Yes, **mostly**.\n>\n> Revenue is not profit.',
+    );
+  });
+
   it('escapes literal angle brackets so they stay inert', () => {
     expect(blockToMarkdown({ type: 'paragraph', md: 'Use <script> and a > b' })).toBe(
       'Use &lt;script&gt; and a &gt; b',

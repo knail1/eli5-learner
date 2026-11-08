@@ -1,6 +1,7 @@
 // zod schema for the embedded `#eli5-model` (07 §3, §8: parseDocument validates it).
 import { z } from 'zod';
 import { ChartSpecSchema } from '../llm';
+import { QA_ID_RE } from './ids';
 import { SECTION_ID_RE } from './section-id';
 import type { DocBlock, DocumentModel, SectionId } from './types';
 
@@ -36,6 +37,19 @@ export const DocBlockSchema = z.discriminatedUnion('type', [
     steps: z.array(z.object({ label: z.string(), md: z.string() })),
   }),
   z.object({ type: z.literal('analogy'), md: z.string() }),
+  z.object({
+    type: z.literal('qa'),
+    id: z.string().regex(QA_ID_RE),
+    question: z
+      .string()
+      .min(1)
+      .max(500)
+      .regex(/^[^\r\n]*$/),
+    topic: z.string().min(1).max(48),
+    quote: z.string().max(160),
+    paragraphs: z.array(z.string().min(1).max(1200)).min(1).max(4),
+    askedAt: z.string(),
+  }),
 ]);
 
 const EnhRangeSchema = z.object({ merge: z.string(), start: z.number().int().min(0), end: z.number().int().min(0) });
@@ -51,7 +65,7 @@ const SectionSchema = z.object({
   blocks: z.array(DocBlockSchema),
   origin: z.enum(['generated', 'regenerated', 'merged', 'merge-marker', 'placeholder']),
   updatedAt: z.string(),
-  lastAction: z.enum(['expand', 'reexplain', 'analogy', 'deeper', 'revise']).optional(),
+  lastAction: z.enum(['expand', 'reexplain', 'analogy', 'deeper', 'revise', 'ask']).optional(),
   merge: z.object({ fromDocId: z.string(), fromTitle: z.string(), mergedAt: z.string() }).optional(),
   enh: z.object({ added: z.string().optional(), blocks: z.array(BlockEnhancementSchema) }).optional(),
   mergeMarker: z

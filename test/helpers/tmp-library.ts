@@ -20,7 +20,8 @@ export async function tmpLibrary(): Promise<{ root: string; libraryDir: string; 
   const cleanup = async (): Promise<void> => {
     restore('ELI5_LIBRARY_DIR', prev.lib);
     restore('ELI5_USER_DATA_DIR', prev.ud);
-    await rm(root, { recursive: true, force: true });
+    // A job may still be persisting its file as the test ends; retry instead of failing on ENOTEMPTY.
+    await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   };
   try {
     onTestFinished(cleanup);

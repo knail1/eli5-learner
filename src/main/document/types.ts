@@ -13,6 +13,7 @@ import type {
   SectionAction,
   SectionActionRequest,
   SectionBusyEvent,
+  SectionChange,
   SectionId,
 } from '../../preload/contract';
 
@@ -25,6 +26,7 @@ export type {
   SectionAction,
   SectionActionRequest,
   SectionBusyEvent,
+  SectionChange,
   SectionId,
 };
 
@@ -116,7 +118,7 @@ export interface Section {
   blocks: DocBlock[]; // references: [] (rendered from DocumentModel.references)
   origin: 'generated' | 'regenerated' | 'merged' | 'merge-marker' | 'placeholder';
   updatedAt: string;
-  lastAction?: SectionAction;
+  lastAction?: SectionChange;
   merge?: { fromDocId: string; fromTitle: string; mergedAt: string };
   /** Woven-merge highlights (07 §6.4); dropped when the section is regenerated (08). */
   enh?: SectionEnhancement;
@@ -144,10 +146,30 @@ export interface FigureDocBlock {
 }
 
 /**
+ * A reader's question and its answer (07 §7.1 answer box, 08 Ask). Doc-only like FigureDocBlock:
+ * never part of DraftBlock, so the model never writes or echoes one. `id` is 'q-' + 8 hex and is the
+ * element id, so a version can deep-link to it.
+ */
+export interface QaDocBlock {
+  type: 'qa';
+  id: string;
+  /** The reader's question, one line, <= 500 chars; shown as plain text, never as markdown. */
+  question: string;
+  /** A short noun phrase naming what was asked (<= 48 chars). */
+  topic: string;
+  /** An excerpt of the selection (<= 160 chars), so the box keeps its context if it moves. */
+  quote: string;
+  /** 1..4 answer paragraphs of inline markdown. */
+  paragraphs: string[];
+  askedAt: string;
+}
+
+/**
  * DraftBlock with figures resolved to assets; every other variant is identical (07 §3). `photo`
  * slots never reach the model: build turns a resolved one into a figure and drops the rest (07 §7.4).
+ * `qa` blocks exist only in documents (inserted by Ask).
  */
-export type DocBlock = Exclude<DraftBlock, { type: 'figure' } | { type: 'photo' }> | FigureDocBlock;
+export type DocBlock = Exclude<DraftBlock, { type: 'figure' } | { type: 'photo' }> | FigureDocBlock | QaDocBlock;
 export type DocBlockType = DocBlock['type'];
 
 export interface AssetRef {

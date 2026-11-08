@@ -79,6 +79,12 @@ export function blockToMarkdown(b: DocBlock): string {
       return italic(sentences(b.title, b.alt));
     case 'figure':
       return italic(sentences(b.caption, b.alt));
+    case 'qa':
+      // The question is plain text in the document, so its own Markdown characters are escaped.
+      return [
+        `> **You asked:** ${oneLine(b.question).replace(/[\\*_`[\]]/g, '\\$&')}`,
+        ...b.paragraphs.map(quote),
+      ].join('\n>\n');
     case 'stepper':
       return [
         `**${oneLine(b.title)}**`,

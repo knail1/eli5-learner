@@ -189,6 +189,27 @@ function renderFigure(b: Extract<DocBlock, { type: 'figure' }>, ctx: BlockContex
   );
 }
 
+/**
+ * Answer box (07 §7.1): static markup, no script. The question sits in a closed `<details>` behind a
+ * chip on the box's top edge and is always plain text; the answer paragraphs are inline markdown.
+ */
+function renderQa(b: Extract<DocBlock, { type: 'qa' }>): string {
+  return (
+    `<aside${attrs([
+      ['class', 'qa'],
+      ['id', b.id],
+      ['aria-label', 'Answer to a reader question'],
+    ])}>` +
+    '<details class="qa-q"><summary class="qa-chip"><span class="qa-mark" aria-hidden="true">?</span>' +
+    '<span class="qa-cap">You asked</span></summary>' +
+    `<p class="qa-q-text">${esc(b.question)}</p>` +
+    (b.quote ? `<p class="qa-q-about">About: “${esc(b.quote)}”</p>` : '') +
+    '</details>' +
+    `<div class="qa-a">${b.paragraphs.map((p) => `<p>${renderInline(p)}</p>`).join('')}</div>` +
+    '</aside>'
+  );
+}
+
 /** One block plus the glossary notes anchored in it (rendered right after the block, 07 §9.2). */
 export function renderBlock(b: DocBlock, ctx: BlockContext): string {
   const anchors = anchorsOf(ctx.notes);
@@ -233,6 +254,9 @@ export function renderBlock(b: DocBlock, ctx: BlockContext): string {
       break;
     case 'figure':
       html = renderFigure(b, ctx);
+      break;
+    case 'qa':
+      html = renderQa(b);
       break;
     case 'stepper':
       html =

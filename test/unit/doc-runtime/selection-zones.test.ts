@@ -175,3 +175,35 @@ describe('menu text with glossary notes (08 §5.3)', () => {
     expect(h.selection?.current()).toBeNull();
   });
 });
+
+describe('answer boxes (08 Ask)', () => {
+  const BOX = '#tab-indepth > section:nth-of-type(1) aside.qa';
+
+  it('a selection inside the question opens no menu; the answer text can be asked about', () => {
+    const bridge = fakeBridge();
+    const { win, doc } = loadGolden('asked', { bridge });
+    const h = rt.boot(win, doc);
+    const q = doc.querySelector<HTMLDetailsElement>(`${BOX} details.qa-q`);
+    if (q) q.open = true;
+    selectText(doc, `${BOX} .qa-q-text`, 'good, and does');
+    doc.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true }));
+    vi.advanceTimersByTime(200);
+    expect(h.selection?.current()).toBeNull();
+    selectText(doc, `${BOX} .qa-a p`, 'for most channels');
+    doc.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true }));
+    vi.advanceTimersByTime(200);
+    expect(h.selection?.current()?.text).toBe('for most channels');
+  });
+
+  it('the question is left out of a selection that spans the box', () => {
+    const { win, doc } = loadGolden('asked', { bridge: fakeBridge() });
+    rt.boot(win, doc);
+    const q = doc.querySelector<HTMLDetailsElement>(`${BOX} details.qa-q`);
+    if (q) q.open = true;
+    selectText(doc, '#tab-indepth > section:nth-of-type(1) > p', 'judges every channel', `${BOX} .qa-a p`);
+    const snap = rt.snapshotSelection(doc.getSelection());
+    expect(snap?.text).toContain('judges every channel');
+    expect(snap?.text).not.toContain('You asked');
+    expect(snap?.text).not.toContain('mean profit here');
+  });
+});

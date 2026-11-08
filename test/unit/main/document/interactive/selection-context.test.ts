@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { SELECTION_CONTEXT_CHARS, selectionContext, type DocumentModel } from '../../../../../src/main/document';
+import {
+  SELECTION_CONTEXT_CHARS,
+  blockIndexOfSelection,
+  selectionContext,
+  type DocumentModel,
+} from '../../../../../src/main/document';
 import { fixtureDocument } from '../../../../fixtures/documents/models';
 import { sec } from './harness';
 
@@ -58,5 +63,27 @@ describe('selectionContext (08 §7.5)', () => {
     const before = /Just before the selection:\n(.*)/.exec(ctx)?.[1] ?? '';
     expect(before.length).toBeLessThanOrEqual(SELECTION_CONTEXT_CHARS);
     expect(before.endsWith('…')).toBe(true);
+  });
+});
+
+describe('blockIndexOfSelection (08 Ask)', () => {
+  const asked = fixtureDocument('asked').model;
+  const section = asked.tabs[0]?.sections[0];
+  if (!section) throw new Error('fixture');
+  const at = (sel: string): number | undefined => blockIndexOfSelection(asked, section, sel);
+
+  it('returns the block where the selection ends, counting answer boxes', () => {
+    expect(section.blocks.map((b) => b.type)).toEqual(['paragraph', 'qa', 'list', 'pullquote', 'callout', 'chart']);
+    expect(at('judges every channel by ROAS')).toBe(0);
+    expect(at('Social: cheap reach, weaker conversion')).toBe(2);
+    expect(at('each dollar of spend brings back four in revenue')).toBe(1);
+    expect(at('the revenue earned for each dollar spent. Paid search: intent is high')).toBe(2);
+    expect(at('ROAS by channel')).toBe(5);
+    expect(at('nothing like this appears anywhere')).toBeUndefined();
+    expect(at('   ')).toBeUndefined();
+  });
+
+  it('falls back to the end of the selection when its start is not in the model text', () => {
+    expect(at('Paid search Social Email. We stopped asking what a click costs')).toBe(3);
   });
 });

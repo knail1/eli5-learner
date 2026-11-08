@@ -35,7 +35,7 @@ describe('parseDocument (07 §8)', () => {
   });
 
   it('render(parse(render(m))) === render(m) for every fixture, including themed', () => {
-    for (const name of ['full', 'placeholder', 'themed', 'with-tab'] as const) {
+    for (const name of ['full', 'placeholder', 'themed', 'with-tab', 'asked'] as const) {
       const d = fixtureDocument(name);
       const once = renderDocument(d.model, d.assets, { runtime: STUB_RUNTIME, theme: d.theme });
       const p = parseDocument(once);
@@ -50,6 +50,35 @@ describe('parseDocument (07 §8)', () => {
     expect(formatCode(() => parseDocument(swap('{not json')))).toBe('invalid_model');
     expect(formatCode(() => parseDocument(swap('{"formatVersion":1}')))).toBe('invalid_model');
     expect(formatCode(() => parseDocument(swap('{"formatVersion":2}')))).toBe('bad_version');
+  });
+
+  it('round-trips answer boxes and rejects malformed ones (07 §7.1)', () => {
+    const asked = fixtureDocument('asked');
+    const once = renderDocument(asked.model, asked.assets, { runtime: STUB_RUNTIME, theme: asked.theme });
+    const p = parseDocument(once);
+    expect(p.model).toEqual(asked.model);
+    expect(p.model.tabs[0]?.sections[0]?.lastAction).toBe('ask');
+    const qaOf = (m: typeof p.model) => {
+      const b = m.tabs[0]?.sections[0]?.blocks.find((x) => x.type === 'qa');
+      if (b?.type !== 'qa') throw new Error('fixture');
+      return b;
+    };
+    for (const mutate of [
+      (b: Record<string, unknown>) => (b.id = 'q-XYZ'),
+      (b: Record<string, unknown>) => (b.question = 'two\nlines'),
+      (b: Record<string, unknown>) => (b.question = ''),
+      (b: Record<string, unknown>) => (b.topic = 't'.repeat(49)),
+      (b: Record<string, unknown>) => (b.quote = 'q'.repeat(161)),
+      (b: Record<string, unknown>) => (b.paragraphs = []),
+      (b: Record<string, unknown>) => (b.paragraphs = ['a', 'b', 'c', 'd', 'e']),
+      (b: Record<string, unknown>) => (b.paragraphs = ['x'.repeat(1201)]),
+      (b: Record<string, unknown>) => (b.paragraphs = ['']),
+    ]) {
+      const bad = structuredClone(asked.model);
+      mutate(qaOf(bad) as unknown as Record<string, unknown>);
+      const out = renderDocument(bad, asked.assets, { runtime: STUB_RUNTIME });
+      expect(formatCode(() => parseDocument(out))).toBe('invalid_model');
+    }
   });
 
   it('rejects a model whose section ids are malformed', () => {

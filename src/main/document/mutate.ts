@@ -4,11 +4,20 @@ import type { DocumentDraftTab, DraftBlock, SectionDraft } from '../llm';
 import { buildSections } from './build';
 import { DocumentBuildError, DocumentMutationError, TooManyTabsError } from './errors';
 import { reanchorSection } from './glossary';
-import { collapseWs } from './html';
-import { sectionIdsOf } from './ids';
+import { capText, collapseWs } from './html';
+import { mintQaId, qaIdsOf, sectionIdsOf } from './ids';
 import { cryptoIdSource, isSectionEli5TabKey, mintSectionEli5TabKey, tabKeyOfSectionId } from './section-id';
-import type { DocBlock, DocumentModel, MutationOptions, Section, SectionContext, SectionId, Tab } from './types';
-import { convertBlocks } from './validate';
+import type {
+  DocBlock,
+  DocumentModel,
+  MutationOptions,
+  QaDocBlock,
+  Section,
+  SectionContext,
+  SectionId,
+  Tab,
+} from './types';
+import { convertBlocks, isUserQuestion } from './validate';
 
 /** 07 §5.4: 2 fixed tabs + 20 section ELI5 tabs. */
 export const MAX_SECTION_ELI5_TABS = 20;
@@ -23,8 +32,12 @@ function findSection(model: DocumentModel, id: SectionId): { tab: Tab; section: 
   return undefined;
 }
 
-/** DocBlock -> DraftBlock: figure assetId mapped back to its image label (07 §8). */
-function toDraftBlock(model: DocumentModel, b: DocBlock): DraftBlock {
+/**
+ * DocBlock -> DraftBlock: figure assetId mapped back to its image label (07 §8). Answer boxes are
+ * doc-only and have no draft form (null), so the model never sees or echoes them.
+ */
+function toDraftBlock(model: DocumentModel, b: DocBlock): DraftBlock | null {
+  if (b.type === 'qa') return null;
   if (b.type !== 'figure') return b;
   const label = model.assets.find((a) => a.id === b.assetId)?.label ?? b.assetId;
   return {
@@ -36,7 +49,12 @@ function toDraftBlock(model: DocumentModel, b: DocBlock): DraftBlock {
 }
 
 export function sectionToDraft(model: DocumentModel, s: Section): SectionDraft {
-  return { heading: s.heading, blocks: s.blocks.map((b) => toDraftBlock(model, b)) };
+  const blocks: DraftBlock[] = [];
+  for (const b of s.blocks) {
+    const d = toDraftBlock(model, b);
+    if (d) blocks.push(d);
+  }
+  return { heading: s.heading, blocks };
 }
 
 export function getSectionContext(model: DocumentModel, id: SectionId): SectionContext {
@@ -104,7 +122,7 @@ export function replaceSection(
     id,
     kind: 'content',
     heading: heading.length > 120 ? heading.slice(0, 119) + '…' : heading,
-    blocks,
+    blocks: carryAnswers(hit.section.blocks, blocks),
     origin: 'regenerated',
     updatedAt: now,
     ...(action ? { lastAction: action } : {}),
@@ -121,6 +139,106 @@ export function replaceSection(
   const order = tabs.find((t) => t.kind === 'indepth')?.sections.map((s) => s.id as string) ?? [];
   const glossary = hit.tab.kind === 'indepth' ? reanchorSection(model.glossary, section, order, warn) : model.glossary;
   return { model: pruneAssets({ ...model, tabs, glossary, updatedAt: now }), warnings };
+}
+
+/**
+ * Answer boxes survive a rewrite (07 §7.1): every qa block of `oldBlocks` that `newBlocks` does not
+ * already hold is re-appended, in order, at the end. Ids are kept, so deep links still resolve; the
+ * box's quote keeps the context it was asked in.
+ */
+export function carryAnswers(oldBlocks: readonly DocBlock[], newBlocks: readonly DocBlock[]): DocBlock[] {
+  const have = new Set(newBlocks.flatMap((b) => (b.type === 'qa' ? [b.id] : [])));
+  const carried = oldBlocks.filter((b): b is QaDocBlock => b.type === 'qa' && !have.has(b.id));
+  return carried.length ? [...newBlocks, ...carried] : [...newBlocks];
+}
+
+export const MAX_QA_QUESTION = 500;
+export const MAX_QA_TOPIC = 48;
+export const MAX_QA_QUOTE = 160;
+export const MAX_QA_PARAGRAPHS = 4;
+export const MAX_QA_PARAGRAPH = 1200;
+
+/** What insertAnswer stores: the reader's question, the model's topic and answer, the selection. */
+export interface AnswerInput {
+  question: string;
+  topic: string;
+  /** The selection the question was asked about; cut to MAX_QA_QUOTE for the box. */
+  quote: string;
+  paragraphs: readonly string[];
+}
+
+/**
+ * 07 §7.1 / 08 Ask: inserts an answer box into a section, after block `afterBlock` and after any
+ * answer boxes already following it (so answers stack in the order asked); the end of the section
+ * when `afterBlock` is out of range. Glossary anchors and merge marks of later blocks shift by one;
+ * marks are kept. Answer paragraphs that ask the reader something are dropped; the question itself
+ * is stored as asked. Throws DocumentBuildError('empty_section') when no paragraph is left.
+ */
+export function insertAnswer(
+  model: DocumentModel,
+  sectionId: SectionId,
+  afterBlock: number | undefined,
+  answer: AnswerInput,
+  now: string,
+  opts: MutationOptions = {},
+): { model: DocumentModel; qaId: string } {
+  const hit = findSection(model, sectionId);
+  if (!hit) throw new DocumentMutationError('unknown_section', sectionId);
+  if (hit.section.kind === 'references') throw new DocumentMutationError('references_section', sectionId);
+  const paragraphs = answer.paragraphs
+    .map((p) => p.trim())
+    .filter((p) => collapseWs(p) !== '' && !isUserQuestion(p))
+    .slice(0, MAX_QA_PARAGRAPHS)
+    .map((p) => (p.length > MAX_QA_PARAGRAPH ? capText(p, MAX_QA_PARAGRAPH) : p));
+  if (paragraphs.length === 0) throw new DocumentBuildError('empty_section');
+  const question = capText(collapseWs(answer.question), MAX_QA_QUESTION);
+  if (question === '') throw new DocumentBuildError('empty_section');
+  const topic = capText(collapseWs(answer.topic), MAX_QA_TOPIC) || capText(question, MAX_QA_TOPIC);
+
+  const taken = new Set<string>([
+    ...sectionIdsOf(model.tabs),
+    ...model.glossary.map((n) => n.id),
+    ...qaIdsOf(model.tabs),
+    ...(opts.retiredIds ?? []),
+  ]);
+  const qaId = mintQaId(opts.idSource ?? cryptoIdSource, taken);
+  const box: QaDocBlock = {
+    type: 'qa',
+    id: qaId,
+    question,
+    topic,
+    quote: capText(collapseWs(answer.quote), MAX_QA_QUOTE),
+    paragraphs,
+    askedAt: now,
+  };
+
+  const old = hit.section.blocks;
+  let k =
+    afterBlock !== undefined && Number.isInteger(afterBlock) && afterBlock >= 0 && afterBlock < old.length
+      ? afterBlock + 1
+      : old.length;
+  while (k < old.length && old[k]?.type === 'qa') k++;
+  const blocks = [...old.slice(0, k), box, ...old.slice(k)];
+  const enh = hit.section.enh
+    ? {
+        ...hit.section.enh,
+        blocks: hit.section.enh.blocks.map((e) => (e.block >= k ? { ...e, block: e.block + 1 } : e)),
+      }
+    : undefined;
+  const section: Section = {
+    ...hit.section,
+    blocks,
+    updatedAt: now,
+    lastAction: 'ask',
+    ...(enh ? { enh } : {}),
+  };
+  const tabs = model.tabs.map((t) =>
+    t === hit.tab ? { ...t, sections: t.sections.map((s) => (s.id === sectionId ? section : s)) } : t,
+  );
+  const glossary = model.glossary.map((n) =>
+    n.sectionId === sectionId && n.blockIndex >= k ? { ...n, blockIndex: n.blockIndex + 1 } : n,
+  );
+  return { model: { ...model, tabs, glossary, updatedAt: now }, qaId };
 }
 
 const NUMBERING_RE = /^\s*(?:\d+(?:\.\d+)*|[ivxlcdm]+|[a-z])[.)](?:\s+|$)/i;
