@@ -71,7 +71,7 @@ The ELI5 tab rebuilds the same material in plain words, with analogies, simple d
   *Expand this*. The four Explain actions, and *Edit with my note*, regenerate only that section, in place. Selecting body text never picks up the
   glossary notes in the margin, and a selection inside a note stays inside it.
 
-  <img src="images/highlight_expander.png" alt="Selecting a passage opens a small menu: Expand this, re-explain it, Give me an analogy, Go deeper, Create a separate ELI5, and an optional note" width="560">
+  <img src="images/highlight_expander.png" alt="Selecting a passage opens a small menu: an Ask a question field with an Ask button, an optional note, and Explain, ELI5 and Edit with my note; the Explain popup is open with Expand this, This isn't clear, re-explain it, Give me an analogy and Go deeper" width="560">
 
   While it works, the section is marked "Updating…" and the status line shows the job, which you can cancel:
 
