@@ -12,5 +12,5 @@ export function renderDocument(
   return renderWithRuntime(model, assets, opts.runtime ?? bundledDocRuntime(), opts.theme ?? defaultDocTheme);
 }
 
-export { renderSectionHtml, modelJson, formatDate, displayLabel, footerText, TAB_LABEL_MAX } from './page';
+export { renderSectionHtml, modelJson, formatDate, displayLabel, footerText, TAB_LABEL_MAX, TAB_HINTS } from './page';
 export { documentCsp, scriptHash } from './csp';

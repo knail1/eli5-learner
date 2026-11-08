@@ -232,7 +232,7 @@ export interface ValidityReport { ok: boolean; errors: ValidityError[]; warnings
 export interface ValidityError { rule: ValidityRule; detail: string; sectionId?: string }
 export type ValidityRule =
   | 'parse' | 'single-file' | 'no-external-ref' | 'csp' | 'section-id-format' | 'section-id-unique'
-  | 'section-id-mirror' | 'tabs-match-meta' | 'default-tab' | 'glossary-scope' | 'references'
+  | 'section-id-mirror' | 'tabs-match-meta' | 'tab-order' | 'default-tab' | 'glossary-scope' | 'references'
   | 'no-inline-handlers' | 'photo-credit' | 'size';
 ```
 
@@ -248,6 +248,7 @@ export type ValidityRule =
 | `section-id-unique` | No duplicate `id` anywhere in the document (not just among sections). |
 | `section-id-mirror` | `data-section-id === id` on every section. |
 | `tabs-match-meta` | Tab keys and order equal `meta.tabs` when `meta` is given; `indepth` and `eli5` always present; every tab button in `nav.tabbar` controls exactly one panel and every panel has one button. |
+| `tab-order` | `ste`, when present, directly follows `eli5` and precedes every section ELI5 tab ([07](07-output-document.md) §12). |
 | `default-tab` | `indepth` is the initially active tab. |
 | `glossary-scope` | Glossary callouts appear only inside the `indepth` panel. |
 | `references` | `indepth` ends with a references section listing every `meta.sourcesUsed` and `meta.sourcesSkipped` entry (with reason). |

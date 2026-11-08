@@ -6,16 +6,18 @@ import { placeGlossary } from './glossary';
 import { assetIdFor, passThroughNormalizer, sha256Hex } from './images';
 import { defaultReferenceFormatter } from './references';
 import { DOC_RUNTIME_VERSION } from './runtime-assets';
-import { cryptoIdSource, ELI5_TAB_KEY, INDEPTH_TAB_KEY, mintSectionId, type IdSource } from './section-id';
+import { cryptoIdSource, ELI5_TAB_KEY, INDEPTH_TAB_KEY, mintSectionId, STE_TAB_KEY, type IdSource } from './section-id';
 import { docThemeRef } from './theme';
 import type { AssetCredit, AssetRef, BuildInput, BuildResult, DocumentModel, Section, Tab } from './types';
-import { convertBlocks, explorableBudget } from './validate';
+import { convertBlocks, countExplorables, explorableBudget } from './validate';
 
 export const MAX_TITLE = 120;
 export const MAX_DEK = 300;
 export const MAX_HEADING = 120;
 export const MAX_SECTIONS_PER_TAB = 40;
 export const APP_NAME = 'ELI5 Learner';
+/** 07 §4.1: label of the optional ASD-STE100 tab. */
+export const STE_TAB_LABEL = 'ASD-STE100';
 
 /** 06 §7.1 placeholder text for a failed ELI5 step. */
 export const ELI5_PLACEHOLDER_HEADING = 'ELI5 version unavailable';
@@ -119,7 +121,8 @@ export function buildDocumentModel(input: BuildInput): BuildResult {
   const idSource = input.idSource ?? cryptoIdSource;
   const normalize = input.normalizeImage;
   const now = input.now;
-  const taken = new Set<string>();
+  // 07 §4.3: reserved ids (a rebuild's live, retired and older-version ids) are never minted.
+  const taken = new Set<string>(input.reservedIds ?? []);
 
   // Step 5 (resolved lazily so only referenced images are embedded, each once).
   const assets = new Map<string, Uint8Array>();
@@ -230,6 +233,36 @@ export function buildDocumentModel(input: BuildInput): BuildResult {
     };
   }
 
+  // ASD-STE100 tab (07 §5, D14): optional, never a placeholder. Kept visuals carry the in-depth
+  // origin of their draft block, so a photo slot resolves to the same asset as in In depth. Kept
+  // explorables mirror In depth ones that already passed the caps, so they are counted but not
+  // dropped by the tab and document caps (a mirror must stay identical to its original); the tab
+  // never holds more explorables than In depth does, whatever the draft says.
+  let ste: Tab | null = null;
+  if (input.ste) {
+    const origins = input.ste.origins;
+    const fromIndepth = resolvePhotoIn('indepth');
+    const countKept = explorableBudget(explorables);
+    let steLeft = indepthSections.reduce((n, s) => n + countExplorables(s.blocks), 0);
+    const steExplorables = (): boolean => {
+      if (steLeft <= 0) return false;
+      steLeft--;
+      return countKept(true);
+    };
+    const steSections = buildSections(input.ste.tab.sections, {
+      ...sctx,
+      tabKey: STE_TAB_KEY,
+      resolvePhoto: (si, bi) => {
+        const o = origins[si]?.[bi];
+        return o ? fromIndepth(o.section, o.block) : undefined;
+      },
+      takeExplorable: steExplorables,
+    });
+    if (steSections.length > 0)
+      ste = { key: STE_TAB_KEY, kind: 'ste', label: STE_TAB_LABEL, createdAt: now, sections: steSections };
+    else warn('ste-omitted');
+  }
+
   // Step 6: glossary notes (in-depth only), ids unique against every id minted so far.
   const glossary = placeGlossary(
     {
@@ -263,7 +296,7 @@ export function buildDocumentModel(input: BuildInput): BuildResult {
     slug: input.slug,
     title,
     ...(dek ? { dek } : {}),
-    createdAt: now,
+    createdAt: input.createdAt ?? now,
     updatedAt: now,
     generator: {
       app: input.generator?.app ?? APP_NAME,
@@ -271,7 +304,7 @@ export function buildDocumentModel(input: BuildInput): BuildResult {
       edition: input.generator?.edition ?? __ELI5_EDITION__,
       runtimeVersion: input.generator?.runtimeVersion ?? DOC_RUNTIME_VERSION,
     },
-    tabs: [indepth, eli5],
+    tabs: [indepth, eli5, ...(ste ? [ste] : [])],
     glossary,
     references,
     assets: assetRefs,

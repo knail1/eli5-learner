@@ -17,9 +17,10 @@ interface Row {
   setsize: number;
   posinset: number;
 }
-const { layoutVersionTree, VERSION_VERBS } = await loadRenderer<{
+const { layoutVersionTree, VERSION_VERBS, versionVerb } = await loadRenderer<{
   layoutVersionTree(t: Pick<DocVersionTree, 'nodes' | 'currentId' | 'redoId'>, c?: ReadonlySet<string>): Row[];
   VERSION_VERBS: Record<string, string>;
+  versionVerb(n: Pick<DocVersionNode, 'kind' | 'label'>): string;
 }>('viewer/version-tree-layout.ts');
 
 const at = (min: number) => `2026-01-01T00:${String(min).padStart(2, '0')}:00.000Z`;
@@ -86,6 +87,16 @@ describe('layoutVersionTree (11 §5.7)', () => {
     }
     expect(VERSION_VERBS.ask).toBe('Asked');
     expect(VERSION_VERBS.outside).toBe('Changed outside the app');
+  });
+
+  it("shows a rebuild ('outside' + label 'Rebuilt…') as 'Rebuilt with new prompts' (11 §5.7, D19)", () => {
+    expect(versionVerb({ kind: 'outside', label: 'Rebuilt with prompt set default (0a1b2c3d)' })).toBe(
+      'Rebuilt with new prompts',
+    );
+    expect(versionVerb({ kind: 'outside', label: 'changed outside the app' })).toBe('Changed outside the app');
+    // Only kind 'outside' is special-cased: a section label that happens to start with "Rebuilt" is not.
+    expect(versionVerb({ kind: 'expand', label: "Rebuilt 'Pricing'" })).toBe('Expanded');
+    expect(versionVerb({ kind: 'merge', label: 'Rebuilt' })).toBe('Merged');
   });
 
   it('a damaged tree with a parent cycle still shows every version exactly once', () => {

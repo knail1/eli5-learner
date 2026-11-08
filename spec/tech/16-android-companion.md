@@ -289,6 +289,12 @@ type VersionTree = {
   entry with `replaces`; the old entry is dropped.
 - Readers ignore a manifest or tree whose `seq` is not greater than the one they hold.
 - `busy` mirrors the 08 locks so the phone can say "Your Mac is updating this document".
+- `tabs` keeps only keys that match the protocol's own `TAB_KEY_RE` (`src/main/sync/protocol.ts`,
+  `indepth|eli5|sx` + 6 hex), which is intentionally older than the app's canonical pattern
+  ([07](07-output-document.md) §4.1): the ASD-STE100 key `ste` is filtered out of the manifest, so
+  0.3.0 phones, which parse tab keys strictly (`Models.kt`), keep reading it. The phone reader still
+  shows the ASD-STE100 tab, because it renders the document's own HTML and model. Widening the
+  protocol pattern waits for an Android release.
 
 ### 4.5 Push (primary desktop)
 

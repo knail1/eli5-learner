@@ -4,9 +4,11 @@ export { TOKEN_NAMES } from './types';
 export {
   SECTION_ID_RE,
   TAB_KEY_RE,
+  TAB_KINDS,
   SECTION_ELI5_TAB_KEY_RE,
   INDEPTH_TAB_KEY,
   ELI5_TAB_KEY,
+  STE_TAB_KEY,
   MAX_ID_DRAWS,
   cryptoIdSource,
   IdExhaustedError,
@@ -40,9 +42,10 @@ export {
   ELI5_PLACEHOLDER_HEADING,
   ELI5_PLACEHOLDER_TEXT,
   MAX_SECTIONS_PER_TAB,
+  STE_TAB_LABEL,
 } from './build';
 export { licenseName } from './render/credit';
-export { renderDocument, renderSectionHtml, documentCsp, scriptHash, TAB_LABEL_MAX } from './render';
+export { renderDocument, renderSectionHtml, documentCsp, scriptHash, TAB_LABEL_MAX, TAB_HINTS } from './render';
 export {
   parseDocument,
   parseModelJson,

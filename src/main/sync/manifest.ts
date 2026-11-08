@@ -164,6 +164,7 @@ export function buildDocEntry(p: {
   replaces?: string;
   fallbackTime: string;
 }): ManifestDoc {
+  // The protocol pattern omits 'ste' (16 §4.4, D21), so 0.3.0 phones never see the ASD-STE100 key.
   const tabs = [...new Set(p.meta.tabs.map((t) => t.key).filter((k) => TAB_KEY_RE.test(k)))].slice(0, TABS_MAX);
   const doc: ManifestDoc = {
     docId: p.entry.id,

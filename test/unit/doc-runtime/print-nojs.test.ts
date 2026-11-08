@@ -147,3 +147,27 @@ describe('explorables (07 §7.1, §13)', () => {
       expect(c.hasAttribute('data-eli5-noact')).toBe(true); // hidden by the print rule above
   });
 });
+
+describe('the ASD-STE100 tab hint (07 §4.1, 11 §12)', () => {
+  it('is in the panel without JavaScript and stays visible once the runtime boots', async () => {
+    const { win, doc } = loadGolden('with-ste'); // not booted
+    const hint = doc.getElementById('tab-hint-ste');
+    expect(hint?.closest('.tabpanel')?.getAttribute('data-tab-key')).toBe('ste');
+    expect(hint?.textContent).toMatch(/^ASD-STE100 is Simplified Technical English/);
+    expect(doc.getElementById('tabbtn-ste')?.getAttribute('aria-describedby')).toBe('tab-hint-ste');
+    // Unlike .panel-title, the hint is never hidden by the `js` class.
+    expect(CSS).not.toMatch(/html\.js [^{]*\.tab-hint[^{]*\{\s*display: none/);
+    const rt = await loadRuntime();
+    const h = rt.boot(win, doc);
+    expect(h.tabs?.keys()).toEqual(['indepth', 'eli5', 'ste', expect.stringMatching(/^sx[0-9a-f]{6}$/)]);
+    // Fixed tab: no close button (only section ELI5 tabs have one).
+    expect(doc.querySelector('[data-close-tab="ste"]')).toBeNull();
+    expect(doc.getElementById('tabbtn-ste')?.closest('.tab-sx')).toBeNull();
+  });
+
+  it('prints although it carries data-eli5-noact', () => {
+    const print = printBlock(CSS);
+    expect(print).toMatch(/\[data-eli5-noact\] \{\s*display: none !important;/);
+    expect(print).toMatch(/\.tab-hint\[data-eli5-noact\] \{\s*display: block !important;/);
+  });
+});

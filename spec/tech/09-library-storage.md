@@ -125,7 +125,7 @@ Every change to a document's html is kept as a **version**, and the versions of 
 4. Write `index.html`, then `meta.json` (§8.1). **This is the commit point**, unchanged. On failure remove the new node file and rethrow; the live files and the tree are unchanged.
 5. Update the tree: append the node, set `parent.forwardId = newId` and `currentId = newId`, prune (below), write `tree.json`, then delete pruned blobs and node files. A failure here is only logged: the next `materialize` adopts the node with its real label (step 2b) and sweeps orphans.
 
-A write without `patch.change` is recorded as `kind: 'outside'` with `patch.label`. Meta-only writes (`touch`, `appendPublication`) and `commitDocument` (a new document) create no version; a new document's first version is created lazily as the root.
+A write without `patch.change` is recorded as `kind: 'outside'` with `patch.label`. A rebuild of a document with new prompts (a new version of the same document) also uses `kind: 'outside'`, because 0.3.0 phones parse `VersionChangeKind` strictly: its label is `Rebuilt with prompt set <set> (<digest8>)` and its topic `Rebuilt (<set>)`, and History ([11](11-app-shell-ui.md) §5.7) shows a node of kind `outside` whose label starts with `Rebuilt` as "Rebuilt with new prompts". A first-class `rebuild` kind waits for an Android release. Meta-only writes (`touch`, `appendPublication`) and `commitDocument` (a new document) create no version; a new document's first version is created lazily as the root.
 
 **Checkout** (`checkout(slug, id, {retiredIds, html?})`, caller holds `withDocLock`): `assertWritable`, `materialize`. An unknown id fails with `VERSION_NOT_FOUND`, a stub with `VERSION_NOT_FOUND {detail: 'pruned'}`, and a blob whose sha does not match stubs the node and fails with `VERSION_CORRUPT`. Checking out the current version is a no-op. The new live meta is the node's meta with `id`, `topicSlug`, `createdAt` and `publications` pinned from the live meta (they must not travel back in time), `updatedAt` = now, `versionId = id` and `retiredIds` from the caller (08 §6.7 computes them so IDs are never reused across branches). Everything else travels with the version: `tabs`, `actions`, `asks`, `merges`, sources. If `html` is given (a runtime upgrade of an old snapshot, same model), its blob is written and becomes the node's `sha256`; the old blob is collected. Write `index.html`, then `meta.json`, set `currentId = id`; when moving to an ancestor, set `forwardId` along the path back down to the previous current, so Redo retraces it. Write the tree, upsert the catalog entry under the catalog lock (`title`, `updatedAt`, `tabCount`, `mergedFromCount`), and emit `changed {reason: 'updated'}`.
 
@@ -273,8 +273,8 @@ export interface SourceRecord {
 }
 
 export interface TabRecord {
-  key: string;                     // tab key used in SectionIds: 'indepth', 'eli5', or 'sx' + 6 hex, e.g. 'sx4e1a07' (07 §4.1)
-  kind: 'indepth' | 'eli5' | 'section-eli5'; // Tab['kind'] from 07
+  key: string;                     // tab key used in SectionIds: 'indepth', 'eli5', 'ste', or 'sx' + 6 hex, e.g. 'sx4e1a07' (07 §4.1)
+  kind: 'indepth' | 'eli5' | 'ste' | 'section-eli5'; // Tab['kind'] from 07 (TAB_KINDS)
   label: string;                   // e.g. 'ELI5: Revenue recognition'
   sectionCount: number;
   sourceSectionId?: SectionId;     // section-eli5 only: the section it was made from (08 §6.6)
@@ -291,6 +291,12 @@ export interface MergeRecord {
   anchorSectionIds: SectionId[];   // the sections the merge revised or inserted, in-depth first (§10.3)
 }
 ```
+
+**Downgrade note (ASD-STE100).** The `ste` tab key and kind did not bump `META_SCHEMA_VERSION`: a
+newer meta schema would flip the whole library read-only in older apps. Instead, a 0.3.0 desktop
+fails to validate only the meta of documents that have an `ste` tab (`library.meta-invalid`):
+reconcile skips them, so they are missing from its library, and the file is never renamed or
+rewritten (meta reads do not move invalid files aside). Run the newer build before opening them.
 
 Schema ownership and strictness:
 
@@ -586,6 +592,8 @@ PRD: the new material is woven into the existing document, both tabs change, eve
 
 The model is told to keep every existing fact unless the new material contradicts it, and then to say so in the text naming both sources; the ELI5 tab stays in plain language. Unknown aliases and invalid blocks are skipped with a warning; they never fail the merge. The source's section ELI5 tabs are not carried over.
 
+**ASD-STE100 tab.** The merge output drops the target's `ste` tab ([07](07-output-document.md) §4.1): it is a rewrite of the pre-merge In depth tab, so it would be stale, and regenerating it would be an extra paid call. The merge result carries the warning (note) `ste-dropped` and `retiredSectionIds`, the dropped tab's section IDs, which the engine adds to the target's `retiredIds` (07 §4.3) and logs as `merge.ste-dropped`. The pre-merge version keeps the tab in History, and a rebuild recreates it. The STE text is never sent to `merge-weave`.
+
 **Highlights.** The model never marks spans. [07](07-output-document.md) §6.4 diffs each revised block against the block it replaces, word by word, and stores the inserted runs in the model; brand-new sections and blocks get a block-level mark. Each merge gets a legend id (`m1`, `m2`, …) recorded in the model's `merges` list, which renders the legend at the top of the document. Marks of earlier merges survive later merges through unchanged words. Regenerating a section later (08 section actions) rewrites it without marks: the old merge's highlights in that section disappear, which is accepted.
 
 The HTML work is done by the document module ([07](07-output-document.md)), which exposes:
@@ -599,7 +607,8 @@ export function weaveMergedDocument(input: {
   mergedAt: string; signal?: AbortSignal;
 }, planner: MergePlanner, opts?: { idSource?: IdSource; runtime?: DocRuntime }): Promise<{
   html: string; tabs: TabRecord[]; markerSectionIds: SectionId[]; mergeId: string; prompt: string;
-  warnings: string[];
+  warnings: string[];              // e.g. 'merge-block-dropped', 'ste-dropped'
+  retiredSectionIds: SectionId[];  // IDs of a dropped ASD-STE100 tab, for meta.retiredIds
 }>;
 ```
 

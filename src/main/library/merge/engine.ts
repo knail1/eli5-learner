@@ -93,7 +93,16 @@ export type WeaveMerged = (input: {
   suggestionId: string;
   mergedAt: string;
   signal: AbortSignal;
-}) => Promise<{ html: string; tabs: TabRecord[]; markerSectionIds: SectionId[]; prompt?: string }>;
+}) => Promise<{
+  html: string;
+  tabs: TabRecord[];
+  markerSectionIds: SectionId[];
+  prompt?: string;
+  /** e.g. 'ste-dropped' (09 §10.3). */
+  warnings?: string[];
+  /** Section ids of a dropped ASD-STE100 tab, added to meta.retiredIds (07 §4.3). */
+  retiredSectionIds?: SectionId[];
+}>;
 
 export interface MergeSuggestionsOptions {
   library: FsLibrary;
@@ -725,6 +734,9 @@ class MergeEngine implements MergeDelegate {
       this.log.warn('merge.weave-failed', { errorKind: typeof kind === 'string' ? kind : 'error' });
       throw new AcceptOutcome('failed', MERGE_FAILED_MESSAGE, err);
     }
+    // 09 §10.3: the merge output has no ASD-STE100 tab; the pre-merge version keeps it in History.
+    const retired = merged.retiredSectionIds ?? [];
+    if (merged.warnings?.includes('ste-dropped')) this.log.info('merge.ste-dropped', { sections: retired.length });
     // Step 6.
     let backup: string;
     try {
@@ -764,6 +776,7 @@ class MergeEngine implements MergeDelegate {
           sourcesUsed: unionSources(m.sourcesUsed, sourceMeta.sourcesUsed, `merge:${sourceMeta.id}`),
           sourcesSkipped: unionBy(m.sourcesSkipped, sourceMeta.sourcesSkipped, (x) => `${x.ref}\0${x.code}`),
           merges: [...m.merges, record],
+          ...(retired.length > 0 ? { retiredIds: [...new Set([...m.retiredIds, ...retired])] } : {}),
         }),
       });
     } catch (err) {

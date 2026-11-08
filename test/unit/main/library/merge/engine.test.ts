@@ -554,6 +554,22 @@ describe('accept (09 §10.6)', () => {
     expect((await s.lib.getMeta(s.target.topicSlug)).generation.prompts).toContain('merge-weave@1');
   });
 
+  it('retires the section ids of a dropped ASD-STE100 tab (09 §10.3, D18)', async () => {
+    const s = await setup();
+    const steIds = ['sec-ste-0a1b2c3d', 'sec-ste-4e5f6a7b'] as SectionId[];
+    const { h, sug } = await suggested(s, {
+      weaveMerged: async (input) => ({
+        ...(await fakeWeave(input)),
+        warnings: ['ste-dropped'],
+        retiredSectionIds: steIds,
+      }),
+    });
+    await h.service.accept(sug.id);
+    const meta = await s.lib.getMeta(s.target.topicSlug);
+    expect(meta.retiredIds).toEqual(expect.arrayContaining(steIds));
+    expect(meta.tabs.map((t) => t.key)).not.toContain('ste');
+  });
+
   it('keeps the suggestion pending with the ineligible message when HOOK-LIB-02 refuses at accept', async () => {
     const s = await setup();
     let allow = true;

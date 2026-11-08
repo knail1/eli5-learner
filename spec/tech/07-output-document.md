@@ -68,7 +68,7 @@ time (the build inlines `src/shared`), no
 ```ts
 // src/main/document/model.ts
 export type SectionId = string & { readonly __brand: 'SectionId' };  // /^sec-[a-z][a-z0-9]{1,15}-[0-9a-f]{8}$/
-export type TabKind = 'indepth' | 'eli5' | 'section-eli5';
+export type TabKind = 'indepth' | 'eli5' | 'ste' | 'section-eli5';   // TAB_KINDS in src/preload/contract.ts
 
 export interface DocumentModel {
   formatVersion: 1;
@@ -79,7 +79,7 @@ export interface DocumentModel {
   createdAt: string;              // ISO 8601 UTC
   updatedAt: string;              // bumped by every mutation
   generator: { app: string; version: string; edition: Edition; runtimeVersion: string };
-  tabs: Tab[];                    // [indepth, eli5, ...section-eli5 in creation order]
+  tabs: Tab[];                    // [indepth, eli5, ste?, ...section-eli5 in creation order] (12)
   glossary: GlossaryNote[];       // in-depth tab only; [] when the toggle was off
   references: ReferenceEntry[];   // rendered as the last in-depth section
   assets: AssetRef[];             // images used by figure blocks (bytes live in the HTML, 5.6)
@@ -93,9 +93,9 @@ export interface MergeLegendEntry { id: string; fromTitle: string; mergedAt: str
 export interface TabOrigin { sectionId: SectionId; selection: string; scope?: 'selection'; sectionIds?: SectionId[] }
 
 export interface Tab {
-  key: string;                    // 'indepth' | 'eli5' | 'sx' + 6 hex (section ELI5)
+  key: string;                    // 'indepth' | 'eli5' | 'ste' | 'sx' + 6 hex (section ELI5)
   kind: TabKind;
-  label: string;                  // 'In depth' | 'ELI5' | 'ELI5: <heading>'
+  label: string;                  // 'In depth' | 'ELI5' | 'ASD-STE100' | 'ELI5: <heading>'
   createdAt: string;
   origin?: TabOrigin;             // section-eli5 only
   placeholder?: true;             // ELI5 placeholder after eli5 step failure (06 §7.1)
@@ -182,7 +182,26 @@ export interface DocThemeRef { id: string; version: string; source: 'default' | 
 | --- | --- | --- |
 | In depth | `indepth` | `In depth` |
 | ELI5 | `eli5` | `ELI5` |
+| ASD-STE100 (optional) | `ste` | `ASD-STE100` |
 | Section ELI5 | `sx` + 6 lowercase hex (e.g. `sx4e1a07`) | `ELI5: <source section heading>` |
+
+One canonical pattern, `TAB_KEY_RE = /^(?:indepth|eli5|ste|sx[0-9a-f]{6})$/`, and the `TAB_KINDS`
+list live in `src/preload/contract.ts`; the document, library, draft and preload checks import
+them. The sync protocol keeps its older pattern on purpose ([16](16-android-companion.md) §4.4).
+
+The ASD-STE100 tab is optional and fixed: it exists only when its generation step succeeded (never
+a placeholder), it is never closable, In depth stays the default tab, and the glossary and the
+references stay in the in-depth tab. Its panel starts with a hint, `TAB_HINTS.ste` in
+`render/page.ts`, rendered after the panel title as
+`<p class="tab-hint" id="tab-hint-ste" data-eli5-noact>`; the tab button carries
+`aria-describedby="tab-hint-ste"` and the same text as its `title`:
+
+> ASD-STE100 is Simplified Technical English, a writing standard that began in aerospace
+> maintenance manuals in the late 1970s. Sentences are short (instructions at most 20 words,
+> descriptions at most 25), each sentence gives one instruction, one word keeps one meaning, and
+> verbs are in the active voice.
+
+The hint is plain HTML, so it shows without JavaScript, in print (13) and on Android.
 
 Section ELI5 labels are truncated to 48 characters with an ellipsis (full text in the `title`
 attribute). A label equal to an existing tab label gets a ` (2)`, ` (3)` suffix. Labels never
@@ -210,6 +229,7 @@ contain a bare number as the whole name (PRD "Section ELI5 tabs").
 | Regenerate section in place ([08](08-interactive-reading.md)) | ID unchanged; `origin='regenerated'`, `updatedAt` bumped |
 | Add Section ELI5 tab | New tab key, new IDs for its sections; no existing ID changes |
 | Close Section ELI5 tab | Its IDs are removed and never reused in this document (kept in `retiredIds` of `meta.json`, [09](09-library-storage.md)) |
+| Woven merge, target with an ASD-STE100 tab | The merge output drops the `ste` tab; its IDs go to `retiredIds` ([09](09-library-storage.md) §10.3) |
 | Woven merge ([09](09-library-storage.md) §10.3) | Target IDs unchanged: a revised section keeps its ID. Every inserted section gets a freshly minted SectionId under the target tab key (`sec-<tabkey>-<8 hex>`), checked against the whole target document and its `retiredIds`, and carries `data-merged-from="<sourceDocId>"`. Source SectionIds never enter the target |
 | Re-render with a newer runtime | IDs unchanged |
 | Glossary re-anchor | IDs unchanged |
@@ -227,20 +247,30 @@ export interface BuildInput {
   docId: string; slug: string; now: string;
   indepth: DocumentDraftTab;                   // required
   eli5: DocumentDraftTab | null;               // null -> placeholder tab (06 §7.1)
+  ste?: { tab: DocumentDraftTab;               // optional ASD-STE100 tab (kind 'ste'); absent/null -> no tab
+          origins: (KeepOrigin | null)[][] } | null;  // per STE block: its in-depth draft {section, block}, null for STE text
+  reservedIds?: Iterable<SectionId>;           // never minted (a rebuild: live, retired and older-version IDs)
+  createdAt?: string;                          // model.createdAt override (a rebuild keeps the original); default now
   glossary: GlossaryDraft | null;
   images: { label: string; mime: string; bytes: Uint8Array }[];   // ImageInput labels (02)
   photos?: StockPhotoInput[];                  // resolved stock photo slots (7.4)
   resolved: ResolvedSource[]; skipped: SkippedSource[];
   theme: DocTheme;                             // section 11
 }
+export interface KeepOrigin { section: number; block: number }
 export function buildDocumentModel(input: BuildInput): { model: DocumentModel; warnings: string[] };
 ```
 
 ### 5.1 Algorithm
 
 1. Take `title` and `dek` from `indepth`. Trim, collapse whitespace, cap lengths (section 3).
-2. For each tab draft, in order `indepth`, `eli5`: create the `Tab`, then for each `SectionDraft`
-   mint an ID and convert blocks (5.2). Drop sections left with zero blocks after validation.
+2. For each tab draft, in order `indepth`, `eli5`, `ste`: create the `Tab`, then for each
+   `SectionDraft` mint an ID (never one in `reservedIds`) and convert blocks (5.2). Drop sections
+   left with zero blocks after validation. A kept visual in the `ste` tab resolves its stock photo
+   slot through its origin, `photoSlotKey('indepth', section, block)`, so it shows the in-depth
+   asset; its kept explorables mirror in-depth ones and are counted but not dropped by the tab and
+   document caps, and the tab never holds more explorables than the in-depth tab.
+   An `ste` tab left with zero sections is omitted with warning `ste-omitted` (no placeholder).
 3. If `indepth` has zero sections after step 2, throw `DocumentBuildError('empty_indepth')`
    ([06](06-generation-pipeline.md) counts it as a retryable invalid output).
 4. If `eli5` is null or ends with zero sections, create the placeholder tab: one section, normal
@@ -289,7 +319,7 @@ titles (chart title, stepper title). The model cannot introduce headings inside 
 
 | Limit | Value | On exceed |
 | --- | --- | --- |
-| Tabs | 2 + 20 section ELI5 | `addSectionEli5Tab` throws `TooManyTabsError`; [08](08-interactive-reading.md) shows the message |
+| Tabs | 2 or 3 fixed (`indepth`, `eli5`, optional `ste`) + 20 section ELI5 | `addSectionEli5Tab` throws `TooManyTabsError`; [08](08-interactive-reading.md) shows the message |
 | Sections per tab | 40 content | Build keeps first 40, warning |
 | Glossary notes | 40 | Keep first 40 by document order |
 | Image asset | 1600 px long edge, ≤ 1.5 MB after encode | Downscale / re-encode (5.6) |
@@ -319,6 +349,9 @@ The runtime is never swapped at serve time and never by string surgery: always p
 A refreshed published document reads as "changed since publish" once ([10](10-publishing.md)).
 Documents that hold an answer box (6.5) fail model validation in builds older than the `qa` block
 (`invalid_model`): they stay viewable there but are not editable. `formatVersion` stays 1.
+A document with an ASD-STE100 tab (`kind: 'ste'`) also fails model validation in builds before it,
+and its `meta.json` fails too, so a 0.3.0 desktop leaves it out of the library without touching the
+files ([09](09-library-storage.md) §5.2 downgrade note). Run the newer build before opening one.
 
 ### 5.6 Images
 
@@ -355,6 +388,8 @@ Figure `alt` defaults to the caption when the model provides none.
   <nav class="tabbar" role="tablist" aria-label="Document views">
     <button role="tab" id="tabbtn-indepth" aria-controls="tab-indepth" aria-selected="true">In depth</button>
     <button role="tab" id="tabbtn-eli5" aria-controls="tab-eli5" aria-selected="false">ELI5</button>
+    <button role="tab" id="tabbtn-ste" aria-controls="tab-ste" aria-selected="false" title="{hint}"
+            aria-describedby="tab-hint-ste">ASD-STE100</button>   <!-- only when the tab exists (4.1) -->
     <span class="tab-sx"><button role="tab" id="tabbtn-sx4e1a07" …>ELI5: Revenue recognition</button>
       <button class="tab-close" data-close-tab="sx4e1a07" aria-label="Close tab ELI5: Revenue recognition" hidden>×</button></span>
   </nav>
@@ -370,6 +405,11 @@ Figure `alt` defaults to the caption when the model provides none.
                data-eli5-actionable="false">…</section>
     </div>
     <div class="tabpanel" role="tabpanel" id="tab-eli5" …>…</div>
+    <div class="tabpanel" role="tabpanel" id="tab-ste" data-tab-key="ste" data-tab-kind="ste" …>
+      <h2 class="panel-title">ASD-STE100</h2>
+      <p class="tab-hint" id="tab-hint-ste" data-eli5-noact>{hint, 4.1}</p>
+      <section id="sec-ste-…" …>…</section>
+    </div>
   </main>
   <footer class="doc-foot">Made with ELI5 Learner · {edition footer, HOOK-DOC-01}</footer>
   <script id="eli5-runtime">{DOC_RUNTIME_JS}</script>
@@ -1148,7 +1188,9 @@ disk changes at its next re-render.
 
 ## 12. Tab bar behavior (`tabs.ts`)
 
-1. Order: In depth, ELI5, then section ELI5 tabs by `createdAt` (new tabs appear to the right).
+1. Order: In depth, ELI5, ASD-STE100 when present, then section ELI5 tabs by `createdAt` (new
+   tabs appear to the right). Validity rule `tab-order` ([13](13-testing-quality.md) §7): `ste`,
+   when present, directly follows `eli5` and precedes every section ELI5 tab.
 2. In depth is active on open. `location.hash` wins when present: `#tab=<key>` selects a tab;
    `#sec-…` selects the tab containing that section and scrolls to it.
 3. WAI-ARIA tabs pattern: roving `tabindex`, Left/Right/Home/End move focus, Enter/Space
@@ -1183,6 +1225,8 @@ disk changes at its next re-render.
   (`print-color-adjust: exact` for charts and callouts).
 - Glossary notes print as open, compact boxes after their block (no margin float at print widths).
 - Steppers print all steps; chart data disclosures stay closed; tooltips are not printed.
+- The ASD-STE100 hint (4.1) prints although it carries `data-eli5-noact`
+  (`.tab-hint[data-eli5-noact] { display: block !important }`).
 - Explorables print their static SVG with every preset at full strength; the live marker and the
   controls (`[data-eli5-noact]`) are hidden. The figure itself never carries `data-eli5-noact`.
 - External links print their URL after the link text (`a[href^="http"]::after`).
@@ -1251,8 +1295,10 @@ open-on-landing is part of `scroll.init()`, 08 §7.4), and the menu is part of `
       and is never sent to the model in section context.
 - [ ] Opening, mutating or checking out a document with an older runtime re-renders it with the
       bundled runtime via parse → render (5.5), never by string replacement.
-- [ ] Tab order is In depth, ELI5, then section ELI5 tabs by creation; In depth opens first;
-      labels read "ELI5: <heading>".
+- [ ] Tab order is In depth, ELI5, ASD-STE100 (when present), then section ELI5 tabs by creation;
+      In depth opens first; labels read "ELI5: <heading>". A document with an `ste` tab round-trips
+      byte-identically, its hint shows without JS, in print and in Markdown, the tab has no close
+      button, and two-tab documents stay valid.
 - [ ] Every `DraftBlock` variant renders per 7.1, and every chart kind renders per 7.2 in both
       themes with a data table disclosure.
 - [ ] An explorable renders its static SVG, labels and outcome table with no extra script; the CSP

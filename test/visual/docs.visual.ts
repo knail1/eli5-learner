@@ -194,6 +194,17 @@ for (const theme of ['light', 'dark'] as const) {
       ]);
     });
 
+    test('ASD-STE100 tab: fixed tab with its hint (07 §4.1)', async ({ page }) => {
+      await open(page, 'with-ste');
+      await showTab(page, 'ste');
+      await expect(tab(page, 'ste').locator('.tab-hint')).toBeVisible();
+      await expectRegion(page, shot('with-ste-tab-hint'), [
+        page.locator('nav.tabbar [role="tab"]'),
+        tab(page, 'ste').locator('.tab-hint'),
+        tab(page, 'ste').locator(':scope > section').first().locator(':scope > h2, :scope > p'),
+      ]);
+    });
+
     test('references: used and skipped, image credits, added by merge', async ({ page }) => {
       await open(page, 'full');
       await expect(refs(page)).toHaveScreenshot(shot('full-references'));

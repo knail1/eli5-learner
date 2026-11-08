@@ -190,6 +190,27 @@ describe('buildTree / buildDocEntry / buildManifest (16 §4.4)', () => {
     );
   });
 
+  it('omits the ASD-STE100 tab key, which 0.3.0 phones do not parse (16 §4.4, D21)', () => {
+    const meta = leakyMeta();
+    meta.tabs = [
+      { key: 'indepth', kind: 'indepth', label: 'In depth', sectionCount: 4, createdAt: TS },
+      { key: 'eli5', kind: 'eli5', label: 'ELI5', sectionCount: 3, createdAt: TS },
+      { key: 'ste', kind: 'ste', label: 'ASD-STE100', sectionCount: 4, createdAt: TS },
+      { key: 'sx0a1b2c', kind: 'section-eli5', label: 'ELI5: Pricing', sectionCount: 1, createdAt: TS },
+    ];
+    const entry = buildDocEntry({
+      entry: { id: DOC, title: meta.title, summary: meta.summary, createdAt: TS, updatedAt: TS },
+      meta,
+      current: { versionId: vid(1), sha: sha(1), sizeBytes: 1, headings: [] },
+      placement: { kind: 'unfiled' },
+      busy: false,
+      fallbackTime: TS,
+    });
+    expect(entry.tabs).toEqual(['indepth', 'eli5', 'sx0a1b2c']);
+    const m = buildManifest({ seq: 1, generatedAt: TS, folders: [], docs: [entry] });
+    expect(LibraryManifestSchema.safeParse(m).success).toBe(true);
+  });
+
   it('sets replaces only for a different id, and unfiles a placement whose folder is gone', () => {
     const meta = leakyMeta();
     const base = {

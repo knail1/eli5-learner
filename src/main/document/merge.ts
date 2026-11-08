@@ -16,7 +16,7 @@ import { mintDiagramPrefix, mintQaId, qaIdsOf, sectionIdsOf } from './ids';
 import { carryAnswers } from './mutate';
 import { parseDocument } from './parse';
 import { renderDocument } from './render';
-import { cryptoIdSource, ELI5_TAB_KEY, INDEPTH_TAB_KEY, mintSectionId, type IdSource } from './section-id';
+import { cryptoIdSource, ELI5_TAB_KEY, INDEPTH_TAB_KEY, mintSectionId, STE_TAB_KEY, type IdSource } from './section-id';
 import type {
   AssetRef,
   DocBlock,
@@ -28,13 +28,14 @@ import type {
   Section,
   SectionId,
   Tab,
+  TabKind,
 } from './types';
 import { MAX_EXPLORABLES_PER_SECTION, convertBlocks, countExplorables, explorableBudget } from './validate';
 
 /** 09 §5.2 TabRecord, structurally. */
 export interface MergeTabRecord {
   key: string;
-  kind: 'indepth' | 'eli5' | 'section-eli5';
+  kind: TabKind;
   label: string;
   sectionCount: number;
   sourceSectionId?: SectionId;
@@ -78,8 +79,13 @@ export interface WeaveMergedResult {
   mergeId: string;
   /** "merge-weave@N", for meta.json generation.prompts. */
   prompt: string;
-  /** e.g. 'merge-unknown-section', 'merge-block-dropped'. */
+  /** e.g. 'merge-unknown-section', 'merge-block-dropped', 'ste-dropped'. */
   warnings: string[];
+  /**
+   * SectionIds the merge removed with the ASD-STE100 tab (09 §10.3: the merge output drops it, note
+   * 'ste-dropped'); the caller adds them to meta.retiredIds so they are never minted again (07 §4.3).
+   */
+  retiredSectionIds: SectionId[];
 }
 
 /** One document serialized for the prompt, with the alias maps that resolve the plan. */
@@ -285,6 +291,8 @@ export interface ApplyMergePlanResult {
   /** Revised or inserted sections, in-depth first, in document order. */
   enhancedSectionIds: SectionId[];
   warnings: string[];
+  /** Section ids of the dropped ASD-STE100 tab (09 §10.3); empty when the target had none. */
+  retiredSectionIds: SectionId[];
 }
 
 /** 'm' + the next free number, in legend order. */
@@ -570,10 +578,17 @@ export function applyMergePlan(
     return placeholderGone ? { ...rest, sections } : { ...tab, sections };
   };
 
-  const tabs = t.tabs.map((tab) => {
-    if (tab.key === INDEPTH_TAB_KEY) return weaveTab(tab, plan.indepth);
-    if (tab.key === ELI5_TAB_KEY) return weaveTab(tab, plan.eli5);
-    return tab;
+  // 09 §10.3 (D18): the ASD-STE100 tab is a rewrite of the pre-merge In depth tab, so it would be
+  // stale after the merge. It is dropped (no extra paid call); the pre-merge version keeps it in
+  // History and a rebuild recreates it. Its section ids are retired, never reused.
+  const steTab = t.tabs.find((x) => x.key === STE_TAB_KEY);
+  if (steTab) warn('ste-dropped');
+  const retiredSectionIds = steTab ? steTab.sections.map((x) => x.id) : [];
+  const tabs = t.tabs.flatMap((tab) => {
+    if (tab.key === INDEPTH_TAB_KEY) return [weaveTab(tab, plan.indepth)];
+    if (tab.key === ELI5_TAB_KEY) return [weaveTab(tab, plan.eli5)];
+    if (tab === steTab) return [];
+    return [tab];
   });
 
   // Glossary: notes of revised sections re-anchored; new terms placed in changed in-depth sections.
@@ -639,7 +654,7 @@ export function applyMergePlan(
     ...enhanced.filter((id) => indepthIds.has(id)),
     ...enhanced.filter((id) => !indepthIds.has(id)),
   ];
-  return { model, assets, mergeId, enhancedSectionIds, warnings };
+  return { model, assets, mergeId, enhancedSectionIds, warnings, retiredSectionIds };
 }
 
 /**
@@ -680,5 +695,6 @@ export async function weaveMergedDocument(
     mergeId: applied.mergeId,
     prompt,
     warnings: applied.warnings,
+    retiredSectionIds: applied.retiredSectionIds,
   };
 }

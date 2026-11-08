@@ -332,7 +332,9 @@ so renderer DOM can never draw over the viewer rectangle. Therefore:
   as do `Cmd+Y` and View > **Show Versions** (§9). When the window is too narrow for the panel
   (below), the toggle does not open it and shows an inline hint under the header instead: "Widen the
   window or hide the library to show versions."
-- The document's own tabs (In depth, ELI5, section ELI5 tabs) render inside the viewer (07, 08).
+- The document's own tabs (In depth, ELI5, ASD-STE100 when the document has it, section ELI5
+  tabs) render inside the viewer (07, 08). The ASD-STE100 tab is fixed (no close control) and starts
+  with a short hint on what ASD-STE100 is (07 §4.1).
   The shell adds no tab strip.
 - On `eli5:doc:updated {slug, sectionId?, tabKey?, anchorId?}` for the open document, main reloads
   the viewer and sends `eli5:doc:scroll-to` (08 §7.4). If the updated slug is not the open document, the shell does
@@ -509,7 +511,9 @@ column of `div.viewer-body` (§5.1).
   version, dashed on other branches, a filled dot with a ring for the current one). Line 1: the
   topic (2-line clamp). Line 2: verb · relative time, with the verbs Expanded, Re-explained, Analogy
   added, Went deeper, Edited with note, Asked, ELI5 tab, ELI5 of a selection, Closed tab, Merged,
-  Changed outside the app, Original. Line 3, for Ask: the question in quotes (1-line clamp). Chips:
+  Changed outside the app, Original (`VERSION_VERBS`). A rebuild (kind `outside` with a label that
+  starts with `Rebuilt`, 09 §4.1) shows **Rebuilt with new prompts** (`versionVerb()` in
+  `viewer/version-tree-layout.ts`). Line 3, for Ask: the question in quotes (1-line clamp). Chips:
   **Current**, **Published** (10 §4), **(snapshot removed)**. A detail strip at the panel foot
   shows the focused row's full label, heading and question; native `title` tooltips are not used.
 - **Pending rows.** While a section job runs, a muted provisional row appears under the current
@@ -856,6 +860,9 @@ sign-in lifecycle itself is HOOK-AUTH-01; publishers are HOOK-PUB-01..04.
   with the sidebar auto-collapsing below 1000 CSS px of width.
 - **Tray.** Menu items are native, so VoiceOver reads them. The busy icon has an accessible
   description via the tooltip.
+- **Tab hints.** A document tab whose kind needs explaining (today only ASD-STE100) carries a hint
+  paragraph at the top of its panel, visible without JavaScript and in print; the tab button names
+  it with `aria-describedby` and repeats it as its `title` (07 §4.1).
 - **No time limits.** Nothing requiring action disappears on a timer; the 10-minute done-line hide
   (06) applies only to informational lines, and the document stays in the Library.
 

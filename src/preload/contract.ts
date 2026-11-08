@@ -480,6 +480,16 @@ export interface MergeSuggestion {
 /** /^sec-[a-z][a-z0-9]{1,15}-[0-9a-f]{8}$/ (07 §4). */
 export type SectionId = string & { readonly __brand: 'SectionId' };
 
+/**
+ * 07 §4.1 tab keys: 'indepth' | 'eli5' | 'ste' | 'sx' + 6 lowercase hex. The one canonical
+ * pattern; document, library, draft and preload checks import it. The sync protocol keeps its
+ * older pattern on purpose (16 §4.4: 'ste' is filtered from the manifest for 0.3.0 phones).
+ */
+export const TAB_KEY_RE = /^(?:indepth|eli5|ste|sx[0-9a-f]{6})$/;
+/** 07 §3 tab kinds: the two required views, the optional ASD-STE100 view, section ELI5 tabs. */
+export const TAB_KINDS = ['indepth', 'eli5', 'ste', 'section-eli5'] as const;
+export type TabKind = (typeof TAB_KINDS)[number];
+
 export type SectionAction = 'expand' | 'reexplain' | 'analogy' | 'deeper' | 'revise';
 /**
  * 'eli5-tab': a separate ELI5 of the section; 'eli5-selection': a focused ELI5 of the selected text (08 §7.5);

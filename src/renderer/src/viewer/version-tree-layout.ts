@@ -159,6 +159,19 @@ export const VERSION_VERBS: Record<DocVersionNode['kind'], string> = {
   sync: 'Synced',
 };
 
+/** 11 §5.7 (D19): a rebuild is stored as kind 'outside' with a label that starts with this. */
+export const REBUILT_LABEL_PREFIX = 'Rebuilt';
+export const REBUILT_VERB = 'Rebuilt with new prompts';
+
+/**
+ * The History verb of one version. A rebuild reuses kind 'outside' (0.3.0 phones parse the kind
+ * strictly), so it is told apart by its label; everything else uses VERSION_VERBS.
+ */
+export function versionVerb(n: Pick<DocVersionNode, 'kind' | 'label'>): string {
+  if (n.kind === 'outside' && n.label.startsWith(REBUILT_LABEL_PREFIX)) return REBUILT_VERB;
+  return (VERSION_VERBS as Record<string, string | undefined>)[n.kind] ?? n.kind;
+}
+
 /** Provisional row text while a section job runs, e.g. "Answering…". */
 export const PENDING_VERBS: Record<string, string> = {
   expand: 'Expanding…',

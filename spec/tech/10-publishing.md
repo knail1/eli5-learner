@@ -293,6 +293,8 @@ Conversion (`markdown.ts`), in reading order:
 
 - Title as `#`; the subtitle (dek) as a paragraph.
 - Each tab as `##` (placeholder tabs are skipped); each content section as `###` with its blocks.
+  A tab kind with a hint (`TAB_HINTS`, [07](07-output-document.md) §4.1) gets the hint as an italic
+  line right under its heading: `## ASD-STE100`, then `*ASD-STE100 is Simplified Technical English, …*`.
 - Then `## Glossary` as a list, then one `## Sources` list built from the references. Reference
   sections are not rendered inline.
 - Literal `<` and `>` in text are escaped.

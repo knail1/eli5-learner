@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import { IPC, type IpcChannel, type IpcResult, type ScrollToEvent } from './contract';
+import { IPC, TAB_KEY_RE, type IpcChannel, type IpcResult, type ScrollToEvent } from './contract';
 import type { Eli5DocApi } from './api';
 
 /**
@@ -15,7 +15,6 @@ function currentSlug(): string {
 
 // 08 §3 / 07 §4: the same bounds main's zod schemas enforce (src/main/ipc/doc.ts).
 const SECTION_ID_RE = /^sec-([a-z][a-z0-9]{1,15})-[0-9a-f]{8}$/;
-const TAB_KEY_RE = /^(indepth|eli5|sx[0-9a-f]{6})$/;
 const ACTIONS = ['expand', 'reexplain', 'analogy', 'deeper', 'revise'];
 /** 08 §4.3 item 4. */
 const SCROLL_BUFFER_MS = 5000;

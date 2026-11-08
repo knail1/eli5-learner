@@ -15,6 +15,7 @@ import type {
   SectionBusyEvent,
   SectionChange,
   SectionId,
+  TabKind,
 } from '../../preload/contract';
 
 // Shared with the preload contract; defined there, re-exported here (08 §3).
@@ -28,16 +29,15 @@ export type {
   SectionBusyEvent,
   SectionChange,
   SectionId,
+  TabKind,
 };
 
 // ---------------------------------------------------------------------------
 // Model (07 §3)
 // ---------------------------------------------------------------------------
 
-export type TabKind = 'indepth' | 'eli5' | 'section-eli5';
-
-/** Tab keys (07 §4.1): 'indepth' | 'eli5' | 'sx' + 6 lowercase hex. */
-export type FixedTabKey = 'indepth' | 'eli5';
+/** Tab keys (07 §4.1): 'indepth' | 'eli5' | 'ste' | 'sx' + 6 lowercase hex. */
+export type FixedTabKey = 'indepth' | 'eli5' | 'ste';
 export type TabKey = FixedTabKey | `sx${string}`;
 
 export interface DocumentModel {
@@ -49,7 +49,7 @@ export interface DocumentModel {
   createdAt: string; // ISO 8601 UTC
   updatedAt: string; // bumped by every mutation
   generator: { app: string; version: string; edition: Edition; runtimeVersion: string };
-  tabs: Tab[]; // [indepth, eli5, ...section-eli5 in creation order]
+  tabs: Tab[]; // [indepth, eli5, ste?, ...section-eli5 in creation order] (07 §12)
   glossary: GlossaryNote[]; // in-depth tab only
   references: ReferenceEntry[]; // rendered as the last in-depth section
   assets: AssetRef[];
@@ -104,7 +104,7 @@ export interface TabOrigin {
 export interface Tab {
   key: string; // TabKey; kept as string per 07 §3
   kind: TabKind;
-  label: string; // 'In depth' | 'ELI5' | 'ELI5: <heading>'
+  label: string; // 'In depth' | 'ELI5' | 'ASD-STE100' | 'ELI5: <heading>'
   createdAt: string;
   origin?: TabOrigin; // section-eli5 only
   placeholder?: true; // ELI5 placeholder after eli5 step failure (06 §7.1)
@@ -347,6 +347,21 @@ export interface SectionJobPayload {
 // Build, render and parse (07 §5, §8)
 // ---------------------------------------------------------------------------
 
+/**
+ * Where an ASD-STE100 block came from (07 §5): the in-depth draft's section and block index of a
+ * kept visual, so its stock photo slot resolves through photoSlotKey('indepth', section, block).
+ */
+export interface KeepOrigin {
+  section: number;
+  block: number;
+}
+
+/** The optional ASD-STE100 tab input (07 §5): the resolved draft and one origin per block (null: STE text). */
+export interface SteBuildInput {
+  tab: DocumentDraftTab;
+  origins: readonly (readonly (KeepOrigin | null)[])[];
+}
+
 /** 07 §5 BuildInput, plus injectable seams (13 §3.2) and generator info. */
 export interface BuildInput {
   docId: string;
@@ -354,6 +369,12 @@ export interface BuildInput {
   now: string;
   indepth: DocumentDraftTab; // required
   eli5: DocumentDraftTab | null; // null -> placeholder tab (06 §7.1)
+  /** Optional ASD-STE100 tab (07 §5); absent, null or empty after conversion -> no tab, never a placeholder. */
+  ste?: SteBuildInput | null;
+  /** SectionIds that must never be minted (07 §4.3): a rebuild passes live, retired and older-version ids. */
+  reservedIds?: Iterable<string>;
+  /** Overrides model.createdAt (default `now`); a rebuild keeps the document's original date. */
+  createdAt?: string;
   glossary: GlossaryDraft | null; // null when the glossary toggle is off
   images: { label: string; mime: string; bytes: Uint8Array }[]; // ImageInput labels (02)
   /** Resolved stock photo slots (07 §7.4); unresolved `photo` blocks are dropped. */

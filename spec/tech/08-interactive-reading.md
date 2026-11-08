@@ -303,7 +303,7 @@ The model gets the section plus its surroundings, not the whole document ([02](0
 
 1. Read `index.html` (no lock) and run `parseDocument(html)`. A missing file fails the job with `DOC_GONE`; a `DocumentFormatError` fails it with `INTERNAL` (detail `document_corrupt`).
 2. `ctx = getSectionContext(model, sectionId)` ([07](07-output-document.md) §8). It returns `{tab, section, draft, prev?, next?, outline}`: the target and its neighbors in `SectionDraft` form (figure assets mapped back to labels), and the headings of every section in the tab. An unknown ID fails the job with `SECTION_GONE`.
-3. Document framing: `model.title`, `model.dek`, and `tabKind = ctx.tab.kind` (`indepth` | `eli5` | `section-eli5`).
+3. Document framing: `model.title`, `model.dek`, and `tabKind = ctx.tab.kind` (`indepth` | `eli5` | `ste` | `section-eli5`).
 4. `sourceExcerpt` (only for `deeper`): if [09](09-library-storage.md) retained extracted source text for this document, take up to 6000 characters around the best lexical match for `selectionText`. Otherwise omit it.
 5. **Budget:** if the target plus neighbors exceed 60% of the model's input budget (`inputBudget(limitsFor(provider, model), 0, llm.maxOutputTokens)`, [02](02-llm-provider.md) §8, read at request time), shrink each neighbor to its heading plus its first 1500 characters. If the target alone still does not fit, fail with `SECTION_TOO_LARGE` (§9).
 6. Call `runSectionAction({action, tabKind, section: ctx.draft, outline: ctx.outline, prev: ctx.prev, next: ctx.next, selection: selectionText, note, sourceExcerpt, signal})`. `eli5-tab` and `eli5-selection` return a `DocumentDraftTab` of kind `section-eli5`; the other five return one `SectionDraft`. Ask calls `answerSectionQuestion` instead (§6.8). The model never returns an ID. `eli5-selection` sends `context` (§7.5) instead of `prev`/`next` and skips step 5.
@@ -314,6 +314,7 @@ The model gets the section plus its surroundings, not the whole document ([02](0
 | --- | --- |
 | `indepth` | WSJ register; visuals allowed; glossary re-anchoring applies (§6.5) |
 | `eli5`, `section-eli5` | Plain words, no jargon, no glossary. "Go deeper" adds depth but stays at ELI5 reading level. "Create a separate ELI5" from an ELI5 tab makes an even more focused explainer of the selected passage |
+| `ste` | ASD-STE100 register: short sentences, one instruction each, one meaning per word, active voice; no glossary. Until the `register-ste` prompt fragment ships, the section prompts receive `tabKind = "ste"` with no extra register text |
 
 ### 6.3 Section hash (staleness precondition)
 
@@ -418,7 +419,7 @@ Under the document lock, with `now` read once:
 
 ### 7.2 Close (delete)
 
-- Only `section-eli5` tabs show a close control (`button.tab-close[data-close-tab]`, `aria-label="Close tab {label}"`, 07 §6.1, §12). The in-depth and ELI5 tabs can never be closed. The runtime hides the control for them, and main refuses with `E_FORBIDDEN`.
+- Only `section-eli5` tabs show a close control (`button.tab-close[data-close-tab]`, `aria-label="Close tab {label}"`, 07 §6.1, §12). The in-depth, ELI5 and ASD-STE100 tabs can never be closed. The runtime hides the control for them, and main refuses with `E_FORBIDDEN`.
 - **Two-step inline confirm, no modal:** the first click turns the `×` into a `Delete?` pill for 3 s. A second click within that time sends `eli5Doc.closeTab(tabKey)`. Esc or a timeout reverts it.
 - **Main (`eli5:doc:close-tab`)**, under the lock, with `now` read once:
   1. Check the sender and slug as in §6.1. Re-read `index.html` and run `parseDocument`. Find the tab in `model.tabs` by `tabKey`; if it is missing, return `E_NOT_FOUND`. Require `kind === 'section-eli5'`, otherwise `E_FORBIDDEN`.

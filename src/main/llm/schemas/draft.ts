@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TAB_KINDS } from '../../../preload/contract';
 
 /**
  * Structured model output (02 §10). Types are inferred from these schemas.
@@ -123,7 +124,7 @@ export const SectionDraftSchema = z.object({
 export type SectionDraft = z.infer<typeof SectionDraftSchema>;
 
 export const DocumentDraftTabSchema = z.object({
-  kind: z.enum(['indepth', 'eli5', 'section-eli5']),
+  kind: z.enum(TAB_KINDS),
   title: z.string(),
   dek: z.string().optional(),
   sections: z.array(SectionDraftSchema).min(1).max(40),

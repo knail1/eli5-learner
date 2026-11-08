@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { ChartSpecSchema, ExplorableBlockSchema } from '../llm';
 import type { ExplorableSim } from '../../shared/explorable';
 import { QA_ID_RE } from './ids';
-import { SECTION_ID_RE } from './section-id';
+import { SECTION_ID_RE, TAB_KEY_RE, TAB_KINDS } from './section-id';
 import type { DocBlock, DocumentModel, SectionId } from './types';
 
 const SectionIdSchema = z
@@ -82,8 +82,8 @@ const SectionSchema = z.object({
 });
 
 const TabSchema = z.object({
-  key: z.string().regex(/^(?:indepth|eli5|sx[0-9a-f]{6})$/),
-  kind: z.enum(['indepth', 'eli5', 'section-eli5']),
+  key: z.string().regex(TAB_KEY_RE),
+  kind: z.enum(TAB_KINDS),
   label: z.string(),
   createdAt: z.string(),
   origin: z

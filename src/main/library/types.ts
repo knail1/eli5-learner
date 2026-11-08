@@ -16,6 +16,7 @@ import type {
   MergeSuggestionStatus,
   PublicationRecord,
   SectionId,
+  TabKind,
   TrashItem,
   VersionChangeKind,
   VersionTarget,
@@ -93,9 +94,9 @@ export interface SourceRecord {
 
 /** 09 §5.2; kind mirrors 07 Tab['kind'], sourceSectionId/createdAt owned by 08 §6.6. */
 export interface TabRecord {
-  /** 'indepth', 'eli5', or 'sx' + 6 hex (07 §4.1). */
+  /** 'indepth', 'eli5', 'ste', or 'sx' + 6 hex (07 §4.1). */
   key: string;
-  kind: 'indepth' | 'eli5' | 'section-eli5';
+  kind: TabKind;
   label: string;
   sectionCount: number;
   sourceSectionId?: SectionId;

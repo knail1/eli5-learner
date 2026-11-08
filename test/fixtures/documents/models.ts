@@ -2,6 +2,7 @@
  * Golden fixture models: build (and for 'with-tab', add a section ELI5 tab) deterministically.
  * 'merged' is a woven merge (merge.ts); 'showcase' covers the components the others lack (showcase.ts);
  * 'asked' is 'with-tab' with two reader answer boxes (08 Ask), one in the ELI5 tab.
+ * 'with-ste' adds the optional ASD-STE100 tab before a section ELI5 tab (showcase.ts steModel).
  */
 import {
   addSectionEli5Tab,
@@ -15,9 +16,9 @@ import type { DocumentDraftTab } from '../../../src/main/llm';
 import { SeededIdSource } from '../../helpers/ids';
 import { THEMED, fixtureInput, type FixtureName } from './drafts';
 import { wovenFixture } from './merge';
-import { showcaseModel } from './showcase';
+import { showcaseModel, steModel } from './showcase';
 
-export type GoldenName = FixtureName | 'with-tab' | 'merged' | 'showcase' | 'asked';
+export type GoldenName = FixtureName | 'with-tab' | 'merged' | 'showcase' | 'asked' | 'with-ste';
 export const GOLDEN_NAMES: readonly GoldenName[] = [
   'full',
   'placeholder',
@@ -26,6 +27,7 @@ export const GOLDEN_NAMES: readonly GoldenName[] = [
   'merged',
   'showcase',
   'asked',
+  'with-ste',
 ];
 
 export const SECTION_ELI5_DRAFT: DocumentDraftTab = {
@@ -90,6 +92,7 @@ export function fixtureDocument(name: GoldenName): FixtureDocument {
   if (name === 'asked') return askedDocument();
   // A four-step stepper, stock photos with credits and an "ELI5 this selection" tab (showcase.ts).
   if (name === 'showcase') return showcaseModel();
+  if (name === 'with-ste') return steModel();
   if (name === 'merged') {
     // 09 §10.3: the 'full' fixture with a second document woven in (marks, legend, merged sources).
     const w = wovenFixture();

@@ -174,7 +174,13 @@ describe('protocol stays in step with the app', () => {
   it('repeats the library id patterns and limits', () => {
     expect(VERSION_ID_RE.source).toBe(LIBRARY_VERSION_ID_RE.source);
     expect(FOLDER_ID_RE.source).toBe(LIBRARY_FOLDER_ID_RE.source);
-    expect(TAB_KEY_RE.source).toBe(TAB_KEY_PATTERN.source);
+    // 16 §4.4 (D21): the protocol keeps the 0.3.0 tab-key pattern on purpose; the app's pattern is
+    // the same plus 'ste', which the manifest filters out.
+    expect(TAB_KEY_RE.source).toBe('^(indepth|eli5|sx[0-9a-f]{6})$');
+    expect(TAB_KEY_PATTERN.source).toBe('^(?:indepth|eli5|ste|sx[0-9a-f]{6})$');
+    for (const k of ['indepth', 'eli5', 'sx0a1b2c'])
+      expect(TAB_KEY_RE.test(k) && TAB_KEY_PATTERN.test(k), k).toBe(true);
+    expect(TAB_KEY_RE.test('ste')).toBe(false);
     expect(SECTION_ID_RE.source).toBe(SECTION_ID_PATTERN.source);
     expect(MAX_FOLDER_NAME_CHARS).toBe(60);
     expect(DOC_ID_RE.test(randomUUID())).toBe(true);

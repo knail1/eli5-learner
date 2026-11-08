@@ -22,6 +22,7 @@ import type {
   VersionTreeFile,
 } from './types';
 import { SLUG_PATTERN } from './slug';
+import { TAB_KEY_RE, TAB_KINDS } from '../../preload/contract';
 
 export const CATALOG_SCHEMA_VERSION = 1;
 export const META_SCHEMA_VERSION = 1;
@@ -35,8 +36,8 @@ export const QA_ID_RE = /^q-[0-9a-f]{8}$/;
 
 /** 07 §4 (mirrored in the preload contract). */
 export const SECTION_ID_PATTERN = /^sec-[a-z][a-z0-9]{1,15}-[0-9a-f]{8}$/;
-/** 'indepth', 'eli5', or 'sx' + 6 hex (07 §4.1). */
-export const TAB_KEY_PATTERN = /^(indepth|eli5|sx[0-9a-f]{6})$/;
+/** 'indepth', 'eli5', 'ste', or 'sx' + 6 hex (07 §4.1); the canonical preload-contract pattern. */
+export const TAB_KEY_PATTERN = TAB_KEY_RE;
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
 
@@ -98,7 +99,7 @@ export const SourceRecordSchema = z.object({
 
 export const TabRecordSchema = z.object({
   key: z.string().regex(TAB_KEY_PATTERN),
-  kind: z.enum(['indepth', 'eli5', 'section-eli5']),
+  kind: z.enum(TAB_KINDS),
   label: z.string(),
   sectionCount: z.number().int().min(0),
   sourceSectionId: SectionIdSchema.optional(),

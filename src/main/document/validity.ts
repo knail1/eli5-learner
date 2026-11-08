@@ -13,6 +13,7 @@ export type ValidityRule =
   | 'section-id-unique'
   | 'section-id-mirror'
   | 'tabs-match-meta'
+  | 'tab-order'
   | 'default-tab'
   | 'glossary-scope'
   | 'references'
@@ -239,6 +240,13 @@ export function checkDocumentHtml(html: string, meta?: ValidityMeta): ValidityRe
     err('tabs-match-meta', `${tabButtons.length} tab buttons for ${panels.length} panels`);
   const keys = panels.map((p) => attr(p, 'data-tab-key') ?? '');
   if (!keys.includes('indepth') || !keys.includes('eli5')) err('tabs-match-meta', 'indepth and eli5 tabs are required');
+  // tab-order (07 §12): the optional ASD-STE100 tab directly follows eli5 and precedes every
+  // section ELI5 tab.
+  const ste = keys.indexOf('ste');
+  if (ste !== -1) {
+    if (keys[ste - 1] !== 'eli5') err('tab-order', 'the ste tab does not directly follow eli5');
+    if (keys.slice(0, ste).some((k) => /^sx/.test(k))) err('tab-order', 'a section ELI5 tab precedes the ste tab');
+  }
   if (meta) {
     const want = meta.tabs.map((t) => t.key);
     if (want.join(',') !== keys.join(','))

@@ -3,7 +3,17 @@
 import { canonicalJson, scriptSafeJson } from '../canonical-json';
 import { attrs, capText, esc } from '../html';
 import { DEFAULT_FOOTER, defaultDocTheme, themeCss } from '../theme';
-import type { AssetCredit, AssetRef, DocRuntime, DocTheme, DocumentModel, RenderOptions, Section, Tab } from '../types';
+import type {
+  AssetCredit,
+  AssetRef,
+  DocRuntime,
+  DocTheme,
+  DocumentModel,
+  RenderOptions,
+  Section,
+  Tab,
+  TabKind,
+} from '../types';
 import { renderBlock, type MergeMarkup } from './blocks';
 import { documentCsp } from './csp';
 import { formatDate } from './date';
@@ -13,6 +23,34 @@ export { formatDate };
 
 /** Display cap for section ELI5 tab labels; the full label goes into `title` (07 §4.1). */
 export const TAB_LABEL_MAX = 48;
+
+/**
+ * 07 §4.1, 11 §12: a one-paragraph hint under the panel title of a tab kind that needs explaining.
+ * Rendered as plain text (visible without JS, in print and on Android); the tab button points at it
+ * with aria-describedby and repeats it as its title. Markdown export prints it under the heading.
+ */
+export const TAB_HINTS: Readonly<Partial<Record<TabKind, string>>> = {
+  ste:
+    'ASD-STE100 is Simplified Technical English, a writing standard that began in aerospace maintenance ' +
+    'manuals in the late 1970s. Sentences are short (instructions at most 20 words, descriptions at most 25), ' +
+    'each sentence gives one instruction, one word keeps one meaning, and verbs are in the active voice.',
+};
+
+/** Element id of a tab's hint paragraph (one per tab key; fixed tabs only). */
+export function tabHintId(tab: Tab): string | undefined {
+  return TAB_HINTS[tab.kind] !== undefined ? `tab-hint-${tab.key}` : undefined;
+}
+
+function tabHintHtml(tab: Tab): string {
+  const hint = TAB_HINTS[tab.kind];
+  if (hint === undefined) return '';
+  return `<p${attrs([
+    ['class', 'tab-hint'],
+    ['id', tabHintId(tab)],
+    ['data-eli5-noact', true],
+  ])}>${esc(hint)}</p>
+`;
+}
 
 /** Makes inline script text safe inside <script> (never closes the element). */
 export function scriptSafe(js: string): string {
@@ -148,7 +186,7 @@ function panelHtml(c: Ctx, tab: Tab): string {
   ])}>`;
   const title = `<h2 class="panel-title">${esc(tab.label)}</h2>`;
   const sections = tab.sections.map((s) => sectionHtml(c, tab, s)).join('\n');
-  return `${open}\n${title}\n${tabFrom(c, tab)}${sections}\n</div>`;
+  return `${open}\n${title}\n${tabHintHtml(tab)}${tabFrom(c, tab)}${sections}\n</div>`;
 }
 
 function tabButton(tab: Tab, first: boolean): string {
@@ -160,7 +198,8 @@ function tabButton(tab: Tab, first: boolean): string {
     ['aria-controls', `tab-${tab.key}`],
     ['aria-selected', first ? 'true' : 'false'],
     ['tabindex', first ? 0 : -1],
-    ['title', label !== tab.label ? tab.label : undefined],
+    ['title', label !== tab.label ? tab.label : TAB_HINTS[tab.kind]],
+    ['aria-describedby', tabHintId(tab)],
   ])}>${esc(label)}</button>`;
   if (tab.kind !== 'section-eli5') return btn;
   const close = `<button${attrs([

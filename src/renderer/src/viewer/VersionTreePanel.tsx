@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { DocVersionNode, DocVersionTree } from '../../../preload/contract';
 import { relativeDate } from '../library/order';
-import { layoutVersionTree, PENDING_VERBS, VERSION_VERBS, type VersionRow } from './version-tree-layout';
+import { layoutVersionTree, PENDING_VERBS, versionVerb, type VersionRow } from './version-tree-layout';
 
 /**
  * Versions panel (11 §5.7, PRD *Versions*): the open document's versions as a WAI-ARIA tree. A
@@ -268,7 +268,7 @@ export function VersionTreePanel(p: {
             <span className="version-text">
               <span className="version-topic">{n.topic || n.label}</span>
               <span className="version-meta muted">
-                {VERSION_VERBS[n.kind] ?? n.kind} · {ago(n.createdAt)}
+                {versionVerb(n)} · {ago(n.createdAt)}
               </span>
               {n.kind === 'ask' && n.question && <span className="version-question">“{n.question}”</span>}
               <span className="version-chips">

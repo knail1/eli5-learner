@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { clampSim, fmtNum, outcomeRows, settingName } from '../../shared/explorable';
 import type { Settings } from '../config';
-import { parseDocument, type DocBlock, type DocumentModel, type ReferenceEntry } from '../document';
+import { parseDocument, TAB_HINTS, type DocBlock, type DocumentModel, type ReferenceEntry } from '../document';
 import { abbreviateHome, cancelled, expandHome, prepareExportDir, writeExportFile } from './local';
 import { PublishError } from './types';
 import type { PublishContext, Publisher, PublishResult, PublishTarget } from './types';
@@ -113,7 +113,8 @@ function referenceLine(r: ReferenceEntry): string {
 
 /**
  * The whole document as Markdown (10 §5.2): title as level 1, the subtitle as a paragraph, each tab
- * as level 2 (placeholder tabs skipped), each content section as level 3 with its blocks in
+ * as level 2 (placeholder tabs skipped; a tab kind with a hint, such as ASD-STE100, gets the hint as an
+ * italic line under its heading), each content section as level 3 with its blocks in
  * reading order, then the glossary, then one sources list built from the references. Reference
  * sections are skipped inline because the sources list replaces them.
  */
@@ -123,6 +124,8 @@ export function documentToMarkdown(model: DocumentModel): string {
   for (const tab of model.tabs) {
     if (tab.placeholder) continue;
     out.push(`## ${oneLine(tab.label)}`);
+    const hint = TAB_HINTS[tab.kind];
+    if (hint) out.push(italic(hint));
     for (const s of tab.sections) {
       if (s.kind !== 'content') continue;
       out.push(`### ${oneLine(s.heading)}`);

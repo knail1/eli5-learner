@@ -151,7 +151,7 @@ export interface MergeFixtureDoc {
   meta: MergeDocMeta;
 }
 
-function metaOf(model: DocumentModel): MergeDocMeta {
+export function metaOf(model: DocumentModel): MergeDocMeta {
   return {
     id: model.docId,
     title: model.title,

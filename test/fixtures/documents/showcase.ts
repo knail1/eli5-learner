@@ -3,12 +3,14 @@
  * four-step stepper, both explorable kinds (07 §7.1), open-licensed stock photos with their credits in both tabs (07 §7.4, so the
  * references end with "Image credits"), and an "ELI5 this selection" tab that quotes the selection
  * (08 §7.5). Synthetic "Example Widgets Inc." content only; the photos are generated in memory.
+ * `steModel` reuses these drafts for the 'with-ste' golden (an ASD-STE100 tab, 07 §5).
  */
 import {
   addSectionEli5Tab,
   buildDocumentModel,
   photoSlotKey,
   type AssetCredit,
+  type KeepOrigin,
   type StockPhotoInput,
 } from '../../../src/main/document';
 import type { DocumentDraftTab } from '../../../src/main/llm';
@@ -202,6 +204,108 @@ export function showcaseModel() {
   const added = addSectionEli5Tab(built.model, from, SHOWCASE_SELECTION, SHOWCASE_SECTION_ELI5, SHOWCASE_TAB_AT, {
     idSource: new SeededIdSource(123),
     selectionOf: [from],
+  });
+  return {
+    model: added.model,
+    assets: built.assets,
+    theme: input.theme,
+    warnings: [...built.warnings, ...added.warnings],
+  };
+}
+
+/**
+ * The ASD-STE100 rewrite of SHOWCASE_INDEPTH (07 §5, D14/D15): same section count, short active
+ * sentences, and every visual kept from In depth (`origins` gives each kept block's in-depth
+ * {section, block}, so the warehouse photo resolves to the in-depth asset).
+ */
+const kept = (section: number, block: number): DocumentDraftTab['sections'][number]['blocks'][number] => {
+  const b = SHOWCASE_INDEPTH.sections[section]?.blocks[block];
+  if (!b) throw new Error(`no in-depth block ${section}:${block}`);
+  return b;
+};
+
+export const SHOWCASE_STE: DocumentDraftTab = {
+  kind: 'ste',
+  title: 'How Example Widgets Inc. sends a widget to the customer',
+  sections: [
+    {
+      heading: 'From the click to the door',
+      blocks: [
+        {
+          type: 'paragraph',
+          md: 'Each order follows the same path. The warehouse sends each order in two days or less.',
+        },
+        {
+          type: 'stepper',
+          title: 'Four steps from the click to the door',
+          steps: [
+            { label: 'Click', md: 'The customer clicks a search advertisement. The widget page opens.' },
+            { label: 'Buy', md: 'The customer pays. The order goes to the warehouse in one minute.' },
+            { label: 'Pack', md: 'A picker finds the widget. The picker puts it in a box with **recycled** filler.' },
+            { label: 'Ship', md: 'A courier collects the box on the same afternoon.' },
+          ],
+        },
+        kept(0, 2),
+      ],
+    },
+    {
+      heading: 'Where the time goes',
+      blocks: [
+        {
+          type: 'paragraph',
+          md: 'Packing is the slowest step. The courier, not the warehouse, sets the shipping time.',
+        },
+        kept(1, 1),
+      ],
+    },
+    {
+      heading: 'How the routing model learns',
+      blocks: [
+        {
+          type: 'paragraph',
+          md: 'The routing model makes small corrections. The learning rate sets the size of each correction.',
+        },
+        kept(2, 1),
+      ],
+    },
+    {
+      heading: 'How the planner estimates delivery times',
+      blocks: [
+        {
+          type: 'paragraph',
+          md: 'The planner tries likely values at random. It keeps the values that agree with the data.',
+        },
+        kept(3, 1),
+      ],
+    },
+  ],
+};
+
+export const SHOWCASE_STE_ORIGINS: readonly (readonly (KeepOrigin | null)[])[] = [
+  [null, null, { section: 0, block: 2 }],
+  [null, { section: 1, block: 1 }],
+  [null, { section: 2, block: 1 }],
+  [null, { section: 3, block: 1 }],
+];
+
+/**
+ * The 'with-ste' golden: the showcase drafts with an ASD-STE100 tab, then a section ELI5 tab, so
+ * the tab order is [indepth, eli5, ste, sx…] (07 §12).
+ */
+export function steModel() {
+  const input = fixtureInput('full', 13);
+  const built = buildDocumentModel({
+    ...input,
+    indepth: SHOWCASE_INDEPTH,
+    eli5: SHOWCASE_ELI5,
+    ste: { tab: SHOWCASE_STE, origins: SHOWCASE_STE_ORIGINS },
+    glossary: null,
+    photos: SHOWCASE_PHOTOS,
+  });
+  const from = built.model.tabs[0]?.sections[0]?.id;
+  if (!from) throw new Error('with-ste has no in-depth section');
+  const added = addSectionEli5Tab(built.model, from, SHOWCASE_SELECTION, SHOWCASE_SECTION_ELI5, SHOWCASE_TAB_AT, {
+    idSource: new SeededIdSource(321),
   });
   return {
     model: added.model,

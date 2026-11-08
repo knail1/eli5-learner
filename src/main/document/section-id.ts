@@ -1,17 +1,19 @@
 // SectionId and tab-key rules (07 §3, §4). Pure apart from the default crypto IdSource.
 import { randomBytes } from 'node:crypto';
-import type { SectionId } from '../../preload/contract';
+import { TAB_KEY_RE, TAB_KINDS, type SectionId } from '../../preload/contract';
 import type { FixedTabKey } from './types';
 
 /** 07 §3: `sec-<tabKey>-<8 lowercase hex>`. The one source of this pattern (08 §3, 13 §7). */
 export const SECTION_ID_RE = /^sec-[a-z][a-z0-9]{1,15}-[0-9a-f]{8}$/;
 
-/** 07 §4.1: 'indepth' | 'eli5' | 'sx' + 6 lowercase hex. */
-export const TAB_KEY_RE = /^(?:indepth|eli5|sx[0-9a-f]{6})$/;
+/** 07 §4.1: 'indepth' | 'eli5' | 'ste' | 'sx' + 6 lowercase hex (canonical in the preload contract). */
+export { TAB_KEY_RE, TAB_KINDS };
 export const SECTION_ELI5_TAB_KEY_RE = /^sx[0-9a-f]{6}$/;
 
 export const INDEPTH_TAB_KEY: FixedTabKey = 'indepth';
 export const ELI5_TAB_KEY: FixedTabKey = 'eli5';
+/** 07 §4.1: the optional ASD-STE100 tab; fixed like indepth and eli5, never closable. */
+export const STE_TAB_KEY: FixedTabKey = 'ste';
 
 /** Max draws before giving up (07 §4.2 rule 2). */
 export const MAX_ID_DRAWS = 8;

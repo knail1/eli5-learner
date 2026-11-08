@@ -307,6 +307,15 @@ html.js .panel-title {
 .tabpanel:focus {
   outline: none;
 }
+/* A tab kind's one-paragraph hint (07 §4.1, 11 §12): shown with and without JS and in print. */
+.tab-hint {
+  font: 14px/1.5 var(--font-sans);
+  color: var(--muted);
+  max-width: 62ch;
+  margin: 20px 0 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--rule);
+}
 .tab-from {
   font: 14px/1.4 var(--font-sans);
   color: var(--muted);
@@ -1295,6 +1304,9 @@ html.js.eli5-sel-note .gl-note[data-eli5-sel] * {
   .stepper-nav,
   [data-eli5-noact] {
     display: none !important;
+  }
+  .tab-hint[data-eli5-noact] {
+    display: block !important;
   }
   html.js .tabpanel[hidden] {
     display: none;

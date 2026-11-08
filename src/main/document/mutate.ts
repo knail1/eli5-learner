@@ -19,7 +19,7 @@ import type {
 } from './types';
 import { convertBlocks, countExplorables, explorableBudget, isUserQuestion } from './validate';
 
-/** 07 §5.4: 2 fixed tabs + 20 section ELI5 tabs. */
+/** 07 §5.4: up to 3 fixed tabs (indepth, eli5, ste) + 20 section ELI5 tabs. */
 export const MAX_SECTION_ELI5_TABS = 20;
 export const MAX_SELECTION = 4000;
 

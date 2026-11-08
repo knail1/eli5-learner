@@ -22,7 +22,7 @@ import { readGolden } from '../../../fixtures/documents/runtime';
 const GOLDEN_DIR = path.join(import.meta.dirname, '../../../fixtures/documents/markdown');
 const UPDATE = process.env.ELI5_UPDATE_GOLDENS === '1';
 /** Between them, these goldens cover every block type (asserted below). */
-const MD_GOLDENS: readonly GoldenName[] = ['full', 'showcase', 'asked'];
+const MD_GOLDENS: readonly GoldenName[] = ['full', 'showcase', 'asked', 'with-ste'];
 const ALL_BLOCKS: readonly DocBlockType[] = [
   'paragraph',
   'list',
@@ -230,5 +230,13 @@ describe('MarkdownPublisher', () => {
     await expect(new MarkdownPublisher({ home: base }).publish(ctx)).rejects.toMatchObject({
       code: 'E_PUBLISH_DESTINATION',
     });
+  });
+});
+
+describe('ASD-STE100 hint in Markdown (10 §5.2)', () => {
+  it('puts the hint as an italic line right under the ## ASD-STE100 heading', () => {
+    const md = documentToMarkdown(fixtureDocument('with-ste').model);
+    expect(md).toMatch(/\n## ASD-STE100\n\n\*ASD-STE100 is Simplified Technical English[^\n]*\*\n\n### /);
+    expect(md.match(/Simplified Technical English/g)).toHaveLength(1);
   });
 });

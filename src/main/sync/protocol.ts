@@ -30,7 +30,11 @@ export const DOC_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 export const VERSION_ID_RE = /^v-[0-9a-f]{12}$/;
 /** 09 §4.2 folder ids. */
 export const FOLDER_ID_RE = /^f-[0-9a-f]{8}$/;
-/** 07 tab keys. */
+/**
+ * 07 tab keys as 0.3.0 phones parse them. Intentionally older than the canonical preload-contract
+ * pattern: it omits 'ste', so the manifest filters the ASD-STE100 tab out (16 §4.4) and phones on
+ * 0.3.0 keep parsing it strictly. Widen only together with an Android release.
+ */
 export const TAB_KEY_RE = /^(indepth|eli5|sx[0-9a-f]{6})$/;
 /** 07 section ids. */
 export const SECTION_ID_RE = /^sec-[a-z][a-z0-9]{1,15}-[0-9a-f]{8}$/;
