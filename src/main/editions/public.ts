@@ -7,6 +7,7 @@ import { registerPublic as registerDocument } from '../document';
 import { registerPublic as registerLibrary } from '../library';
 import { registerPublic as registerPublish } from '../publish';
 import { registerPublic as registerPhotos } from '../photos';
+import { registerPublic as registerSync } from '../sync';
 import type { CapabilityRegistry } from './registry';
 
 /**
@@ -23,4 +24,5 @@ export function registerPublicCapabilities(reg: CapabilityRegistry): void {
   registerLibrary(reg);
   registerPublish(reg);
   registerPhotos(reg);
+  registerSync(reg);
 }

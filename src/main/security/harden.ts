@@ -63,6 +63,20 @@ export function isSafeExternalUrl(raw: string): boolean {
   return (u.protocol === 'http:' || u.protocol === 'https:') && !!u.hostname && !u.username && !u.password;
 }
 
+/**
+ * Sync consent page (12 §7.5, 16 §3.2). The personal-sync sign-in opens only this fixed Google URL
+ * plus query parameters built in main; it never comes from renderer input.
+ */
+export const SYNC_CONSENT_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
+
+/** True only for the fixed consent endpoint (same origin and path, no fragment) that also passes the §7.5 checks. */
+export function isSyncConsentUrl(raw: string): boolean {
+  if (!isSafeExternalUrl(raw)) return false;
+  const u = new URL(raw);
+  const fixed = new URL(SYNC_CONSENT_URL);
+  return u.origin === fixed.origin && u.pathname === fixed.pathname && u.hash === '';
+}
+
 /** Validates and rate-limits (2/s, 20/min per sender) before opening in the default browser. */
 export async function safeOpenExternal(raw: string, senderId: number, now: number = Date.now()): Promise<boolean> {
   if (!isSafeExternalUrl(raw)) {

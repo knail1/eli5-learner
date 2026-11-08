@@ -10,6 +10,7 @@ import type { LibraryPolicy, MergeEligibility } from '../library';
 import type { PrePublishPolicy, Publisher, SecretScanner } from '../publish';
 import type { StockImageProvider } from '../photos';
 import type { NotificationPolicy } from '../shell';
+import type { SyncPolicy, SyncStore, SyncStoreContext, SyncStoreFactory } from '../sync';
 import type { UiFeature, EditionInfo } from '../../preload/contract';
 import type { Edition } from './types';
 import { NotAvailableInEdition } from './errors';
@@ -34,6 +35,7 @@ export interface CapabilityRegistry {
   registerPublisher(id: string, factory: (s: Settings) => Publisher): void; // HOOK-PUB-01/03
   registerAuth(b: AuthBroker): void; // HOOK-AUTH-01
   registerMcpClient(c: McpClient): void; // HOOK-SRC-05
+  registerSyncStore(id: string, factory: SyncStoreFactory): void; // HOOK-SYNC-01
 
   // Single-slot policies (register replaces the public default)
   registerPromptPolicy(p: PromptPolicy): void; // HOOK-LLM-02
@@ -53,6 +55,7 @@ export interface CapabilityRegistry {
   registerSettingsExtension(ext: SettingsExtension): void; // HOOK-CFG-01
   enableUiFeatures(f: UiFeature[]): void; // HOOK-UI-01
   registerNotificationPolicy(p: NotificationPolicy): void; // HOOK-UI-03
+  registerSyncPolicy(p: SyncPolicy): void; // HOOK-SYNC-01/02
   /** Lane-rule builder the sources module installs so registerLaneRules can build a router. */
   setLaneRouterFactory(fn: (rules: readonly LaneRule[]) => LaneRouter): void;
 
@@ -81,6 +84,11 @@ export interface CapabilityRegistry {
   prePublishPolicy(): PrePublishPolicy;
   /** HOOK-UI-03; public default {hideTitle:false} (11 §14.3). */
   notificationPolicy(): NotificationPolicy;
+  /** HOOK-SYNC-01: builds the store registered under `id` (16 §4.1); makes no request itself. */
+  syncStore(id: string, ctx: SyncStoreContext): SyncStore;
+  syncStores(): readonly { id: string; available: boolean }[];
+  /** HOOK-SYNC-01/02; public default {allowed:true, excludeDoc:()=>false, clientSource:'user'}. */
+  syncPolicy(): SyncPolicy;
   settingsExtension(): SettingsExtension | undefined;
   info(): EditionInfo;
   freeze(): void;
@@ -115,6 +123,7 @@ type Slot =
   | 'mergeEligibility'
   | 'secretScanner'
   | 'prePublishPolicy'
+  | 'syncPolicy'
   | 'auth';
 
 export interface RegistryOptions {
@@ -141,6 +150,7 @@ export class Registry implements CapabilityRegistry {
   private resolverSeq = 0;
   private readonly extractorList: Extractor[] = [];
   private readonly publisherFactories = new Map<string, (s: Settings) => Publisher>();
+  private readonly syncStoreFactories = new Map<string, SyncStoreFactory>();
   private readonly slots = new Map<Slot, unknown>();
   private rules: LaneRule[] = [];
   private routerFactory: ((rules: readonly LaneRule[]) => LaneRouter) | undefined;
@@ -223,6 +233,12 @@ export class Registry implements CapabilityRegistry {
     this.publisherFactories.set(id, factory);
   }
 
+  registerSyncStore(id: string, factory: SyncStoreFactory): void {
+    this.assertOpen();
+    if (this.syncStoreFactories.has(id)) this.onReplace('sync-store', id);
+    this.syncStoreFactories.set(id, factory);
+  }
+
   registerAuth(b: AuthBroker): void {
     this.setSlot('auth', b);
   }
@@ -276,6 +292,9 @@ export class Registry implements CapabilityRegistry {
   }
   registerMergeEligibility(fn: MergeEligibility): void {
     this.setSlot('mergeEligibility', fn);
+  }
+  registerSyncPolicy(p: SyncPolicy): void {
+    this.setSlot('syncPolicy', p);
   }
   registerSecretScanner(s: SecretScanner): void {
     this.setSlot('secretScanner', s);
@@ -340,6 +359,28 @@ export class Registry implements CapabilityRegistry {
       // Only account-declaring publishers gain the flag; every other entry stays byte-identical.
       return { id, available: !isStub(p), ...(p.account ? { account: true as const } : {}) };
     });
+  }
+
+  syncStore(id: string, ctx: SyncStoreContext): SyncStore {
+    const f = this.syncStoreFactories.get(id);
+    if (!f) throw new NotAvailableInEdition(`sync-store:${id}`, 'HOOK-SYNC-01', this.edition);
+    return f(ctx);
+  }
+
+  /** Probes each factory with an inert context: factories only construct, they never call out. */
+  syncStores(): readonly { id: string; available: boolean }[] {
+    const inert: SyncStoreContext = {
+      settings: this.getSettings(),
+      auth: {
+        accessToken: () => Promise.reject(new Error('inert')),
+        invalidate: () => {},
+      },
+    };
+    return [...this.syncStoreFactories.entries()].map(([id, f]) => ({ id, available: !isStub(f(inert)) }));
+  }
+
+  syncPolicy(): SyncPolicy {
+    return this.getSlot('syncPolicy');
   }
 
   auth(): AuthBroker {
@@ -413,6 +454,7 @@ export class Registry implements CapabilityRegistry {
       'mergeEligibility',
       'secretScanner',
       'prePublishPolicy',
+      'syncPolicy',
       'auth',
     ];
     const missing: string[] = all.filter((s) => !this.slots.has(s));

@@ -18,6 +18,7 @@ const mainModules = [
   'security',
   'shell',
   'sources',
+  'sync',
 ];
 
 export default tseslint.config(
@@ -76,9 +77,10 @@ export default tseslint.config(
     },
   },
   {
-    // Vendor LLM SDKs only in llm/, network only in llm/ and fetch/ (12 acceptance criteria).
+    // Vendor LLM SDKs only in llm/, network only in llm/, fetch/ and (v2) sync/: Google OAuth, Drive
+    // REST and the loopback listener (12 §11, 16 §8).
     files: ['src/**/*.{ts,tsx}'],
-    ignores: ['src/main/llm/**', 'src/main/fetch/**'],
+    ignores: ['src/main/llm/**', 'src/main/fetch/**', 'src/main/sync/**'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -89,6 +91,21 @@ export default tseslint.config(
             { name: 'node:http', message: 'Network access belongs in src/main/llm/ or src/main/fetch/.' },
             { name: 'node:https', message: 'Network access belongs in src/main/llm/ or src/main/fetch/.' },
             { name: 'undici', message: 'Network access belongs in src/main/llm/ or src/main/fetch/.' },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // sync/ may reach the network (above) but still never imports an LLM SDK.
+    files: ['src/main/sync/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            { name: '@anthropic-ai/sdk', message: 'LLM SDKs belong in src/main/llm/.' },
+            { name: 'openai', message: 'LLM SDKs belong in src/main/llm/.' },
           ],
         },
       ],

@@ -5,6 +5,8 @@ export {
   surfaceOf,
   safeOpenExternal,
   isSafeExternalUrl,
+  isSyncConsentUrl,
+  SYNC_CONSENT_URL,
   denyAllPermissions,
 } from './harden';
 export type { Surface } from './harden';

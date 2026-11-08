@@ -175,6 +175,13 @@ in §4.7. A refused write is a bug and throws `E_SYNC_OWNERSHIP`.
 <!-- hook:HOOK-SYNC-01 -->
 > **Private hook · HOOK-SYNC-01 · Cloud sync policy.** Public behavior: personal sync to the user's own Google Drive app-data folder, opt-in and off by default, phone inbox off until enabled. Private binding supplies: whether sync is allowed at all, an organization store in place of the personal one, and which documents (for example ones built from organization sources) are excluded from upload. Binding lives in the private spec under "HOOK-SYNC-01".
 
+A factory receives `SyncStoreContext = { settings, auth: AccessTokenSource, sessions?:
+ResumableSessionStore }` and only constructs; nothing is built while sync is off (`connect.ts`
+`openSyncStore` returns null), so no request can happen. Besides the plain port methods, the guard
+offers `gcDelete(fileId)` (primary only: own files plus foreign `job`, `att`, `cancel`, `device`,
+`acks` and `claim` files, §4.7) and `wipe()` ("Delete cloud copy"); it treats a file it has not
+seen through `list` or `changes` as foreign.
+
 Registry slots (01 §6.2): `registerSyncStore(id, factory)` (HOOK-SYNC-01) and
 `registerSyncPolicy(p: SyncPolicy)` (HOOK-SYNC-01/02), with the public default
 `{ allowed: true, excludeDoc: () => false, clientSource: 'user' }`.
@@ -263,7 +270,9 @@ Trigger: bootstrap subscribes `library.on('changed' | 'organization' | 'moved')`
 
 1. Diff the library against `<userData>/sync/state.json` (atomic write, mode 0600):
    `{deviceId, primary, startToken, manifestSeq, docs: {docId: {treeSeq, uploadedShas[], fileIds}},
-   pendingCreates: {name: preallocatedId}, resumable: {name: sessionUri}, inbox: {...}}`.
+   pendingCreates: {name: preallocatedId}, resumable: {fileId: {uri, startedAt, size, sha256}},
+   inbox: {...}}`. A session resumes only for the same bytes (size and sha256) and only on Drive's
+   upload endpoint.
    Sync state never goes into `meta.json`, so a push never changes `updatedAt` or catalog order.
 2. Upload missing blobs for each document's versions selected by `sync.history`:
    `'current'`, `'recent'` (default: the 10 newest snapshots that still have blobs), or `'all'`
@@ -276,7 +285,9 @@ Trigger: bootstrap subscribes `library.on('changed' | 'organization' | 'moved')`
 4. Creates call `generateIds` first and persist the id before uploading, so a retried create never
    duplicates. Bodies of 5 MiB or less use multipart upload; larger ones use resumable upload in
    8 MiB chunks with the session URI persisted (valid one week). After upload, the returned
-   `sha256Checksum` must match; a mismatch deletes the file and retries.
+   `sha256Checksum` must match; a mismatch deletes the file and retries. A retried create that
+   finds the id holding a file with other identity properties fails with `E_SYNC_OWNERSHIP` and
+   leaves that file alone. Every request attempt has a deadline (60 s; 5 min per resumable chunk).
 5. Errors: 403 `userRateLimitExceeded`, 429 and 5xx retry with exponential backoff and full jitter,
    capped at 64 s. Sync never blocks generation. A failed push stays pending in `state.json`.
 6. Sync does not start, and stops, while the library is read-only (09 §8.5), while signed out, or
@@ -485,7 +496,8 @@ app; `adb push`; the public sample on the project's Pages site.
 
 - **Module** `src/main/sync/`: `index.ts`, `register.ts`, `types.ts`, `protocol.ts` (zod wire
   schemas, the single source of truth), `google/oauth.ts`, `google/drive.ts` (fetch-based REST
-  client), `stores/drive-appdata.ts`, `stores/guard.ts`, the three stubs, `engine.ts` (push, poll,
+  client), `stores/drive-appdata.ts`, `stores/guard.ts`, the three stubs (sharing
+  `stores/stub-base.ts`), `connect.ts` (`syncActive`, `openSyncStore`), `engine.ts` (push, poll,
   GC), `manifest.ts`, `claims.ts`, `heartbeat.ts`, `inbox.ts`, `ledger.ts`, `state.ts`.
   Allowed imports: `library`, `config`, `security`, `editions` (through their `index.ts`).
   Never `pipeline`.
@@ -540,6 +552,12 @@ tokens.
 | `E_RATE` | desktop inbox | over the inbox limit |
 | `E_CONFLICT`, `E_STALE` | desktop inbox | §5.3 |
 | `E_ATTACHMENT` | desktop inbox | attachment missing, wrong sha, wrong type or too large |
+
+Internal codes without user text of their own (desktop, `SyncError`): `E_SYNC_DISABLED` (sync off
+or not allowed; no request made), `E_SYNC_NOT_CONFIGURED` (no OAuth client; "Add your Google client
+in Settings > Sync"), `E_SYNC_NOT_FOUND` (HTTP 404), `E_SYNC_CHECKSUM` (an upload's reported sha256
+did not match; the file is deleted and the push retries with a new id), `E_SYNC_HTTP` (other
+failures after retries) and `E_SYNC_ABORTED`.
 
 ## 11. Secrets and repository hygiene
 

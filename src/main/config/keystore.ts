@@ -1,6 +1,13 @@
 /** API keys live in the macOS Keychain, never in settings (12 §6). */
 
-export type KeyAccount = 'llm.claude.apiKey' | 'llm.openai.apiKey' | `ext.${string}`;
+export type KeyAccount =
+  | 'llm.claude.apiKey'
+  | 'llm.openai.apiKey'
+  /** v2 (16 §3.2, HOOK-SYNC-02): the Google Desktop OAuth client as JSON `{clientId, clientSecret}`. */
+  | 'sync.google.client'
+  /** v2 (16 §3.2): the Google Drive refresh token. */
+  | 'sync.google.refreshToken'
+  | `ext.${string}`;
 
 export interface KeyStore {
   /** Main only; the value never crosses IPC. */

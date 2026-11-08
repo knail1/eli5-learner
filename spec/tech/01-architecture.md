@@ -602,7 +602,7 @@ export interface CapabilityRegistry {
   registerPublisher(id: string, factory: (s: Settings) => Publisher): void;          // HOOK-PUB-01/03
   registerAuth(b: AuthBroker): void;                                                 // HOOK-AUTH-01
   registerMcpClient(c: McpClient): void;                                             // HOOK-SRC-05; one shared client (03 §10.1)
-  registerSyncStore(id: string, factory: (s: Settings) => SyncStore): void;          // HOOK-SYNC-01 (16 §4.1)
+  registerSyncStore(id: string, factory: (ctx: SyncStoreContext) => SyncStore): void; // HOOK-SYNC-01 (16 §4.1); ctx = {settings, auth, sessions?}
 
   // Single-slot policies (register replaces the public default)
   registerPromptPolicy(p: PromptPolicy): void;             // HOOK-LLM-02 {preamble, overridesDir, skills, preSendFilter}
@@ -646,7 +646,8 @@ export interface CapabilityRegistry {
   secretScanner(): SecretScanner;
   prePublishPolicy(): PrePublishPolicy;
   notificationPolicy(): NotificationPolicy;   // public default {hideTitle:false}
-  syncStore(id: string): SyncStore;           // HOOK-SYNC-01; public 'google-drive-appdata'
+  syncStore(id: string, ctx: SyncStoreContext): SyncStore; // HOOK-SYNC-01; public 'google-drive-appdata'; builds only, no request
+  syncStores(): { id: string; available: boolean }[];   // registered stores; stubs report available: false
   syncPolicy(): SyncPolicy;                   // public default {allowed:true, excludeDoc:()=>false, clientSource:'user'}
   info(): EditionInfo;
   freeze(): void;                             // after bootstrap; later register* throws

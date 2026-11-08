@@ -96,6 +96,22 @@ export const SettingsSchema = z
       })
       .strict()
       .prefault({}), // 11 §14; HOOK-UI-03
+    sync: z
+      .object({
+        // v2, optional (16 §8): personal sync to the user's own Drive; opt-in, off by default.
+        enabled: z.boolean().default(false),
+        store: z.string().trim().min(1).max(64).default('google-drive-appdata'), // a SyncStore id (HOOK-SYNC-01)
+        pollSeconds: z.number().int().min(30).max(3600).default(60),
+        history: z.enum(['current', 'recent', 'all']).default('recent'),
+        inbox: z
+          .object({
+            enabled: z.boolean().default(false), // "Accept jobs from phone"
+          })
+          .strict()
+          .prefault({}),
+      })
+      .strict()
+      .prefault({}),
     enterprise: Dormant, // reserved for SettingsExtension (HOOK-CFG-01)
   })
   .strict();
