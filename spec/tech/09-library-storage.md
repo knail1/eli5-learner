@@ -102,7 +102,7 @@ Every change to a document's html is kept as a **version**, and the versions of 
   *.tmp-<pid>-<8 hex>       staging, housekept after 1 hour
 ```
 
-`VersionNodeRecord` (zod in `schema.ts`): `id` (`/^v-[0-9a-f]{12}$/`), `parentId` (`null` for the root), `createdAt`, `kind` (`VersionChangeKind = MenuAction | 'close-tab' | 'merge' | 'outside' | 'initial'`), `label` (≤ 200, from `cleanChangeLabel`, e.g. `expanded 'Why the plan matters'`), `topic` (≤ 48, a short branch title), `heading?` (≤ 80), `question?` (≤ 500), `target?` and `undoTarget?` (`{tabKey?, sectionId?, anchorId?}`, where to land when the version is opened or undone, 08 §6.7), `sha256` (`null` when the snapshot was pruned: the version is a *stub*), `bytes` (compressed size), `forwardId?` (the child Redo follows) and `jobId?`.
+`VersionNodeRecord` (zod in `schema.ts`): `id` (`/^v-[0-9a-f]{12}$/`), `parentId` (`null` for the root), `createdAt`, `kind` (`VersionChangeKind = MenuAction | 'close-tab' | 'merge' | 'outside' | 'initial' | 'sync'`; `'sync'` is reserved for a later desktop pull (16 §8) and never written in this version), `label` (≤ 200, from `cleanChangeLabel`, e.g. `expanded 'Why the plan matters'`), `topic` (≤ 48, a short branch title), `heading?` (≤ 80), `question?` (≤ 500), `target?` and `undoTarget?` (`{tabKey?, sectionId?, anchorId?}`, where to land when the version is opened or undone, 08 §6.7), `sha256` (`null` when the snapshot was pruned: the version is a *stub*), `bytes` (compressed size), `forwardId?` (the child Redo follows) and `jobId?`.
 
 - Like every dot-name, `.versions/` is never listed, served by `eli5doc://`, published (10 §3.3 takes only `index.html` and `assets/`) or read by reconcile. Trash, Put Back, Delete Permanently and a merge moving a source away move or remove the whole folder, so history travels with the document. The tree is keyed by neither slug nor document id.
 - `tree.json` is read with `readVersioned` (§5.3) and its own empty migration chain; a newer tree schema makes only that document's history read-only.
@@ -152,6 +152,29 @@ A long Library is organized without touching document folders or slugs: folder m
 - **Put Back** `putBack(trashId)`: under `withDocLock(oldSlug)` then the catalog lock, rename `.trash/<trashId>` back to `<root>/<slug>`, upsert the catalog entry, place it where its record says when that still exists (a folder or the Archive), else unfiled, and drop the record. Emits `changed {reason: 'restored'}`.
 - **Delete Permanently / Empty Trash** remove one or every Trash entry (`rm -r`) and their records. They are the only irreversible library operations; the app asks once before each (11 §5.2). Retention still applies: entries older than `trashRetentionDays` (HOOK-LIB-01) are purged at startup (§7 step 8), which also drops records of entries that are gone.
 - **Moves** (`moveDocument(slug, to)`, `to` = `'unfiled' | 'archive' | 'trash' | FolderId`) return a `LibraryMoveReceipt {slug, docId, title, from, to, trashId?, undo?}` and emit `moved` with it, so the app can offer Undo: a move back to `from`, or Put Back for the Trash. Every organization change emits `organization`.
+
+### 4.3 Personal sync (v2, optional)
+
+The optional personal sync (16) mirrors the library to the user's own Drive. It never changes this
+layout:
+
+- **Sync state lives in userData, not in the library.** The sync module keeps its cursor, upload
+  ledger and inbox ledger in `<userData>/sync/` (`state.json`, `inbox.json`, `inbox/<jobId>/`), never
+  in `meta.json`, `catalog.json`, `.eli5/` or `.versions/`. A push therefore never changes
+  `updatedAt`, catalog order or any version, and moving or copying a library root carries no sync
+  state with it.
+- **Read through the facade only.** Sync reads documents through `list()`, `versions(slug)` and the
+  organization view (§9), plus blob bytes under `withDocLock(slug)` just long enough to copy html and
+  sha as a pair. It builds sanitized remote views from an allowlist of fields; `meta.json`,
+  `catalog.json`, `organization.json`, `suggestions.json`, `.staging/`, `.trash/` and node records are
+  never uploaded as they are (16 §4.4).
+- **Remote objects are keyed by `DocumentMeta.id`, never by slug.** When an id is re-minted
+  (duplicate folders in §7 step 4, or Put Back over a clash in §4.2), the remote manifest shows the
+  document as a new entry with `replaces: <old id>` and drops the old entry.
+- **Read-only mode stops sync.** While the library is read-only (§8.5) sync neither pushes nor
+  deletes anything remotely.
+- **The `'sync'` version kind is reserved** for a later version in which a second desktop pulls
+  documents. Nothing writes it now.
 
 ## 5. Schemas
 

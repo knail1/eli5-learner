@@ -170,6 +170,8 @@ Every stage receives `(job, ctx)`. `ctx` carries `signal: AbortSignal`, the reso
 
 This is the last point where the app can reject anything synchronously. After it, all errors become job state.
 
+**Main-side entry for the phone inbox (v2, 16 §5.3).** `jobs.start(request, {origin: 'inbox'})` is a main-process call, not an IPC channel. Bootstrap passes it to the sync module as the inbox's `enqueue` callback, so `src/main/sync` never imports `pipeline`. It runs steps 1 to 4 above with three differences: file inputs are paths that main itself staged under `<userData>/sync/inbox/<jobId>/` (after sha and type checks), so the renderer drop-id check (§11) does not apply; every input carries `origin: 'inbox'`; and URL inputs go through the 05 public-URL guard with `allowPrivate` never set (private, loopback and link-local targets are skipped, redirects included). The job record keeps the phone's `jobId` as `inboxJobId` so the sync module can report status for it. The renderer cannot reach this entry: `eli5:jobs:start` rejects any input whose `origin` is `'inbox'` with `E_BAD_REQUEST`.
+
 ### 5.2 Reading (`reading`)
 
 1. For each `SourceInput`, in input order, route it to a `SourceResolver` through the registry (doc 03; routing between lanes is HOOK-SRC-03). Resolve with parallelism 4 per job.
@@ -451,6 +453,8 @@ All channels are registered in `src/main/ipc/jobs.ts` (with the other handlers u
 | `eli5:jobs:dismiss` | invoke | `{jobId}` → `IpcResult<void>`. Hides the line and frees retained staging. Unknown id → `E_NOT_FOUND`; non-terminal job → `E_CONFLICT` |
 | `eli5:jobs:changed` | main → renderer (event) | `JobSnapshot`, sent on every persisted change |
 
+Inbox jobs (v2) are started by main through the `{origin: 'inbox'}` entry in §5.1, never through this channel; a renderer payload that claims `origin: 'inbox'` is rejected with `E_BAD_REQUEST`. They report through `eli5:jobs:changed` like any other job, and the status area marks them with a "From phone" chip (11 §7).
+
 Section jobs are started through doc 08's `eli5:doc:regenerate-section` / `eli5:doc:create-section-eli5` channels. Those channels call `JobQueue.enqueueSection()` internally and report through `eli5:jobs:changed`.
 
 Renderer payloads are validated with a schema in the main process. Main cannot tell a preload-captured path from a forged one, so raw paths are never accepted from the renderer. Instead, `src/preload/app.ts` registers its own `drop` listener, ignores events where `event.isTrusted` is false, resolves each file with `webUtils.getPathForFile`, and sends the paths to main via `eli5:sources:register-drop`, which returns opaque input ids. The renderer keeps working with paths (`window.eli5.files.pathFor`); the preload swaps in the id main minted for each dropped path when it sends `eli5:jobs:start`, so file `SourceInput`s there carry those ids and main maps them back to paths from its own registry. An unknown id is refused with `E_FORBIDDEN`. A start does not use the ids up, because inputs can be started again (Run again, Use again, or chips added while a start was in flight; 11 §5.4). Instead, the renderer releases an id with `eli5:sources:release-drops` when its chip is removed (and no other chip names the same file) or the draft is cleared, and the registry is an LRU bounded at 1000 entries (the most paths one `register-drop` may carry), so ids from forgotten drafts age out. Only ids main minted for a trusted drop or a clipboard read ever resolve. Details are in doc 03 §6.3 and doc 12.
@@ -469,6 +473,8 @@ Renderer payloads are validated with a schema in the main process. Main cannot t
 | System sleep mid-LLM call | The call errors or times out on wake; doc 02 classifies and retries it (02 §7.1) |
 | Two create slots finish at the same moment | Slug allocation and catalog writes are serialized by the library (doc 09). The slugs are distinct |
 | The user deletes a document while a section job targets it | The section job fails with `DOC_GONE` (`Failed: document no longer exists`), and nothing is written |
+| The same phone job file is seen twice (replay, a second poll, or a restart between steps) | One pipeline job. The sync inbox dedupes by the phone's `jobId` against its durable ledger (`<userData>/sync/inbox.json`) and the §9 job store before calling the §5.1 inbox entry, so a replay is a no-op (16 §5.3) |
+| An inbox job whose URL resolves to a private, loopback or link-local address | The URL is skipped like any unreachable source and listed in the references; it is never fetched (16 §5.3) |
 | Enterprise source needing sign-in when the MCP session has expired | Skipped with the resolver's reason (doc 03, HOOK-AUTH-01). The pipeline never prompts mid-job |
 
 ## 13. Observability

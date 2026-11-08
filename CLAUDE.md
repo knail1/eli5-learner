@@ -11,7 +11,9 @@ section by section.
 - **Status:** M0 to M4 are built: LLM (02), sources (03), extraction (04), URL fetching (05),
   pipeline and job queue (06), document (07), interactive reading (08), library and merge
   suggestions (09), publishing (10), the app shell (11), and M4 hardening (e2e, cross-browser,
-  evals, edition cells, CI, hygiene, packaging). See the build order in `spec/tech/README.md`.
+  evals, edition cells, CI, hygiene, packaging). M5 (v2, optional: personal sync and the Android
+  companion, `spec/tech/16-android-companion.md`) is in progress; real-Drive behavior is unverified
+  until gate G1. See the build order in `spec/tech/README.md`.
 - **Source of truth:** `spec/ELI5 Learner Product Requirements Document.md` (what) and
   `spec/tech/` (how: one engineering spec per module; start at `spec/tech/README.md`, which also
   has the build order). `README.md` is the user-facing summary.
@@ -32,6 +34,9 @@ LICENSE, CLAUDE.md, tsconfig.json (a pointer into config/ for editors), .gitigno
   evals, fixtures.
 - `scripts/` — repo checks (spec hooks, hygiene, licenses, editions), eval and real-run tooling.
 - `spec/` — public product spec; `spec/tech/` — engineering spec and `hooks.md` registry.
+- `android/` — v2 Android companion, its own Gradle project (wrapper, `gradle/libs.versions.toml`,
+  one `:app` module); never part of the npm toolchain and ignored by Prettier. `android/SETUP.md` is
+  the owner's setup guide; `android/README.md` covers build, tests and the sideload checklist.
 - `docs/` — the public GitHub Pages site only (`docs/index.html`, `docs/.nojekyll`, `docs/sample/`).
 - Generated and gitignored: `out/`, `build/` (doc-runtime pre-step), `release/`, `test-results/`,
   `.library/` (dev library root for generated learnings).
@@ -45,6 +50,10 @@ LICENSE, CLAUDE.md, tsconfig.json (a pointer into config/ for editors), .gitigno
   - `spec/internal.md` (organization-specific spec details; git-ignored)
   - `.library/` (generated learnings) and `docs/*` other than the whitelisted Pages files
   - `.env*`, keys (`*.pem`, `*.p12`), `config.local.json`, `CLAUDE.local.md`
+  - Android and sync secrets: `local.properties`, `keystore.properties`, `*.jks`/`*.keystore`,
+    `google-services.json`, `client_secret*.json`, OAuth client ids or secrets, APK/AAB files.
+    The release keystore and its passwords live outside the repo (`~/.config/eli5-learner/`,
+    `~/.gradle/gradle.properties`). `npm run check:hygiene` fails if any of these is tracked.
 - Stage specific files only (no `git add .` / `git add -A`). Review `git diff --cached --stat` and
   scan the diff for secrets before every commit.
 - When adding a new public file under `docs/`, whitelist it in `.gitignore` explicitly.
@@ -66,7 +75,10 @@ LICENSE, CLAUDE.md, tsconfig.json (a pointer into config/ for editors), .gitigno
   `BrowserWindow`. No Puppeteer or extra Chromium.
 - Images go straight to the model's vision input; no OCR engine.
 - Every section of every tab carries a stable, unique ID so one section can be regenerated in place.
-- Not in v1: logins/authenticated sources, audio/speech-to-text, cloud publishing.
+- Not in v1: logins/authenticated sources, audio/speech-to-text, cloud publishing. Personal sync
+  (v2, `spec/tech/16`) is an opt-in exception: off by default, to the user's own Google Drive
+  app-data folder, behind a `SyncStore` port; the desktop stays the only generator, and
+  `src/main/sync` never imports `pipeline`.
 
 ## Build and run
 
@@ -81,6 +93,10 @@ Node 22.12+ (Electron 44's installer needs it; `postinstall` downloads the Elect
 - `scripts/build.sh [--check] [--clean] [--open]` builds the unsigned app and dmg in `release/`
   (wraps `npm run package:arm64`); then `npm run test:package`
 - `npm run eval` spends real money (real providers); never run it without being asked
+- Android (from `android/`, JDK 21: `export JAVA_HOME=$(brew --prefix openjdk@21)/libexec/openjdk.jdk/Contents/Home`,
+  `ANDROID_HOME=/opt/homebrew/share/android-commandlinetools`): `./gradlew lint testDebugUnitTest assembleDebug`;
+  `./gradlew :app:assembleRelease` signs with the release key from `~/.gradle/gradle.properties`
+  (debug key fallback). See `android/README.md`.
 - Enterprise mechanism check: `ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=test/fixtures/overlay-fake npx electron-vite build --config config/electron.vite.config.ts` (or `npm run check:editions`)
 
 ## Code conventions

@@ -2,13 +2,13 @@
 
 This file lists every private hook in the public technical spec. A private hook is a named point where the enterprise edition behaves differently from the public build, or where it needs organization-specific details that must not appear in this public repository. This registry does not define any hooks. Each hook is defined once, with a machine marker and a visible callout, in the spec file that owns its area. This file collects those definitions into one table, then gives each hook a short summary. Use it to see what a private binding has to supply and where the public contract for each hook is written. It implements the edition split in the PRD (public vs enterprise edition, "Edition differences", and the open item on enterprise publishing targets).
 
-Related: [01-architecture.md](./01-architecture.md) · [02-llm-provider.md](./02-llm-provider.md) · [03-source-resolvers.md](./03-source-resolvers.md) · [05-url-fetching.md](./05-url-fetching.md) · [06-generation-pipeline.md](./06-generation-pipeline.md) · [07-output-document.md](./07-output-document.md) · [09-library-storage.md](./09-library-storage.md) · [10-publishing.md](./10-publishing.md) · [11-app-shell-ui.md](./11-app-shell-ui.md) · [12-configuration-security.md](./12-configuration-security.md) · [13-testing-quality.md](./13-testing-quality.md)
+Related: [01-architecture.md](./01-architecture.md) · [02-llm-provider.md](./02-llm-provider.md) · [03-source-resolvers.md](./03-source-resolvers.md) · [05-url-fetching.md](./05-url-fetching.md) · [06-generation-pipeline.md](./06-generation-pipeline.md) · [07-output-document.md](./07-output-document.md) · [09-library-storage.md](./09-library-storage.md) · [10-publishing.md](./10-publishing.md) · [11-app-shell-ui.md](./11-app-shell-ui.md) · [12-configuration-security.md](./12-configuration-security.md) · [13-testing-quality.md](./13-testing-quality.md) · [16-android-companion.md](./16-android-companion.md)
 
 ## 1. Mechanism
 
 Four layers share one ID per hook:
 
-1. **Public spec: generic definition.** The owning spec file defines each hook with the stable ID `HOOK-<AREA>-<NN>` (two-digit number). The areas are LLM, SRC, AUTH, FETCH, PUB, CFG, UI, DOC, LIB, PIPE and TEST. The definition is written in generic terms: "organization cloud drive", "document system", "observability system", "code host", "ticketing system" and "secret-scanning push tool". It states what the public build does and lists what a private binding has to fill in. Each definition is exactly:
+1. **Public spec: generic definition.** The owning spec file defines each hook with the stable ID `HOOK-<AREA>-<NN>` (two-digit number). The areas are LLM, SRC, AUTH, FETCH, PUB, CFG, UI, DOC, LIB, PIPE, TEST and SYNC. The definition is written in generic terms: "organization cloud drive", "document system", "observability system", "code host", "ticketing system" and "secret-scanning push tool". It states what the public build does and lists what a private binding has to fill in. Each definition is exactly:
 
    ```markdown
    <!-- hook:HOOK-<AREA>-<NN> -->
@@ -67,8 +67,10 @@ Four layers share one ID per hook:
 | HOOK-UI-03 | Completion notification defaults | [11-app-shell-ui.md](./11-app-shell-ui.md) | `registerNotificationPolicy` + `registerSettingsExtension` | enabled; click opens the document in the app; `published-link` disabled in the UI; body shows the document title (`{hideTitle:false}`) | `notifications.enabled`, `notifications.clickAction`, `notifications.preferredLink` |
 | HOOK-TEST-01 | Private overlay contract test suite | [13-testing-quality.md](./13-testing-quality.md) | none (overlay `contracts/` entry) | `contracts:enterprise` skipped with a notice | env `ELI5_OVERLAY_DIR` |
 | HOOK-TEST-02 | Private fixture corpus and eval set | [13-testing-quality.md](./13-testing-quality.md) | none (private corpus) | synthetic fixtures and public evals only | none |
+| HOOK-SYNC-01 | Cloud sync policy | [16-android-companion.md](./16-android-companion.md) | `registerSyncStore(id, factory)`, `registerSyncPolicy` | personal sync to the user's own Drive app-data folder; opt-in, off by default; phone inbox off; no document excluded | `sync.*` |
+| HOOK-SYNC-02 | OAuth client source | [16-android-companion.md](./16-android-companion.md) | `registerSyncPolicy` (`clientSource`) | user pastes the Desktop client JSON into Settings > Sync (Keychain); dev seed from env | env `ELI5_GOOGLE_CLIENT_ID`, `ELI5_GOOGLE_CLIENT_SECRET`; Keychain `sync.google.client` |
 
-There are 28 hooks. Their pre-assigned IDs are LLM-01, AUTH-01, SRC-01 to SRC-03, PUB-01 to PUB-04, CFG-01, CFG-02 and UI-01. The owning files added the rest in their own areas.
+There are 31 hooks. Their pre-assigned IDs are LLM-01, AUTH-01, SRC-01 to SRC-03, PUB-01 to PUB-04, CFG-01, CFG-02 and UI-01. The owning files added the rest in their own areas.
 
 ## 3. Hooks by area
 
@@ -376,6 +378,23 @@ The one-paragraph summaries below are not the contract. The callout in the defin
   - output retention;
   - enterprise quality thresholds.
 
+### SYNC
+
+**HOOK-SYNC-01 · Cloud sync policy.** Defined in [16-android-companion.md](./16-android-companion.md).
+- *Public:* personal sync to the user's own Google Drive app-data folder (`drive.appdata`), opt-in and off by default; the phone inbox stays off until the user turns it on. The policy default is `{ allowed: true, excludeDoc: () => false, clientSource: 'user' }`, and the registered store is `google-drive-appdata` with `google-drive-folder`, `dropbox` and `webdav` as documented stubs.
+- *Binding supplies:*
+  - whether sync is allowed at all in the enterprise build;
+  - an organization store registered in place of the personal one;
+  - which documents are never uploaded (for example ones built from organization sources, HOOK-SRC-01);
+  - whether the phone inbox may be turned on.
+- *Related:* sync is not publishing; it never uses HOOK-PUB-01 or the `AuthBroker` (HOOK-AUTH-01).
+
+**HOOK-SYNC-02 · OAuth client source.** Defined in [16-android-companion.md](./16-android-companion.md).
+- *Public:* the user pastes or drops the downloaded Desktop client JSON in Settings > Sync, and the app stores it in the Keychain (`sync.google.client`); in development it may be seeded from `ELI5_GOOGLE_CLIENT_ID` and `ELI5_GOOGLE_CLIENT_SECRET`. The Android app holds no client ID or secret.
+- *Binding supplies:*
+  - a managed client source, or none (sync disabled);
+  - whether the user may enter their own client.
+
 ## 4. Consistency notes
 
 Fixes made while building this registry:
@@ -383,6 +402,7 @@ Fixes made while building this registry:
 - **Undefined hook.** [01-architecture.md](./01-architecture.md) listed a third TEST hook for the denylist scan, but no file defined it. The denylist scan is HOOK-CFG-03, so the row was removed and the range references were narrowed to HOOK-TEST-01 and HOOK-TEST-02.
 - **Missing index entry.** HOOK-SRC-05 was defined in 03 but missing from the 01 §6.1 hook index, the edition table, the HOOK-CFG-02 list and the registry API. It was added to all four, with `registerMcpClient(c: McpClient)` and the lookup `mcp()`.
 - **Denylist name mismatch.** HOOK-CFG-03 was described inconsistently. The 01 index used env `ELI5_DENYLIST_FILE`, and 13 used the script name `check-public-tree.ts`. Both now match the definition in 12: `scripts/check-hygiene.ts` with `ELI5_HYGIENE_DENYLIST`.
+- **Hook count.** The table listed 29 hooks while the count below it still said 28. With the two SYNC hooks from 16 it now says 31.
 - **Marker check.** No marker is duplicated or malformed. Every marker is followed directly by its callout, and every file defines hooks only in its own area (03 owns AUTH).
 
 ## Acceptance criteria

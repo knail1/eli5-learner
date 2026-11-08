@@ -3,9 +3,11 @@
 //   npx jiti scripts/check-hygiene.ts [--out out] [--package]
 //
 // 1. Tracked-file rules: no tracked enterprise/**, docs/** (except config/hygiene-allow paths), .env*,
-//    spec/internal.md, key material or local config.
-// 2. Secret scan: the baseline SecretScanner rules (10 §5.4) over tracked files and out/**,
-//    minus the per-file, per-rule exceptions in config/hygiene-allow.
+//    spec/internal.md, key material or local config, and none of the Android / sync secrets and
+//    build output from 16 §11 (keystores, local.properties, APKs, client JSON, android/**/build/).
+// 2. Secret scan: the baseline SecretScanner rules (10 §5.4) plus the Google OAuth client rules
+//    (16 §11) over tracked files and out/**, minus the per-file, per-rule exceptions in
+//    config/hygiene-allow.
 // 3. Deny-list (HOOK-CFG-03): terms from ELI5_HYGIENE_DENYLIST (inline, or `@path` to a file)
 //    over the contents and paths of tracked files and out/**, case-insensitive. Skipped with a
 //    notice when unset; set but empty is a configuration error. Findings name the term's index
@@ -22,7 +24,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { extname, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 // The scanner is a leaf of the publish module; its index pulls in the app's edition registry.
-import { scanText } from '../src/main/publish/scanner';
+import { maskPreview, scanText } from '../src/main/publish/scanner';
 
 export type HygieneCheck = 'tracked-path' | 'secret' | 'denylist' | 'bundle';
 
@@ -107,6 +109,24 @@ function trackedPathReason(p: string, allow: readonly string[]): string | null {
   if (name.startsWith('.env') && name !== '.env.example') return 'env files are never committed';
   if (/\.(pem|p12|key)$/i.test(name)) return 'key material is never committed';
   if (name === 'config.local.json' || name === 'CLAUDE.local.md') return 'local config is never committed';
+  // Android companion and personal sync (16 §11, 12 §12).
+  if (/\.(jks|keystore)$/i.test(name)) return 'signing keystores are never committed';
+  if (name === 'local.properties' || name === 'keystore.properties') {
+    return 'local machine and signing properties are never committed (the .example is allowed)';
+  }
+  if (name === 'google-services.json' || /^client_secret.*\.json$/i.test(name)) {
+    return 'Google client config is never committed';
+  }
+  if (/\.(apk|aab)$/i.test(name)) return 'built app packages are never committed';
+  if (
+    p.startsWith('android/.gradle/') ||
+    p.startsWith('android/.kotlin/') ||
+    p.startsWith('android/captures/') ||
+    /^android\/(.+\/)?build\//.test(p)
+  ) {
+    return 'Android build output is never committed';
+  }
+  if (/(^|\/)\.idea\//.test(p) || /\.iml$/i.test(name)) return 'IDE project files are never committed';
   return null;
 }
 
@@ -119,11 +139,33 @@ export function checkTrackedPaths(paths: readonly string[], allow: readonly stri
   return out;
 }
 
+/**
+ * Repo-only content rules on top of the baseline scanner (16 §11): Google OAuth client values must
+ * never be committed or bundled. They stay out of the publish scanner, whose rule set is 10 §5.6.
+ */
+const HYGIENE_RULES: readonly { id: string; re: RegExp }[] = [
+  { id: 'google-oauth-client-secret', re: /\bGOCSPX-[A-Za-z0-9_-]{20,}/g },
+  { id: 'google-oauth-client-id', re: /\b\d{6,}-[a-z0-9]{32}\.apps\.googleusercontent\.com\b/g },
+];
+
+/** The hygiene-only rules over one text, in the scanner's finding shape (masked previews). */
+export function scanHygieneRules(relPath: string, text: string): ReturnType<typeof scanText> {
+  const out: ReturnType<typeof scanText> = [];
+  text.split(/\r\n|\n|\r/).forEach((lineText, i) => {
+    for (const rule of HYGIENE_RULES) {
+      for (const m of lineText.matchAll(rule.re)) {
+        out.push({ relPath, line: i + 1, rule: rule.id, preview: maskPreview(m[0]) });
+      }
+    }
+  });
+  return out;
+}
+
 export function scanSecrets(files: readonly TextFile[], allow: readonly SecretAllow[]): HygieneFinding[] {
   const compiled = allow.map((a) => ({ re: globToRegExp(a.glob), rule: a.rule, preview: a.preview }));
   const out: HygieneFinding[] = [];
   for (const f of files) {
-    for (const s of scanText(f.path, f.text)) {
+    for (const s of [...scanText(f.path, f.text), ...scanHygieneRules(f.path, f.text)]) {
       const allowed = compiled.some(
         (a) => a.rule === s.rule && a.re.test(f.path) && (a.preview === undefined || a.preview === s.preview),
       );
@@ -241,7 +283,19 @@ export function checkBundle(files: readonly TextFile[], opts: { packageMode: boo
 // ------------------------------------------------------------------------------------------ I/O
 
 /** Skipped without decoding, as in 10 §5.4. */
-const BINARY_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.icns', '.woff', '.woff2', '.ttf']);
+const BINARY_EXTS = new Set([
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+  '.ico',
+  '.icns',
+  '.woff',
+  '.woff2',
+  '.ttf',
+  '.jar', // the Gradle wrapper (android/gradle/wrapper/gradle-wrapper.jar)
+]);
 
 async function readText(abs: string, rel: string): Promise<TextFile | null> {
   if (BINARY_EXTS.has(extname(rel).toLowerCase())) return null;

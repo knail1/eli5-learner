@@ -556,7 +556,7 @@ sidebar, input zone, and status area stay usable so a job can be started from se
 
 ```ts
 export type SettingsSection =
-  'ai' | 'documents' | 'library' | 'publishing' | 'notifications' | 'about' | 'enterprise';
+  'ai' | 'documents' | 'library' | 'publishing' | 'notifications' | 'sync' | 'about' | 'enterprise';
 ```
 
 | Section | Controls | Backing |
@@ -568,6 +568,7 @@ export type SettingsSection =
 | Library | Location (read only), document count, read-only reason if any, + **Reveal in Finder** | `eli5:library:info` (09), `eli5:library:reveal-root` |
 | Publishing | Export folder (read-only path + **Choose…**, which opens a native open panel for directories), "Reveal in Finder after export" switch, link "How to set up a Pages repository" (10 §8); one account item per available publisher that declares an account (10 §5.4; none in the public build) | `publish.local.dir`, `publish.local.revealAfter` (10, 12); `eli5:publish:account-status`, `eli5:publish:account-action` |
 | Notifications | See "Notifications section" below | `notifications.enabled`, `notifications.clickAction`, `notifications.preferredLink` (12 §3); `eli5:app:test-notification`, `eli5:app:open-notification-settings` |
+| Sync (v2, optional) | See "Sync section" below (16 §8) | `sync.*` (12 §3); `eli5:sync:*` (01 §5.2) |
 | About | Version (`EditionInfo.version`), edition name, links to README and help docs (HOOK-UI-02) | `eli5:edition:info` |
 | Enterprise | Rendered only when HOOK-UI-01 enables it | HOOK-UI-01, HOOK-CFG-01 |
 
@@ -626,6 +627,32 @@ Rules:
   On supported macOS versions this state is defensive only.
 - All three keys are hidden or locked like any other key when an overlay marks them managed
   (HOOK-CFG-01, HOOK-UI-03).
+
+**Sync section** (`section: 'sync'`, v2, optional; behavior in 16). Hidden when the sync policy
+says sync is not allowed (HOOK-SYNC-01).
+
+- Privacy line at the top, always shown: "Turning this on copies your learnings (not your sources or
+  notes) to a hidden folder in your Google Drive. Google can read them."
+- "Google client" field: paste the downloaded Desktop client JSON or drop the file on it. It is
+  write-only: after saving it shows "Client saved in Keychain" and **Remove**, never the values
+  (`eli5:sync:set-client`, `clear-client`; HOOK-SYNC-02). A malformed JSON is rejected inline.
+- **Connect Google Drive** (opens the consent page in the system browser, never in a window),
+  then the account email and **Disconnect** (`eli5:sync:sign-in`, `sign-out`).
+- Switch "Sync" (`sync.enabled`, default off) and a choice "Versions to sync": Current only, Recent
+  (10 newest, default), All (`sync.history`).
+- Switch "Accept jobs from phone" (`sync.inbox.enabled`, default off), with the phones seen and
+  their last-seen time.
+- **Sync now**, "Last synced <relative time>", pending uploads.
+- Devices list; on a mirror Mac, **Make this Mac the primary** (`eli5:sync:make-primary`).
+- **Delete cloud copy** with one confirmation (`eli5:sync:delete-remote`); the local library is not
+  touched.
+- Error lines use the 16 §10 texts ("Sign in again to keep syncing", "Your Google Drive is full",
+  "Update ELI5 Learner to keep syncing").
+
+**Sync indicator** (v2). When `sync.enabled` is true, the sidebar footer shows a small icon with
+three states: synced, syncing, and offline or error. It opens Settings > Sync. It is absent when
+sync is off. Inbox jobs carry a "From phone" chip in the status area (§5.5); a finished one posts
+the normal completion notification (§14).
 
 ## 8. Empty and error states
 

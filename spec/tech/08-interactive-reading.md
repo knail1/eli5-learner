@@ -139,6 +139,8 @@ export interface DocBridgeMessage<T extends string, P> {
 //                  'section-busy' SectionBusyEvent
 ```
 
+**Future Android host (v2, 16 §6.3).** The Android companion's reader is a read-only host: it exposes no bridge at all (no `addJavascriptInterface`, nothing named `eli5Doc`, no `postMessage` channel), so the runtime keeps its plain-browser mode there. Section actions and Ask from the phone are not done in the page; the phone queues an `ask` job for the desktop through the sync inbox (16 §5), and only when the primary desktop lists `ask` in its `accepts`. If a later version gives the phone an in-page menu, it must use the `postMessage` path below with all of its checks, never a JavaScript interface.
+
 **Why not `postMessage` in v1.** Any script in the page can call `postMessage`, and the receiver cannot tell the runtime from other code. The `contextBridge` path lets the preload attach the slug itself and check user activation (§4.3). A future `postMessage` host must apply the same checks: exact `event.origin`, `event.source === frame.contentWindow`, envelope `source` and `v` match, and a per-load nonce issued by the host.
 
 ### 4.3 Preload checks (before any IPC is sent)

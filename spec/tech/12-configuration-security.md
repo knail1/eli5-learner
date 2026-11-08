@@ -11,7 +11,7 @@ Related: [01-architecture.md](01-architecture.md) · [02-llm-provider.md](02-llm
 3. **A bad setting never stops the app.** An invalid value falls back to its default, is logged by key path, and is reported in Settings. A corrupt file is moved aside, not deleted.
 4. **Every renderer is untrusted.** This includes the app UI, the document viewer, and above all the hidden fetch window. Main validates every IPC payload and grants no permissions by default. A renderer never names a file to read by path: a file input carries an opaque id main minted for a trusted drop or clipboard read (06 §11). Those ids live in a bounded LRU registry and are released when their chip leaves the draft.
 5. **Generated documents are untrusted content.** They are produced by an LLM from third-party material and could carry injected script. They are rendered sandboxed with no network, and they reach the app only through a narrow, slug-bound bridge.
-6. **Source material leaves the machine only to the chosen LLM endpoint.** The only other outbound requests are the public URLs the user entered. There is no telemetry.
+6. **Source material leaves the machine only to the chosen LLM endpoint.** The only other outbound requests are the public URLs the user entered (and the anonymous stock photo search, §10.1). There is no telemetry. Generated documents leave the machine only with Sync on, to the user's own Drive (v2, 16 §9); source material never does.
 
 ## 2. Module layout
 
@@ -91,6 +91,13 @@ export const SettingsSchema = z.object({
     clickAction: z.enum(['app', 'published-link']).default('app'),
     preferredLink: z.enum(['most-recent', 'drive', 'site']).default('most-recent'),
   }).strict().prefault({}),                            // prefault: inner defaults apply when the key is absent (zod 4)
+  sync: z.object({                                       // v2, optional (16 §8); opt-in, off by default
+    enabled: z.boolean().default(false),
+    store: z.string().default('google-drive-appdata'),   // a registered SyncStore id (HOOK-SYNC-01)
+    pollSeconds: z.number().int().min(30).max(3600).default(60),
+    history: z.enum(['current', 'recent', 'all']).default('recent'),
+    inbox: z.object({ enabled: z.boolean().default(false) }).strict().prefault({}),
+  }).strict().prefault({}),
   enterprise: Dormant,                                   // reserved for SettingsExtension (HOOK-CFG-01)
 }).strict();
 
@@ -103,7 +110,7 @@ export const DORMANT_NAMESPACES = [
 ] as const;
 ```
 
-Sibling modules own the **meaning** of their keys (02 for `llm.*`, 05 for `fetch.*`, 06 for `pipeline.*`, 10 for `publish.*`, 11 for `notifications.*`), but declare them only here. A module that needs a new key adds it to `schema.ts` in the same change, with a default, and lists it in its own spec.
+Sibling modules own the **meaning** of their keys (02 for `llm.*`, 05 for `fetch.*`, 06 for `pipeline.*`, 10 for `publish.*`, 11 for `notifications.*`, 16 for `sync.*`), but declare them only here. A module that needs a new key adds it to `schema.ts` in the same change, with a default, and lists it in its own spec.
 
 ### 3.2 Key reference
 
@@ -129,6 +136,11 @@ Sibling modules own the **meaning** of their keys (02 for `llm.*`, 05 for `fetch
 | `notifications.enabled` | boolean | `true` | 11 | Post a native macOS notification when a create job reaches `done` (11). Not dormant |
 | `notifications.clickAction` | `'app' \| 'published-link'` | `'app'` | 11 | `'app'` opens the document in the viewer. `'published-link'` opens its published link in the default browser via §7.5, resolved at click time, and falls back to `'app'` when no remote published link exists. With no remote publisher in the public build, the UI disables `'published-link'`; `set` still accepts it and the fallback applies |
 | `notifications.preferredLink` | `'most-recent' \| 'drive' \| 'site'` | `'most-recent'` | 11 | Which link `'published-link'` opens: `'drive'` = organization cloud drive share link (PublishLink kind `share`), `'site'` = GitHub Pages link (kind `site`). Local exports (`file:` links) never count. An overlay may set defaults or lock these keys (HOOK-UI-03 via HOOK-CFG-01) |
+| `sync.enabled` | boolean | `false` | 16 | v2, optional. Off: the app makes no request to any Google endpoint. On (and signed in, library writable): push and poll (16 §4.5, §4.8). Hidden and forced off when the sync policy disallows it (HOOK-SYNC-01) |
+| `sync.store` | string | `'google-drive-appdata'` | 16 | A registered `SyncStore` id (16 §4.1); stubs fail with `NotAvailableInEdition` |
+| `sync.pollSeconds` | int 30..3600 | 60 | 16 | Desktop poll interval while the app runs |
+| `sync.history` | `'current' \| 'recent' \| 'all'` | `'recent'` | 16 | Which versions are uploaded: current only, the 10 newest snapshots, or all within the 09 caps |
+| `sync.inbox.enabled` | boolean | `false` | 16 | "Accept jobs from phone". Off: job files are left untouched and the device file says `inbox: 'off'` |
 | `enterprise.*` | record | `{}` | overlay | Dormant; only a `SettingsExtension` may give it a schema |
 
 There is deliberately **no** settings key for the edition. The edition is a build-time constant (`__ELI5_EDITION__`, 01 §6.1, HOOK-CFG-02), so editing settings cannot enable enterprise code paths.
@@ -270,7 +282,10 @@ Justification: it meets the convention that keys are Keychain items under servic
 
 ```ts
 // src/main/config/keystore.ts
-export type KeyAccount = 'llm.claude.apiKey' | 'llm.openai.apiKey' | `ext.${string}`;
+export type KeyAccount = 'llm.claude.apiKey' | 'llm.openai.apiKey'
+  | 'sync.google.client'          // v2 (16 §3.2): JSON {clientId, clientSecret}; HOOK-SYNC-02
+  | 'sync.google.refreshToken'    // v2 (16 §3.2): the Drive refresh token
+  | `ext.${string}`;
 
 export interface KeyStore {
   get(account: KeyAccount): Promise<string | null>;   // main only; never crosses IPC
@@ -286,7 +301,7 @@ export const account = (p: 'claude' | 'openai'): KeyAccount => `llm.${p}.apiKey`
 
 - `KeychainKeyStore` wraps `new Entry(KEYCHAIN_SERVICE, account)`. It maps "item not found" to `null` or `false`, and maps all other errors to `KeychainUnavailable` (`E_KEYCHAIN_UNAVAILABLE`).
 - `MemoryKeyStore` is used by unit and e2e tests. It is selected when `ELI5_KEYSTORE=memory` and `!app.isPackaged`, and a packaged build ignores the variable. E2E tests seed it from `ELI5_TEST_API_KEY_*` environment variables (13).
-- `ext.*` accounts may be registered only by a `SettingsExtension` (HOOK-CFG-01). The public build uses only the two LLM accounts.
+- `ext.*` accounts may be registered only by a `SettingsExtension` (HOOK-CFG-01). The public build uses the two LLM accounts and, only once the user sets up the optional sync (v2), the two `sync.google.*` accounts. These are public accounts rather than `ext.*` because the public build uses them. Neither value ever crosses IPC: `eli5:sync:set-client` is write-only and `eli5:sync:status` reports only `configured: boolean`. The access token is kept in memory only.
 - `has()` is cached for 30 seconds and invalidated on `set` and `delete`, so the Settings screen does not trigger repeated Keychain prompts.
 - Unsigned dev builds get a new code identity on every rebuild, so macOS may prompt for Keychain access again. This is expected, and the README documents it.
 
@@ -340,6 +355,8 @@ This is used only for `eli5:viewer:open-external`, for `setWindowOpenHandler` in
 1. Parse with `new URL()`. The scheme must be `http:` or `https:`, with no credentials in the URL, a host, and a length of 2048 characters or less.
 2. Rate limit to 2 per second and 20 per minute per sender. Excess calls are dropped and logged.
 3. Call `shell.openExternal(url, { activate: true })`. The app never opens `file:`, `smb:`, `x-apple.systempreferences:`, or other scheme handlers, with the one exception below.
+
+**Sync consent URL (v2, 16 §3.2).** The Google sign-in for personal sync opens the consent page with `shell.openExternal`, never in a `BrowserWindow`. The URL is built in main from a fixed constant, `https://accounts.google.com/o/oauth2/v2/auth`, plus the client id, the loopback `redirect_uri` (`http://127.0.0.1:<ephemeral port>/callback`), the three scopes, PKCE S256 `code_challenge`, `state`, `access_type=offline` and `include_granted_scopes=true`. It never comes from renderer input; `eli5:sync:sign-in` takes no payload. It passes steps 1 to 3 like any other URL.
 
 **Exception: notification settings deep link.** `eli5:app:open-notification-settings` (no payload) opens the fixed main-process constant `x-apple.systempreferences:com.apple.Notifications-Settings.extension`, with the app's bundle id appended as the `id` query when available. The URL is never renderer-supplied or built from renderer input, so this is the only `x-apple.systempreferences:` URL the app opens. The call is subject to the same sender checks (§7.2) and rate limit (step 2).
 
@@ -460,17 +477,21 @@ A document cannot read settings, keys, other documents, the library catalog, or 
 | Stock photo downloads | Requests only | The image hosts the search returned (for example `upload.wikimedia.org`, `live.staticflickr.com`), through the fetch session with the private-address guard and byte caps (05 §4.8). Chosen photos are embedded as data URIs, so documents still make no requests at view time |
 | Stock photo thumbnails | Yes, in the one pick request | The configured LLM provider (02 §12 `pickPhotos`) |
 | Clarifying input, selection text, notes | Yes, only in LLM requests | Configured provider |
-| Generated documents, catalog, meta | No | Local library (09). The public build has only the local publisher (10) |
+| Generated documents, catalog, meta | No (unless Sync is on, next rows) | Local library (09). The public build has only the local publisher (10) |
 | API keys | Only as the auth header to their own provider | Provider API |
 | Settings, logs, job staging | No | `userData` |
 | Completion notification (document title only) | No | macOS Notification Center on this Mac (11). An overlay may hide the title (HOOK-UI-03) |
+| Generated documents (HTML snapshots per `sync.history`), and a sanitized manifest and version trees (titles, summaries, headings, tab names, dates, folder placement) | Only with Sync on (v2, default off), to your own Drive | The user's Google Drive app-data folder (`www.googleapis.com`), 16 §4 and §9. Never: `meta.json` fields outside the allowlist, source files, clarifying input, questions, source names or URLs |
+| Sync sign-in and refresh | Only with Sync set up | `accounts.google.com`, `oauth2.googleapis.com`, `openidconnect.googleapis.com` (email only, as a display hint). Refresh token in the Keychain (§6.2) |
+| Phone job statuses and the device file | Only with Sync on, to your own Drive | Drive app-data folder (16 §4.3, §5.3) |
 | Telemetry, analytics, crash uploads | Never | None. `crashReporter` is not started, and there is no update checker in v1 |
 
 Enforcement:
 
 - A main-process `session.defaultSession.webRequest.onBeforeRequest` filter on the **app and viewer sessions** allows only `self` origins and the Vite dev server in dev. The app UI and viewer never make network calls themselves.
 - Stock photo requests are made only by `src/main/photos/` through the fetch module's `fetchBytes` (05 §4.8), never with a direct network import.
-- LLM SDK clients are created only in `src/main/llm/` with base URLs from 02's provider table. The ESLint rule `no-restricted-imports` bans `node:http`, `node:https`, `undici`, and global `fetch` outside `src/main/llm/` and `src/main/fetch/`.
+- LLM SDK clients are created only in `src/main/llm/` with base URLs from 02's provider table. The ESLint rule `no-restricted-imports` bans `node:http`, `node:https`, `undici`, and global `fetch` outside `src/main/llm/` and `src/main/fetch/` (and, in v2, `src/main/sync/**`, the only other module allowed to reach the network: Google OAuth, Drive REST and the loopback listener, 16 §8).
+- With `sync.enabled` false, the sync module makes no request at all (16 acceptance criterion 1).
 - The enterprise edition may add content rules before `send()` (HOOK-LLM-02) and routes authenticated sources through the MCP lane (HOOK-SRC-01, HOOK-SRC-03). The app never holds the organization credentials (HOOK-AUTH-01).
 
 ### 10.2 Retention
@@ -515,13 +536,14 @@ The repository is public, so the rules below keep generated content, secrets, an
 | Private spec | The private spec and its hook bindings are gitignored and never linked from public files by path |
 | `.env*` | Gitignored except `.env.example`, which lists variable names with empty values |
 | `*.pem`, `*.p12`, `config.local.json` | Gitignored |
+| Android and sync secrets (v2, 16 §11): `local.properties`, `keystore.properties`, `*.jks`, `*.keystore`, `google-services.json`, `client_secret*.json`; Android build output (`android/.gradle/`, `android/.kotlin/`, `android/**/build/`, `android/captures/`), `*.apk`, `*.aab`; IDE files (`.idea/`, `*.iml`) | Gitignored under `android/` (its own `.gitignore`), and `scripts/check-hygiene.ts` fails if any of them is tracked anywhere in the repository. `android/local.properties.example` (key names only) is allowed. The content scan also fails on a Google OAuth client secret (`GOCSPX-…`) or a client id (`<digits>-<32 chars>.apps.googleusercontent.com`) in tracked files or `out/**` |
 | Test fixtures | Synthetic or public-domain only. No real API keys. Tests use `MemoryKeyStore` with fake keys matching `sk-test-…` |
 | Build output | `out/`, `dist/`, `release/`, `*.dmg` gitignored |
 
 CI gates (run on every push and PR):
 
 1. **Secret scan:** a generic secret scanner runs over the diff with public rules only. Any finding fails the build.
-2. **Ignored-path check:** the build fails if any tracked file matches `docs/**` (other than the un-ignored exceptions), `enterprise/**`, or `.env` (other than `.env.example`).
+2. **Ignored-path check:** the build fails if any tracked file matches `docs/**` (other than the un-ignored exceptions), `enterprise/**`, `.env` (other than `.env.example`), or one of the Android and sync paths in the table above.
 3. **Overlay isolation:** in the public build, the bundle must not contain the string `@eli5/overlay` resolved to anything other than `overlay.none.ts` (checked from `out/main/build-info.json` and a scan of `out/**`; the build emits no Vite manifest).
 4. **Public-tree term check:** described in HOOK-CFG-03. This is the only denylist check and the only hook for it. 13 §11 (`scripts/check-hygiene.ts`, CI job `hygiene`) runs it as its deny-list step and refers to HOOK-CFG-03 rather than defining its own hook; 01 §6.5 uses the same env var.
 

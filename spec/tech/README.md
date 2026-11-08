@@ -1,7 +1,7 @@
 # ELI5 Learner engineering spec
 
 The [product requirements document](../ELI5%20Learner%20Product%20Requirements%20Document.md) says
-**what** ELI5 Learner does and why. The files in this folder say **how** to build v1: the Electron
+**what** ELI5 Learner does and why. The files in this folder say **how** to build v1 (and, in 16, the optional v2 sync and Android companion): the Electron
 process model, module boundaries, types, IPC channels, algorithms, error handling, and acceptance
 criteria for each module. Each file owns one slice of `src/` and cites the PRD sections it
 implements. When a file here and the PRD disagree on behavior, the PRD wins and the file gets fixed;
@@ -28,6 +28,7 @@ Read 01 first. After that, read the file for the module you are building, plus 1
 | 11 | [11-app-shell-ui.md](11-app-shell-ui.md) | Window lifecycle, the menu bar item, main window layout, settings screen, shortcuts, empty states, accessibility, and gating of enterprise-only UI. |
 | 12 | [12-configuration-security.md](12-configuration-security.md) | Settings schema and storage, Keychain API keys, dormant keys, the Electron security baseline, document sandboxing, privacy, and logging without content. |
 | 13 | [13-testing-quality.md](13-testing-quality.md) | Test pyramid (Vitest, Playwright `_electron`), synthetic fixtures, LLM fakes and cassettes, document validity checks, evals, the edition matrix, CI. |
+| 16 | [16-android-companion.md](16-android-companion.md) | v2, optional: personal sync through the user's own Google Drive app-data folder (`src/main/sync/`, the `SyncStore` port, primary desktop, job inbox) and the Android companion (`android/`: offline reader, import, share-sheet capture, Inbox). Numbers 14 and 15 are left free. |
 | — | [hooks.md](hooks.md) | Every private hook, its owning file, its registry slot, and its public default. |
 
 ## Build order for v1
@@ -45,9 +46,11 @@ modules' real code.
 | **M3 Features on top** | Interactive reading (08); merge suggestions (09 §10); local publisher and link surfacing (10 §5.1, §7); settings screen and shortcuts (11 §7, §9); completion notifications and the Settings > Notifications section (11 §14, wired by bootstrap to the 06 queue) | **Yes, five at once** | Each file's acceptance criteria pass |
 | **M4 Hardening and release** | E2E suites, document validity checks, evals and baselines, the edition matrix, public-repo hygiene checks, CI workflow, unsigned dmg packaging (13 §7–12, 01 §8.3) | Split by suite | Every required CI job is green on the public build with no overlay present |
 
-Stubs (`bedrock.stub.ts`, `mcp.stub.ts`, `ticket.stub.ts`, `drive.stub.ts`, `git.stub.ts`) and the
-public default for each policy slot ship in the same milestone as the module that owns them, never
-later.
+| **M5 Personal sync and Android companion (v2, optional)** | 16, in slices: spec and guardrails; the local-mode Android reader (the day-1 APK); the shared sync protocol and fixtures; desktop OAuth, Drive client and fake Drive; Android auth and Drive client; gate G1 (cross-client spike with a real Cloud project); desktop sync engine; Settings > Sync; Android pull and library; Android capture and Inbox; desktop inbox consumer; versions on the phone; hardening and the Android CI job (16 §12–13) | Protocol, desktop OAuth and Android auth in parallel; the engine waits for G1 | 16's acceptance criteria pass; with `sync.enabled` false the desktop makes no Google request and every earlier suite passes unchanged |
+
+Stubs (`bedrock.stub.ts`, `mcp.stub.ts`, `ticket.stub.ts`, `drive.stub.ts`, `git.stub.ts`, and in M5
+the `google-drive-folder`, `dropbox` and `webdav` sync store stubs) and the public default for each policy
+slot ship in the same milestone as the module that owns them, never later.
 
 ## Editions and private hooks
 
@@ -66,5 +69,5 @@ later.
 | `SectionId` | `sec-<tabKey>-<8 lowercase hex>`, for example `sec-indepth-3f9a1c2e`. Tab keys are `indepth`, `eli5`, and `sx<6 hex>` for Section ELI5 tabs. IDs are minted by `mintSectionId`, never by the model. They are stable across regenerate, merge and re-render, and never reused. | 07 §4 |
 | IPC naming | `eli5:<area>:<action>` constants in `contract.ts`, with no string literals anywhere else. Invokes return `IpcResult<T>` and never throw. Payloads are validated with zod in main. Errors use `E_*` `IpcErrorCode` values. Events are exposed as `on<Event>(cb): Unsubscribe`. | 01 §5 |
 | Config keys | Dotted lowercase camelCase paths (`llm.provider`, `pipeline.maxConcurrentJobs`, `publish.local.dir`), all declared in `src/main/config/schema.ts` with a default. Dormant namespaces (`llm.bedrock`, `sources.mcp`, `fetch.network`, `publish.drive`, `publish.github`, `enterprise`) are accepted and preserved but have no effect in the public build. Secrets never go in settings; they live in the Keychain. | 12 §3 |
-| Hook IDs | `HOOK-<AREA>-<NN>`, where AREA is one of LLM, AUTH, SRC, FETCH, PIPE, DOC, LIB, PUB, CFG, UI, TEST. A spec that adds a hook also adds a row to the index in 01 §6.1 and to [hooks.md](hooks.md). | 01 §6.1 |
+| Hook IDs | `HOOK-<AREA>-<NN>`, where AREA is one of LLM, AUTH, SRC, FETCH, PIPE, DOC, LIB, PUB, CFG, UI, TEST, SYNC. A spec that adds a hook also adds a row to the index in 01 §6.1 and to [hooks.md](hooks.md). | 01 §6.1 |
 | Section numbering | Files are `NN-topic.md`. Cross-references use the form "07 §4.2". Every file ends with an "Acceptance criteria" checklist. | all |

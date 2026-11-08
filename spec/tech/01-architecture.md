@@ -119,11 +119,13 @@ Each directory has one public entry (`index.ts`) that is the only import path ot
 | `src/main/publish/` | `Publisher`, `local.ts`, `drive.stub.ts`, `git.stub.ts` | `Publisher`, `PublishTarget`, `PublishResult` | 10 |
 | `src/main/config/` | Settings schema, Keychain, edition flags | `Settings`, `getSettings()`, `edition` | 12 |
 | `src/main/editions/` | Capability registry, overlay loader, `NotAvailableInEdition` | `registry`, `Edition`, `NotAvailableInEdition` | this file |
+| `src/main/sync/` | v2, optional: personal sync. `SyncStore` port, Google OAuth (loopback + PKCE) and Drive REST client, store guard, push engine, claims, heartbeat, job inbox and ledger; stub stores `google-drive-folder`, `dropbox`, `webdav` | `createSyncService()`, `SyncStore`, `SyncStatus` | 16 |
 | `src/preload/app.ts` | `window.eli5` API | `Eli5Api` (type) | this file, 11 |
 | `src/preload/doc.ts` | `window.eli5Doc` API | `Eli5DocApi` (type) | this file, 08 |
 | `src/preload/contract.ts` | IPC channel constants, payload/response types, `IpcResult<T>` (types and string constants only; no runtime deps). The **only** location for types shared with renderers; there is no `src/shared/` (supersedes 03 §1) | `IPC`, `IpcResult` | this file |
 | `src/renderer/` | React UI | — | 11 |
 | `src/doc-runtime/` | Tabs, glossary layout, selection bridge; built to one IIFE + CSS and inlined into every document | `DOC_RUNTIME_JS`, `DOC_RUNTIME_CSS` (build-time strings) | 07, 08 |
+| `android/` (outside `src/`) | v2, optional: the Android companion, its own Gradle build; never part of the npm toolchain | — | 16 §6 |
 
 **Dependency rules** (enforced by an ESLint `import/no-restricted-paths` config, see 13):
 
@@ -134,6 +136,10 @@ Each directory has one public entry (`index.ts`) that is the only import path ot
   `photos` may depend on `document`, `llm` (types and `sectionText`) and `fetch`; nothing depends
   on `pipeline` except `ipc`. `shell` does not depend on `pipeline` either: bootstrap
   (`src/main/index.ts`) wires the job queue's `done` event to the shell's notifier.
+- `sync` may depend on `library`, `config`, `security` and `editions` only. **`sync` never imports
+  `pipeline`**: bootstrap injects the inbox's `enqueue` callback (to `jobs.start` with origin
+  `'inbox'`) and maps job events to `sync.reportJob()` (16 §8). Nothing imports `sync` except `ipc`,
+  bootstrap and `editions` (types only, for the registry slots in §6.2).
 - Only `src/main/editions/` knows about the overlay. Callers ask the registry for a capability.
 
 ## 4. End-to-end data flow
@@ -396,6 +402,23 @@ this table is corrected. Channel **names** are fixed here.
 | `eli5:publish:account-status` | R→M | `{targetId}` | `AccountStatus`; `E_NOT_FOUND` for an unknown publisher or one without `account`. App window only | 10 §5.4 |
 | `eli5:publish:account-action` | R→M | `{targetId; action: 'sign-in' \| 'install'}` | `AccountStatus` after the action; `E_NOT_FOUND` as above. App window only | 10 §5.4 |
 
+**Sync (16, v2, optional)**
+
+All sync channels are app window only (`assertSender`); the viewer gets `E_FORBIDDEN`. No payload
+ever carries a client secret, refresh token or access token.
+
+| Channel | Dir | Request | Response / event payload | Spec |
+| --- | --- | --- | --- | --- |
+| `eli5:sync:status` | R→M | — | `SyncStatus` | 16 §8 |
+| `eli5:sync:set-client` | R→M | `{json: string}` (the Desktop client JSON; write-only, stored in the Keychain) | `SyncStatus` (reports only `configured: true`) | 16 §3.2 |
+| `eli5:sync:clear-client` | R→M | — | `SyncStatus` | 16 §3.2 |
+| `eli5:sync:sign-in` | R→M | — | `SyncStatus` after the loopback consent in the system browser | 16 §3.2 |
+| `eli5:sync:sign-out` | R→M | — | `SyncStatus` | 16 §3.2 |
+| `eli5:sync:now` | R→M | — | `void` (schedules a push and a poll) | 16 §4.5 |
+| `eli5:sync:make-primary` | R→M | — | `SyncStatus` | 16 §4.6 |
+| `eli5:sync:delete-remote` | R→M | — | `void` (deletes every file in the store; the local library is untouched) | 16 §4.7 |
+| `eli5:sync:changed` | M→R | — | `SyncStatus` | 16 §8 |
+
 This table is the complete v1 registry: channels not in it do not exist. A spec that needs a new
 channel adds a row here (and the constant to `contract.ts`) in the same change; defining a channel
 only in a sibling file is not enough.
@@ -441,6 +464,10 @@ export interface Eli5Api {
     onProgress(cb): Unsub;
   };
   auth: { status(); signIn(); signOut(); onChanged(cb: (s: AuthStatus) => void): Unsub };
+  sync: {                                   // v2, optional (16 §8); app window only
+    status(); setClient(json: string); clearClient(); signIn(); signOut(); now(); makePrimary(); deleteRemote();
+    onChanged(cb: (s: SyncStatus) => void): Unsub;
+  };
   app: {
     onNavigate(cb: (e: AppNavigateEvent) => void): Unsub; contextMenu(r: { kind: 'library-item'; slug: string });
     testNotification(); openNotificationSettings();
@@ -465,7 +492,8 @@ export interface Eli5DocApi {
 The version types that cross IPC live in `contract.ts` (08 §3, 09 §4.1):
 
 ```ts
-export type VersionChangeKind = MenuAction | 'close-tab' | 'merge' | 'outside' | 'initial';
+export type VersionChangeKind = MenuAction | 'close-tab' | 'merge' | 'outside' | 'initial'
+  | 'sync';   // reserved for a later desktop pull (16 §8); never written in this version
 export interface VersionTarget { tabKey?: string; sectionId?: SectionId; anchorId?: string }
 export interface DocVersionNode { id: string; parentId: string | null; createdAt: string; kind: VersionChangeKind;
   label: string; topic: string; heading?: string; question?: string; target?: VersionTarget;
@@ -504,6 +532,7 @@ cannot be switched to enterprise by editing settings.
 | Library | default storage policy; every pair merge-eligible | storage policy (HOOK-LIB-01), merge eligibility (HOOK-LIB-02) |
 | Publishers | `local`; `drive`, `git` → stubs; baseline secret scanner; no pre-publish policy | `local` + overlay (HOOK-PUB-01..04), pre-publish policy (HOOK-PUB-05) |
 | Settings | public schema; dormant keys accepted but inert | schema extended by overlay (HOOK-CFG-01) |
+| Personal sync (v2) | `google-drive-appdata` store, opt-in and off by default; `google-drive-folder`, `dropbox`, `webdav` → stubs; user-supplied OAuth client | sync policy and store (HOOK-SYNC-01), OAuth client source (HOOK-SYNC-02) |
 | UI features | publish buttons and sign-in state hidden; public branding; completion notifications open the document in the app | enabled per overlay flags (HOOK-UI-01), branding (HOOK-UI-02), completion notification defaults and body policy (HOOK-UI-03) |
 | Build, CI and tests | public build only; denylist and private suites skipped with a notice | HOOK-CFG-02, HOOK-CFG-03, HOOK-TEST-01, HOOK-TEST-02 |
 
@@ -542,6 +571,8 @@ the private spec's checklist are built from it. A spec that adds a hook adds a r
 | HOOK-UI-03 | 11 | `registerNotificationPolicy` + `registerSettingsExtension` (`notifications.*` defaults / managed) | `{hideTitle:false}`; `notifications.clickAction` `'app'` |
 | HOOK-TEST-01 | 13 | none (overlay `contracts/` entry) | suite skipped with a notice |
 | HOOK-TEST-02 | 13 | none (private corpus) | synthetic fixtures only |
+| HOOK-SYNC-01 | 16 | `registerSyncStore(id, factory)`, `registerSyncPolicy` | `google-drive-appdata`; policy `{ allowed: true, excludeDoc: () => false, clientSource: 'user' }` |
+| HOOK-SYNC-02 | 16 | `registerSyncPolicy` (`clientSource`) | `'user'`: client JSON pasted in Settings > Sync, kept in the Keychain |
 
 ### 6.2 Registry API
 
@@ -554,6 +585,7 @@ import type { LibraryPolicy, MergeEligibility } from '../library';              
 import type { SecretScanner, PrePublishPolicy } from '../publish';              // 10
 import type { PromptPolicy } from '../llm';                                     // 02
 import type { LoginSignature, NetworkConfigurator } from '../fetch';            // 05
+import type { SyncPolicy, SyncStore } from '../sync';                          // 16 (v2)
 
 export type Edition = 'public' | 'enterprise';
 export const OVERLAY_API_VERSION = 1;
@@ -570,6 +602,7 @@ export interface CapabilityRegistry {
   registerPublisher(id: string, factory: (s: Settings) => Publisher): void;          // HOOK-PUB-01/03
   registerAuth(b: AuthBroker): void;                                                 // HOOK-AUTH-01
   registerMcpClient(c: McpClient): void;                                             // HOOK-SRC-05; one shared client (03 §10.1)
+  registerSyncStore(id: string, factory: (s: Settings) => SyncStore): void;          // HOOK-SYNC-01 (16 §4.1)
 
   // Single-slot policies (register replaces the public default)
   registerPromptPolicy(p: PromptPolicy): void;             // HOOK-LLM-02 {preamble, overridesDir, skills, preSendFilter}
@@ -589,6 +622,7 @@ export interface CapabilityRegistry {
   registerSettingsExtension(ext: SettingsExtension): void; // HOOK-CFG-01; shape defined in 12
   enableUiFeatures(f: UiFeature[]): void;                  // HOOK-UI-01
   registerNotificationPolicy(p: NotificationPolicy): void; // HOOK-UI-03; {hideTitle: boolean}, 11
+  registerSyncPolicy(p: SyncPolicy): void;                 // HOOK-SYNC-01/02; {allowed, excludeDoc, clientSource}, 16
 
   // Lookups
   llm(): LLMProvider;                         // uses settings llm.provider
@@ -612,6 +646,8 @@ export interface CapabilityRegistry {
   secretScanner(): SecretScanner;
   prePublishPolicy(): PrePublishPolicy;
   notificationPolicy(): NotificationPolicy;   // public default {hideTitle:false}
+  syncStore(id: string): SyncStore;           // HOOK-SYNC-01; public 'google-drive-appdata'
+  syncPolicy(): SyncPolicy;                   // public default {allowed:true, excludeDoc:()=>false, clientSource:'user'}
   info(): EditionInfo;
   freeze(): void;                             // after bootstrap; later register* throws
 }
@@ -669,8 +705,8 @@ Rules:
 
 1. `config/` loads settings from disk (schema defaults applied).
 2. `registerPublicCapabilities(registry)` registers all public implementations, all stubs
-   (`bedrock.stub.ts`, `mcp.stub.ts`, `ticket.stub.ts`, `drive.stub.ts`, `git.stub.ts`) and the
-   public default for every policy slot in §6.2.
+   (`bedrock.stub.ts`, `mcp.stub.ts`, `ticket.stub.ts`, `drive.stub.ts`, `git.stub.ts`, and in v2
+   the sync store stubs) and the public default for every policy slot in §6.2.
 3. If `__ELI5_EDITION__ === 'enterprise'`: load the overlay (§6.5) and call `register()`.
    The overlay may replace stubs and policy defaults, add resolvers, register auth, extend
    settings, enable UI features (hook index, §6.1).
@@ -682,6 +718,11 @@ Rules:
    unchanged.
 6. `registry.freeze()`.
 7. IPC handlers are registered; windows and Tray are created.
+8. v2, optional (16 §8): the sync service is created after the library. Bootstrap wires library
+   events to `schedulePush`, the inbox `enqueue` callback to `jobs.start` with origin `'inbox'`, and
+   job events to `reportJob`. Polling starts only when `sync.enabled` is true, the user is signed in
+   and the library is writable; with `sync.enabled` false (the default) no Google endpoint is
+   contacted.
 
 A failure in step 3 is fatal in an enterprise build: the app shows a single error window with the
 message and the overlay path, and does not start with a partial capability set.
@@ -793,6 +834,10 @@ scaffold time, pinned via lockfile.
 | `parse5` | main/document | Spec-compliant HTML parsing for section locate/replace (08); also a test helper (13) |
 | `ulid` | main/pipeline | Time-sortable `JobId` (06) |
 | `@napi-rs/keyring` | main/config | API keys in macOS Keychain, service "ELI5 Learner" (12). Native, per-arch packages; see §8.3 |
+
+Personal sync (16) adds no runtime dependency: the Drive REST client uses `fetch`, and the OAuth
+loopback uses `node:http` and `node:crypto`. The Android companion's dependencies are pinned in
+`android/gradle/libs.versions.toml` (16 §6.1) and are not part of `package.json`.
 
 Dev dependencies: `typescript`, `electron-vite`, `vite`, `@vitejs/plugin-react`,
 `electron-builder`, `@electron/fuses` (12), `vitest`, `@playwright/test`, `eslint` +
@@ -964,7 +1009,7 @@ work plugs into:
 | NotebookLM linking | Not built | A new `Publisher` implementation (10 §3.1) |
 | Diff between two versions of a document | Not built; versions can be opened and stepped through (08 §6.7, 09 §4.1) | The version tree's snapshots (09 §4.1) |
 | Moving documents into other monorepo projects / choosing a destination project per document | Single library root | `resolveLibraryRoot` (09 §3) |
-| Any authentication or login flows | Permanent in v1 (public build) | Enterprise only, through the MCP server (HOOK-AUTH-01) |
+| Any authentication or login flows | Permanent in v1 (public build). v2 adds one opt-in sign-in, for personal sync only (16); authenticated sources stay out | Enterprise only, through the MCP server (HOOK-AUTH-01) |
 | Speech to text and audio input | Removed in all editions | None |
 
 ## Acceptance criteria

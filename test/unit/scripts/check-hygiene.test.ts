@@ -12,6 +12,7 @@ import {
   runHygiene,
   scanDenylist,
   scanDenylistPaths,
+  scanHygieneRules,
   scanSecrets,
 } from '../../../scripts/check-hygiene';
 
@@ -20,6 +21,10 @@ const ALNUM = 'aB3dE5gH7jK9mN1pQ2rS4tU6vW8xY0zC';
 const cycle = (n: number): string => Array.from({ length: n }, (_, i) => ALNUM[i % ALNUM.length]).join('');
 const fakeKey = (): string => 'sk' + '-ant-' + 'api03-' + cycle(40);
 const fakeUrlCreds = (): string => 'https' + '://deploy:' + 'hunter2pass' + '@git.example.com/r.git';
+const LOWER = 'a3b5c7d9e1f2g4h6j8k0m2n4p6q8r0s2';
+// Google OAuth client values (16 §11): a Desktop client secret and an OAuth client id.
+const fakeClientSecret = (): string => 'GOC' + 'SPX-' + cycle(28);
+const fakeClientId = (): string => '1234567' + '89012-' + LOWER + '.apps.' + 'googleusercontent' + '.com';
 
 const repoRoot = resolve(import.meta.dirname, '../../..');
 const temps: string[] = [];
@@ -99,6 +104,45 @@ describe('checkTrackedPaths (13 §11 rule 1, 12 §12 gate 2)', () => {
     expect(bad(paths)).toEqual(paths);
   });
 
+  it('flags Android and sync secrets, build output and IDE files (16 §11)', () => {
+    const paths = [
+      'android/local.properties',
+      'android/keystore.properties',
+      'eli5-release.jks',
+      'android/app/debug.keystore',
+      'android/app/google-services.json',
+      'client_secret_123-abc.apps.json',
+      'android/app/build/outputs/apk/release/app-release.apk',
+      'app-release.aab',
+      'release/android/eli5-learner-release.apk',
+      'android/.gradle/9.8.2/checksums.lock',
+      'android/.kotlin/sessions/kotlin-compiler-1.salive',
+      'android/build/reports/problems.html',
+      'android/app/build/intermediates/x.txt',
+      'android/captures/heap.hprof',
+      '.idea/workspace.xml',
+      'android/.idea/misc.xml',
+      'android/app/app.iml',
+    ];
+    expect(bad(paths)).toEqual(paths);
+  });
+
+  it('allows the Android sources, the wrapper and the local.properties example', () => {
+    expect(
+      bad([
+        'android/local.properties.example',
+        'android/gradle/wrapper/gradle-wrapper.jar',
+        'android/gradle/wrapper/gradle-wrapper.properties',
+        'android/gradle/libs.versions.toml',
+        'android/app/build.gradle.kts',
+        'android/build.gradle.kts',
+        'android/app/src/main/kotlin/io/github/eli5learner/MainActivity.kt',
+        'android/.gitignore',
+        'build/doc-runtime/README.md',
+      ]),
+    ).toEqual([]);
+  });
+
   it('describes each finding without file contents', () => {
     const [f] = checkTrackedPaths(['enterprise/index.ts'], allow);
     expect(f).toMatchObject({ check: 'tracked-path', path: 'enterprise/index.ts' });
@@ -136,6 +180,41 @@ describe('scanSecrets (13 §11 rule 2, baseline SecretScanner from 10 §5.6)', (
     const allow = [{ glob: 'out/renderer/assets/*.js', rule: 'generic-high-entropy', preview: '!0,r****************' }];
     const found = scanSecrets(files, allow);
     expect(found.map((f) => [f.path, f.line])).toEqual([['out/renderer/assets/index-abc.js', 2]]);
+  });
+
+  it('flags Google OAuth client secrets and client ids with masked previews (16 §11)', () => {
+    const secret = fakeClientSecret();
+    const id = fakeClientId();
+    const found = scanSecrets(
+      [{ path: 'src/main/sync/google/oauth.ts', text: `const s = '${secret}';\nconst c = "${id}";\n` }],
+      [],
+    );
+    expect(found.map((f) => [f.line, f.detail.split(' ')[0]])).toEqual([
+      [1, 'google-oauth-client-secret'],
+      [2, 'google-oauth-client-id'],
+    ]);
+    expect(JSON.stringify(found)).not.toContain(secret);
+    expect(JSON.stringify(found)).not.toContain(id);
+  });
+
+  it('leaves the documented placeholders and short or wrongly shaped values alone', () => {
+    const texts = [
+      'Google secrets start with `GOCSPX-`; client ids end in .apps.googleusercontent.com',
+      '<digits>-<32 chars>.apps.googleusercontent.com',
+      'GOC' + 'SPX-' + 'short',
+      '12345-' + LOWER + '.apps.' + 'googleusercontent.com', // fewer than 6 digits
+      '123456789012-' + LOWER.toUpperCase() + '.apps.' + 'googleusercontent.com', // not lowercase
+      'ELI5_GOOGLE_CLIENT_ID=\nELI5_GOOGLE_CLIENT_SECRET=\n',
+    ];
+    for (const text of texts) expect(scanHygieneRules('x.md', text), text).toEqual([]);
+  });
+
+  it('lets config/hygiene-allow except a reviewed client id like any other rule', () => {
+    const found = scanSecrets(
+      [{ path: 'test/fixtures/sync/client.json', text: fakeClientId() }],
+      [{ glob: 'test/fixtures/sync/client.json', rule: 'google-oauth-client-id' }],
+    );
+    expect(found).toEqual([]);
   });
 
   it('matches a single-segment * glob inside one directory only', () => {
@@ -379,6 +458,22 @@ describe('runHygiene over temp git repos', () => {
       ['secret', 'out/renderer/app.js'],
       ['bundle', 'out/main/index.js'],
     ]);
+  });
+
+  it('skips the Gradle wrapper jar as binary but fails a tracked keystore and a client secret JSON', async () => {
+    const dir = tempRepo({
+      'android/gradle/wrapper/gradle-wrapper.jar': `PK\u0003\u0004${fakeClientSecret()}`,
+      'android/app/release.jks': 'not really a keystore',
+      'client_secret_desktop.json': `{"installed":{"client_secret":"${fakeClientSecret()}"}}`,
+    });
+    const out = quiet();
+    const r = await runHygiene({ root: dir, env: {}, log: out.log });
+    expect(r.findings.map((f) => [f.check, f.path])).toEqual([
+      ['tracked-path', 'android/app/release.jks'],
+      ['tracked-path', 'client_secret_desktop.json'],
+      ['secret', 'client_secret_desktop.json'],
+    ]);
+    expect(out.lines.join('\n')).not.toContain(fakeClientSecret());
   });
 
   it('fails when --out is given but the directory is missing', async () => {

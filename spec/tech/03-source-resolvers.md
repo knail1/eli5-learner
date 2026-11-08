@@ -28,16 +28,19 @@ All types are exported from `src/main/sources/types.ts` and re-exported (types o
 
 ```ts
 /** Where the user supplied the input. Used for the references list and telemetry-free debugging. */
-export type SourceOrigin = 'drop' | 'paste' | 'url-field' | 'picker';
+export type SourceOrigin = 'drop' | 'paste' | 'url-field' | 'picker'
+  | 'inbox';   // v2 (16 §5.3): staged by main from a phone job; never sent by a renderer
 
 /** One raw input as captured by the input zone. Serializable; crosses IPC. */
 export type SourceInput =
   | { id: string; kind: 'file';  origin: SourceOrigin; path: string; snapshot?: FileSnapshot }
   | { id: string; kind: 'url';   origin: SourceOrigin; url: string }
-  | { id: string; kind: 'text';  origin: 'paste'; stagedPath: string; markup: 'plain' | 'html'; preview: string }
-  | { id: string; kind: 'image'; origin: 'paste'; stagedPath: string; mediaType: 'image/png'; preview: string };
+  | { id: string; kind: 'text';  origin: 'paste' | 'inbox'; stagedPath: string; markup: 'plain' | 'html'; preview: string }
+  | { id: string; kind: 'image'; origin: 'paste' | 'inbox'; stagedPath: string; mediaType: 'image/png'; preview: string };
 // id: "in-" + 8 hex chars, assigned by the renderer when the chip is created.
 // preview: short human label shown on the input chip, e.g. "Pasted image 14:02".
+// origin 'inbox' is accepted only on the main-side entry (06 §5.1); `eli5:jobs:start` rejects it
+// from a renderer with E_BAD_REQUEST. An 'inbox' URL is never fetched with `allowPrivate` (05, 16 §5.3).
 // stagedPath: set by main; before job start it points into <userData>/staging/drafts/<draftId>/,
 //   after eli5:jobs:start the pipeline (06 §9.2) rewrites it to <userData>/jobs/<jobId>/inputs/<file>.
 

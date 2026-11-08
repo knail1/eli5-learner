@@ -408,6 +408,24 @@ The same file must work in the app viewer and when double-clicked in Chrome, Saf
 - External links: `target="_blank" rel="noopener noreferrer"`. In the app, the runtime intercepts
   clicks and calls `window.eli5Doc.openExternal(url)`.
 
+**WebView host contract (v2, Android companion, 16 §6.3).** The phone reader is a third host, next
+to the app viewer and a plain browser. It must keep working with no change to the runtime:
+
+- It serves the file over `https://appassets.androidplatform.net/docs/<docId>/<sha>.html`
+  (`WebViewAssetLoader`), never `file://`, `data:` or `loadData`. The meta CSP in §6.2 still applies,
+  and the host adds the same policy as a response header, with `script-src` pinned to the hashes of
+  the document's inline scripts only when the file is a valid ELI5 document (it has the
+  `eli5-model` JSON block and its meta CSP pins the same hashes). Any other HTML is served with
+  `script-src 'none'`.
+- It exposes no JavaScript interface and nothing named `eli5Doc`, so the runtime stays in its
+  plain-browser mode: tabs, glossary, charts, stepper, theme and print work; the selection menu,
+  tab close buttons and in-app scroll hooks stay inactive.
+- `localStorage` is available (DOM storage on), so the theme choice persists per document origin.
+- External links open in a Custom Tab only on a user gesture; other navigation is dropped.
+- The runtime must therefore keep the rules above: classic IIFE, `window.eli5Doc` feature check,
+  wrapped storage access, no network request of its own, and a layout that works at phone widths
+  (13 §7.4 adds doc-runtime visual cases at 360 px and 412 px).
+
 ### 6.4 Merge enhancements: highlights, legend, references
 
 A woven merge ([09](09-library-storage.md) §10.3) marks what it changed. The model never marks

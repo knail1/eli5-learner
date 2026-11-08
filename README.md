@@ -164,9 +164,29 @@ The public build needs nothing but an API key: no accounts, no logins and no oth
 - "Use stock photos for real-world scenes" (on by default)
 - Notifications: on or off, what a click opens (the document in the app, or its published link in your browser), a test button, and a shortcut to the macOS notification settings
 
+## Use it on your phone (optional)
+
+> **In progress (v2, milestone M5).** The Android companion and personal sync are specified in
+> [spec/tech/16-android-companion.md](spec/tech/16-android-companion.md) and being built in slices.
+> Sync against a real Google Drive has not been verified yet.
+
+An optional Android app reads your learnings offline and sends links, photos and files from the
+phone's share sheet to your Mac, which does the generating. It is sideloaded (no Play Store).
+
+- **Without any Google setup:** install the APK and import exported `index.html` files. Both tabs,
+  the glossary, charts and the theme work offline.
+- **With sync (off by default):** connect both apps to a hidden app folder in your own Google Drive.
+  Your library shows up on the phone, and "Send to my Mac" queues a job that your Mac runs when it is
+  awake. Your API key never leaves the Mac. Sync copies your learnings (not your sources or notes),
+  and Google can read them.
+
+You bring your own Google Cloud OAuth clients; nothing secret is in the repository or the APK. The
+step-by-step guide, from installing the Android toolchain to connecting both apps, is
+[android/SETUP.md](android/SETUP.md).
+
 ## Not in v1
 
-- Logins or authenticated sources
+- Logins or authenticated sources (v2 adds one opt-in sign-in, for the personal sync above)
 - Audio input or speech to text
 - Cloud publishing (cloud drive, GitHub, Google Drive) and NotebookLM
 

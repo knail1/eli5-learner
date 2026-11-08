@@ -26,6 +26,7 @@ test/
     net-guard.ts           fails any test that opens a socket (§3.2)
     fixture-server.ts      local HTTP server for fetch tests (§6.4)
     fake-keychain.ts       wrapper around 12's MemoryKeyStore (ELI5_KEYSTORE=memory)
+    fake-drive.ts          v2: in-memory Google Drive at the fetch level (16 §12)
   contracts/               reusable contract suites (§10.2)
     llm-provider.contract.ts
     source-resolver.contract.ts
@@ -33,6 +34,10 @@ test/
     publisher.contract.ts
     auth.contract.ts
     overlay.contract.ts
+    sync-store.contract.ts v2 (16 §12): the SyncStore suite, run against the fake Drive and every stub
+    sync/                  v2: JSON Schema exported from src/main/sync/protocol.ts and golden fixtures
+                           (manifest, tree, job, jobstatus, device, version-tree-layout lanes); read by
+                           Vitest and, as a test resource folder, by the Android unit tests
   fixtures/
     manifest.json          FixtureManifest (§5.2)
     build/                 scripts that regenerate binary fixtures
@@ -56,6 +61,11 @@ config/playwright.package.config.ts        packaged-app checks (§11.1), opt-in
 ```
 
 Co-located `*.test.ts` files under `src/` are not used; a lint rule forbids them so the packaged `out/**` never contains tests ([01 §8.3](01-architecture.md)).
+
+The Android companion (v2, 16) keeps its tests inside its own Gradle project: JVM unit tests under
+`android/app/src/test/` (JUnit, Robolectric, Compose UI tests, MockWebServer), run headless with
+`./gradlew testDebugUnitTest`. They read the shared fixtures in `test/contracts/sync/`, so the wire
+format has one source of truth for both apps.
 
 ## 3. Test pyramid
 
@@ -267,7 +277,8 @@ callouts, each chart kind, the SVG diagram, the annotated figure, the stepper on
 selection" tab with its "You asked about" quote, the references (used and skipped, "Image
 credits", "Added by merge"), the woven merge (legend, violet enhancements, the new-block badge, and
 the "Hide highlights" state), and the 420 px narrow layout (top of page, an opened glossary note, a
-chart, the stepper). In-app document states use a stand-in `window.eli5Doc` that answers every call at once: the
+chart, the stepper). v2 adds phone widths for the Android reader (16 §12): the doc runtime at 360 px
+and 412 px. In-app document states use a stand-in `window.eli5Doc` that answers every call at once: the
 grouped selection menu (`full-selection-menu`), the menu with the Explain popup open
 (`menu-explain-open`), and a section marked "Updating…". The `asked` golden shows an answer box
 closed (`qa-box`) and with its question open (`qa-box-question-open`); these four are taken in
@@ -474,6 +485,7 @@ Minimum assertions:
 - **Extractor:** output validates as `ExtractedContent`; `toPromptText` deterministic.
 - **Publisher:** publish only the documented file set ([10 §3.3](10-publishing.md)); returns `PublishResult` with a link or a typed error; idempotent republish; secret scan runs before upload for publishers whose target is remote (kind `git`; `drive` per HOOK-PUB-05). The local publisher is not required to scan.
 - **AuthBroker** ([03 §12](03-source-resolvers.md)): `status()` never triggers interaction; the app never receives a token (no token-shaped values cross the interface).
+- **SyncStore** (v2, [16 §4.1](16-android-companion.md)): run against the fake Drive and every stub. `create` with a preallocated id is idempotent; `update`, `touch` and `delete` on a file another device owns throw `E_SYNC_OWNERSHIP` through the guard (except the primary's GC list); `touch` creates no revision; `changes` with an expired token throws `E_SYNC_TOKEN`; stubs throw `NotAvailableInEdition` with their hook id. The fake Drive supports `generateIds`, multipart and resumable uploads (256 KiB-multiple chunk checks), change tokens and 410, `appProperties` queries, an eventual-consistency delay, and injected 403, 429 and 5xx responses. Behavior against the real Drive is unverified until gate G1 (16 §13).
 - **EditionOverlay:** `apiVersion === OVERLAY_API_VERSION`; `register` completes within 5 s; after registration no registered stub remains for a capability the overlay claims; `freeze()` succeeds.
 
 ### 10.3 Overlay detection
@@ -490,8 +502,8 @@ Minimum assertions:
 
 `scripts/check-hygiene.ts`, run in CI job `hygiene` and as a pre-push script:
 
-1. **Tracked-file rules:** fail if any tracked path matches `enterprise/**`, `docs/**` (except the committed Pages sample paths listed in `config/hygiene-allow`), `.env*`, `spec/internal.md`, `*.pem`, `*.p12`, `*.key`, `config.local.json`, `CLAUDE.local.md`, or `.library/**`.
-2. **Secret scan:** run the baseline `SecretScanner` from [10 §5.6](10-publishing.md) over tracked files and over `out/**`; also run `gitleaks` in CI.
+1. **Tracked-file rules:** fail if any tracked path matches `enterprise/**`, `docs/**` (except the committed Pages sample paths listed in `config/hygiene-allow`), `.env*`, `spec/internal.md`, `*.pem`, `*.p12`, `*.key`, `config.local.json`, `CLAUDE.local.md`, or `.library/**`; or, for the Android companion and sync (16 §11), `local.properties` (the `.example` is allowed), `keystore.properties`, `*.jks`, `*.keystore`, `*.apk`, `*.aab`, `google-services.json`, `client_secret*.json`, `android/.gradle/**`, `android/.kotlin/**`, `android/**/build/**`, `android/captures/**`, `.idea/**` or `*.iml`.
+2. **Secret scan:** run the baseline `SecretScanner` from [10 §5.6](10-publishing.md) over tracked files and over `out/**`, plus two hygiene-only rules: `google-oauth-client-secret` (`GOCSPX-` followed by 20 or more of `[A-Za-z0-9_-]`) and `google-oauth-client-id` (6 or more digits, `-`, 32 lowercase alphanumerics, `.apps.googleusercontent.com`); also run `gitleaks` in CI. Binary files (images, fonts, `.jar`) are skipped.
 3. **Public-tree term check:** run the HOOK-CFG-03 check (the deny-list step of `scripts/check-hygiene.ts`, terms or `@file` path from env `ELI5_HYGIENE_DENYLIST`, [12](12-configuration-security.md)) over tracked files and over `out/**`. When the variable is unset it passes with a notice. The list itself is never committed ([01 §6.5](01-architecture.md)); its contents are bound under HOOK-CFG-03, not in this file.
 4. **Bundle check:** the public `out/**` contains no string `@eli5/overlay` resolved to anything other than `overlay.none.ts` (read from `out/main/build-info.json` and a scan of `out/**`), and no `FakeProvider` in `package` mode.
 
@@ -515,6 +527,7 @@ Reviewed false positives are listed in `config/hygiene-allow` as `secret <glob> 
 | `visual` | `macos-latest` | — | install Playwright WebKit+Chromium; `npm run test:visual` (§7.4); `continue-on-error` (non-blocking) until the runner matches the darwin baselines | contact sheet and diffs, always |
 | `hygiene` | `macos-latest` | `build-public` | §11 | — |
 | `package` | `macos-latest` | all above | `main` only: `electron-builder --mac dmg --arm64` (the runner's architecture; an x64 dmg needs its own Intel job, [01 §8.3](01-architecture.md)), unsigned | dmg (7-day retention) |
+| `android` (v2, 16 §11) | `ubuntu-latest` | — | path filter `android/**`, `test/contracts/**`; `actions/setup-java` 21; Gradle wrapper validation; `./gradlew lint testDebugUnitTest assembleDebug` from `android/`. No secrets; never signs a release | lint and test reports on failure |
 | `evals` | `macos-latest` | — | `schedule`/`workflow_dispatch` only, never on `pull_request`; secrets `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` mapped to `ELI5_EVAL_API_KEY_*`; skips with a notice when unset; `npm run eval`, exit 2 opens an issue; §9 | eval results JSON |
 
 Rules:

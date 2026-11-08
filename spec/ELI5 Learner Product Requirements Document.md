@@ -30,6 +30,7 @@ Build the public v1 now. Every enterprise capability sits behind an interface th
 | Publishing | Save to local directory only | Organization cloud drive (org wide share + link returned) and Git push with secret scanning (hooks: HOOK-PUB-01, HOOK-PUB-03) |
 | Document location | App project directory | App project directory (moving into sibling monorepo projects is future work) |
 | Illustrative photos | Open-licensed stock photos from public photo libraries, found with anonymous searches (no key, no account) | An organization-approved image library, or photos turned off (hook: HOOK-DOC-03) |
+| Personal sync and phone (v2) | Optional and off by default: sync to the user's own Google Drive (hidden app folder) and a sideloaded Android companion | Whether sync is allowed, an organization store in its place, documents excluded from upload, and the OAuth client source (hooks: HOOK-SYNC-01, HOOK-SYNC-02) |
 
 **Seam requirements**
 
@@ -37,7 +38,7 @@ Build the public v1 now. Every enterprise capability sits behind an interface th
 - Define a `SourceResolver` interface. Ship file, clipboard, and public URL resolvers. Leave a documented MCP resolver stub (hooks: HOOK-SRC-01, HOOK-SRC-05).
 - Define a `Publisher` interface. Ship a local publisher. Leave documented cloud drive and Git publisher stubs (hooks: HOOK-PUB-01, HOOK-PUB-03).
 - Enterprise only UI (publish buttons) is hidden or disabled in the public build via a build or config flag (hooks: HOOK-UI-01, HOOK-CFG-02).
-- Public build must run with nothing but an API key: no accounts, no credentials, no external services that need either. The stock photo search is anonymous, sends only a few generic words, and can be turned off.
+- Public build must run with nothing but an API key: no accounts, no credentials, no external services that need either. The stock photo search is anonymous, sends only a few generic words, and can be turned off. The optional personal sync (v2, see below) is the one feature that signs in to anything; it is off by default and nothing else depends on it.
 
 ## App shell and layout
 
@@ -283,9 +284,9 @@ The public build saves locally only and pushes nothing. The enterprise edition a
 
 **Out of scope for v1**
 
-- Any authentication or login flows.
+- Any authentication or login flows. In v2, the optional personal sync sign-in (below) is the only exception; authenticated sources stay out of scope.
 - Speech to text and audio input (removed in all editions).
-- Cloud drive, GitHub, Google Drive, and NotebookLM integrations.
+- Cloud drive, GitHub, Google Drive, and NotebookLM integrations. In v2, the user's own Google Drive is used only as the optional personal sync store, never as a publishing target; organization cloud publishing stays out of scope.
 - Moving documents into other monorepo projects.
 
 **Future enhancements**
@@ -293,8 +294,67 @@ The public build saves locally only and pushes nothing. The enterprise edition a
 - Side by side diff between two versions of a document.
 - Google Drive publishing and NotebookLM linking.
 - Choosing a destination project in the monorepo per document.
+- Generation and Ask on the phone, end-to-end encrypted sync, other sync stores (a visible Drive folder, Dropbox, WebDAV), and Play Store distribution.
 
 **Open items**
 
 - [ ] User to supply the ELI5 HTML skill and the beautiful documentation HTML skill.
 - [ ] Define the enterprise publishing targets and repo layout.
+
+## Optional personal sync and Android companion (v2 amendment)
+
+Status: specified (spec/tech/16-android-companion.md). Built after v1; the cross-device Drive behavior
+is unverified until the spike in 16 §13 (gate G1) passes.
+
+v1 runs on the Mac alone. v2 adds an optional Android app and an optional personal sync that links it
+to the desktop app, so the user can read their learnings on the phone and send material to the Mac
+from the phone's share sheet. This is an amendment, not a quiet exception: the v1 rules above still
+hold for everyone who does not turn it on.
+
+**What it does**
+
+- **Android app (sideloaded, not on the Play Store):** an offline Library, a read-only reader for the
+  same self-contained `index.html` (both tabs, glossary, charts, theme), import of exported documents
+  with no Google setup at all, a read-only Versions view with "Make current on your Mac", a share
+  sheet capture ("Send to my Mac") and an Inbox with job status.
+- **Desktop:** a Settings > Sync section, Google sign-in in the system browser, a push of the Library
+  to the sync store, a job inbox that feeds the existing pipeline, and a small sync indicator.
+- **The Mac stays the only generator.** Documents are generated, refined, merged and reverted only on
+  the Mac, with the API key in the macOS Keychain. The phone never holds an LLM key. A job sent from
+  the phone is fire and forget like every other job: no question is ever asked back, failed sources
+  are skipped and listed.
+
+**Rules**
+
+- **Opt in, off by default.** With Sync off (the default) the desktop makes no request to any Google
+  endpoint, and the public build still needs nothing but an API key. "Accept jobs from phone" is a
+  separate switch, also off by default.
+- **The user's own Drive only.** Sync uses a hidden app folder in the user's own Google Drive, with
+  the narrow `drive.appdata` permission. There is no project server, no account with the project, and
+  no push service; both apps poll.
+- **No secrets in the repository or the app.** The user brings their own Google Cloud OAuth clients
+  (a setup guide walks through it). The desktop keeps the client and its sign-in in the Keychain; the
+  Android app contains no client ID, secret or token (hook: HOOK-SYNC-02).
+- **Sync is not publishing.** It never shares anything, and it does not use the publishing seam or
+  the enterprise sign-in. Publishing stays user triggered.
+- **Untrusted input on both ends.** The Mac treats every job from the phone as untrusted (validated,
+  size-capped, rate-limited, private network addresses never fetched). The phone treats every
+  document as untrusted HTML (scripts limited to the document's own, no bridge to the app).
+- **Enterprise:** whether sync is allowed at all, an organization store in its place, and which
+  documents must never be uploaded come from the overlay (hook: HOOK-SYNC-01).
+
+**Privacy**
+
+- Leaves the Mac, only with Sync on and only to the user's own Drive: the document HTML (current and
+  recent versions), titles, summaries, headings, tab names, dates, folder placement, a sanitized
+  version history, and job statuses.
+- Never leaves the Mac: source files, clarifying input, the questions asked, source names and URLs
+  in `meta.json`, API keys, tokens and logs.
+- Leaves the phone: only what the user explicitly shares or asks.
+- The synced copy is not end-to-end encrypted; Google can read it. The user can delete it at any time
+  from Settings > Sync ("Delete cloud copy") or from Google Drive's app settings; the Mac's Library is
+  not affected.
+
+**Not in v2:** generation, Ask or section actions on the phone; the document's selection menu on the
+phone; moving, archiving or renaming from the phone; "add to an existing learning" from the phone; a
+second Mac that also generates; end-to-end encryption; push notifications.

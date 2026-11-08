@@ -1,0 +1,27 @@
+# Android companion (spec/tech/16 §11). These rules live here rather than in the root .gitignore;
+# patterns without a slash match anywhere under android/. scripts/check-hygiene.ts fails on any of
+# these paths repo-wide if one is ever tracked.
+
+# Gradle and Kotlin build state and output
+.gradle/
+.kotlin/
+build/
+captures/
+
+# Local machine config and signing (never committed)
+local.properties
+keystore.properties
+*.jks
+*.keystore
+
+# Build artifacts
+*.apk
+*.aab
+
+# IDE files
+.idea/
+*.iml
+
+# Google client config and secrets (the app needs neither)
+google-services.json
+client_secret*.json

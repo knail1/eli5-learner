@@ -36,6 +36,12 @@ targets and repo layout").
    app never reads, stores, or logs tokens.
 5. **Stubs are honest.** In the public build `drive` and `git` are registered as stubs that throw
    `NotAvailableInEdition` (01 §6.4) and report `available: false`. Their UI is hidden (HOOK-UI-01).
+6. **Sync is not publishing (v2, 16).** The optional personal sync copies the library to the
+   user's own Drive app-data folder, which nobody else can open. It is not a `Publisher`, never
+   shares anything, never produces a `PublicationRecord` or a published link, and does not use the
+   `drive` publisher (HOOK-PUB-01), the dormant `publish.drive.*` keys or the `AuthBroker`
+   (HOOK-AUTH-01). A synced document is not "published" for notifications (11 §14.4) or the
+   preferred-link setting. Principle 1 still holds: nothing is published as a side effect.
 
 ## 2. Module layout
 
