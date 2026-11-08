@@ -207,7 +207,7 @@ for (const theme of ['light', 'dark'] as const) {
       await expectRegion(page, shot('merged-highlights-hidden'), body);
     });
 
-    test('selection action menu with "ELI5 this selection"', async ({ page }) => {
+    test('selection action menu: Ask field, Explain and ELI5 triggers, Edit with my note', async ({ page }) => {
       await open(page, 'full', { bridge: true });
       const para = section(page, 'indepth', 0).locator(':scope > p').first();
       const box = await para.boundingBox();
@@ -226,6 +226,53 @@ for (const theme of ['light', 'dark'] as const) {
         para,
         menu,
       ]);
+    });
+
+    test('selection action menu with the Explain popup open', async ({ page }) => {
+      await open(page, 'full', { bridge: true });
+      const para = section(page, 'indepth', 0).locator(':scope > p').first();
+      const box = await para.boundingBox();
+      if (!box) throw new Error('no paragraph');
+      await page.mouse.move(box.x + 2, box.y + 10);
+      await page.mouse.down();
+      await page.mouse.move(box.x + 360, box.y + 10, { steps: 6 });
+      await page.mouse.up();
+      const menu = page.getByRole('group', { name: 'Selection actions' });
+      await expect(menu).toBeVisible();
+      const trigger = menu.getByRole('button', { name: 'Explain', exact: true });
+      await trigger.click();
+      await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+      await expect(menu.getByRole('menu', { name: 'Explain' }).getByRole('menuitem')).toHaveText([
+        'Expand this',
+        "This isn't clear, re-explain it",
+        'Give me an analogy',
+        'Go deeper',
+      ]);
+      await page.mouse.move(0, 0);
+      // Opening the popup focuses its first item (no ring after a mouse click).
+      await expect(menu.getByRole('menuitem', { name: 'Expand this' })).toBeFocused();
+      await settle(page);
+      await expectRegion(page, shot('menu-explain-open'), [
+        section(page, 'indepth', 0).locator(':scope > h2'),
+        para,
+        menu,
+      ]);
+    });
+
+    test('answer box at rest, then with its question open', async ({ page }) => {
+      await open(page, 'asked');
+      const qa = page.locator('#tab-indepth aside.qa').first();
+      await qa.scrollIntoViewIfNeeded();
+      await page.mouse.move(0, 0);
+      await settle(page);
+      // The chip notches the box's top border, so the region reaches above the box.
+      await expectRegion(page, shot('qa-box'), [qa, qa.locator('.qa-chip')]);
+      await qa.locator('.qa-chip').click();
+      await expect(qa.locator('details.qa-q')).toHaveAttribute('open', '');
+      await expect(qa.locator('.qa-q-text')).toBeVisible();
+      await page.mouse.move(0, 0);
+      await settle(page);
+      await expectRegion(page, shot('qa-box-question-open'), [qa, qa.locator('.qa-chip')]);
     });
 
     test('a section being updated shows "Updating…"', async ({ page }) => {

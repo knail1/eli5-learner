@@ -1,11 +1,11 @@
 /**
  * Visual regression of the app shell (13 §7.4), in Electron through the e2e harness (FakeProvider,
  * in-memory key store, temp library). Needs an ELI5_TEST_BUILD=1 build (`npm run test:visual`).
- * A seeded library: an open document with an undoable change, a folder, the Archive, the Trash and
- * a pending merge suggestion. Dates are seeded relative to the run's clock, so the sidebar's
+ * A seeded library: an open document with an undoable change, a folder, the Archive, the Trash, a
+ * pending merge suggestion and a document with a version tree (five versions, one branch). Dates are seeded relative to the run's clock, so the sidebar's
  * compact dates read the same on every run; they are masked anyway. Fixed 1280x800 window at 2x.
  */
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test';
 import { Harness, dropFiles, openFromLibrary, viewerUrl, type Dirs, type Launched } from '../e2e/harness';
@@ -23,6 +23,12 @@ test.afterAll(async () => {
 });
 
 const PRIOR = path.resolve('test/e2e/fixtures/prior-version/widget-supply-planning');
+/**
+ * Written once by this build (FakeProvider, notes.md): Ask, Expand, Undo, Analogy, Go deeper, so
+ * the original, an asked version, two branches under it and a newer version on the second. Never
+ * regenerate it; the `.frozen` suffixes keep formatters and the library scan away from it.
+ */
+const TREE = path.resolve('test/e2e/fixtures/version-tree/widget-supply-planning');
 const HOUR = 3_600_000;
 const DOCS = [
   { slug: 'widget-supply-plan', title: 'Widget supply plan', n: 1, ageH: 3 },
@@ -46,8 +52,10 @@ async function seed(dirs: Dirs): Promise<void> {
     const at = new Date(now - d.ageH * HOUR).toISOString();
     const m = { ...meta, id: idOf(d.n), topicSlug: d.slug, title: d.title, createdAt: at, updatedAt: at };
     await writeFile(path.join(dir, 'meta.json'), JSON.stringify(m));
-    if (d.n === 1) {
-      // 09 §4.1: one prior version, paired with the live one, so Undo is available.
+    if (d.n === 2) {
+      await seedVersionTree(dir, m, now);
+    } else if (d.n === 1) {
+      // 09 §4.1 legacy: one prior version, paired with the live one, so Undo is available.
       const prev = path.join(dir, '.prev');
       await mkdir(prev, { recursive: true });
       await writeFile(path.join(prev, 'index.html'), html);
@@ -82,6 +90,36 @@ async function seed(dirs: Dirs): Promise<void> {
       dismissedPairs: [],
     }),
   );
+}
+
+/**
+ * Installs the version-tree fixture as one document. The live meta keeps its `versionId`, so the
+ * tree resolves to its current version; the versions' times move to 5h..1h ago so their relative
+ * dates read the same on every run (09 §4.1).
+ */
+async function seedVersionTree(dir: string, base: Record<string, unknown>, now: number): Promise<void> {
+  await writeFile(path.join(dir, 'index.html'), await readFile(path.join(TREE, 'index.html.frozen')));
+  const meta = JSON.parse(await readFile(path.join(TREE, 'meta.json.frozen'), 'utf8')) as Record<string, unknown>;
+  const pick = ['id', 'topicSlug', 'title', 'createdAt', 'updatedAt'] as const;
+  await writeFile(
+    path.join(dir, 'meta.json'),
+    JSON.stringify({ ...meta, ...Object.fromEntries(pick.map((k) => [k, base[k]])) }),
+  );
+  const versions = path.join(dir, '.versions');
+  await cp(path.join(TREE, 'versions.frozen'), versions, { recursive: true });
+  type Node = { id: string; createdAt: string };
+  const treeFile = path.join(versions, 'tree.json');
+  const tree = JSON.parse(await readFile(treeFile, 'utf8')) as { nodes: Node[] };
+  const order = [...tree.nodes].sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((n) => n.id);
+  const at = (id: string) => new Date(now - (order.length - order.indexOf(id)) * HOUR).toISOString();
+  for (const n of tree.nodes) n.createdAt = at(n.id);
+  await writeFile(treeFile, JSON.stringify(tree));
+  for (const f of await readdir(path.join(versions, 'nodes'))) {
+    const file = path.join(versions, 'nodes', f);
+    const rec = JSON.parse(await readFile(file, 'utf8')) as { node: Node };
+    rec.node.createdAt = at(rec.node.id);
+    await writeFile(file, JSON.stringify(rec));
+  }
 }
 
 const library = (win: Page) => win.getByRole('navigation', { name: 'Library' });
@@ -336,4 +374,28 @@ test('Settings: AI provider and Documents (stock photos)', async () => {
   await expect(l.win.locator('#settings-ai')).toHaveScreenshot('settings-ai-light.png');
   await docs.scrollIntoViewIfNeeded();
   await expect(docs).toHaveScreenshot('settings-documents-light.png');
+});
+
+test('Versions panel: a branch, an asked version and the current one', async () => {
+  await openFromLibrary(l.win, 'Widget returns and refunds');
+  await viewerPage(l.app, 'widget-returns');
+  await expect(l.win.locator('.doc-header h1')).toHaveText('Widget returns and refunds');
+  const toggle = l.win.locator('.doc-header').getByRole('button', { name: /^Versions/ });
+  await expect(toggle.locator('.count-badge')).toHaveText('5');
+  await toggle.click();
+  const panel = l.win.getByRole('complementary', { name: 'Versions' });
+  const items = panel.getByRole('treeitem');
+  await expect(items).toHaveCount(5);
+  await expect(panel.locator('[role=treeitem][aria-current=true] > .version-row .version-topic')).toHaveText(
+    'What to watch next',
+  );
+  await expect(panel.locator('.version-question')).toHaveText('“Why does the forecast lag behind demand?”');
+  await expect(panel.locator('.version-meta').first()).toHaveText('Original · 5h ago');
+  await l.win.mouse.move(1, 1);
+  for (const theme of ['light', 'dark'] as const) {
+    await setTheme(l, theme);
+    await settle(l.win);
+    await expect(panel).toHaveScreenshot(`version-panel-${theme}.png`);
+  }
+  await setTheme(l, 'light');
 });

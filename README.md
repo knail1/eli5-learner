@@ -7,9 +7,9 @@ macOS app that turns decks, docs, PDFs, screenshots and URLs into interactive HT
 
 ## Download
 
-**Latest release: [v0.1.0](https://github.com/knail1/eli5-learner/releases/tag/v0.1.0)**, an
+**Latest release: [v0.2.0](https://github.com/knail1/eli5-learner/releases/tag/v0.2.0)**, an
 unsigned build for Apple silicon Macs. Download
-[`ELI5.Learner-0.1.0-arm64.dmg`](https://github.com/knail1/eli5-learner/releases/download/v0.1.0/ELI5.Learner-0.1.0-arm64.dmg)
+[`ELI5.Learner-0.2.0-arm64.dmg`](https://github.com/knail1/eli5-learner/releases/download/v0.2.0/ELI5.Learner-0.2.0-arm64.dmg)
 from the [release page](https://github.com/knail1/eli5-learner/releases/latest), open it and drag the
 app to Applications. The build is unsigned, so on first launch macOS may block it: open **System Settings >
 Privacy & Security** and click **Open Anyway**. Then add a Claude (default) or ChatGPT (OpenAI) API key
@@ -58,18 +58,17 @@ The ELI5 tab rebuilds the same material in plain words, with analogies, simple d
   - Images and screenshots, sent straight to the model's vision input with no OCR step
   - Excel
   - Public web pages
-- **Living documents.** Select any passage to get:
-  - *Expand this*
-  - *Re-explain it*
-  - *Give me an analogy*
-  - *Go deeper*
-  - *Create a separate ELI5 for this section*
-  - *ELI5 this selection*: a focused ELI5 tab about exactly what you selected, from one phrase to
-    several paragraphs
+- **Living documents.** Select any passage to open a small menu, grouped so it stays short:
+  - *Ask a question about this…*: type a question and press Enter (see *Ask* below)
+  - **Explain ▾**: *Expand this*, *Re-explain it*, *Give me an analogy*, *Go deeper*
+  - **ELI5 ▾**: *Create a separate ELI5 for this section*, and *ELI5 this selection*, a focused ELI5
+    tab about exactly what you selected, from one phrase to several paragraphs
   - *Edit with my note*: type a correction or instruction in the note field, and only that passage
     (and where it repeats in the section) is rewritten to follow it
 
-  The first four, and *Edit with my note*, regenerate only that section, in place. Selecting body text never picks up the
+  It works from the keyboard too: Cmd+. moves into the menu, the arrow keys move between the
+  triggers and their items, and Esc closes a popup, then the menu. Cmd+. then Enter twice is still
+  *Expand this*. The four Explain actions, and *Edit with my note*, regenerate only that section, in place. Selecting body text never picks up the
   glossary notes in the margin, and a selection inside a note stays inside it.
 
   <img src="images/highlight_expander.png" alt="Selecting a passage opens a small menu: Expand this, re-explain it, Give me an analogy, Go deeper, Create a separate ELI5, and an optional note" width="560">
@@ -84,6 +83,17 @@ The ELI5 tab rebuilds the same material in plain words, with analogies, simple d
   normally protects someone:
 
   <img src="images/protective_order_expanded.png" alt="The expanded section 'The specific danger for people with protective orders': a definition paragraph, a Key point callout, and a four-step walkthrough 'How a protective order normally protects someone' with Previous and Next buttons" width="640">
+- **Ask.** A question about a passage is answered in an answer box inside that section, grounded in
+  the document; the rest of the section is left exactly as it was. The viewer lands on the box with
+  your question shown; afterwards the box keeps only a small "?" chip that reveals the question again.
+  Several answers in one section stack, and they move with the section if it is rewritten later.
+  Answer boxes are plain content: they are in exports, print, and documents opened in any browser.
+- **Version tree.** Every change (a section action, an answer, a closed tab, a merge) is a version,
+  and nothing is thrown away when you go back and change something else: that starts a branch.
+  Undo / Redo (Cmd+Z / Shift+Cmd+Z) step back and forward, and Forward retraces the branch you last
+  visited. The **Versions** panel (Cmd+Y, or the Versions button in the document header) shows the
+  whole tree with what changed and when; click any version to open it, and the viewer lands on the
+  section it changed. Older documents get the new menu the first time you open them.
 - **Section ELI5 tabs.** Focused ELI5 tabs, spun off from any passage and labeled by topic. You can close them.
 - **Real photos for real-world scenes.** People, places and everyday situations are shown with open-licensed stock photos (Openverse, with Wikimedia Commons as a fallback) instead of hand-drawn pictures; lists, flows and comparisons stay clean diagrams. Photos are embedded in the file, each with a credit and license marked "Illustrative stock photo". Only a few generic search words leave your Mac, and a setting turns it off.
 - **Library and menu bar.** Every document is listed in a sidebar, which you can prune with folders (drag documents in), an Archive and a recoverable Trash: swipe a document left to archive it or right to trash it, with Undo. The menu bar shows the last three, and the app keeps running in the menu bar when the window is closed.
@@ -162,7 +172,7 @@ The public build needs nothing but an API key: no accounts, no logins and no oth
 
 ## Roadmap
 
-- Per-section version history with diff and rollback
+- A side-by-side diff between two versions
 - Google Drive publishing and NotebookLM linking
 
 ## Getting started
@@ -210,7 +220,7 @@ npm run package:arm64      # clean build, then an unsigned arm64 dmg
 npm run test:package       # optional: check the packaged app
 ```
 
-The dmg lands in `release/` (for example `release/ELI5 Learner-0.1.0-arm64.dmg`). Build one dmg
+The dmg lands in `release/` (for example `release/ELI5 Learner-0.2.0-arm64.dmg`). Build one dmg
 per architecture on (or with `npm install --cpu=<arch>` for) that architecture; on an Intel Mac use
 `CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dmg --x64` after `npm run build`.
 Signing and notarization run only when credentials are set (`CSC_LINK`/`CSC_KEY_PASSWORD`, and

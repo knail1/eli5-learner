@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "node": {
+    "id": "v-07600798b222",
+    "parentId": "v-fb6b7dca9b9d",
+    "createdAt": "2026-11-08T01:28:37.453Z",
+    "kind": "expand",
+    "label": "expanded 'How the forecast is built'",
+    "topic": "How the forecast is built",
+    "sha256": "c66c360f751bedc0de29c8f37df3034aa376ee6df37b0a33fe5fc97999d3662a",
+    "bytes": 20224,
+    "heading": "How the forecast is built",
+    "target": {
+      "tabKey": "indepth",
+      "sectionId": "sec-indepth-542c8ef7"
+    },
+    "undoTarget": {
+      "tabKey": "indepth",
+      "sectionId": "sec-indepth-542c8ef7"
+    },
+    "jobId": "01M6WCB3RVP9XF7GDXK9AV6PKE"
+  },
+  "meta": {
+    "schemaVersion": 1,
+    "id": "51209c4f-f26a-41f7-a495-a977652c380b",
+    "topicSlug": "widget-supply-planning",
+    "title": "How Example Widgets Inc. Plans Its Widget Supply",
+    "summary": "A synthetic explainer on how a widget maker forecasts demand by channel and sizes its safety stock.",
+    "summarySource": "llm",
+    "createdAt": "2026-11-08T01:28:35.184Z",
+    "updatedAt": "2026-11-08T01:28:37.453Z",
+    "jobId": "01M6WCB193XAAEZVV8W0ZGRCPQ",
+    "edition": "public",
+    "clarifyingInput": "",
+    "glossaryEnabled": true,
+    "sourcesUsed": [
+      {
+        "ref": "notes.md",
+        "kind": "file",
+        "mimeType": "text/markdown",
+        "sha256": "04753333a51451d24af11884bae2e20ea81651e08a7abfa8846e0a83a07acb83"
+      }
+    ],
+    "sourcesSkipped": [],
+    "tabs": [
+      {
+        "key": "indepth",
+        "kind": "indepth",
+        "label": "In depth",
+        "sectionCount": 5,
+        "createdAt": "2026-11-08T01:28:35.184Z"
+      },
+      {
+        "key": "eli5",
+        "kind": "eli5",
+        "label": "ELI5",
+        "sectionCount": 2,
+        "createdAt": "2026-11-08T01:28:35.184Z"
+      }
+    ],
+    "retiredIds": [],
+    "generation": {
+      "provider": "claude",
+      "model": "fake-model",
+      "prompts": ["in-depth@3", "eli5@4", "glossary@2", "summary@1"]
+    },
+    "warnings": [],
+    "merges": [],
+    "actions": [
+      {
+        "at": "2026-11-08T01:28:37.441Z",
+        "action": "expand",
+        "sectionId": "sec-indepth-542c8ef7",
+        "tabKey": "indepth",
+        "jobId": "01M6WCB3RVP9XF7GDXK9AV6PKE"
+      }
+    ],
+    "asks": [
+      {
+        "at": "2026-11-08T01:28:36.761Z",
+        "sectionId": "sec-indepth-542c8ef7",
+        "tabKey": "indepth",
+        "question": "Why does the forecast lag behind demand?",
+        "qaId": "q-342a4b77",
+        "jobId": "01M6WCB33K4KZ03F3NEDSXTED5"
+      }
+    ],
+    "publications": [],
+    "versionId": "v-07600798b222"
+  }
+}

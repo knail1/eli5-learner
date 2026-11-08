@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "rootId": "v-ab4f031bbc19",
+  "currentId": "v-f965ece988b1",
+  "nodes": [
+    {
+      "id": "v-ab4f031bbc19",
+      "parentId": null,
+      "createdAt": "2026-11-08T01:28:35.184Z",
+      "kind": "initial",
+      "label": "Original",
+      "topic": "Original",
+      "sha256": "ab4f031bbc1946f3eaef1c5bd8a2688874df3236fb3d4ba5a6254b2487cced4b",
+      "bytes": 20262,
+      "forwardId": "v-fb6b7dca9b9d"
+    },
+    {
+      "id": "v-fb6b7dca9b9d",
+      "parentId": "v-ab4f031bbc19",
+      "createdAt": "2026-11-08T01:28:36.771Z",
+      "kind": "ask",
+      "label": "asked about 'why the forecast lags'",
+      "topic": "why the forecast lags",
+      "heading": "How the forecast is built",
+      "question": "Why does the forecast lag behind demand?",
+      "target": {
+        "tabKey": "indepth",
+        "sectionId": "sec-indepth-542c8ef7",
+        "anchorId": "q-342a4b77"
+      },
+      "undoTarget": {
+        "tabKey": "indepth",
+        "sectionId": "sec-indepth-542c8ef7"
+      },
+      "sha256": "074b4925997636918ac702976c2e05716b6981cb38e75d8a93c37b3c86f795f0",
+      "bytes": 20657,
+      "forwardId": "v-42355d15229f",
+      "jobId": "01M6WCB33K4KZ03F3NEDSXTED5"
+    },
+    {
+      "id": "v-07600798b222",
+      "parentId": "v-fb6b7dca9b9d",
+      "createdAt": "2026-11-08T01:28:37.453Z",
+      "kind": "expand",
+      "label": "expanded 'How the forecast is built'",
+      "topic": "How the forecast is built",
+      "heading": "How the forecast is built",
+      "target": {
+        "tabKey": "indepth",
+        "sectionId": "sec-indepth-542c8ef7"
+      },
+      "undoTarget": {
+        "tabKey": "indepth",
+        "sectionId": "sec-indepth-542c8ef7"
+      },
+      "sha256": "c66c360f751bedc0de29c8f37df3034aa376ee6df37b0a33fe5fc97999d3662a",
+      "bytes": 20224,
+      "jobId": "01M6WCB3RVP9XF7GDXK9AV6PKE"
+    },
+    {
+      "id": "v-42355d15229f",
+      "parentId": "v-fb6b7dca9b9d",
+      "createdAt": "2026-11-08T01:28:38.249Z",
+      "kind": "analogy",
+      "label": "added an analogy to 'How the forecast is built'",
+      "topic": "How the forecast is built",
+      "heading": "How the forecast is built",
+      "target": {
+        "tabKey": "indepth",
+        "sectionId": "sec-indepth-542c8ef7"
+      },
+      "undoTarget": {
+        "tabKey": "indepth",
+        "sectionId": "sec-indepth-542c8ef7"
+      },
+      "sha256": "b5833e0b3cbf86ec970271132584d226e9b4ba477e05b83ef81a660c75fb9f15",
+      "bytes": 20216,
+      "jobId": "01M6WCB4HQW19VQFNR7ZJG4535",
+      "forwardId": "v-f965ece988b1"
+    },
+    {
+      "id": "v-f965ece988b1",
+      "parentId": "v-42355d15229f",
+      "createdAt": "2026-11-08T01:28:38.931Z",
+      "kind": "deeper",
+      "label": "went deeper on 'What to watch next'",
+      "topic": "What to watch next",
+      "sha256": "7367e20e1b5ec851d13644b653b0c8d5107400bc1be1857914d9c797ea6dbaa5",
+      "bytes": 19920,
+      "heading": "What to watch next",
+      "target": {
+        "tabKey": "indepth",
+        "sectionId": "sec-indepth-02ada56b"
+      },
+      "undoTarget": {
+        "tabKey": "indepth",
+        "sectionId": "sec-indepth-02ada56b"
+      },
+      "jobId": "01M6WCB576QXF677M9P2SZTR7R"
+    }
+  ]
+}

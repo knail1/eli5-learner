@@ -527,9 +527,10 @@ ins.enh {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-/* Open: accent colour plus a ▾ glyph, so colour is never the only cue. */
+/* Open: an accent border plus a ▾ glyph, so colour is never the only cue. The text stays ink: a
+   theme's accent can be too light for 13px text on paper (WCAG 1.4.3). */
 .qa-q[open] > .qa-chip {
-  color: var(--accent);
+  color: var(--ink-2);
   border-color: var(--accent);
 }
 .qa-q[open] > .qa-chip::after {
