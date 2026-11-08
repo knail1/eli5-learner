@@ -16,7 +16,7 @@ import {
 import { LLMError } from './errors';
 import { prepareImages, toImageInput, type ImageReencoder } from './images';
 import { defaultPromptPolicy } from './policy';
-import type { PromptCatalogue } from './prompts';
+import type { FragmentId, PromptCatalogue } from './prompts';
 import { cancelled } from './retry';
 import type {
   ChunkNotes,
@@ -30,7 +30,7 @@ import type {
   SectionDraft,
   SummaryDraft,
 } from './schemas/draft';
-import { FALLBACK_SKILL_TEXT, type SkillLibrary, type SkillSlot, type SkillTask } from './skills';
+import type { SkillLibrary, SkillSlot, SkillTask, SkillTexts } from './skills';
 import { addUsage, generateStructured, OutputTruncated, ZERO_USAGE, type DraftOf } from './structured';
 import type { GenerationRequest, ImageInput, LLMProvider, PromptId, PromptPolicy, TokenUsage } from './types';
 
@@ -154,39 +154,21 @@ const ACTION_PROMPT: Record<SectionAction, PromptId> = {
   'eli5-selection': 'selection-eli5-tab',
 };
 
-/**
- * The `{{photoInstructions}}` of the writing prompts (07 §7.4). Photos: real-world scenes only; the
- * query is sent to a public search, so it is short and generic. Off: diagrams only.
- */
-const PHOTO_QUERY_RULES =
-  '`query` is 2 to 5 lowercase generic words for what is visible, in the words a stock photo would be titled with (e.g. "courthouse exterior", "person worried looking at laptop", "people talking around table"). ' +
-  'It is sent to a public photo search, so it never names people, organizations, places, products or case details and never quotes the sources. ' +
-  '`purpose` says in one sentence what the photo should show and why, `alt` describes the ideal photo in plain words, `caption` (optional) is one short sentence, ' +
-  'and `sensitive` is true for crime, victims, abuse, health or grief so only photos without identifiable faces are used. ' +
-  'The app finds an open-licensed stock photo, credits it, and drops the block when nothing fits, so never refer to the photo in the text.';
+/** The `{{photoInstructions}}` fragment of a writing prompt (07 §7.4): photos on or off, per tab. */
+function photoFragment(tab: 'indepth' | 'eli5', on: boolean): FragmentId {
+  if (tab === 'eli5') return on ? 'photo-eli5-on' : 'photo-eli5-off';
+  return on ? 'photo-indepth-on' : 'photo-indepth-off';
+}
 
-export const PHOTO_INSTRUCTIONS = {
-  eli5: {
-    on:
-      'Real-world scenes (people, places, objects in the world, what an experience looks like) get a `photo` block instead of a drawing. ' +
-      'When the topic involves people or places, use 2 to 4 photos in the tab: always one in the opening section to set the scene, and one wherever an idea happens somewhere real (a room, a building, a workplace, people doing something). ' +
-      PHOTO_QUERY_RULES +
-      ' At most one `photo` block per section and six in the whole tab; a section with a photo needs no diagram.',
-    off: 'Do not use `photo` blocks. A section about people, places or experiences gets no picture unless a structured diagram fits.',
-  },
-  indepth: {
-    on:
-      'A `photo` block may illustrate a real-world scene (a place, an object, what an experience looks like) when it genuinely helps the reader; never use one for data or structure, and use at most two in the whole tab. ' +
-      PHOTO_QUERY_RULES,
-    off: 'Do not use `photo` blocks.',
-  },
-} as const;
+const CONTENT_MODE_FRAGMENT: Record<PreparedContent['mode'], FragmentId> = {
+  raw: 'content-mode-raw',
+  notes: 'content-mode-notes',
+};
 
-const CONTENT_MODE = {
-  raw: 'the original source content',
-  notes:
-    'condensed notes taken from sources too long to read in one pass. You are reading notes, not the sources: do not invent detail the notes lack',
-} as const;
+const SKILL_FALLBACK: Record<SkillSlot, FragmentId> = {
+  'beautiful-doc': 'skill-fallback-beautiful-doc',
+  eli5: 'skill-fallback-eli5',
+};
 
 /** Task kind for a skill's `appliesTo` front matter (02 §11). */
 function skillTask(id: PromptId): SkillTask | undefined {
@@ -305,11 +287,21 @@ interface RunOpts {
 
 export function createTasks(deps: TaskDeps): LlmTasks {
   const policy = (): PromptPolicy => deps.policy?.() ?? defaultPromptPolicy;
+  const frag = (id: FragmentId, vars?: Record<string, string>): string => deps.prompts.fragment(id, vars).text;
+  // Skill headings and the built-in fallback text come from the catalogue fragments (02 §11).
+  const skillTexts: SkillTexts = {
+    heading: (name) => frag('skill-heading', { name }),
+    exampleHeading: (name) => frag('example-heading', { name }),
+    fallback: (slot) => {
+      const id = SKILL_FALLBACK[slot as SkillSlot];
+      return id ? frag(id) : '';
+    },
+  };
 
   function skillsText(def: { id: PromptId; skills: string[] }, contextTokens: number): string {
     if (!def.skills.length) return '';
-    if (deps.skills) return deps.skills.render(def.skills, contextTokens, skillTask(def.id)).text;
-    return def.skills.map((s) => `## Style guide: ${s}\n\n${FALLBACK_SKILL_TEXT[s as SkillSlot] ?? ''}`).join('\n\n');
+    if (deps.skills) return deps.skills.render(def.skills, contextTokens, skillTask(def.id), skillTexts).text;
+    return def.skills.map((s) => `${skillTexts.heading(s)}\n\n${skillTexts.fallback(s)}`).join('\n\n');
   }
 
   function buildRequest(
@@ -355,13 +347,16 @@ export function createTasks(deps: TaskDeps): LlmTasks {
       schema: built.schema,
       validation: { imageLabels: labels },
       filter: (req) => policy().preSendFilter(req),
+      repairText: (errors) => frag('json-repair', { errors }),
+      noOutputText: () => frag('json-no-output'),
+      contractText: (schemaName, schema) => frag('json-contract', { schemaName, schema }),
     });
     return { data: r.data as DraftOf<DraftSchemaName> as T, usage: r.usage, tag: built.tag };
   }
 
   function writingVars(p: PreparedContent, ctx: StepCtx, provider: LLMProvider): Record<string, string> {
     return {
-      contentMode: CONTENT_MODE[p.mode],
+      contentMode: frag(CONTENT_MODE_FRAGMENT[p.mode]),
       visibleOutputTokens: String(visibleOutput(provider.limits, deps.settings().llm.maxOutputTokens)),
       imageLabels: p.images.length ? p.images.map((i) => `- ${i.label}`).join('\n') : '',
       clarifyingInput: ctx.clarifyingInput,
@@ -391,7 +386,7 @@ export function createTasks(deps: TaskDeps): LlmTasks {
       log.warn('llm.output-overflow', { taskId: id, count: n });
       r = await run<DocumentDraftTab>(
         id,
-        { ...vars, overflowAddendum: `Produce at most ${n} sections, prioritize the most important material.` },
+        { ...vars, overflowAddendum: frag('overflow-addendum', { n: String(n) }) },
         opts,
       );
     }
@@ -415,14 +410,14 @@ export function createTasks(deps: TaskDeps): LlmTasks {
     const vars = {
       skills: skillsText(deps.prompts.get('in-depth'), limits.contextTokens),
       glossaryInstructions: '',
-      contentMode: CONTENT_MODE.raw,
+      contentMode: frag(CONTENT_MODE_FRAGMENT.raw),
       visibleOutputTokens: String(visibleOutput(limits, setting)),
       imageLabels: imgs.ordered.map((i) => `- ${i.label}`).join('\n'),
       clarifyingInput: input.clarifyingInput,
       sourceList: sourceListText(input.sourceList),
       overflowAddendum: '',
       // The longer variant, so the budget holds whichever the write uses.
-      photoInstructions: PHOTO_INSTRUCTIONS.indepth.on,
+      photoInstructions: frag(photoFragment('indepth', true)),
     };
     const rendered = deps.prompts.render('in-depth', { ...vars, content: '' });
     const system = preamble ? `${preamble}\n\n${rendered.system}` : rendered.system;
@@ -634,15 +629,13 @@ export function createTasks(deps: TaskDeps): LlmTasks {
 
     generateIndepth: (p, ctx) =>
       writeTab('in-depth', 'indepth', p, ctx, {
-        photoInstructions: ctx.photos ? PHOTO_INSTRUCTIONS.indepth.on : PHOTO_INSTRUCTIONS.indepth.off,
-        glossaryInstructions: ctx.glossary
-          ? 'A glossary is built separately from your finished text and can only explain terms that appear in it. Keep every acronym the source uses, spelled out at first use with the acronym in parentheses, for example "customer acquisition cost (CAC)", and use the acronym after that.'
-          : '',
+        photoInstructions: frag(photoFragment('indepth', !!ctx.photos)),
+        glossaryInstructions: ctx.glossary ? frag('glossary-instructions') : '',
       }),
 
     generateEli5: (p, ctx) =>
       writeTab('eli5', 'eli5', p, ctx, {
-        photoInstructions: ctx.photos ? PHOTO_INSTRUCTIONS.eli5.on : PHOTO_INSTRUCTIONS.eli5.off,
+        photoInstructions: frag(photoFragment('eli5', !!ctx.photos)),
       }),
 
     async generateGlossary(indepth, ctx) {

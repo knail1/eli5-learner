@@ -7,9 +7,9 @@ import { SkillLibrary } from '../../../../src/main/llm/skills';
 import { createTasks, type PhotoPickSlot, type TaskDeps } from '../../../../src/main/llm/tasks';
 import { FakeProvider, loadFakeScript } from '../../../../src/main/llm/testing/fake';
 import type { ImageInput } from '../../../../src/main/llm/types';
-import { PROMPTS_DIR, REPO, SKILLS_DIR, settingsFor } from './helpers';
+import { PROMPTS_ROOT, REPO, SKILLS_DIR, settingsFor } from './helpers';
 
-const catalogue = PromptCatalogue.load([PROMPTS_DIR]);
+const catalogue = PromptCatalogue.load({ root: PROMPTS_ROOT });
 const skills = new SkillLibrary([SKILLS_DIR]);
 const deps = (fake: FakeProvider): TaskDeps => ({
   provider: () => fake,

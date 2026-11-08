@@ -22,6 +22,11 @@ export const SettingsSchema = z
         maxOutputTokens: z.number().int().min(1024).max(128000).default(32000),
         timeoutMs: z.number().int().min(10_000).max(1_800_000).default(1_800_000),
         maxConcurrency: z.number().int().min(1).max(6).default(2),
+        // 02 §9 prompt sets: a directory under config/prompts layered over `default`. No UI.
+        promptSet: z
+          .string()
+          .regex(/^[a-z0-9-]{1,40}$/)
+          .default('default'),
         bedrock: Dormant, // HOOK-LLM-01
       })
       .strict()

@@ -268,6 +268,11 @@ export interface PipelineDeps {
   tasks: LlmTasks;
   /** Provider id and model for meta.generation, read when generation starts (06 §12). */
   llmInfo: () => { id: string; model: string };
+  /**
+   * 02 §9 provenance for meta.generation: the prompt set in effect and the digest over the prompts
+   * behind `tags` and the fragments they can render. Absent in tests that build deps by hand.
+   */
+  promptProvenance?: (tags: readonly string[]) => { promptSet: string; promptDigest: string };
   /** 06 §7.2 item 2: API key present for the selected provider, checked without a network request. */
   hasApiKey?: () => Promise<boolean>;
   library: PipelineLibrary;

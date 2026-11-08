@@ -22,7 +22,14 @@ import { IPC, type IpcChannel, type UiRoute } from '../preload/contract';
 import { effectiveModel } from './config';
 import { SettingsStore } from './config/store';
 import { createKeyStore } from './config/keystore';
-import { initPaths, migrateLegacyUserData, resourcePath, resolveUserDataDir } from './config/paths';
+import {
+  initPaths,
+  migrateLegacyUserData,
+  promptsPath,
+  resolvePromptSet,
+  resourcePath,
+  resolveUserDataDir,
+} from './config/paths';
 import { Registry } from './editions/registry';
 import { registerPublicCapabilities } from './editions/public';
 import { loadOverlay } from './editions/load-overlay';
@@ -321,6 +328,11 @@ async function bootstrap(): Promise<void> {
     library,
     userData,
     resourcePath,
+    // 02 §9: config/prompts (dev) or <Resources>/prompts; the set from ELI5_PROMPT_SET (dev only)
+    // or settings llm.promptSet; HOOK-LLM-02 override files win over both.
+    promptsRoot: promptsPath(),
+    promptSet: resolvePromptSet(settings.get(), process.env, app.isPackaged),
+    promptOverrideDirs: [registry.promptPolicy().overridesDir].filter((d): d is string => !!d),
     workerEntry: path.join(import.meta.dirname, 'extract-worker.js'),
     pdfjsDir: app.isPackaged
       ? path.join(process.resourcesPath, 'pdfjs')
@@ -612,6 +624,7 @@ async function bootstrap(): Promise<void> {
     documents: { open: openDocument, reveal: revealDocument, revealRoot: revealLibraryRoot },
     sources: { userData, clipboard: () => snapshotClipboard(clipboard) },
     apiKeyReady,
+    connectionTestSystem: () => pipeline.prompts.fragment('connection-test').text,
     services: m3.services,
   });
   initShell({

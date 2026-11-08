@@ -125,6 +125,7 @@ export async function saveStage(ctx: StageContext): Promise<CatalogEntry> {
   const lib = deps.library;
   const stagingDir = libraryStagingDir(lib.root, job.id);
 
+  const prompts = uniq([...prep.prompts, ...doc.prompts, glossary?.prompt, summary.prompt, photosOut?.prompt]);
   const render = (slug: string): { html: string; meta: DocumentMeta } => {
     const built = buildDocumentModel({
       docId,
@@ -164,7 +165,8 @@ export async function saveStage(ctx: StageContext): Promise<CatalogEntry> {
       generation: {
         provider: doc.provider.id,
         model: doc.provider.model,
-        prompts: uniq([...prep.prompts, ...doc.prompts, glossary?.prompt, summary.prompt, photosOut?.prompt]),
+        prompts,
+        ...(deps.promptProvenance ? deps.promptProvenance(prompts) : {}),
       },
       warnings: job.warnings,
       merges: [],

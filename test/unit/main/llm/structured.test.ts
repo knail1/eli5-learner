@@ -9,10 +9,11 @@ import {
   usesPromptedJson,
   type DraftSchemaName,
 } from '../../../../src/main/llm/schemas/draft';
-import { generateStructured, OutputTruncated, repairPrompt, validateDraft } from '../../../../src/main/llm/structured';
+import { generateStructured, listErrors, OutputTruncated, validateDraft } from '../../../../src/main/llm/structured';
 import { FakeProvider } from '../../../../src/main/llm/testing/fake';
 import type { PromptId } from '../../../../src/main/llm/types';
 import { REPO } from './helpers';
+import { defaultCatalogue, structuredTexts } from '../../../helpers/prompts';
 
 const para = (md = 'p'): object => ({ type: 'paragraph', md });
 const tab = (blocks: object[][]): object => ({
@@ -173,9 +174,12 @@ describe('generateStructured (02 §10.1)', () => {
 
   it('second validation failure is invalid_output after exactly one repair', async () => {
     const fake = new FakeProvider({ responses: { summary: ['{"title":1}', '{"still":"bad"}'] } });
-    const e = await generateStructured({ provider: fake, schema: 'SummaryDraft', request: req('summary') }).catch(
-      (x: unknown) => x,
-    );
+    const e = await generateStructured({
+      ...structuredTexts(),
+      provider: fake,
+      schema: 'SummaryDraft',
+      request: req('summary'),
+    }).catch((x: unknown) => x);
     expect((e as LLMError).kind).toBe('invalid_output');
     expect(fake.calls).toHaveLength(2);
     expect(fake.calls[1]?.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
@@ -183,6 +187,7 @@ describe('generateStructured (02 §10.1)', () => {
 
   it('non-JSON text goes to repair; refusal and max_tokens do not', async () => {
     const ok = await generateStructured({
+      ...structuredTexts(),
       provider: new FakeProvider({
         responses: { summary: ['"not an object"', { title: 't', topicSlugHint: 's', summary: 'x' }] },
       }),
@@ -191,6 +196,7 @@ describe('generateStructured (02 §10.1)', () => {
     });
     expect(ok.repaired).toBe(true);
     const trunc = await generateStructured({
+      ...structuredTexts(),
       provider: new FakeProvider({ responses: { summary: '{"title":"t"}' }, truncateTask: 'summary' }),
       schema: 'SummaryDraft',
       request: req('summary'),
@@ -198,12 +204,22 @@ describe('generateStructured (02 §10.1)', () => {
     expect(trunc).toBeInstanceOf(OutputTruncated);
   });
 
-  it('repair prompt lists at most 20 errors and asks for JSON only', () => {
-    const p = repairPrompt(Array.from({ length: 25 }, (_, i) => `e${i}`));
+  it('repair prompt lists at most 20 errors and asks for JSON only (json-repair fragment)', async () => {
+    const p = structuredTexts().repairText(listErrors(Array.from({ length: 25 }, (_, i) => `e${i}`)));
+    expect(p.startsWith('The JSON above failed validation:\n- e0\n')).toBe(true);
     expect(p).toContain('- e19');
     expect(p).not.toContain('- e20');
     expect(p).toContain('...and 5 more');
     expect(p.endsWith('Return corrected JSON only.')).toBe(true);
+    // The provider receives exactly the fragment text; an empty first reply becomes "(no output)".
+    const fake = new FakeProvider(
+      { responses: { summary: ['EMPTY', { title: 't', topicSlugHint: 's', summary: 'x' }] } },
+      { readFile: () => '' },
+    );
+    await generateStructured({ ...structuredTexts(), provider: fake, schema: 'SummaryDraft', request: req('summary') });
+    const repair = fake.calls[1]?.messages ?? [];
+    expect(repair[1]?.text).toBe(defaultCatalogue().fragment('json-no-output').text);
+    expect(repair[2]?.text).toBe(structuredTexts().repairText(listErrors(['(root): output is not valid JSON'])));
   });
 });
 

@@ -15,10 +15,32 @@ export function initPaths(e: PathEnv): void {
   env = e;
 }
 
-/** Resolve a file under resources/ (prompts, skills, help, pdf-render, tray) (01 §8.3). */
+/** Resolve a file under resources/ (skills, help, pdf-render, tray) (01 §8.3); prompts use promptsPath(). */
 export function resourcePath(rel: string): string {
   if (!env) throw new Error('paths not initialised');
   return env.isPackaged ? path.join(env.resourcesPath, rel) : path.join(env.appPath, 'resources', rel);
+}
+
+/**
+ * The prompt catalogue root (02 §9): `<Resources>/prompts` packaged, `config/prompts` in dev.
+ * It ships as its own extraResources entry (config/electron-builder.yml).
+ */
+export function promptsPath(): string {
+  if (!env) throw new Error('paths not initialised');
+  return env.isPackaged ? path.join(env.resourcesPath, 'prompts') : path.join(env.appPath, 'config', 'prompts');
+}
+
+/**
+ * The prompt set to load (D4): ELI5_PROMPT_SET in unpackaged builds only, then settings
+ * `llm.promptSet`, then `default`. The catalogue validates the name and falls back on its own.
+ */
+export function resolvePromptSet(
+  settings: { llm: { promptSet?: string } },
+  env: NodeJS.ProcessEnv,
+  isPackaged: boolean,
+): string {
+  const fromEnv = isPackaged ? undefined : env.ELI5_PROMPT_SET?.trim();
+  return fromEnv || settings.llm.promptSet || 'default';
 }
 
 /**

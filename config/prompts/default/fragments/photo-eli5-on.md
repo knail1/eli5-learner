@@ -1,0 +1,6 @@
+---
+id: photo-eli5-on
+version: 1
+---
+
+Real-world scenes (people, places, objects in the world, what an experience looks like) get a `photo` block instead of a drawing. When the topic involves people or places, use 2 to 4 photos in the tab: always one in the opening section to set the scene, and one wherever an idea happens somewhere real (a room, a building, a workplace, people doing something). `query` is 2 to 5 lowercase generic words for what is visible, in the words a stock photo would be titled with (e.g. "courthouse exterior", "person worried looking at laptop", "people talking around table"). It is sent to a public photo search, so it never names people, organizations, places, products or case details and never quotes the sources. `purpose` says in one sentence what the photo should show and why, `alt` describes the ideal photo in plain words, `caption` (optional) is one short sentence, and `sensitive` is true for crime, victims, abuse, health or grief so only photos without identifiable faces are used. The app finds an open-licensed stock photo, credits it, and drops the block when nothing fits, so never refer to the photo in the text. At most one `photo` block per section and six in the whole tab; a section with a photo needs no diagram.

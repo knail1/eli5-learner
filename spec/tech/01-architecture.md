@@ -928,7 +928,8 @@ asar: true
 asarUnpack: ['**/*.node']
 files: ['out/**', 'package.json']
 extraResources:
-  - { from: resources, to: . }       # prompts/, skills/, help/, pdf-render/ (page, preload, normalizer), tray/ icons
+  - { from: resources, to: . }       # skills/, help/, pdf-render/ (page, preload, normalizer), tray/ icons
+  - { from: config/prompts, to: prompts }  # the prompt catalogue: every set and fragment (02 §9)
   - { from: node_modules/pdfjs-dist/build, to: pdfjs, filter: [pdf.mjs, pdf.worker.mjs] }  # served as eli5res://pdfjs/ (04 §6.3)
 mac:
   target: [{ target: dmg, arch: [arm64, x64] }]
@@ -939,8 +940,11 @@ mac:
   x64ArchFiles: '**/*.node'          # only for a universal build
 ```
 
-- **Resources.** Prompts (02), skills (02), the help page (10 §8), the `pdf-render/` page (04 §6.3) and tray
-  template images (11 §4) live in the repo's `resources/` and ship via `extraResources`; pdf.js
+- **Resources.** Skills (02), the help page (10 §8), the `pdf-render/` page (04 §6.3) and tray
+  template images (11 §4) live in the repo's `resources/` and ship via `extraResources`. The prompt
+  catalogue (02 §9) lives in `config/prompts/`, the one shipped folder in `config/`, and ships as
+  `Resources/prompts` through its own `extraResources` entry; code reads it through `promptsPath()`
+  (`<Resources>/prompts` packaged, `<repo>/config/prompts` in dev). pdf.js
   (`pdf.mjs`, `pdf.worker.mjs`) is copied from `node_modules/pdfjs-dist/build` to `pdfjs/`. Asset
   generators live in `scripts/` (for example `scripts/generate-tray-icons.mjs`), never in
   `resources/`. Code never builds these paths by hand; it calls
@@ -1042,7 +1046,7 @@ work plugs into:
 - [ ] `resolvers()` returns `ticket`, `mcp`, `url`, then `file`/`clipboard` by default priority; an overlay resolver without a priority sorts between `mcp` and `url`.
 - [ ] Every hook ID defined anywhere in `spec/tech/` appears in the §6.1 hook index.
 - [ ] A missing API key yields `E_NO_API_KEY` from `eli5:jobs:start` without creating a job.
-- [ ] `npm run package` produces a dmg that launches, shows the Tray item, loads prompts, skills and tray icons via `resourcePath()`, reads the Keychain through the unpacked `.node`, and generates a document with only an API key configured.
+- [ ] `npm run package` produces a dmg that launches, shows the Tray item, loads prompts via `promptsPath()` and skills and tray icons via `resourcePath()`, reads the Keychain through the unpacked `.node`, and generates a document with only an API key configured.
 - [ ] The packaged bundle contains no `__ELI5_TEST__` code (no FakeProvider, no `eli5:test:*` channel); a clean checkout runs `npm run dev` without a missing-runtime error.
 - [ ] `enterprise/` and `build/doc-runtime/` are git-ignored and excluded from packaged files.
 - [ ] Every runtime dependency in `package.json` appears in §7; `exceljs` is not a runtime dependency.

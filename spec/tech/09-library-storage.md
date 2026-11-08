@@ -232,7 +232,9 @@ export interface DocumentMeta {
   generation: {
     provider: string;              // ProviderId (02)
     model: string;
-    prompts: string[];             // "id@version" per prompt used (02 §9)
+    prompts: string[];             // "id@version" per prompt used, "id@version~set" from a prompt set (02 §9)
+    promptSet?: string;            // prompt set in effect (02 §9); absent before prompt sets
+    promptDigest?: string;         // 16 hex: sha256 over the prompt and fragment files used (02 §9)
   };
   warnings: JobWarning[];          // {kind, message} from 06, e.g. kind 'glossary-omitted'
   merges: MergeRecord[];           // [] unless other documents were merged in (§10)

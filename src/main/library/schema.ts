@@ -172,6 +172,13 @@ export const DocumentMetaSchema = z
       provider: z.string(),
       model: z.string(),
       prompts: z.array(z.string()),
+      /** 02 §9 prompt set in effect for the job (absent before prompt sets existed). */
+      promptSet: z.string().optional(),
+      /** 02 §9 promptDigest: 16 hex of sha256 over the prompt and fragment files used. */
+      promptDigest: z
+        .string()
+        .regex(/^[0-9a-f]{16}$/)
+        .optional(),
     }),
     warnings: z.array(JobWarningSchema),
     merges: z.array(MergeRecordSchema),

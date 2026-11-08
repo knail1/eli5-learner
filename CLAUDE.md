@@ -25,10 +25,12 @@ LICENSE, CLAUDE.md, tsconfig.json (a pointer into config/ for editors), .gitigno
 .nvmrc and .env.example. Keep it that way: new tool configs go in `config/`.
 
 - `src/` — app source (main, preload, renderer, doc-runtime); `resources/` — files shipped with the app
-  (prompts, skills incl. vendored upstream sources, help, tray icons).
+  (skills incl. vendored upstream sources, help, tray icons).
 - `config/` — every tool config: tsconfig.{base,node,web}.json, electron.vite/vite/vitest/playwright
   configs, eslint.config.js, electron-builder.yml, prettier.json, allow-lists; `config/packaging/`
-  holds the entitlements and app icon. Run tools through the npm scripts (they pass `--config`).
+  holds the entitlements and app icon. One exception ships with the app: `config/prompts/` is the
+  prompt catalogue (`default/` set with `fragments/`, variant sets such as `wsj-v1/`; see its
+  README), packaged as `Resources/prompts`. Run tools through the npm scripts (they pass `--config`).
   ESLint editor integrations need `eslint.workingDirectories`/`overrideConfigFile` pointed at it.
 - `test/` — unit, integration, e2e, cross-browser, visual (screenshot baselines), perf, package, contracts,
   evals, fixtures.
@@ -108,5 +110,8 @@ Node 22.12+ (Electron 44's installer needs it; `postinstall` downloads the Elect
   (`registerPublic(reg)`), called from `src/main/editions/public.ts`.
 - Types that cross IPC live only in `src/preload/contract.ts`; modules re-export them.
 - Zod 4: use `.prefault({})` for object defaults that must run nested defaults.
+- No prompt prose in TypeScript: every sentence sent to a model lives in `config/prompts/` (a prompt
+  or a fragment, rendered through `PromptCatalogue`). Bump the file's `version` on a wording change
+  and update the rendered-request golden (`npm run test:update-goldens`). A test enforces this.
 - Tests live in `test/` mirroring `src/`, never co-located. Secret-shaped test strings are
   assembled at runtime so the repo never contains literal ones.

@@ -20,11 +20,11 @@ import {
 } from '../../../../src/main/llm/tasks';
 import { FakeProvider, loadFakeScript, type FakeScript } from '../../../../src/main/llm/testing/fake';
 import type { GenerationRequest, LLMProvider, ModelLimits, PromptPolicy } from '../../../../src/main/llm/types';
-import { PROMPTS_DIR, REPO, SKILLS_DIR, settingsFor } from './helpers';
+import { PROMPTS_ROOT, REPO, SKILLS_DIR, settingsFor } from './helpers';
 
 const DEFAULT_SCRIPT = path.join(REPO, 'test/fixtures/llm/default.json');
 const read = (p: string): string => fs.readFileSync(p, 'utf8');
-const catalogue = PromptCatalogue.load([PROMPTS_DIR]);
+const catalogue = PromptCatalogue.load({ root: PROMPTS_ROOT });
 const skills = new SkillLibrary([SKILLS_DIR]);
 
 function deps(fake: FakeProvider, extra: Partial<TaskDeps> = {}): TaskDeps {
@@ -265,7 +265,7 @@ describe('task functions (02 §12) with FakeProvider and the default script', ()
     expect(fake.calls.filter((c) => c.taskId === 'chunk-notes').length).toBeGreaterThan(1);
     const r = await tasks.generateIndepth(p, { ...ctx, glossary: false });
     expect(r.draft.kind).toBe('indepth');
-    expect(fake.calls.at(-1)?.system).toContain('You are reading notes');
+    expect(fake.calls.at(-1)?.system).toContain(catalogue.fragment('content-mode-notes').text);
   });
 
   it('a failed chunk marks its sources skipped; all chunks failing throws', async () => {
@@ -316,7 +316,7 @@ describe('task functions (02 §12) with FakeProvider and the default script', ()
     expect(ok.draft.kind).toBe('indepth');
     const calls = fake.calls.filter((c) => c.taskId === 'in-depth');
     expect(calls).toHaveLength(2);
-    expect(calls[1]?.system).toContain('Produce at most 7 sections');
+    expect(calls[1]?.system).toContain(catalogue.fragment('overflow-addendum', { n: '7' }).text);
 
     const always = new FakeProvider({ ...script, truncateTask: 'in-depth' });
     const e = await createTasks(deps(always))

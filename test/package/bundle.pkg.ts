@@ -169,8 +169,11 @@ test('extraResources ship prompts, skills, help, pdf-render, pdfjs and tray icon
     'tray/trayBusyTemplate@2x.png',
   ];
   for (const rel of want) expect(existsSync(path.join(RESOURCES, rel)), rel).toBe(true);
-  // Every prompt file in the repo ships.
-  expect(listed(path.join(RESOURCES, 'prompts'))).toEqual(listed('resources/prompts'));
+  // The whole prompt catalogue ships, recursively: every set, every fragment and the README (02 §9).
+  const prompts = listed(path.join(RESOURCES, 'prompts'));
+  expect(prompts).toEqual(listed('config/prompts'));
+  for (const rel of ['README.md', 'default/in-depth.md', 'default/fragments/json-repair.md', 'wsj-v1/in-depth.md'])
+    expect(prompts, rel).toContain(rel);
   // The vendored upstream folders ship whole (02 §11).
   for (const dir of ['skills/eli5/upstream', 'skills/beautiful-doc/html-effectiveness']) {
     const shipped = listed(path.join(RESOURCES, dir));

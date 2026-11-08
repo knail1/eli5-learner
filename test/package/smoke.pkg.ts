@@ -87,7 +87,7 @@ test('Settings open', async () => {
 });
 
 test('bundled prompts and skills load from resourcesPath', async () => {
-  // Bootstrap loads every prompt from resourcePath('prompts') and throws on a missing one (02 §10)
+  // Bootstrap loads every prompt from promptsPath() (Resources/prompts) and throws on a missing one (02 §9)
   // before IPC is registered, so a working IPC round trip means the prompts loaded.
   expect(await win.evaluate(() => window.eli5.jobs.list())).toMatchObject({ ok: true });
   const log = await readFile(path.join(userData, 'logs', 'main.log'), 'utf8');

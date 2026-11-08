@@ -185,6 +185,12 @@ export interface StructuredCall<N extends DraftSchemaName> {
   validation?: ValidationContext;
   /** HOOK-LLM-02 preSendFilter, applied to the repair request too (the first is filtered by the caller). */
   filter?: (req: GenerationRequest) => GenerationRequest | Promise<GenerationRequest>;
+  /** The repair turn for a bulleted error list (catalogue fragment `json-repair`). */
+  repairText(errors: string): string;
+  /** Stands in for an empty first reply in the repair transcript (fragment `json-no-output`). */
+  noOutputText(): string;
+  /** Prompted-JSON output contract for a schema and its JSON text (fragment `json-contract`). */
+  contractText(schemaName: string, schema: string): string;
 }
 
 export interface StructuredResult<T> {
@@ -209,10 +215,11 @@ export const ZERO_USAGE: TokenUsage = Object.freeze({ inputTokens: 0, outputToke
 
 const MAX_LISTED_ERRORS = 20;
 
-export function repairPrompt(errors: string[]): string {
+/** The validation errors as a bulleted list (at most 20 lines plus a count) for the repair turn. */
+export function listErrors(errors: string[]): string {
   const listed = errors.slice(0, MAX_LISTED_ERRORS).map((e) => `- ${e}`);
   if (errors.length > MAX_LISTED_ERRORS) listed.push(`- ...and ${errors.length - MAX_LISTED_ERRORS} more`);
-  return `The JSON above failed validation:\n${listed.join('\n')}\n\nReturn corrected JSON only.`;
+  return listed.join('\n');
 }
 
 function hasImages(req: Pick<GenerationRequest, 'messages'>): boolean {
@@ -249,7 +256,10 @@ export async function generateStructured<N extends DraftSchemaName>(
 ): Promise<StructuredResult<DraftOf<N>>> {
   const ctx = call.validation ?? {};
   const req: GenerationRequest = usesPromptedJson(call.schema)
-    ? { ...call.request, system: call.request.system + promptedJsonContract(call.schema) }
+    ? {
+        ...call.request,
+        system: `${call.request.system}\n\n${call.contractText(call.schema, draftPromptSchema(call.schema))}`,
+      }
     : { ...call.request, jsonSchema: { name: schemaToolName(call.schema), schema: draftJsonSchema(call.schema) } };
   const first = await send(call.provider, req);
   let usage = first.usage;
@@ -269,8 +279,8 @@ export async function generateStructured<N extends DraftSchemaName>(
     ...req,
     messages: [
       ...req.messages,
-      { role: 'assistant', text: first.text.trim() === '' ? '(no output)' : first.text },
-      { role: 'user', text: repairPrompt(outcome.errors) },
+      { role: 'assistant', text: first.text.trim() === '' ? call.noOutputText() : first.text },
+      { role: 'user', text: call.repairText(listErrors(outcome.errors)) },
     ],
   };
   log.info('llm.repair', { taskId: req.taskId, count: outcome.errors.length });
@@ -288,16 +298,6 @@ export async function generateStructured<N extends DraftSchemaName>(
     repaired: true,
     dropped: again.dropped,
   };
-}
-
-/** Output contract appended to the system prompt of a prompted-JSON draft (02 §10). */
-export function promptedJsonContract(name: DraftSchemaName): string {
-  return (
-    '\n\n## Output format\n' +
-    `Return only one JSON object that validates against this JSON Schema (${name}). ` +
-    'No prose before or after it and no code fences. Omit optional fields you do not use.\n' +
-    draftPromptSchema(name)
-  );
 }
 
 /**

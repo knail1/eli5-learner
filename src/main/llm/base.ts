@@ -160,12 +160,12 @@ export abstract class BaseProvider implements LLMProvider {
     }
   }
 
-  async testConnection(): Promise<ConnectionCheck> {
+  async testConnection(system?: string): Promise<ConnectionCheck> {
     try {
       const r = await this.execute(
         {
           taskId: 'summary',
-          system: 'Connection test.',
+          system: system ?? 'Connection test.',
           messages: [{ role: 'user', text: 'Reply with OK.' }],
           maxOutputTokens: 16,
           timeoutMs: TEST_CONNECTION_TIMEOUT_MS,

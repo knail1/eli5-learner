@@ -92,6 +92,7 @@ async function launch(env: Record<string, string>): Promise<{
     library: lib,
     userData,
     resourcePath: (rel) => path.join(REPO, 'resources', rel),
+    promptsRoot: path.join(REPO, 'config/prompts'),
     workerEntry: 'unused-in-node',
     watchSkills: false,
     extractServices: { renderPdfPages: services.renderPdfPages, normalizeImage: services.normalizeImage },

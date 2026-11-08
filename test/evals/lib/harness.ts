@@ -118,6 +118,9 @@ export async function createHarness(o: {
     library: lib,
     userData,
     resourcePath: (rel) => path.join(REPO, 'resources', rel),
+    // 02 §9: the catalogue and the set under test (`--prompt-set`, settings llm.promptSet).
+    promptsRoot: path.join(REPO, 'config', 'prompts'),
+    promptSet: settings.llm.promptSet,
     workerEntry: 'unused-in-node',
     watchSkills: false,
     extractServices: { renderPdfPages: services.renderPdfPages, normalizeImage: services.normalizeImage },

@@ -48,6 +48,10 @@ export interface CreatePipelineDepsOptions {
   userData: string;
   /** config resourcePath(): resources/ in dev, process.resourcesPath packaged (01 §8.3). */
   resourcePath: (rel: string) => string;
+  /** config promptsPath(): config/prompts in dev, <Resources>/prompts packaged (02 §9). */
+  promptsRoot: string;
+  /** Prompt set layered over `default` (02 §9, config resolvePromptSet); default `default`. */
+  promptSet?: string;
   /** Bundled extract worker entry: path.join(import.meta.dirname, 'extract-worker.js') (04 §10.4). */
   workerEntry: string;
   /** Directory holding pdf.mjs + pdf.worker.mjs for the render window (04 §6.3). */
@@ -87,7 +91,12 @@ export interface PipelineRuntime {
 export function createPipelineDeps(o: CreatePipelineDepsOptions): PipelineRuntime {
   const log = o.log ?? defaultLog;
   const reg = o.registry;
-  const prompts = PromptCatalogue.load([...(o.promptOverrideDirs ?? []), o.resourcePath('prompts')]);
+  const prompts = PromptCatalogue.load({
+    root: o.promptsRoot,
+    ...(o.promptSet ? { set: o.promptSet } : {}),
+    overrideDirs: o.promptOverrideDirs ?? [],
+  });
+  log.info('pipeline.prompts-loaded', { kind: prompts.set, count: prompts.all().length });
   const skills = new SkillLibrary([o.userSkillsDir ?? path.join(o.userData, 'skills'), o.resourcePath('skills')]);
   // Names only (no content): lets the packaged smoke check skills resolved from resourcesPath (01 §8.3).
   const skillNames = skills
@@ -188,6 +197,7 @@ export function createPipelineDeps(o: CreatePipelineDepsOptions): PipelineRuntim
       const p = reg.llm();
       return { id: p.id, model: p.model };
     },
+    promptProvenance: (tags) => ({ promptSet: prompts.set, promptDigest: prompts.digest(tags) }),
     ...(o.requireApiKey === false
       ? {}
       : {

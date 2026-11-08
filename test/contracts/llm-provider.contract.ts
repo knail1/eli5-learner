@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { LLMError } from '../../src/main/llm/errors';
 import { generateStructured } from '../../src/main/llm/structured';
 import type { GenerationRequest, ImageInput, LLMErrorKind, LLMProvider } from '../../src/main/llm/types';
+import { structuredTexts } from '../helpers/prompts';
 
 /**
  * LLMProvider contract suite (13 §10.2). Public providers run it against cassettes and the
@@ -122,6 +123,7 @@ export function describeLLMProviderContract(
     it('structured output validates without repair', async () => {
       const c = counting(await make('structured'));
       const r = await generateStructured({
+        ...structuredTexts(),
         provider: c.provider,
         schema: 'SummaryDraft',
         request: contractRequest('structured'),
@@ -134,6 +136,7 @@ export function describeLLMProviderContract(
     it('invalid structured output runs the repair path exactly once', async () => {
       const c = counting(await make('repair'));
       const r = await generateStructured({
+        ...structuredTexts(),
         provider: c.provider,
         schema: 'SummaryDraft',
         request: contractRequest('repair'),

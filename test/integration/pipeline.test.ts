@@ -124,6 +124,7 @@ async function launch(o: { script?: FakeScript; from?: App; tasks?: (t: LlmTasks
     library: lib,
     userData,
     resourcePath: (rel) => path.join(REPO, 'resources', rel),
+    promptsRoot: path.join(REPO, 'config/prompts'),
     workerEntry: 'unused-in-node',
     watchSkills: false,
     extractServices: { renderPdfPages: services.renderPdfPages, normalizeImage: services.normalizeImage },
@@ -206,6 +207,8 @@ describe('pipeline integration (06 acceptance, 13 §2)', () => {
       [server.url('/article/'), 'url'],
     ]);
     expect(meta.tabs.map((t) => t.key)).toEqual(['indepth', 'eli5']);
+    expect(meta.generation.promptSet).toBe('default');
+    expect(meta.generation.promptDigest).toMatch(/^[0-9a-f]{16}$/);
     // The model saw all three sources, delimited (02 §9).
     const indepthCall = app.fake.calls.find((c) => c.taskId === 'in-depth');
     const prompt = indepthCall?.messages[0]?.text ?? '';

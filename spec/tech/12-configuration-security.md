@@ -122,6 +122,7 @@ Sibling modules own the **meaning** of their keys (02 for `llm.*`, 05 for `fetch
 | `llm.maxOutputTokens` | int | 32000 | 02 | Clamped to model limit by 02 |
 | `llm.timeoutMs` | int | 1800000 | 02 | Per attempt total cap; idle timeout 120 s |
 | `llm.maxConcurrency` | int 1..6 | 2 | 02 | |
+| `llm.promptSet` | string matching `^[a-z0-9-]{1,40}$` | `'default'` | 02 §9 | Prompt set under `config/prompts/` layered over `default`. No UI; read once at startup. `ELI5_PROMPT_SET` overrides it in unpackaged builds only. An unknown or broken set logs `prompts.set-invalid` and loads `default` |
 | `llm.bedrock.*` | record | `{}` | 02 | Dormant |
 | `glossary.defaultOn` | boolean | `true` | 06, 11 | Initial state of the per-job "Explain domain specific terms" toggle |
 | `images.stockPhotos` | boolean | `true` | 06, 07 §7.4, 11 | Settings > Documents "Use stock photos for real-world scenes". On: the writing prompts may request open-licensed stock photos, searched with short generic queries. Off: diagrams only and no photo search. An organization forces it off with a HOOK-CFG-01 managed value (the switch is then locked) or by registering a stub image provider (HOOK-DOC-03) |

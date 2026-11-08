@@ -31,8 +31,8 @@ export const JUDGE_MAX_OUTPUT_TOKENS = 8_000;
 /** The judge is not a catalogue prompt; its ledger lines carry this PromptId. */
 export const JUDGE_TASK_ID: PromptId = 'summary';
 
-export function evalSettings(provider: EvalProvider, model: string): Settings {
-  return { ...DEFAULTS, llm: { ...DEFAULTS.llm, provider, model } };
+export function evalSettings(provider: EvalProvider, model: string, promptSet = 'default'): Settings {
+  return { ...DEFAULTS, llm: { ...DEFAULTS.llm, provider, model, promptSet } };
 }
 
 export function realProvider(provider: EvalProvider, model: string, apiKey: string): LLMProvider {
@@ -83,8 +83,8 @@ export class RecordingProvider implements LLMProvider {
     return this.inner.countTokens ? this.inner.countTokens(req) : Promise.reject(new Error('countTokens unsupported'));
   }
 
-  testConnection(): Promise<ConnectionCheck> {
-    return this.inner.testConnection();
+  testConnection(system?: string): Promise<ConnectionCheck> {
+    return this.inner.testConnection(system);
   }
 
   /**

@@ -91,6 +91,8 @@ export interface IpcDeps {
   sources: { userData: string; clipboard: () => ClipboardPort | Promise<ClipboardPort>; drops?: DropRegistry };
   /** 01 §6.2 pre-check for `eli5:jobs:start`: false yields E_NO_API_KEY. */
   apiKeyReady(): Promise<boolean>;
+  /** System text of the key test call: the catalogue's `connection-test` fragment (02 §9). */
+  connectionTestSystem?: () => string;
   /** M3 feature services; missing slots answer "Not implemented yet" (services.ts). */
   services?: Partial<IpcServices>;
 }
@@ -162,7 +164,7 @@ export function registerIpc(d: IpcDeps): () => void {
     if (provider !== 'bedrock' && !(await d.keyStore.has(account(provider)))) {
       fail('E_NO_API_KEY', 'Add an API key in Settings');
     }
-    const r = await d.registry.llm().testConnection();
+    const r = await d.registry.llm().testConnection(d.connectionTestSystem?.());
     const out: TestConnectionResult = r.ok ? { ok: true, model: r.model } : { ok: false, message: r.error.message };
     return out;
   });

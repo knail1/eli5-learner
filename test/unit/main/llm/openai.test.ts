@@ -8,6 +8,7 @@ import type { GenerationRequest } from '../../../../src/main/llm/types';
 import { Limiter } from '../../../../src/main/llm/limiter';
 import { DEFAULT_RETRY } from '../../../../src/main/llm/retry';
 import { cassette, fastDeps, settingsFor, TEST_KEY } from './helpers';
+import { structuredTexts } from '../../../helpers/prompts';
 
 const req = (extra: Partial<GenerationRequest> = {}): GenerationRequest => ({
   taskId: 'eli5',
@@ -120,6 +121,7 @@ describe('OpenAIProvider / ChatGPT on the Responses API (02 §6) against cassett
   it('schema rejection (null for a required field) then one repair', async () => {
     const t = cassette('openai/repair.json');
     const r = await generateStructured({
+      ...structuredTexts(),
       provider: new OpenAIProvider(settingsFor('openai'), fastDeps(t)),
       schema: 'SummaryDraft',
       request: { taskId: 'summary', system: 's', messages: [{ role: 'user', text: 'x' }], maxOutputTokens: 100 },

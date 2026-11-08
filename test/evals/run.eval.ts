@@ -45,7 +45,7 @@ it('generation quality eval (13 §9)', async () => {
       judgeRuns: cfg.judgeRuns,
       ledger,
       minCaseUsd: (MIN_OUTPUT_TOKENS * genRates.outputPerMTok) / 1e6,
-      settings: evalSettings(g.provider, g.model),
+      settings: evalSettings(g.provider, g.model, cfg.promptSet),
       info: { provider: g.provider, model: g.model, judge: j },
       resultsDir: cfg.resultsDir,
       baselinesDir: path.join(EVALS_DIR, 'baselines'),

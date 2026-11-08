@@ -15,6 +15,9 @@ files:
 extraResources:
   - from: resources
     to: .
+  # The prompt catalogue (02 §9): config/prompts ships as Resources/prompts (all sets and fragments).
+  - from: config/prompts
+    to: prompts
   # pdf.js for the pdf-render window, served over eli5res://pdfjs/ (04 §6.3).
   - from: node_modules/pdfjs-dist/build
     to: pdfjs

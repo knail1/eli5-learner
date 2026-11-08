@@ -39,7 +39,7 @@ Four layers share one ID per hook:
 | ID | Title | Defined in | Registry slot | Public behavior (short) | Related config / env |
 | --- | --- | --- | --- | --- | --- |
 | HOOK-LLM-01 | Enterprise LLM backend (cloud-hosted model gateway) | [02-llm-provider.md](./02-llm-provider.md) | `registerLLMProvider('bedrock' \| gateway id)` | `bedrock` resolves to a stub that throws `NotAvailableInEdition` | `llm.provider`, `llm.model`, `llm.bedrock.region`, `llm.bedrock.profile`, `llm.bedrock.modelId` |
-| HOOK-LLM-02 | Enterprise prompt policy and data handling | [02-llm-provider.md](./02-llm-provider.md) | `registerPromptPolicy` | no preamble, no overrides, pass-through filter | overlay prompt overrides dir |
+| HOOK-LLM-02 | Enterprise prompt policy and data handling | [02-llm-provider.md](./02-llm-provider.md) | `registerPromptPolicy` | no preamble, no overrides (overlay > set > default when one is set), pass-through filter | overlay prompt overrides dir |
 | HOOK-AUTH-01 | MCP single sign-on lifecycle | [03-source-resolvers.md](./03-source-resolvers.md) | `registerAuth` | `AuthBroker` reports `unavailable`; no tokens ever | `sources.mcp.url` |
 | HOOK-SRC-01 | MCP-brokered source resolver | [03-source-resolvers.md](./03-source-resolvers.md) | `registerSourceResolver` (id `mcp`) | `mcp.stub.ts`, never selected | `sources.mcp.*` |
 | HOOK-SRC-02 | Ticket-link resolver | [03-source-resolvers.md](./03-source-resolvers.md) | `registerSourceResolver` (id `ticket`) | `ticket.stub.ts`, never selected; bare keys rejected | `sources.mcp.*` |
@@ -90,7 +90,7 @@ The one-paragraph summaries below are not the contract. The callout in the defin
   - whether the direct providers are hidden in the enterprise build.
 
 **HOOK-LLM-02 · Enterprise prompt policy and data handling.** Defined in [02-llm-provider.md](./02-llm-provider.md).
-- *Public:* prompts come from the bundled prompts and skills folders, with no preamble. Content goes only to the provider the user configured.
+- *Public:* prompts come from the bundled prompt catalogue (`config/prompts/`, shipped as `Resources/prompts`; the selected prompt set over `default`) and skills from the bundled and user skills folders, with no preamble. The policy's `overridesDir` is wired into the catalogue: when set, its prompt and `fragments/` files win per id over the set and `default` (precedence override > set > default); the public policy has none. Content goes only to the provider the user configured.
 - *Binding supplies:*
   - an organization system-prompt preamble;
   - an overlay prompt-overrides directory;

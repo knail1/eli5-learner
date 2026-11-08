@@ -37,19 +37,20 @@ export { createLlmFetch, LLM_SESSION_PARTITION } from './net';
 export { estimateTokens, imageTokens, inputBudget, reservedOutput, visibleOutput } from './budget';
 export { createNativeImageReencoder } from './images';
 export type { ImageReencoder } from './images';
-export { PromptCatalogue, PromptError, PROMPT_VARS } from './prompts';
-export type { PromptDef } from './prompts';
-export { SkillLibrary, SKILL_SLOTS, FALLBACK_SKILL_TEXT } from './skills';
-export type { Skill } from './skills';
-export { generateStructured, validateDraft, OutputTruncated } from './structured';
 export {
-  createTasks,
-  deserializePrepared,
-  serializePrepared,
-  sectionText,
-  MODEL_ERROR_WHILE_READING,
-  PHOTO_INSTRUCTIONS,
-} from './tasks';
+  DEFAULT_PROMPT_SET,
+  FRAGMENT_IDS,
+  FRAGMENT_VARS,
+  PROMPT_SET_RE,
+  PROMPT_VARS,
+  PromptCatalogue,
+  PromptError,
+} from './prompts';
+export type { CatalogueOptions, FragmentDef, FragmentId, PromptDef, PromptOrigin } from './prompts';
+export { SkillLibrary, SKILL_SLOTS } from './skills';
+export type { Skill, SkillTexts } from './skills';
+export { generateStructured, validateDraft, OutputTruncated } from './structured';
+export { createTasks, deserializePrepared, serializePrepared, sectionText, MODEL_ERROR_WHILE_READING } from './tasks';
 export type {
   LlmTasks,
   MergeCandidate,

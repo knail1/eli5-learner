@@ -7,7 +7,9 @@ import type { ProviderId } from '../../../../src/main/llm/types';
 
 export const REPO = path.resolve(import.meta.dirname, '../../../..');
 export const CASSETTES = path.join(REPO, 'test/fixtures/cassettes');
-export const PROMPTS_DIR = path.join(REPO, 'resources/prompts');
+/** The prompt catalogue root (02 §9) and its `default` set directory. */
+export const PROMPTS_ROOT = path.join(REPO, 'config/prompts');
+export const PROMPTS_DIR = path.join(PROMPTS_ROOT, 'default');
 export const SKILLS_DIR = path.join(REPO, 'resources/skills');
 
 /** A key-shaped string assembled at runtime so the repo never contains a literal one (13 §11). */

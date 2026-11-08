@@ -14,7 +14,7 @@ import {
 } from '../../../../src/main/pipeline';
 import { validateDocument } from '../../../helpers/doc-validity';
 import type { LlmTasks } from '../../../../src/main/llm';
-import { FIXTURES, defaultScript, fileInput, harness, urlInput, type Harness } from './harness';
+import { FIXTURES, defaultScript, fileInput, harness, prompts, urlInput, type Harness } from './harness';
 
 const opts = { clarifyingInput: 'I run a small widget shop', glossary: true };
 const exists = (p: string): Promise<boolean> =>
@@ -277,6 +277,9 @@ describe('a create job end to end (06 §3.2, §5, §6)', () => {
     expect(meta.generation.prompts).toEqual(
       expect.arrayContaining(['in-depth@3', 'eli5@4', 'glossary@2', 'summary@1']),
     );
+    // 02 §9 provenance: the set in effect and the digest over the prompts and fragments used.
+    expect(meta.generation.promptSet).toBe('default');
+    expect(meta.generation.promptDigest).toBe(prompts.digest(meta.generation.prompts));
     const html = await readFile(h.lib.docPath(slug), 'utf8');
     expect(validateDocument(html, meta).errors).toEqual([]);
     // Staging removed at done (06 §9.5); library staging too.

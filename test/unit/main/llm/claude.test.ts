@@ -7,6 +7,7 @@ import { generateStructured } from '../../../../src/main/llm/structured';
 import type { GenerationRequest, StreamChunk } from '../../../../src/main/llm/types';
 import { cassetteFetch, claudeSse } from '../../../../src/main/llm/testing/cassette';
 import { cassette, fastDeps, settingsFor, TEST_KEY } from './helpers';
+import { structuredTexts } from '../../../helpers/prompts';
 
 const req = (extra: Partial<GenerationRequest> = {}): GenerationRequest => ({
   taskId: 'in-depth',
@@ -96,6 +97,7 @@ describe('ClaudeProvider (02 §5) against cassettes', () => {
     const t = cassette('claude/repair.json');
     const p = new ClaudeProvider(settingsFor('claude'), fastDeps(t));
     const r = await generateStructured({
+      ...structuredTexts(),
       provider: p,
       schema: 'SummaryDraft',
       request: { taskId: 'summary', system: 's', messages: [{ role: 'user', text: 'x' }], maxOutputTokens: 100 },

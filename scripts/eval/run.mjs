@@ -7,7 +7,7 @@
  *
  *   node scripts/eval/run.mjs --provider claude --model claude-opus-5 [--judge openai:gpt-5]
  *     [--cases id1,id2] [--judge-runs 3] [--max-usd 10] [--ledger path] [--rates model=in:out]
- *     [--write-baseline]
+ *     [--prompt-set wsj-v1] [--write-baseline]
  *   node scripts/eval/run.mjs --calibrate [--judge claude:claude-sonnet-5]
  *
  * Exit codes (exit-code.mjs): 0 done (an incomplete, cost-capped run also exits 0), 1 run error,
@@ -30,6 +30,7 @@ const FLAGS = {
   '--ledger': 'ELI5_EVAL_LEDGER',
   '--rates': 'ELI5_EVAL_RATES',
   '--results-dir': 'ELI5_EVAL_RESULTS_DIR',
+  '--prompt-set': 'ELI5_EVAL_PROMPT_SET',
 };
 
 const USAGE = `usage: node scripts/eval/run.mjs [--calibrate] ${Object.keys(FLAGS)

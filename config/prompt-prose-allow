@@ -1,0 +1,5 @@
+# Reviewed exceptions for test/unit/main/llm/no-prompt-prose.test.ts (D27): "<repo path> <substring>".
+# Each entry is reviewed: text that must stay in code for a stated reason.
+
+# Provider transport instruction for tool-mode structured output (02 §5); claude.ts stays unchanged.
+src/main/llm/claude.ts Answer only by calling the

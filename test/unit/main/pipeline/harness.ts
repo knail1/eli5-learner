@@ -38,7 +38,7 @@ import { tmpLibrary } from '../../../helpers/tmp-library';
 export const REPO = path.resolve(import.meta.dirname, '../../../..');
 export const FIXTURES = path.join(REPO, 'test/fixtures');
 const read = (p: string): string => fs.readFileSync(p, 'utf8');
-export const prompts = PromptCatalogue.load([path.join(REPO, 'resources/prompts')]);
+export const prompts = PromptCatalogue.load({ root: path.join(REPO, 'config/prompts') });
 export const skills = new SkillLibrary([path.join(REPO, 'resources/skills')]);
 
 export function defaultScript(over: Partial<FakeScript> = {}): FakeScript {
@@ -197,6 +197,7 @@ export async function harness(o: HarnessOptions = {}): Promise<Harness> {
     },
     tasks,
     llmInfo: () => ({ id: fake.id, model: fake.model }),
+    promptProvenance: (tags) => ({ promptSet: prompts.set, promptDigest: prompts.digest(tags) }),
     hasApiKey: async () => true,
     library: libraryPort(lib, typeof o.libraryOver === 'function' ? o.libraryOver(lib) : o.libraryOver),
     docTheme: () => ({

@@ -121,7 +121,11 @@ export interface LLMProvider {
   stream?(req: GenerationRequest): AsyncIterable<StreamChunk>;
   /** Callers pass the request through PromptPolicy.preSendFilter first (HOOK-LLM-02). */
   countTokens?(req: Pick<GenerationRequest, 'system' | 'messages' | 'signal'>): Promise<number>;
-  testConnection(): Promise<ConnectionCheck>;
+  /**
+   * A tiny call that proves the key and model work. `system` is the catalogue's `connection-test`
+   * fragment (02 §9); providers fall back to a minimal label when it is absent.
+   */
+  testConnection(system?: string): Promise<ConnectionCheck>;
   /** Optional seam for expiring credentials (02 §14); providers without it show no bar. */
   credentialStatus?(): Promise<CredentialStatus>;
   /** Optional interactive sign-in; resolves when done, rejects with LLMError on failure. */

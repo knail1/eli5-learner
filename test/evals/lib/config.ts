@@ -28,6 +28,8 @@ export interface EvalConfig {
   ledgerPath?: string;
   resultsDir: string;
   writeBaseline: boolean;
+  /** ELI5_EVAL_PROMPT_SET (`--prompt-set`): the prompt set under config/prompts to generate with (02 §9). */
+  promptSet: string;
   /** Kept apart so the rest of the config can be logged or stored. */
   keys: Partial<Record<EvalProvider, string>>;
 }
@@ -98,6 +100,9 @@ export function evalConfigFromEnv(env: EvalEnv, o: { repoRoot?: string; judgeOnl
     if (!rates[m] && !ratesFor(m)) refuse(`model ${m} has no price; add it with ELI5_EVAL_RATES=${m}=<in>:<out>`);
   }
 
+  const promptSet = env.ELI5_EVAL_PROMPT_SET?.trim() || 'default';
+  if (!/^[a-z0-9-]{1,40}$/.test(promptSet)) refuse('ELI5_EVAL_PROMPT_SET must match ^[a-z0-9-]{1,40}$');
+
   const cases = env.ELI5_EVAL_CASES?.split(',')
     .map((s) => s.trim())
     .filter(Boolean);
@@ -112,6 +117,7 @@ export function evalConfigFromEnv(env: EvalEnv, o: { repoRoot?: string; judgeOnl
     ...(env.ELI5_EVAL_LEDGER ? { ledgerPath: path.resolve(env.ELI5_EVAL_LEDGER) } : {}),
     resultsDir: path.resolve(root, env.ELI5_EVAL_RESULTS_DIR ?? 'test/evals/results'),
     writeBaseline: env.ELI5_EVAL_WRITE_BASELINE === '1',
+    promptSet,
     keys,
   };
 }

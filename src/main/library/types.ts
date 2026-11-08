@@ -132,7 +132,15 @@ export interface DocumentMeta {
   sourcesSkipped: SkippedSource[];
   tabs: TabRecord[];
   retiredIds: SectionId[];
-  generation: { provider: string; model: string; prompts: string[] };
+  generation: {
+    provider: string;
+    model: string;
+    prompts: string[];
+    /** 02 §9: the prompt set in effect; absent in documents made before prompt sets. */
+    promptSet?: string;
+    /** 02 §9: 16 hex of sha256 over the prompt and fragment files the job used. */
+    promptDigest?: string;
+  };
   warnings: JobWarning[];
   merges: MergeRecord[];
   actions?: ActionRecord[];

@@ -8,6 +8,7 @@ import {
 import { extractJsonText, generateStructured } from '../../../../src/main/llm/structured';
 import { FakeProvider } from '../../../../src/main/llm/testing/fake';
 import type { GenerationRequest, GenerationResult, LLMProvider } from '../../../../src/main/llm/types';
+import { structuredTexts } from '../../../helpers/prompts';
 
 /**
  * The API compiles output_config schemas into a grammar with a size cap and at most 16 union-typed
@@ -64,7 +65,12 @@ describe('prompted JSON for large drafts (02 §10)', () => {
 
   it('sends no jsonSchema and puts the schema contract in the system prompt', async () => {
     const fake = new FakeProvider({ responses: { 'in-depth': JSON.stringify(tab) } });
-    const r = await generateStructured({ provider: fake, schema: 'DocumentDraftTab', request: req('in-depth') });
+    const r = await generateStructured({
+      ...structuredTexts(),
+      provider: fake,
+      schema: 'DocumentDraftTab',
+      request: req('in-depth'),
+    });
     expect(r.data.sections[0]?.heading).toBe('Why it matters');
     const sent = fake.calls[0]!;
     expect(sent.jsonSchema).toBeUndefined();
@@ -77,7 +83,12 @@ describe('prompted JSON for large drafts (02 §10)', () => {
     const fake = new FakeProvider({
       responses: { summary: JSON.stringify({ title: 'T', topicSlugHint: 't', summary: 'S.' }) },
     });
-    await generateStructured({ provider: fake, schema: 'SummaryDraft', request: req('summary', 'Summarize.') });
+    await generateStructured({
+      ...structuredTexts(),
+      provider: fake,
+      schema: 'SummaryDraft',
+      request: req('summary', 'Summarize.'),
+    });
     expect(fake.calls[0]!.jsonSchema?.schema).toEqual(toStrictJsonSchema(DRAFT_SCHEMAS.SummaryDraft));
     expect(fake.calls[0]!.system).toBe('Summarize.');
   });
@@ -89,6 +100,7 @@ describe('prompted JSON for large drafts (02 §10)', () => {
   ])('parses a reply with %s', async (_label, reply) => {
     // FakeProvider treats non-JSON-looking strings as fixture paths, so use a raw-text stub.
     const r = await generateStructured({
+      ...structuredTexts(),
       provider: textProvider(reply),
       schema: 'DocumentDraftTab',
       request: req('in-depth'),
@@ -101,7 +113,12 @@ describe('prompted JSON for large drafts (02 §10)', () => {
     const fake = new FakeProvider({
       responses: { 'in-depth': [JSON.stringify({ kind: 'indepth', title: 'T', sections: [] }), JSON.stringify(tab)] },
     });
-    const r = await generateStructured({ provider: fake, schema: 'DocumentDraftTab', request: req('in-depth') });
+    const r = await generateStructured({
+      ...structuredTexts(),
+      provider: fake,
+      schema: 'DocumentDraftTab',
+      request: req('in-depth'),
+    });
     expect(r.repaired).toBe(true);
     expect(fake.calls).toHaveLength(2);
     expect(fake.calls[1]!.jsonSchema).toBeUndefined();

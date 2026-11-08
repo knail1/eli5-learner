@@ -85,8 +85,8 @@ export class BudgetGuardProvider implements LLMProvider {
     return this.inner.countTokens ? this.inner.countTokens(req) : Promise.resolve(estimateInputTokens(req));
   }
 
-  testConnection(): Promise<ConnectionCheck> {
-    return this.inner.testConnection();
+  testConnection(system?: string): Promise<ConnectionCheck> {
+    return this.inner.testConnection(system);
   }
 
   private async inputTokens(req: GenerationRequest): Promise<number> {

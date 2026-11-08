@@ -28,14 +28,21 @@ export interface Skill {
   dir: string;
 }
 
-/** Built-in fallback when a slot has no skill: the app still works (02 §11). */
-export const FALLBACK_SKILL_TEXT: Readonly<Record<SkillSlot, string>> = {
-  'beautiful-doc':
-    'Write like a strong explanatory news feature: lead with why it matters, give every chart a takeaway headline, ' +
-    'use pull quotes and callouts sparingly, and prefer one clear visual over several weak ones.',
-  eli5:
-    'Explain as if to a curious newcomer: short sentences, everyday analogies, one idea per paragraph, and no jargon ' +
-    'unless it is immediately explained in plain words.',
+/**
+ * The text around rendered skills: headings and the built-in fallback when a slot has no skill
+ * (02 §11). The tasks pass the catalogue fragments (skill-heading, example-heading,
+ * skill-fallback-*); without them a minimal emergency text keeps catalogue-less callers working.
+ */
+export interface SkillTexts {
+  heading(name: string): string;
+  exampleHeading(name: string): string;
+  fallback(slot: string): string;
+}
+
+const EMERGENCY_TEXTS: SkillTexts = {
+  heading: (name) => `## ${name}`,
+  exampleHeading: (name) => `### ${name}`,
+  fallback: () => 'Explain clearly for a newcomer.',
 };
 
 export const EXAMPLE_TOKEN_CAP = 8000;
@@ -187,24 +194,28 @@ export class SkillLibrary {
   }
 
   /**
-   * System-prompt text for the requested slots under `## Style guide: <name>` headings. Examples are
+   * System-prompt text for the requested slots under skill headings (`texts.heading`). Examples are
    * truncated to 8k tokens per skill; if all skills exceed 20% of the context window, examples are
    * dropped first, then bodies truncated, and a warning is logged (02 §11 Budget). With `task`, a
    * skill whose `appliesTo` excludes it is passed over (the slot falls back to the built-in text).
    */
-  render(slots: readonly string[], contextTokens: number, task?: SkillTask): RenderedSkills {
+  render(
+    slots: readonly string[],
+    contextTokens: number,
+    task?: SkillTask,
+    texts: SkillTexts = EMERGENCY_TEXTS,
+  ): RenderedSkills {
     const budget = Math.floor(contextTokens * SKILLS_CONTEXT_SHARE);
     const fallbacks: string[] = [];
     const parts = slots.map((slot) => {
       const skill = this.forSlot(slot, task);
       if (!skill) {
         fallbacks.push(slot);
-        const text = FALLBACK_SKILL_TEXT[slot as SkillSlot] ?? '';
-        return { name: slot, body: text, examples: '' };
+        return { name: slot, body: texts.fallback(slot), examples: '' };
       }
       const examples = skill.examples.length
         ? truncateToTokens(
-            skill.examples.map((e) => `### Reference example: ${e.file}\n\n${e.text.trim()}`).join('\n\n'),
+            skill.examples.map((e) => `${texts.exampleHeading(e.file)}\n\n${e.text.trim()}`).join('\n\n'),
             EXAMPLE_TOKEN_CAP,
           )
         : '';
@@ -215,7 +226,7 @@ export class SkillLibrary {
         .map((p) => {
           const body = bodyCap !== undefined ? truncateToTokens(p.body, bodyCap) : p.body;
           const ex = withExamples && p.examples ? `\n\n${p.examples}` : '';
-          return `## Style guide: ${p.name}\n\n${body}${ex}`;
+          return `${texts.heading(p.name)}\n\n${body}${ex}`;
         })
         .join('\n\n');
     let text = join(true);

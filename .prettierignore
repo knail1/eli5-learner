@@ -15,3 +15,5 @@ test-results/
 playwright-report/
 test/evals/results/
 android/
+# Byte-compared golden of rendered LLM requests (test/unit/main/llm/rendered-requests.test.ts).
+test/fixtures/llm/rendered-requests.golden.json
