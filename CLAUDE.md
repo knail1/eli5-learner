@@ -96,7 +96,9 @@ Node 22.12+ (Electron 44's installer needs it; `postinstall` downloads the Elect
 - Android (from `android/`, JDK 21: `export JAVA_HOME=$(brew --prefix openjdk@21)/libexec/openjdk.jdk/Contents/Home`,
   `ANDROID_HOME=/opt/homebrew/share/android-commandlinetools`): `./gradlew lint testDebugUnitTest assembleDebug`;
   `./gradlew :app:assembleRelease` signs with the release key from `~/.gradle/gradle.properties`
-  (debug key fallback). See `android/README.md`.
+  (debug key fallback); then `scripts/android-dist.sh` copies it to `release/android/`, verifies the
+  signature and scans it for secrets; `./gradlew :app:printOAuthFingerprints` prints the SHA-1s. See
+  `android/README.md`.
 - Enterprise mechanism check: `ELI5_EDITION=enterprise ELI5_OVERLAY_DIR=test/fixtures/overlay-fake npx electron-vite build --config config/electron.vite.config.ts` (or `npm run check:editions`)
 
 ## Code conventions

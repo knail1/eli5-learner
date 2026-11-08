@@ -6,8 +6,9 @@ Google Drive and a share-sheet "Send to my Mac". The design is
 [spec/tech/16-android-companion.md](../spec/tech/16-android-companion.md). To get from nothing to the
 app on your phone, follow [SETUP.md](SETUP.md).
 
-> **Status (M5, in progress).** This folder is being built in slices. The Gradle project and the
-> local-mode reader come first; sync follows. Sync against a real Google Drive is unverified until
+> **Status (M5, in progress).** This folder is being built in slices. The local-mode app is built:
+> import (picker, share sheet, "Open with"), the library, the sandboxed reader and Settings > About;
+> the Inbox is a placeholder. Sync follows. Sync against a real Google Drive is unverified until
 > gate G1 (spec 16 §13).
 
 This is its own Gradle build with one `:app` module. It never touches the npm toolchain, and Prettier

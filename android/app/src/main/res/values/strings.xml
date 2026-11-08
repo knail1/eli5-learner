@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ELI5 Learner</string>
+    <string name="import_label">Import to ELI5 Learner</string>
+
+    <string name="nav_library">Library</string>
+    <string name="nav_inbox">Inbox</string>
+    <string name="nav_settings">Settings</string>
+    <string name="back">Back</string>
+
+    <string name="library_search">Search your library</string>
+    <string name="library_empty_title">No documents yet</string>
+    <string name="library_empty_body">Import an index.html exported from ELI5 Learner on your Mac. You can also share one to this app from Files or email.</string>
+    <string name="action_import">Import HTML</string>
+    <string name="action_remove">Remove</string>
+    <string name="library_no_match">Nothing matches your search.</string>
+    <string name="label_foreign">Foreign file · scripts off</string>
+    <string name="label_imported">Imported %1$s</string>
+    <string name="row_more">More options for %1$s</string>
+
+    <string name="import_done">Imported: %1$d</string>
+    <string name="import_done_skipped">Imported: %1$d · Skipped: %2$d</string>
+    <string name="import_none">Nothing to import</string>
+    <string name="removed">Removed “%1$s”</string>
+
+    <string name="inbox_title">Inbox</string>
+    <string name="inbox_placeholder">Jobs you send to your Mac show up here. Sending arrives with sync, which needs Google Drive on both devices.</string>
+
+    <string name="settings_title">Settings</string>
+    <string name="settings_import_body">Add an exported ELI5 document (index.html) to this phone.</string>
+    <string name="settings_about">About</string>
+    <string name="about_sideloaded">Sideloaded build</string>
+    <string name="about_version">Version %1$s</string>
+    <string name="about_commit">Commit %1$s</string>
+    <string name="about_local_mode">Local mode: documents stay on this phone. Nothing is sent anywhere.</string>
+
+    <string name="reader_missing">This document is no longer on this phone.</string>
+</resources>

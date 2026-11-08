@@ -437,17 +437,21 @@ Documents are LLM-generated HTML and are untrusted.
 
 - Served by `WebViewAssetLoader` from `https://appassets.androidplatform.net/docs/<docId>/<sha>.html`
   through a path handler over `filesDir/docs`. Never `file://`, `data:` or `loadData`.
-- Settings: JavaScript on; DOM storage on (the runtime keeps its theme in `localStorage`);
-  `allowFileAccess`, `allowContentAccess`, `allowFileAccessFromFileURLs`,
-  `allowUniversalAccessFromFileURLs` all false; `MIXED_CONTENT_NEVER_ALLOW`; Safe Browsing on;
-  `setSupportMultipleWindows(true)` without `onCreateWindow` (popups cannot open).
+- Settings: JavaScript on for a valid ELI5 document and off for a foreign file; DOM storage on (the
+  runtime keeps its theme in `localStorage`); `allowFileAccess`, `allowContentAccess`,
+  `allowFileAccessFromFileURLs`, `allowUniversalAccessFromFileURLs` all false;
+  `MIXED_CONTENT_NEVER_ALLOW`; Safe Browsing on; `setSupportMultipleWindows(false)` and
+  `javaScriptCanOpenWindowsAutomatically` false, so no window is ever created. Every reference link
+  carries `target="_blank"`; with multiple windows off it reaches `shouldOverrideUrlLoading` below
+  (with multiple windows on and no `onCreateWindow`, such links would silently do nothing).
 - The path handler adds a response `Content-Security-Policy` header:
   `default-src 'none'; img-src data:; font-src data:; style-src 'unsafe-inline'; script-src <hashes>; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'`,
   where `<hashes>` are the sha256 of the document's inline scripts **only if** the file is a valid
   ELI5 document (it contains `<script type="application/json" id="eli5-model">` and its meta CSP
   pins the same hashes). Any other HTML is served with `script-src 'none'` and labelled "Foreign
   file · scripts off".
-- `shouldInterceptRequest` returns 403 for anything outside `/docs/`. `shouldOverrideUrlLoading`
+- `shouldInterceptRequest` answers every request itself and returns 403 for anything outside `/docs/`
+  (404 for a missing or hash-mismatched file), so no request reaches the network. `shouldOverrideUrlLoading`
   allows only same-document navigation; an `http(s)` link opens in a Custom Tab only when the
   request has a user gesture; everything else is dropped.
 - No `addJavascriptInterface`, and nothing named `eli5Doc`. The runtime's bridge check (08 §4,

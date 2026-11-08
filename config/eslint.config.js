@@ -32,6 +32,8 @@ export default tseslint.config(
       'docs/**',
       'enterprise/**',
       'coverage/**',
+      // The Android project is its own Gradle build (16 §6.1); its build/ holds generated JS reports.
+      'android/**',
     ],
   },
   js.configs.recommended,

@@ -1,0 +1,3 @@
+# Copy to local.properties (git-ignored) and set the Android SDK path for this machine.
+# Homebrew's android-commandlinetools: sdk.dir=/opt/homebrew/share/android-commandlinetools
+sdk.dir=
