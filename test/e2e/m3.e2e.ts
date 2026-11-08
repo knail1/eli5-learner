@@ -143,7 +143,7 @@ test.describe('reading a finished document', () => {
     await viewer.evaluate(() => window.scrollTo(0, 0));
 
     await selectAndFocusMenu(viewer, id, 'Lead time is six weeks.');
-    await viewer.keyboard.press('Enter'); // note field: moves to the first action (08 §5.4)
+    await viewer.keyboard.press('Enter'); // note field: opens Explain on its first item (08 §5.4)
     await viewer.keyboard.press('Enter'); // "Expand this"
 
     // The viewer reloads with the new section in place and scrolls it under the tab bar (08 §7.4).
@@ -178,8 +178,9 @@ test.describe('reading a finished document', () => {
     const source = (await sectionsOf(viewer, 'indepth')).find((s) => s.heading === 'Why the plan matters');
     const id = source?.id ?? '';
     await selectAndFocusMenu(viewer, id, 'The plan balances two costs: holding too much stock and running out.');
-    await viewer.keyboard.press('Enter');
-    for (let i = 0; i < 4; i++) await viewer.keyboard.press('ArrowRight');
+    await viewer.keyboard.press('Enter'); // note field: opens Explain on "Expand this" (08 §5.4)
+    await viewer.keyboard.press('ArrowRight'); // closes it, onto the ELI5 trigger
+    await viewer.keyboard.press('ArrowDown'); // opens ELI5 on its first item
     await viewer.keyboard.press('Enter'); // "Create a separate ELI5 for this section"
 
     const tabs = viewer.locator('nav.tabbar [role=tab]');
@@ -298,8 +299,10 @@ test.describe('reading a finished document', () => {
     expect(id).not.toBe('');
     const phrase = 'If online growth continues, the buffer for that channel will need to grow too.';
     await selectAndFocusMenu(viewer, id, phrase);
-    await viewer.keyboard.press('Enter'); // note field: moves to the first action
-    for (let i = 0; i < 5; i++) await viewer.keyboard.press('ArrowRight');
+    await viewer.keyboard.press('Tab'); // note field -> the toolbar's roving stop, "Explain"
+    await viewer.keyboard.press('ArrowRight'); // "ELI5"
+    await viewer.keyboard.press('ArrowDown'); // opens it on "Create a separate ELI5 for this section"
+    await viewer.keyboard.press('ArrowDown');
     await viewer.keyboard.press('Enter'); // "ELI5 this selection"
 
     const tabs = viewer.locator('nav.tabbar [role=tab]');

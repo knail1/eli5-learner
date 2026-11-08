@@ -35,6 +35,7 @@ async function stubBridge(page: Page): Promise<void> {
     w.eli5Doc = {
       regenerateSection: ok,
       createSectionEli5: ok,
+      askQuestion: ok,
       closeTab: ok,
       openExternal: ok,
       onScrollTo: () => () => {},
@@ -215,9 +216,9 @@ for (const theme of ['light', 'dark'] as const) {
       await page.mouse.down();
       await page.mouse.move(box.x + 360, box.y + 10, { steps: 6 });
       await page.mouse.up();
-      const menu = page.getByRole('toolbar', { name: 'Section actions' });
+      const menu = page.getByRole('group', { name: 'Selection actions' });
       await expect(menu).toBeVisible();
-      await expect(menu.getByRole('button', { name: 'ELI5 this selection' })).toBeVisible();
+      await expect(menu.getByRole('button', { name: 'ELI5', exact: true })).toBeVisible();
       await page.mouse.move(0, 0);
       await settle(page);
       await expectRegion(page, shot('full-selection-menu'), [

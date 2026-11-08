@@ -1,7 +1,7 @@
 // Document <-> host message envelope (08 §4.2). v1 carries these as contextBridge arguments; the
 // envelope is versioned so a future <iframe> host can carry the same messages over postMessage.
 
-export type DocMessageType = 'act' | 'close-tab' | 'open-external' | 'scroll-to' | 'section-busy';
+export type DocMessageType = 'act' | 'ask' | 'close-tab' | 'open-external' | 'scroll-to' | 'section-busy';
 
 export interface DocBridgeMessage<T extends DocMessageType = DocMessageType, P = unknown> {
   /** postMessage receivers ignore anything else. */
@@ -11,7 +11,7 @@ export interface DocBridgeMessage<T extends DocMessageType = DocMessageType, P =
   payload: P;
 }
 
-const TYPES: readonly string[] = ['act', 'close-tab', 'open-external', 'scroll-to', 'section-busy'];
+const TYPES: readonly string[] = ['act', 'ask', 'close-tab', 'open-external', 'scroll-to', 'section-busy'];
 
 export function docMessage<T extends DocMessageType, P>(type: T, payload: P): DocBridgeMessage<T, P> {
   return { source: 'eli5-doc', v: 1, type, payload };

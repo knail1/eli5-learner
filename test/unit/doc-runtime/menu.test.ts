@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fakeBridge, loadGolden, loadRuntime, selectText, type Runtime, type TestWindow } from './dom';
+import { fakeBridge, loadGolden, loadRuntime, menuParts, selectText, type Runtime, type TestWindow } from './dom';
 
 /** Inline action menu behavior beyond the M1 basics (08 §5.2-§5.5, §9) and the bridge envelope (08 §4.2). */
 
@@ -18,6 +18,7 @@ interface MenuModule {
     viewport: { width: number; height: number };
     scroll: { x: number; y: number };
     tabbarBottom: number;
+    prefer?: 'above' | 'below';
   }): Placement;
 }
 interface ProtocolModule {
@@ -46,7 +47,7 @@ function open(win: TestWindow, doc: Document, sel = '#tab-indepth > section p', 
   vi.advanceTimersByTime(200);
 }
 
-const menuEl = (root: ShadowRoot | undefined): HTMLElement | null => root?.querySelector('[role="toolbar"]') ?? null;
+const menuEl = (root: ShadowRoot | undefined): HTMLElement | null => root?.querySelector('[role="group"]') ?? null;
 const buttons = (root: ShadowRoot | undefined): HTMLButtonElement[] =>
   Array.from(root?.querySelectorAll<HTMLButtonElement>('button') ?? []);
 
@@ -83,6 +84,23 @@ describe('placeMenu (08 §5.2 step 6)', () => {
     });
     expect(p).toMatchObject({ left: 8, width: 344 });
   });
+
+  it('prefer: above stays above and grows upward; it flips only off the viewport top', () => {
+    // 260 tall at anchor top 300: above would reach 32, under the 44 px tab bar.
+    const tall = {
+      ...base,
+      menu: { width: 320, height: 260 },
+      anchor: { left: 400, top: 300, bottom: 320, width: 100 },
+    };
+    expect(menu.placeMenu(tall).below).toBe(true);
+    expect(menu.placeMenu({ ...tall, prefer: 'above' })).toEqual({ left: 290, top: 500 + 300 - 8 - 260, below: false });
+    expect(menu.placeMenu({ ...tall, prefer: 'above', anchor: { ...tall.anchor, top: 200 } }).below).toBe(true);
+  });
+
+  it('prefer: below stays below even when the menu would fit above', () => {
+    const p = menu.placeMenu({ ...base, prefer: 'below', anchor: { left: 400, top: 300, bottom: 320, width: 100 } });
+    expect(p).toEqual({ left: 290, top: 500 + 320 + 8, below: true });
+  });
 });
 
 describe('menu interaction (08 §5.2, §5.4)', () => {
@@ -97,20 +115,179 @@ describe('menu interaction (08 §5.2, §5.4)', () => {
     expect(h.selection?.current()).toMatchObject({ text: 'judges every channel' });
   });
 
-  it('is a toolbar with roving tabindex; arrows move between actions', () => {
+  const key = (win: TestWindow, el: Element | null | undefined, k: string, init: KeyboardEventInit = {}): boolean =>
+    el?.dispatchEvent(new win.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init })) ?? false;
+
+  it('the toolbar is one roving stop over Explain, ELI5 and Edit, wrapping and skipping disabled', () => {
     const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
     const h = rt.boot(win, doc);
     open(win, doc);
-    const bs = buttons(h.selection?.root);
-    expect(bs.map((b) => b.tabIndex)).toEqual([0, -1, -1, -1, -1, -1, -1]);
-    bs[0]?.focus();
-    bs[0]?.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
-    expect(bs.map((b) => b.tabIndex)).toEqual([-1, 0, -1, -1, -1, -1, -1]);
-    bs[1]?.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
-    // Wrapping back skips "Edit with my note", which is disabled while the note is empty.
-    bs[0]?.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
-    expect(bs.map((b) => b.tabIndex)).toEqual([-1, -1, -1, -1, -1, 0, -1]);
-    expect(h.selection?.root.querySelector('input')?.getAttribute('aria-label')).toBe('Note for this action');
+    const m = menuParts(h.selection?.root);
+    const tools = m.tools();
+    expect(tools.map((b) => b.tabIndex)).toEqual([0, -1, -1]);
+    tools[0]?.focus();
+    key(win, tools[0], 'ArrowRight');
+    expect(m.active()).toBe(tools[1]);
+    expect(tools.map((b) => b.tabIndex)).toEqual([-1, 0, -1]);
+    // "Edit with my note" is disabled while the note is empty: Right wraps past it.
+    key(win, tools[1], 'ArrowRight');
+    expect(m.active()).toBe(tools[0]);
+    key(win, tools[0], 'ArrowLeft');
+    expect(m.active()).toBe(tools[1]);
+    key(win, tools[1], 'Home');
+    expect(m.active()).toBe(tools[0]);
+    key(win, tools[0], 'End');
+    expect(m.active()).toBe(tools[1]);
+    // With a note, Edit joins the ring.
+    if (m.note) m.note.value = 'shorter';
+    m.note?.dispatchEvent(new win.Event('input', { bubbles: true }));
+    key(win, tools[1], 'End');
+    expect(m.active()).toBe(tools[2]);
+    key(win, tools[2], 'ArrowRight');
+    expect(m.active()).toBe(tools[0]);
+  });
+
+  it('a trigger opens its popup on Enter, Space or Down (first item) and Up (last item)', () => {
+    const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
+    const h = rt.boot(win, doc);
+    open(win, doc);
+    const m = menuParts(h.selection?.root);
+    const [explain, eli5] = m.tools();
+    const [pExplain, pEli5] = m.pops();
+    for (const k of ['Enter', ' ', 'ArrowDown']) {
+      explain?.focus();
+      expect(key(win, explain, k)).toBe(false); // handled, so no native click as well
+      expect(pExplain?.hidden).toBe(false);
+      expect(explain?.getAttribute('aria-expanded')).toBe('true');
+      expect(m.active()).toBe(m.button('Expand this'));
+      key(win, m.active(), 'Escape');
+      expect(pExplain?.hidden).toBe(true);
+    }
+    eli5?.focus();
+    key(win, eli5, 'ArrowUp');
+    expect(m.active()).toBe(m.button('ELI5 this selection'));
+    // Only one popup is open at a time.
+    explain?.click();
+    expect(pExplain?.hidden).toBe(false);
+    expect(pEli5?.hidden).toBe(true);
+    expect(eli5?.getAttribute('aria-expanded')).toBe('false');
+    explain?.click();
+    expect(pExplain?.hidden).toBe(true);
+  });
+
+  it('in a popup: Up/Down wrap, Home/End, skip disabled; Enter activates', async () => {
+    const bridge = fakeBridge();
+    const { win, doc } = loadGolden('with-tab', { bridge });
+    const p = doc.querySelector('#tab-indepth > section p');
+    if (p) p.textContent = 'word '.repeat(2600); // too long: "ELI5 this selection" is disabled
+    const h = rt.boot(win, doc);
+    selectText(doc, '#tab-indepth > section p');
+    doc.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true }));
+    vi.advanceTimersByTime(200);
+    const m = menuParts(h.selection?.root);
+    const [explain, eli5] = m.tools();
+    explain?.focus();
+    key(win, explain, 'Enter');
+    const item = (label: string) => m.button(label);
+    key(win, m.active(), 'ArrowUp');
+    expect(m.active()).toBe(item('Go deeper'));
+    key(win, m.active(), 'ArrowDown');
+    expect(m.active()).toBe(item('Expand this'));
+    key(win, m.active(), 'End');
+    expect(m.active()).toBe(item('Go deeper'));
+    key(win, m.active(), 'Home');
+    expect(m.active()).toBe(item('Expand this'));
+    key(win, m.active(), 'ArrowDown');
+    expect(m.active()).toBe(item("This isn't clear, re-explain it"));
+    // The ELI5 popup has one enabled item: Down and Up both stay on it.
+    key(win, m.active(), 'ArrowRight');
+    expect(m.active()).toBe(eli5);
+    key(win, eli5, 'ArrowDown');
+    expect(m.active()).toBe(item('Create a separate ELI5 for this section'));
+    key(win, m.active(), 'ArrowDown');
+    expect(m.active()).toBe(item('Create a separate ELI5 for this section'));
+    key(win, m.active(), 'Enter');
+    await vi.runAllTimersAsync();
+    expect(bridge.createSectionEli5).toHaveBeenCalledTimes(1);
+    expect(bridge.createSectionEli5.mock.calls[0]?.[0]).not.toHaveProperty('scope');
+  });
+
+  it('Left/Right in a popup close it and move to the adjacent trigger; Tab closes it', () => {
+    const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
+    const h = rt.boot(win, doc);
+    open(win, doc);
+    const m = menuParts(h.selection?.root);
+    const [explain, eli5] = m.tools();
+    const [pExplain, pEli5] = m.pops();
+    explain?.focus();
+    key(win, explain, 'ArrowDown');
+    key(win, m.active(), 'ArrowRight');
+    expect(pExplain?.hidden).toBe(true);
+    expect(m.active()).toBe(eli5);
+    expect(eli5?.tabIndex).toBe(0);
+    key(win, eli5, 'ArrowDown');
+    expect(pEli5?.hidden).toBe(false);
+    key(win, m.active(), 'ArrowLeft');
+    expect(pEli5?.hidden).toBe(true);
+    expect(m.active()).toBe(explain);
+    key(win, explain, 'ArrowDown');
+    key(win, m.active(), 'Tab');
+    expect(pExplain?.hidden).toBe(true);
+    expect(m.active()).toBe(explain);
+  });
+
+  it('Enter in the note opens Explain on "Expand this" and never submits; Enter again expands', async () => {
+    const bridge = fakeBridge();
+    const { win, doc } = loadGolden('with-tab', { bridge });
+    const h = rt.boot(win, doc);
+    open(win, doc);
+    doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: '.', metaKey: true, bubbles: true }));
+    const m = menuParts(h.selection?.root);
+    expect(m.active()).toBe(m.note);
+    if (m.note) m.note.value = 'half a no';
+    key(win, m.note, 'Enter');
+    expect(bridge.regenerateSection).not.toHaveBeenCalled();
+    expect(m.pops()[0]?.hidden).toBe(false);
+    expect(m.active()).toBe(m.button('Expand this'));
+    key(win, m.active(), 'Enter');
+    await vi.runAllTimersAsync();
+    expect(bridge.regenerateSection).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'expand', note: 'half a no' }),
+    );
+  });
+
+  it('Shift+Tab in the note goes to the question field', () => {
+    const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
+    const h = rt.boot(win, doc);
+    open(win, doc);
+    const m = menuParts(h.selection?.root);
+    m.note?.focus();
+    expect(key(win, m.note, 'Tab', { shiftKey: true })).toBe(false);
+    expect(m.active()).toBe(m.question);
+  });
+
+  it('places the menu again when a popup opens or closes, growing away from the selection', () => {
+    const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
+    Object.defineProperty(win.Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => [{ left: 100, top: 400, bottom: 420, width: 50, height: 20, right: 150 }],
+    });
+    // jsdom has no layout: the panel is 150 px tall, 260 px with a popup open.
+    Object.defineProperty(win.HTMLElement.prototype, 'offsetHeight', {
+      configurable: true,
+      get(this: HTMLElement) {
+        if (!this.classList.contains('m')) return 0;
+        return this.querySelector('[role="menu"]:not([hidden])') ? 260 : 150;
+      },
+    });
+    const h = rt.boot(win, doc);
+    open(win, doc);
+    const m = menuParts(h.selection?.root);
+    expect(m.menu?.style.top).toBe(`${String(400 - 8 - 150)}px`);
+    m.button('Explain')?.click();
+    expect(m.menu?.style.top).toBe(`${String(400 - 8 - 260)}px`);
+    m.button('Explain')?.click();
+    expect(m.menu?.style.top).toBe(`${String(400 - 8 - 150)}px`);
   });
 
   it('Esc closes the menu and restores the selection from the snapshot', () => {
@@ -118,7 +295,7 @@ describe('menu interaction (08 §5.2, §5.4)', () => {
     const h = rt.boot(win, doc);
     open(win, doc);
     doc.getSelection()?.removeAllRanges(); // clicking the note field clears the live selection
-    const note = h.selection?.root.querySelector('input');
+    const note = menuParts(h.selection?.root).note;
     note?.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     expect(menuEl(h.selection?.root)?.hidden).toBe(true);
     expect(doc.getSelection()?.toString()).toBe('judges every channel');
@@ -131,6 +308,24 @@ describe('menu interaction (08 §5.2, §5.4)', () => {
     expect(menuEl(h.selection?.root)?.hidden).toBe(true);
   });
 
+  it('Esc layering: the first Esc closes the open popup onto its trigger, the second closes the menu', () => {
+    const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
+    const h = rt.boot(win, doc);
+    open(win, doc);
+    const m = menuParts(h.selection?.root);
+    const eli5 = m.tools()[1];
+    eli5?.focus();
+    key(win, eli5, 'ArrowDown');
+    key(win, m.active(), 'Escape');
+    expect(m.pops()[1]?.hidden).toBe(true);
+    expect(eli5?.getAttribute('aria-expanded')).toBe('false');
+    expect(m.active()).toBe(eli5);
+    expect(m.menu?.hidden).toBe(false);
+    key(win, eli5, 'Escape');
+    expect(m.menu?.hidden).toBe(true);
+    expect(doc.getSelection()?.toString()).toBe('judges every channel');
+  });
+
   it('opens again after Esc once the user makes a different selection', () => {
     const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
     const h = rt.boot(win, doc);
@@ -141,12 +336,17 @@ describe('menu interaction (08 §5.2, §5.4)', () => {
     expect(menuEl(h.selection?.root)?.hidden).toBe(false);
   });
 
-  it('Cmd+. moves focus into the open menu', () => {
+  it('Cmd+. (or Ctrl+.) focuses the note; opening the menu does not move focus', () => {
     const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
     const h = rt.boot(win, doc);
     open(win, doc);
+    const m = menuParts(h.selection?.root);
+    expect(m.active()).toBeNull();
     doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: '.', metaKey: true, bubbles: true }));
-    expect(h.selection?.root.activeElement).toBe(h.selection?.root.querySelector('input'));
+    expect(m.active()).toBe(m.note);
+    m.question?.focus();
+    doc.dispatchEvent(new win.KeyboardEvent('keydown', { key: '.', ctrlKey: true, bubbles: true }));
+    expect(m.active()).toBe(m.note);
   });
 
   it('marks the passage with boxes over its own line boxes while open (08 §5.2 step 5)', () => {
@@ -194,7 +394,7 @@ describe('menu interaction (08 §5.2, §5.4)', () => {
 });
 
 describe('busy marks and notices (08 §5.5, §8.3, §9)', () => {
-  it('shows "Updating…" or "Creating ELI5 tab…" in an aria-live label while busy', async () => {
+  it('shows "Updating…", "Answering…" or "Creating ELI5 tab…" in an aria-live label while busy', async () => {
     const bridge = fakeBridge();
     const { win, doc } = loadGolden('with-tab', { bridge });
     const h = rt.boot(win, doc);
@@ -206,6 +406,8 @@ describe('busy marks and notices (08 §5.5, §8.3, §9)', () => {
     expect(label?.getAttribute('aria-live')).toBe('polite');
     bridge.busyCb?.({ busy: [{ sectionId: section?.id ?? '', action: 'eli5-tab' }] });
     expect(section?.querySelector('.eli5-busy-label')?.textContent).toBe('Creating ELI5 tab…');
+    bridge.busyCb?.({ busy: [{ sectionId: section?.id ?? '', action: 'ask' }] });
+    expect(section?.querySelector('.eli5-busy-label')?.textContent).toBe('Answering…');
     bridge.busyCb?.({ busy: [] });
     expect(section?.querySelector('.eli5-busy-label')).toBeNull();
   });
@@ -237,6 +439,9 @@ describe('bridge message envelope (08 §4.2)', () => {
     const m = protocol.docMessage('close-tab', { tabKey: 'sx0a1b2c' });
     expect(m).toEqual({ source: 'eli5-doc', v: 1, type: 'close-tab', payload: { tabKey: 'sx0a1b2c' } });
     expect(protocol.isDocMessage(m)).toBe(true);
+    for (const t of ['act', 'ask', 'close-tab', 'open-external', 'scroll-to', 'section-busy']) {
+      expect(protocol.isDocMessage(protocol.docMessage(t, {}))).toBe(true);
+    }
     for (const bad of [null, 'x', { ...m, source: 'other' }, { ...m, v: 2 }, { ...m, type: 'nope' }]) {
       expect(protocol.isDocMessage(bad)).toBe(false);
     }

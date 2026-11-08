@@ -191,7 +191,8 @@ describe('runtimeFor (D12)', () => {
   });
 
   it('a section action on a current document keeps its runtime', async () => {
-    const s = await setup({ deps: { bundledRuntime: () => NEW_RUNTIME } });
+    const current = { ...fixture.model, generator: { ...g, runtimeVersion: DOC_RUNTIME_VERSION } };
+    const s = await setup({ model: current, deps: { bundledRuntime: () => NEW_RUNTIME } });
     await patchOf(s, () => s.ir.actions.regenerateSection(req(s)));
     expect(parseDocument(await s.read()).runtime).toEqual(STUB_RUNTIME);
   });

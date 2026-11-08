@@ -6,7 +6,7 @@ import { DocRuntimeMissingError } from './errors';
 import type { DocRuntime } from './types';
 
 /** Recorded in DocumentModel.generator.runtimeVersion; bump when the runtime contract changes. */
-export const DOC_RUNTIME_VERSION = '1.0.0';
+export const DOC_RUNTIME_VERSION = '1.1.0';
 
 const files = import.meta.glob<string>(
   ['../../../build/doc-runtime/runtime.iife.js', '../../../build/doc-runtime/runtime.css'],

@@ -121,7 +121,8 @@ describe('refreshRuntimeOnOpen (D12 a)', () => {
   });
 
   it('does nothing for a document on the current runtime', async () => {
-    const s = await setup({ deps: { bundledRuntime: () => NEW_RUNTIME } });
+    const current = { ...fixture.model, generator: { ...g, runtimeVersion: DOC_RUNTIME_VERSION } };
+    const s = await setup({ model: current, deps: { bundledRuntime: () => NEW_RUNTIME } });
     const spy = vi.spyOn(s.lib, 'refreshRuntime');
     const lock = vi.spyOn(s.lib, 'withDocLock');
     const html = await s.read();

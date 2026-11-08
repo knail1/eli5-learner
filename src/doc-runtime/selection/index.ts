@@ -1,24 +1,45 @@
 // Selection bridge and inline action menu (08 §5). Installed only when window.eli5Doc exists
-// (08 §2 item 6): snapshot, seven actions + note, submit, busy marks and inline notices.
+// (08 §2 item 6): snapshot, the Ask field, the grouped actions + note, submit, busy marks and
+// inline notices.
 import type { DocBridge } from '../bridge';
 import type { TabsApi } from '../tabs';
 import { placeMenu } from './menu';
 import { drawPending, pendingRects } from './pending';
 import { rangeText } from './text';
 
-export const MENU_ACTIONS = [
-  ['expand', 'Expand this'],
-  ['reexplain', "This isn't clear, re-explain it"],
-  ['analogy', 'Give me an analogy'],
-  ['deeper', 'Go deeper'],
-  ['eli5-tab', 'Create a separate ELI5 for this section'],
-  ['eli5-selection', 'ELI5 this selection'],
-  ['revise', 'Edit with my note'],
+/** 08 §5.1: the popup groups of the toolbar, in order. */
+export const MENU_GROUPS = [
+  {
+    id: 'explain',
+    label: 'Explain',
+    items: [
+      ['expand', 'Expand this'],
+      ['reexplain', "This isn't clear, re-explain it"],
+      ['analogy', 'Give me an analogy'],
+      ['deeper', 'Go deeper'],
+    ],
+  },
+  {
+    id: 'eli5',
+    label: 'ELI5',
+    items: [
+      ['eli5-tab', 'Create a separate ELI5 for this section'],
+      ['eli5-selection', 'ELI5 this selection'],
+    ],
+  },
 ] as const;
-export type MenuActionId = (typeof MENU_ACTIONS)[number][0];
+/** The toolbar's plain button after the popup triggers. */
+export const EDIT_ACTION = ['revise', 'Edit with my note'] as const;
+type MenuItem = (typeof MENU_GROUPS)[number]['items'][number];
+/** The six popup items, flattened in order (for tests). */
+export const MENU_ACTIONS: readonly MenuItem[] = MENU_GROUPS.flatMap((g): readonly MenuItem[] => g.items);
+export type MenuActionId = MenuItem[0] | (typeof EDIT_ACTION)[0] | 'ask';
 
 export const MAX_SELECTION_CHARS = 4000;
 export const MAX_NOTE_CHARS = 200;
+export const MAX_QUESTION_CHARS = 500;
+/** Non-space characters a question needs before Ask enables. */
+export const MIN_QUESTION_CHARS = 3;
 /** 08 §7.5: "ELI5 this selection" takes the whole selection up to this length. */
 export const MAX_SELECTION_ELI5_CHARS = 12000;
 export const TOO_LONG_NOTE = 'Too long to ELI5 as a selection (12,000 characters max)';
@@ -84,7 +105,13 @@ export function normalizeNote(s: string): string {
     .slice(0, MAX_NOTE_CHARS);
 }
 
-const hasText = (s: string): boolean => s.replace(/\s/g, '').length > 0;
+/** The question is collapsed to one line and cut to 500 characters (08 §5.1). */
+export function normalizeQuestion(s: string): string {
+  return s.replace(/\s+/g, ' ').trim().slice(0, MAX_QUESTION_CHARS);
+}
+
+const nonSpace = (s: string): number => s.replace(/\s/g, '').length;
+const hasText = (s: string): boolean => nonSpace(s) > 0;
 
 /** "Edit with my note" needs a note: the note is its only instruction (08 §5.1). */
 const needsNote = (action: string): boolean => action === 'revise';
@@ -135,21 +162,35 @@ export function snapshotSelection(sel: Selection | null): SelectionSnapshot | nu
 
 const MENU_CSS = `
 :host{all:initial}
-.m{position:absolute;z-index:30;display:flex;flex-direction:column;gap:6px;max-width:420px;padding:8px;border-radius:10px;
-background:var(--eli5-menu-bg,#1f2125);color:#f3f1ec;font:13px/1.3 -apple-system,'Helvetica Neue',Arial,sans-serif;
+.m{position:absolute;z-index:30;box-sizing:border-box;display:flex;flex-direction:column;gap:6px;width:340px;max-width:420px;
+padding:8px;border-radius:10px;background:var(--eli5-menu-bg,#1f2125);color:#f3f1ec;font:13px/1.3 -apple-system,'Helvetica Neue',Arial,sans-serif;
 border:1px solid var(--eli5-menu-rule,#1f2125);box-shadow:var(--eli5-menu-shadow,0 6px 24px rgba(0,0,0,.25))}
-.m[hidden]{display:none}
-input{font:inherit;padding:6px 8px;border-radius:6px;border:1px solid #555;background:#2b2e33;color:inherit}
+.m[hidden],.ask[hidden],.pop[hidden]{display:none}
+input{font:inherit;min-width:0;padding:6px 8px;border-radius:6px;border:1px solid #555;background:#2b2e33;color:inherit}
+.ask{display:flex;gap:4px}
+input.q{flex:1}
 .acts{display:flex;flex-wrap:wrap;gap:4px}
 button{font:inherit;font-weight:600;color:inherit;background:#34373d;border:0;border-radius:6px;padding:6px 8px;cursor:pointer}
 button:focus-visible,button:hover{background:#4a4e56;outline:none}
 button:disabled{opacity:.45;cursor:default}
-.hint,.cap{color:#c9c5bd}
+.go{flex:none}
+.trig{display:inline-flex;align-items:center;gap:6px}
+.caret{width:0;height:0;border:4px solid transparent;border-top:5px solid currentColor;border-bottom:0;transition:transform .15s}
+.trig[aria-expanded=true] .caret{transform:rotate(180deg)}
+.pop{display:flex;flex-direction:column;gap:2px;padding:4px;border-radius:8px;background:#2b2e33}
+[role=menuitem]{min-height:28px;text-align:left;font-weight:500;background:transparent}
+[role=menuitem]:focus-visible,[role=menuitem]:hover{background:#4a4e56}
+.hint,.cap{margin:0;color:#c9c5bd}
 .hint:empty,.cap:empty{display:none}
+@media (prefers-reduced-motion:reduce){.caret{transition:none}}
 @media print{.m{display:none}}`;
 
 /** 08 §5.5 step 2: the label under the heading while a section is busy. */
-const BUSY_LABEL: Record<string, string> = { 'eli5-tab': 'Creating ELI5 tab…', 'eli5-selection': 'Creating ELI5 tab…' };
+const BUSY_LABEL: Record<string, string> = {
+  ask: 'Answering…',
+  'eli5-tab': 'Creating ELI5 tab…',
+  'eli5-selection': 'Creating ELI5 tab…',
+};
 const busyLabel = (action: string): string => BUSY_LABEL[action] ?? 'Updating…';
 
 export interface SelectionController {
@@ -158,7 +199,8 @@ export interface SelectionController {
   current(): SelectionSnapshot | null;
   open(s: SelectionSnapshot, range?: Range): void;
   close(): void;
-  submit(action: MenuActionId, note?: string): Promise<void>;
+  /** `text` is the note, or for 'ask' the question (the question field when omitted). */
+  submit(action: MenuActionId, text?: string): Promise<void>;
   setBusy(busy: { sectionId: string; action: string }[]): void;
 }
 
@@ -168,6 +210,22 @@ function lastRect(range: Range | null): { left: number; top: number; bottom: num
   return rects.length > 0 ? rects[rects.length - 1] : undefined;
 }
 
+/** Roving focus over `list` (08 §5.4): from `i`, step `dir` past disabled controls, with wrap. */
+function rove(list: HTMLButtonElement[], i: number, dir: 1 | -1, focus = true): void {
+  const n = list.length;
+  let k = ((i % n) + n) % n;
+  for (let tries = 0; tries < n && list[k]?.disabled; tries++) k = (((k + dir) % n) + n) % n;
+  list.forEach((b, j) => (b.tabIndex = j === k ? 0 : -1));
+  if (focus) list[k]?.focus();
+}
+
+/** A toolbar trigger, its in-flow popup (`role=menu`) and the popup's items. */
+interface Group {
+  trigger: HTMLButtonElement;
+  pop: HTMLElement;
+  items: HTMLButtonElement[];
+}
+
 export function initSelection(doc: Document, win: Window, bridge: DocBridge, tabs?: TabsApi): SelectionController {
   const host = doc.createElement('div');
   host.setAttribute('data-eli5-noact', '');
@@ -175,37 +233,75 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
   const root = host.attachShadow({ mode: 'closed' });
   const style = doc.createElement('style');
   style.textContent = MENU_CSS;
-  const menu = doc.createElement('div');
-  menu.className = 'm';
-  menu.setAttribute('role', 'toolbar');
-  menu.setAttribute('aria-label', 'Section actions');
-  menu.hidden = true;
-  const hint = doc.createElement('div');
-  hint.className = 'hint';
-  hint.setAttribute('aria-live', 'polite');
-  const note = doc.createElement('input');
-  note.type = 'text';
-  note.placeholder = 'Add a note (optional)';
-  note.maxLength = MAX_NOTE_CHARS;
-  note.setAttribute('aria-label', 'Note for this action');
-  const acts = doc.createElement('div');
-  acts.className = 'acts';
-  const buttons = MENU_ACTIONS.map(([id, label], i) => {
-    const b = doc.createElement('button');
+  const el = <K extends keyof HTMLElementTagNameMap>(
+    tag: K,
+    cls: string,
+    attrs: Record<string, string> = {},
+  ): HTMLElementTagNameMap[K] => {
+    const e = doc.createElement(tag);
+    if (cls) e.className = cls;
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    return e;
+  };
+  const button = (label: string, cls = ''): HTMLButtonElement => {
+    const b = el('button', cls);
     b.type = 'button';
     b.textContent = label;
-    b.dataset.action = id;
-    b.tabIndex = i === 0 ? 0 : -1;
-    acts.appendChild(b);
     return b;
+  };
+  const input = (cls: string, placeholder: string, max: number, label: string): HTMLInputElement => {
+    const i = el('input', cls, { 'aria-label': label, autocomplete: 'off' });
+    i.type = 'text';
+    i.placeholder = placeholder;
+    i.maxLength = max;
+    return i;
+  };
+
+  // 08 §5.1, top to bottom: hint, Ask row, note, toolbar, the popups (in flow), cap.
+  const menu = el('div', 'm', { role: 'group', 'aria-label': 'Selection actions' });
+  menu.hidden = true;
+  const hint = el('p', 'hint', { 'aria-live': 'polite' });
+  const askRow = el('div', 'ask');
+  const question = input('q', 'Ask a question about this…', MAX_QUESTION_CHARS, 'Your question about this passage');
+  const askBtn = button('Ask', 'go');
+  askRow.append(question, askBtn);
+  // An older app's bridge has no askQuestion: the row stays hidden there.
+  askRow.hidden = typeof bridge.askQuestion !== 'function';
+  const note = input('note', 'Add a note (optional)', MAX_NOTE_CHARS, 'Note for this action');
+  const acts = el('div', 'acts', { role: 'toolbar', 'aria-label': 'Section actions' });
+  const groups: Group[] = MENU_GROUPS.map((g) => {
+    const trigger = button(g.label, 'trig');
+    trigger.append(el('span', 'caret', { 'aria-hidden': 'true' }));
+    trigger.setAttribute('aria-haspopup', 'menu');
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.setAttribute('aria-controls', `pm-${g.id}`);
+    const pop = el('div', 'pop', { id: `pm-${g.id}`, role: 'menu', 'aria-label': g.label });
+    pop.hidden = true;
+    const items = g.items.map(([id, label]) => {
+      const b = button(label);
+      b.setAttribute('role', 'menuitem');
+      b.dataset.action = id;
+      b.tabIndex = -1;
+      pop.appendChild(b);
+      return b;
+    });
+    acts.appendChild(trigger);
+    return { trigger, pop, items };
   });
-  const cap = doc.createElement('div');
-  cap.className = 'cap';
-  menu.append(hint, note, acts, cap);
+  const revise = button(EDIT_ACTION[1]);
+  revise.dataset.action = EDIT_ACTION[0];
+  acts.appendChild(revise);
+  /** The toolbar's controls: one roving tab stop. */
+  const tools = [...groups.map((g) => g.trigger), revise];
+  const cap = el('p', 'cap');
+  menu.append(hint, askRow, note, acts, ...groups.map((g) => g.pop), cap);
   root.append(style, menu);
 
   let snap: SelectionSnapshot | null = null;
   let snapRange: Range | null = null;
+  /** The side the menu was last placed on (true = below the anchor); reset on open. */
+  let side: boolean | undefined;
+  let openGroup: Group | null = null;
   const busy = new Set<string>();
   // 08 §5.2 step 5: boxes over the passage's own line boxes, painted with the highlight color.
   const layer = doc.createElement('div');
@@ -219,61 +315,118 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
     drawPending(layer, range ? pendingRects(range, TEXT_EXCLUDED) : [], { x: win.scrollX, y: win.scrollY });
   };
 
-  const place = (): void => {
+  /** `keepSide`: the menu changed size, so it stays on its side and grows away from the selection. */
+  const place = (keepSide = false): void => {
     const r = lastRect(snapRange);
     const bar = doc.querySelector('nav.tabbar');
     const p = placeMenu({
       anchor: r ?? { left: 0, top: 0, bottom: 0, width: 0 },
-      menu: { width: menu.offsetWidth || 320, height: menu.offsetHeight || 90 },
+      menu: { width: menu.offsetWidth || 340, height: menu.offsetHeight || 150 },
       viewport: { width: win.innerWidth || doc.documentElement.clientWidth, height: win.innerHeight },
       scroll: { x: win.scrollX, y: win.scrollY },
       tabbarBottom: bar?.getBoundingClientRect().bottom ?? 0,
+      ...(keepSide && side !== undefined ? { prefer: side ? ('below' as const) : ('above' as const) } : {}),
     });
+    side = p.below;
     menu.style.left = `${String(p.left)}px`;
     menu.style.top = `${String(p.top)}px`;
     menu.style.width = p.width !== undefined ? `${String(p.width)}px` : '';
   };
 
-  /** Roving focus; arrows skip disabled actions (an empty note disables "Edit with my note"). */
-  const focusAction = (i: number, dir: 1 | -1 = 1): void => {
-    const n = buttons.length;
-    let k = ((i % n) + n) % n;
-    for (let tries = 0; tries < n && buttons[k]?.disabled; tries++) k = (((k + dir) % n) + n) % n;
-    buttons.forEach((b, j) => (b.tabIndex = j === k ? 0 : -1));
-    buttons[k]?.focus();
+  const closePop = (focusTrigger = false): void => {
+    const g = openGroup;
+    if (!g) return;
+    openGroup = null;
+    g.pop.hidden = true;
+    g.trigger.setAttribute('aria-expanded', 'false');
+    if (focusTrigger) g.trigger.focus();
+    if (!menu.hidden) place(true);
+  };
+
+  /** Opens `g` (closing the other) and focuses its first or last enabled item. */
+  const openPop = (g: Group, at: 'first' | 'last'): void => {
+    if (g.trigger.disabled) return;
+    if (openGroup !== g) {
+      closePop();
+      openGroup = g;
+      g.pop.hidden = false;
+      g.trigger.setAttribute('aria-expanded', 'true');
+      place(true);
+    }
+    rove(tools, tools.indexOf(g.trigger), 1, false);
+    if (at === 'first') rove(g.items, 0, 1);
+    else rove(g.items, g.items.length - 1, -1);
+  };
+
+  /** Moves the toolbar's roving stop, closing an open popup on the way. */
+  const toTool = (i: number, dir: 1 | -1): void => {
+    closePop();
+    rove(tools, i, dir);
+  };
+
+  /** 08 §5.1 enable rules: on open, on every input and on busy changes. */
+  const refresh = (): void => {
+    const s = snap;
+    const isBusy = s ? busy.has(s.sectionId) : false;
+    const tooLong = s?.selection.tooLong ?? false;
+    question.readOnly = isBusy;
+    note.readOnly = isBusy;
+    askBtn.disabled = isBusy || nonSpace(question.value) < MIN_QUESTION_CHARS;
+    for (const g of groups) {
+      for (const b of g.items) b.disabled = isBusy || (tooLong && b.dataset.action === 'eli5-selection');
+      g.trigger.disabled = g.items.every((b) => b.disabled);
+      if (g.trigger.disabled && openGroup === g) {
+        // Focus inside the popup would fall to <body>; keep it in the menu on the note.
+        const inside = g.pop.contains(root.activeElement);
+        closePop();
+        if (inside) note.focus();
+      }
+    }
+    // "Edit with my note" needs a note: the note is its only instruction.
+    revise.disabled = isBusy || !normalizeNote(note.value);
+    const stop = tools.find((b) => b.tabIndex === 0);
+    if (!stop || stop.disabled) rove(tools, 0, 1, false);
+    const h = isBusy ? 'This section is being updated' : s?.clipped ? `Applies to: ${s.heading}` : '';
+    const c = tooLong && !isBusy ? TOO_LONG_NOTE : '';
+    if (h !== hint.textContent || c !== cap.textContent) {
+      hint.textContent = h;
+      cap.textContent = c;
+      if (!menu.hidden) place(true);
+    }
   };
 
   const ctl: SelectionController = {
     root,
     current: () => snap,
     open(s, range) {
+      closePop();
       snap = s;
       snapRange = range ?? null;
-      const isBusy = busy.has(s.sectionId);
-      hint.textContent = isBusy ? 'This section is being updated' : s.clipped ? `Applies to: ${s.heading}` : '';
-      const tooLong = s.selection.tooLong;
+      side = undefined;
+      // The note belongs to one selection; a question is kept until it is sent (08 §5.5 step 4).
       note.value = '';
-      for (const b of buttons) {
-        const action = b.dataset.action ?? '';
-        b.disabled = isBusy || (tooLong && action === 'eli5-selection') || needsNote(action);
-      }
-      cap.textContent = tooLong && !isBusy ? TOO_LONG_NOTE : '';
-      buttons.forEach((b, j) => (b.tabIndex = j === 0 ? 0 : -1));
+      tools.forEach((b, j) => (b.tabIndex = j === 0 ? 0 : -1));
+      refresh();
       menu.hidden = false;
       setHighlight(snapRange);
       place();
     },
     close() {
+      menu.hidden = true;
+      closePop();
       snap = null;
       snapRange = null;
-      menu.hidden = true;
       setHighlight(null);
     },
-    async submit(action, rawNote) {
+    async submit(action, text) {
       const s = snap;
       if (!s || busy.has(s.sectionId)) return;
       if (action === 'eli5-selection' && s.selection.tooLong) return;
-      const n = normalizeNote(rawNote ?? '');
+      const isAsk = action === 'ask';
+      const q = isAsk ? normalizeQuestion(text ?? question.value) : '';
+      if (isAsk && nonSpace(q) < MIN_QUESTION_CHARS) return;
+      // The note is never sent with Ask.
+      const n = isAsk ? '' : normalizeNote(text ?? '');
       if (needsNote(action) && !n) return;
       ctl.close();
       const section = doc.getElementById(s.sectionId);
@@ -281,7 +434,11 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
       const base = { tabKey: s.tabKey, sectionId: s.sectionId, selectionText: s.text, ...(n ? { note: n } : {}) };
       let res: { ok: boolean; error?: { message?: string } };
       try {
-        if (action === 'eli5-selection') {
+        if (isAsk) {
+          res = bridge.askQuestion
+            ? await bridge.askQuestion({ ...base, question: q })
+            : { ok: false, error: { message: 'Update the app to ask questions' } };
+        } else if (action === 'eli5-selection') {
           // 08 §7.5: the whole selection, anchored to the first section it covers.
           res = await bridge.createSectionEli5({
             ...base,
@@ -301,6 +458,9 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
       if (!res.ok) {
         markBusy(doc, section, null);
         showNotice(doc, section, res.error?.message ?? 'Something went wrong');
+      } else if (isAsk && normalizeQuestion(question.value) === q) {
+        // Cleared only after a successful dispatch, so a refused question can be sent again.
+        question.value = '';
       }
     },
     setBusy(list) {
@@ -310,31 +470,81 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
         if (!busy.has(el.id)) markBusy(doc, el, null);
       }
       for (const b of list) markBusy(doc, doc.getElementById(b.sectionId), b.action);
+      if (!menu.hidden) refresh();
     },
   };
 
-  for (const [i, b] of buttons.entries()) {
-    b.addEventListener('click', () => void ctl.submit(b.dataset.action as MenuActionId, note.value));
+  /** Space activates a button on keyup; handled on keydown instead, so it must not click twice. */
+  const noSpaceClick = (b: HTMLButtonElement): void =>
+    b.addEventListener('keyup', (e) => {
+      if (e.key === ' ') e.preventDefault();
+    });
+
+  askBtn.addEventListener('click', () => void ctl.submit('ask'));
+  question.addEventListener('input', refresh);
+  question.addEventListener('keydown', (e) => {
+    // Enter submits Ask when enabled; the keydown carries user activation (08 §5.4). An Enter
+    // that commits an IME composition is not a submit.
+    if (e.key !== 'Enter' || e.isComposing) return;
+    e.preventDefault();
+    if (!askBtn.disabled) void ctl.submit('ask');
+  });
+  note.addEventListener('input', refresh);
+  note.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.isComposing) {
+      // Enter never submits, so a half-typed note cannot fire the wrong action: it opens Explain
+      // on "Expand this", which keeps Cmd+. -> Enter -> Enter = Expand this (08 §5.4).
+      e.preventDefault();
+      const g = groups[0];
+      if (g) openPop(g, 'first');
+    } else if (e.key === 'Tab' && e.shiftKey && !askRow.hidden) {
+      e.preventDefault();
+      question.focus();
+    }
+  });
+
+  for (const [i, b] of tools.entries()) {
+    const g = groups.find((x) => x.trigger === b);
     b.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') focusAction(i + 1, 1);
-      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') focusAction(i - 1, -1);
+      const k = e.key;
+      if (k === 'ArrowRight') toTool(i + 1, 1);
+      else if (k === 'ArrowLeft') toTool(i - 1, -1);
+      else if (k === 'Home') toTool(0, 1);
+      else if (k === 'End') toTool(tools.length - 1, -1);
+      else if (g && (k === 'Enter' || k === ' ' || k === 'ArrowDown')) openPop(g, 'first');
+      else if (g && k === 'ArrowUp') openPop(g, 'last');
       else return;
       e.preventDefault();
     });
+    if (!g) continue;
+    noSpaceClick(b);
+    b.addEventListener('click', () => {
+      if (openGroup === g) closePop();
+      else openPop(g, 'first');
+    });
   }
-  // "Edit with my note" turns on as soon as the note has text (and the section is not busy).
-  note.addEventListener('input', () => {
-    const empty = !normalizeNote(note.value);
-    const isBusy = snap ? busy.has(snap.sectionId) : true;
-    for (const b of buttons) if (needsNote(b.dataset.action ?? '')) b.disabled = isBusy || empty;
-  });
-  note.addEventListener('keydown', (e) => {
-    // Enter never submits, so a half-typed note cannot fire the wrong action (08 §5.4).
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      focusAction(0);
+  revise.addEventListener('click', () => void ctl.submit('revise', note.value));
+
+  for (const g of groups) {
+    const t = tools.indexOf(g.trigger);
+    for (const [j, b] of g.items.entries()) {
+      noSpaceClick(b);
+      b.addEventListener('click', () => void ctl.submit(b.dataset.action as MenuActionId, note.value));
+      b.addEventListener('keydown', (e) => {
+        const k = e.key;
+        if (k === 'ArrowDown') rove(g.items, j + 1, 1);
+        else if (k === 'ArrowUp') rove(g.items, j - 1, -1);
+        else if (k === 'Home') rove(g.items, 0, 1);
+        else if (k === 'End') rove(g.items, g.items.length - 1, -1);
+        else if (k === 'ArrowRight') toTool(t + 1, 1);
+        else if (k === 'ArrowLeft') toTool(t - 1, -1);
+        else if (k === 'Tab') closePop(true);
+        else if (k === 'Enter' || k === ' ') void ctl.submit(b.dataset.action as MenuActionId, note.value);
+        else return;
+        e.preventDefault();
+      });
     }
-  });
+  }
   /**
    * The range Esc restored (08 §5.4). Restoring fires selectionchange; the menu stays closed while
    * the live selection is still exactly this range.
@@ -354,6 +564,12 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
   };
   menu.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
+    // Esc layering: an open popup closes first (focus back on its trigger), then the menu.
+    if (openGroup) {
+      e.preventDefault();
+      closePop(true);
+      return;
+    }
     const range = snapRange;
     ctl.close();
     if (range) {

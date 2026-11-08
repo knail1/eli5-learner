@@ -13,6 +13,12 @@ export interface PlaceInput {
   scroll: { x: number; y: number };
   /** Bottom edge of the sticky tab bar in client coordinates. */
   tabbarBottom: number;
+  /**
+   * The side the menu is already on, when it is placed again because it changed size (a popup
+   * opened or closed). Above stays above and grows upward, so the selection is never covered;
+   * it flips only when the top would leave the viewport. Below stays below.
+   */
+  prefer?: 'above' | 'below';
 }
 
 export interface Placement {
@@ -24,7 +30,7 @@ export interface Placement {
   below: boolean;
 }
 
-/** Centred 8 px above the anchor; flipped below when it would hit the tab bar or the viewport top. */
+/** Centred 8 px above the anchor; flipped below when it would hit the tab bar or the viewport top (unless `prefer`). */
 export function placeMenu(o: PlaceInput): Placement {
   const narrow = o.viewport.width < NARROW_WIDTH;
   const width = narrow ? o.viewport.width - 2 * MARGIN : o.menu.width;
@@ -32,7 +38,8 @@ export function placeMenu(o: PlaceInput): Placement {
   const maxLeft = Math.max(MARGIN, o.viewport.width - MARGIN - width);
   const left = narrow ? MARGIN : Math.min(maxLeft, Math.max(MARGIN, Math.round(centre - width / 2)));
   const aboveTop = o.anchor.top - GAP - o.menu.height;
-  const below = aboveTop < Math.max(0, o.tabbarBottom);
+  const below =
+    o.prefer === 'below' ? true : o.prefer === 'above' ? aboveTop < 0 : aboveTop < Math.max(0, o.tabbarBottom);
   const top = below ? o.anchor.bottom + GAP : aboveTop;
   return {
     left: left + o.scroll.x,

@@ -23,6 +23,13 @@ export interface DocBridge {
     scope?: 'selection';
     sectionIds?: string[];
   }): Promise<BridgeResult>;
+  /** Ask (08 §6.8): the answer box goes after the selection. Absent in an older app's bridge. */
+  askQuestion?(r: {
+    tabKey: string;
+    sectionId: string;
+    selectionText: string;
+    question: string;
+  }): Promise<BridgeResult>;
   closeTab(tabKey: string): Promise<BridgeResult>;
   openExternal(url: string): Promise<BridgeResult>;
   /** `anchorId`: an element inside the section to land on instead (an answer box, 08 Ask). */

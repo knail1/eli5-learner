@@ -14,6 +14,7 @@ type Busy = { busy: { sectionId: string; action: string }[] };
 export interface DocBridge {
   regenerateSection(r: object): Promise<BridgeResult>;
   createSectionEli5(r: object): Promise<BridgeResult>;
+  askQuestion?(r: object): Promise<BridgeResult>;
   closeTab(tabKey: string): Promise<BridgeResult>;
   openExternal(url: string): Promise<BridgeResult>;
   onScrollTo(cb: (e: ScrollTo) => void): () => void;
@@ -39,7 +40,8 @@ export interface RuntimeHandle {
     root: ShadowRoot;
     current(): Snapshot | null;
     close(): void;
-    submit(action: string, note?: string): Promise<void>;
+    /** `text`: the note, or the question for 'ask'. */
+    submit(action: string, text?: string): Promise<void>;
   };
 }
 export interface Runtime {
@@ -124,6 +126,7 @@ export function fakeBridge() {
     calls,
     regenerateSection: vi.fn(rec('regenerateSection')),
     createSectionEli5: vi.fn(rec('createSectionEli5')),
+    askQuestion: vi.fn(rec('askQuestion')),
     closeTab: vi.fn(rec('closeTab')),
     openExternal: vi.fn(rec('openExternal')),
     onScrollTo: vi.fn((cb: (e: ScrollTo) => void) => {
@@ -162,4 +165,27 @@ export function selectText(doc: Document, selector: string, text?: string, endSe
   const sel = doc.getSelection();
   sel?.removeAllRanges();
   sel?.addRange(range);
+}
+
+/** The parts of the selection menu (08 §5.1), looked up in its shadow root. */
+export function menuParts(root: ShadowRoot | undefined) {
+  const all = <T extends Element>(sel: string): T[] => Array.from(root?.querySelectorAll<T>(sel) ?? []);
+  const one = <T extends Element>(sel: string): T | null => root?.querySelector<T>(sel) ?? null;
+  const buttons = () => all<HTMLButtonElement>('button');
+  return {
+    menu: one<HTMLElement>('[role="group"]'),
+    hint: one<HTMLElement>('.hint'),
+    cap: one<HTMLElement>('.cap'),
+    question: one<HTMLInputElement>('input.q'),
+    note: one<HTMLInputElement>('input.note'),
+    toolbar: one<HTMLElement>('[role="toolbar"]'),
+    /** The toolbar's controls: Explain, ELI5, Edit with my note. */
+    tools: () => all<HTMLButtonElement>('[role="toolbar"] > button'),
+    items: () => all<HTMLButtonElement>('[role="menuitem"]'),
+    pops: () => all<HTMLElement>('[role="menu"]'),
+    buttons,
+    /** The button whose text is exactly `label`. */
+    button: (label: string) => buttons().find((b) => b.textContent === label),
+    active: () => root?.activeElement ?? null,
+  };
 }

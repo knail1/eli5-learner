@@ -301,7 +301,7 @@ test('E10: a document written by an earlier build still takes a section action (
   );
   expect(id).not.toBe('');
   await selectAndFocusMenu(viewer, id, 'Lead time is six weeks.');
-  await viewer.keyboard.press('Enter'); // note field -> first action
+  await viewer.keyboard.press('Enter'); // note field -> opens Explain on its first item
   await viewer.keyboard.press('Enter'); // "Expand this"
   await expect(viewer.locator(`#${id} > h2`)).toHaveText('How the forecast is built, step by step', {
     timeout: 30_000,
@@ -359,8 +359,11 @@ test('the viewer follows the app appearance, also for a document from an earlier
   expect(lum(dark.paper), dark.paper).toBeLessThan(0.2);
   expect(lum(light.paper), light.paper).toBeGreaterThan(0.9);
   await setSource('system');
-  // The file on disk is untouched; the dark variant is added when the viewer serves it.
-  expect(await readFile(path.join(dirs.library, slug, 'index.html'), 'utf8')).toBe(oldHtml);
+  // The dark variant is added when the viewer serves it, never written: the only write is the
+  // one-time runtime refresh on open (08 §5.1), which re-renders the same model and theme.
+  const onDisk = await readFile(path.join(dirs.library, slug, 'index.html'), 'utf8');
+  expect(oldHtml).toContain('; runtime 1.0.0"');
+  expect(onDisk).not.toContain('; runtime 1.0.0"');
 });
 
 /** A real left click on the page's `a[role=button]`, sent from main as native input. */
