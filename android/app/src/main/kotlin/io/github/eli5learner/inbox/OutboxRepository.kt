@@ -125,29 +125,84 @@ class OutboxRepository(
      */
     @Throws(ProtocolException::class, IOException::class)
     suspend fun queueCapture(draft: CaptureDraft): JobEntity {
-        val createdMs = now()
         val request =
             JobRequest.Capture(
                 v = PROTOCOL_VERSION,
                 jobId = draft.jobId,
                 deviceId = prefs.deviceId(),
-                createdAt = iso(createdMs),
+                createdAt = iso(now()),
                 urls = draft.urls,
                 text = draft.text,
                 clarifyingInput = draft.clarifyingInput,
                 focus = draft.focus,
                 attachments = draft.attachments,
             )
+        return queue(request, draft.title)
+    }
+
+    /**
+     * "Make current on your Mac" (16 §6.2 Versions): a `checkout` job for [versionId] of [docId].
+     * [title] is the Inbox label and never leaves the phone.
+     */
+    @Throws(ProtocolException::class, IOException::class)
+    suspend fun queueCheckout(
+        docId: String,
+        versionId: String,
+        title: String,
+    ): JobEntity =
+        queue(
+            JobRequest.Checkout(
+                v = PROTOCOL_VERSION,
+                jobId = JobIds.new(now()),
+                deviceId = prefs.deviceId(),
+                createdAt = iso(now()),
+                docId = docId,
+                versionId = versionId,
+            ),
+            title,
+        )
+
+    /**
+     * A question about one section (16 §5.1 `ask`, §6.2 Ask). [sectionHash] is the 08 §6.3 hash of
+     * the section as this phone shows it; the desktop answers `E_STALE` when the section has changed.
+     */
+    @Throws(ProtocolException::class, IOException::class)
+    suspend fun queueAsk(
+        docId: String,
+        sectionId: String,
+        sectionHash: String,
+        question: String,
+        title: String,
+    ): JobEntity =
+        queue(
+            JobRequest.Ask(
+                v = PROTOCOL_VERSION,
+                jobId = JobIds.new(now()),
+                deviceId = prefs.deviceId(),
+                createdAt = iso(now()),
+                docId = docId,
+                sectionId = sectionId,
+                sectionHash = sectionHash,
+                question = question,
+            ),
+            title,
+        )
+
+    /** Validates [request] (encode checks the wire rules), writes `request.json`, stores the rows, asks for an upload. */
+    private suspend fun queue(
+        request: JobRequest,
+        title: String,
+    ): JobEntity {
         val body = SyncProtocol.encode(JobRequest.serializer(), request)
-        val d = dir(draft.jobId)
+        val d = dir(request.jobId)
         withContext(Dispatchers.IO) {
-            for (a in draft.attachments) {
+            for (a in (request as? JobRequest.Capture)?.attachments.orEmpty()) {
                 val f = File(d, a.sha)
                 if (!f.isFile || f.length() != a.size) throw IOException("attachment not staged")
             }
             writeAtomic(File(d, REQUEST), body.toByteArray())
         }
-        val row = rowOf(request, draft.title.ifBlank { titleOf(request) }, uploaded = false)
+        val row = rowOf(request, title.ifBlank { titleOf(request) }, uploaded = false)
         writes.withLock { dao.insert(row, attachmentRows(request)) }
         kickUpload()
         return row

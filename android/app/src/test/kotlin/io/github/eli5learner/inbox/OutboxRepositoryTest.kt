@@ -496,6 +496,55 @@ class OutboxRepositoryTest {
             assertEquals(InboxChip.QUEUED, InboxViewModel.itemOf(db.jobs().get(id)!!, true).chip)
         }
 
+    @Test fun `make current queues a checkout job that uploads as a job file`() =
+        runTest {
+            val o = outbox()
+            val doc = "3f2b8c1e-5a4d-4e7f-9b6a-0c1d2e3f4a5b"
+            val row = o.queueCheckout(doc, "v-000000000002", "Budgets · Original")
+            assertEquals("checkout", row.kind)
+            assertEquals("Budgets · Original", row.title)
+            assertEquals(0, row.attachmentCount)
+            val req = SyncProtocol.decodeJob(File(File(root, row.jobId), OutboxRepository.REQUEST).readText()) as JobRequest.Checkout
+            assertEquals(doc, req.docId)
+            assertEquals("v-000000000002", req.versionId)
+            assertEquals(prefs.deviceId(), req.deviceId)
+            assertTrue(drive.calls.isEmpty())
+
+            assertEquals(SyncOutcome.Synced, o.upload())
+            assertEquals(listOf("job"), kindsInOrder())
+            val job = drive.byKind("job").single()
+            assertEquals(row.jobId, job.meta.appProperties?.get("s"))
+            assertTrue(SyncProtocol.decodeJob(job.body.decodeToString()) is JobRequest.Checkout)
+            assertEquals(JobEntity.UPLOADED, db.jobs().get(row.jobId)!!.local)
+        }
+
+    @Test fun `an ask carries the section and its hash, and invalid ones are refused before queueing`() =
+        runTest {
+            val o = outbox()
+            val doc = "3f2b8c1e-5a4d-4e7f-9b6a-0c1d2e3f4a5b"
+            val row = o.queueAsk(doc, "sec-indepth-001ce0e7", "a".repeat(64), "Why does ROAS matter?", "Why does ROAS matter?")
+            val req = SyncProtocol.decodeJob(File(File(root, row.jobId), OutboxRepository.REQUEST).readText()) as JobRequest.Ask
+            assertEquals("sec-indepth-001ce0e7", req.sectionId)
+            assertEquals("a".repeat(64), req.sectionHash)
+            assertEquals("ask", row.kind)
+
+            val before = db.jobs().count()
+            assertThrowsSuspend { o.queueAsk(doc, "sec-indepth-001ce0e7", "a".repeat(64), "two\nlines", "x") }
+            assertThrowsSuspend { o.queueCheckout(doc, "not-a-version", "x") }
+            assertEquals(before, db.jobs().count())
+        }
+
+    private suspend fun assertThrowsSuspend(block: suspend () -> Unit) {
+        val thrown =
+            try {
+                block()
+                false
+            } catch (_: io.github.eli5learner.sync.protocol.ProtocolException) {
+                true
+            }
+        assertTrue("expected a ProtocolException", thrown)
+    }
+
     private companion object {
         const val NOW = 1_800_000_100_000L
         val PNG = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3)

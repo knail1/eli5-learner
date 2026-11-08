@@ -1,0 +1,122 @@
+{
+  "documents": [
+    {
+      "file": "asked.html",
+      "sections": [
+        { "id": "sec-indepth-001ce0e7", "hash": "2e93bd5868570a4b16aec01f12d747bf448214876544e885858f4ede1500c88b" },
+        { "id": "sec-indepth-1c099207", "hash": "f6832b736c6fc2f73da43a6095327379d4d0ec0ded43e096b7ee3e185e7e726e" },
+        { "id": "sec-indepth-b6fc5245", "hash": "8aad109754706d7ea5dc02fe9efa74cf3faaf4c118e521a4438690aa74895201" },
+        { "id": "sec-indepth-148f210a", "hash": "409a269614de7b86eaef1499cf0f4cb60dd1a5c7fac03691f5f65c00b687b53f" },
+        { "id": "sec-eli5-aa296fff", "hash": "13d752616429ba40220f501db6963610cd173d8ba8aca1b746df76688d96a601" },
+        { "id": "sec-eli5-7d0f4e94", "hash": "a33b0dd220056411ba041e47372988acbfb6a7009eb6b05c43736d78b30bdac0" },
+        { "id": "sec-sx01806c-8f0193e9", "hash": "05a892b42321a7cfb8092172a8dcabc4cda9ba9a283845e44c61ac751c535c2f" }
+      ]
+    },
+    {
+      "file": "full.html",
+      "sections": [
+        { "id": "sec-indepth-001ce0e7", "hash": "19cda4b260279061ada38dc736d491cb7b6b9ad103272750a88855c6bb7d887b" },
+        { "id": "sec-indepth-1c099207", "hash": "f6832b736c6fc2f73da43a6095327379d4d0ec0ded43e096b7ee3e185e7e726e" },
+        { "id": "sec-indepth-b6fc5245", "hash": "8aad109754706d7ea5dc02fe9efa74cf3faaf4c118e521a4438690aa74895201" },
+        { "id": "sec-indepth-148f210a", "hash": "409a269614de7b86eaef1499cf0f4cb60dd1a5c7fac03691f5f65c00b687b53f" },
+        { "id": "sec-eli5-aa296fff", "hash": "b9ed041124f446ebd5f1f3d50739eb02740d442aa79a46530f5f40f6bdd6f4fe" },
+        { "id": "sec-eli5-7d0f4e94", "hash": "a33b0dd220056411ba041e47372988acbfb6a7009eb6b05c43736d78b30bdac0" }
+      ]
+    },
+    {
+      "file": "merged.html",
+      "sections": [
+        { "id": "sec-indepth-001ce0e7", "hash": "7a6f1b40c7f6b3bf75efb3a22be27f24373ded3425179adfe729f472b0b97ce3" },
+        { "id": "sec-indepth-1c099207", "hash": "f6832b736c6fc2f73da43a6095327379d4d0ec0ded43e096b7ee3e185e7e726e" },
+        { "id": "sec-indepth-00ad4528", "hash": "4ff7033c33b2e38472629384396861369cb428bc7a80b3498fd7a8c3ca999f6a" },
+        { "id": "sec-indepth-b6fc5245", "hash": "8aad109754706d7ea5dc02fe9efa74cf3faaf4c118e521a4438690aa74895201" },
+        { "id": "sec-indepth-148f210a", "hash": "409a269614de7b86eaef1499cf0f4cb60dd1a5c7fac03691f5f65c00b687b53f" },
+        { "id": "sec-eli5-aa296fff", "hash": "b2f16c8ab79cdd3d926552254bc98d317c960c9e1e1bb7f52ff397a5d1a7812f" },
+        { "id": "sec-eli5-7d0f4e94", "hash": "a33b0dd220056411ba041e47372988acbfb6a7009eb6b05c43736d78b30bdac0" },
+        { "id": "sec-eli5-a90a34ac", "hash": "6ff165c88d8ea9736375dc895a2c852f6da670f8bcebbbf9fe321cf0856fd5d4" }
+      ]
+    },
+    {
+      "file": "placeholder.html",
+      "sections": [
+        { "id": "sec-indepth-001ce0e7", "hash": "19cda4b260279061ada38dc736d491cb7b6b9ad103272750a88855c6bb7d887b" },
+        { "id": "sec-indepth-1c099207", "hash": "f6832b736c6fc2f73da43a6095327379d4d0ec0ded43e096b7ee3e185e7e726e" },
+        { "id": "sec-indepth-b6fc5245", "hash": "922ca041701c89544dec7c54d04ac1722e36561d1627ac2b5da0c93b7a36c39f" },
+        { "id": "sec-indepth-7d0f4e94", "hash": "f1592c5a5c28e7eb7feacf6a4e3709b949f1c4ff284f6b501d9a29dd2a355ece" },
+        { "id": "sec-eli5-aa296fff", "hash": "be445c972614508fbae5afc3e95375340e674d8cf61ff1f9fba5c5c576e1c9a2" }
+      ]
+    },
+    {
+      "file": "showcase.html",
+      "sections": [
+        { "id": "sec-indepth-002d616b", "hash": "09955594bae9f8ad6b4fc07872aed692b9d348c39e1c1ae9e838f44ea0e03f2a" },
+        { "id": "sec-indepth-2c0aba0b", "hash": "f168184bd817f64446573835c9edb1e9606e52523d5229ed7fe7b551fd9760fe" },
+        { "id": "sec-indepth-ff2fe033", "hash": "521b8927aac41801c1af21dd14b6f84bf9925f095fcfb7dff6203ae7c204cf36" },
+        { "id": "sec-eli5-1237126e", "hash": "761ef04bac9c507aa50420b7227d21b6068337d859f1f0de9a6c7a0b84d79ffb" },
+        { "id": "sec-sx01e36f-ef87e7b2", "hash": "b8a73ccb0c7e3984e8bbbf744fc1148cabecdadf6d845c4b11c168dd5ede596a" }
+      ]
+    },
+    {
+      "file": "themed.html",
+      "sections": [
+        { "id": "sec-indepth-001ce0e7", "hash": "19cda4b260279061ada38dc736d491cb7b6b9ad103272750a88855c6bb7d887b" },
+        { "id": "sec-indepth-1c099207", "hash": "f6832b736c6fc2f73da43a6095327379d4d0ec0ded43e096b7ee3e185e7e726e" },
+        { "id": "sec-indepth-b6fc5245", "hash": "8aad109754706d7ea5dc02fe9efa74cf3faaf4c118e521a4438690aa74895201" },
+        { "id": "sec-indepth-148f210a", "hash": "409a269614de7b86eaef1499cf0f4cb60dd1a5c7fac03691f5f65c00b687b53f" },
+        { "id": "sec-eli5-aa296fff", "hash": "b9ed041124f446ebd5f1f3d50739eb02740d442aa79a46530f5f40f6bdd6f4fe" },
+        { "id": "sec-eli5-7d0f4e94", "hash": "a33b0dd220056411ba041e47372988acbfb6a7009eb6b05c43736d78b30bdac0" }
+      ]
+    },
+    {
+      "file": "with-tab.html",
+      "sections": [
+        { "id": "sec-indepth-001ce0e7", "hash": "19cda4b260279061ada38dc736d491cb7b6b9ad103272750a88855c6bb7d887b" },
+        { "id": "sec-indepth-1c099207", "hash": "f6832b736c6fc2f73da43a6095327379d4d0ec0ded43e096b7ee3e185e7e726e" },
+        { "id": "sec-indepth-b6fc5245", "hash": "8aad109754706d7ea5dc02fe9efa74cf3faaf4c118e521a4438690aa74895201" },
+        { "id": "sec-indepth-148f210a", "hash": "409a269614de7b86eaef1499cf0f4cb60dd1a5c7fac03691f5f65c00b687b53f" },
+        { "id": "sec-eli5-aa296fff", "hash": "b9ed041124f446ebd5f1f3d50739eb02740d442aa79a46530f5f40f6bdd6f4fe" },
+        { "id": "sec-eli5-7d0f4e94", "hash": "a33b0dd220056411ba041e47372988acbfb6a7009eb6b05c43736d78b30bdac0" },
+        { "id": "sec-sx01806c-8f0193e9", "hash": "05a892b42321a7cfb8092172a8dcabc4cda9ba9a283845e44c61ac751c535c2f" }
+      ]
+    }
+  ],
+  "canonical": [
+    {
+      "value": {
+        "b": 1,
+        "a": [true, null, { "d": "x", "c": "y" }],
+        "Z": "upper",
+        "é": "accent",
+        "😀": "astral",
+        "": "empty"
+      },
+      "json": "{\"\":\"empty\",\"Z\":\"upper\",\"a\":[true,null,{\"c\":\"y\",\"d\":\"x\"}],\"b\":1,\"é\":\"accent\",\"😀\":\"astral\"}",
+      "hash": "f7eb3f96130277aeec6920abe4c926f0e048b9a2b2a5d7ae8df9fda20777208d"
+    },
+    {
+      "value": { "text": "tab\there \"quoted\" back\\slash <b>&amp;</b> line\u2028sep \u0001\u001f\u007f end" },
+      "json": "{\"text\":\"tab\\there \\\"quoted\\\" back\\\\slash <b>&amp;</b> line\u2028sep \\u0001\\u001f\u007f end\"}",
+      "hash": "47580b30b09403722bf68292a540a28c9d29fb31148d770b43b0a7d5605382e0"
+    },
+    {
+      "value": { "lone": "a\ud800b", "pair": "a😀b", "nl": "a\nb\r\n", "bs": "\b\f" },
+      "json": "{\"bs\":\"\\b\\f\",\"lone\":\"a\\ud800b\",\"nl\":\"a\\nb\\r\\n\",\"pair\":\"a😀b\"}",
+      "hash": "926f318cf94c3ea8cf27b2431d9c0554b59f4bb39b6a1e9cce0b0a28a1f7c361"
+    },
+    {
+      "value": {
+        "n": [
+          0, -1, 1.5, 0.1, 1e21, 1e-7, 123456789012, -0.25, 0.000025, 5e-324, 1.7976931348623157e308,
+          0.19999999999999998
+        ]
+      },
+      "json": "{\"n\":[0,-1,1.5,0.1,1e+21,1e-7,123456789012,-0.25,0.000025,5e-324,1.7976931348623157e+308,0.19999999999999998]}",
+      "hash": "7981fd12378c93437f8cba75470252dd5e04be90480cb65274a0e8d899074125"
+    },
+    {
+      "value": { "2": "two", "10": "ten", "4294967294": "index", "a": "name", "01": "padded", "4294967295": "max" },
+      "json": "{\"2\":\"two\",\"10\":\"ten\",\"4294967294\":\"index\",\"01\":\"padded\",\"4294967295\":\"max\",\"a\":\"name\"}",
+      "hash": "4647ba1e7c8aee0a2b385bba9c5ad69ac6e3983e29b6b31d686918831a7d8661"
+    }
+  ]
+}

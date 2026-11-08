@@ -10,7 +10,9 @@ import {
   VERSION_ID_RE as LIBRARY_VERSION_ID_RE,
   VersionNodeRecordSchema,
 } from '../../../../src/main/library';
-import { QA_ID_RE } from '../../../../src/main/document';
+import { QA_ID_RE, parseDocument } from '../../../../src/main/document';
+import { canonicalJson } from '../../../../src/main/document/canonical-json';
+import { sectionHash } from '../../../../src/main/document/interactive';
 import { MEDIA_TYPES } from '../../../../src/main/sources';
 import {
   ANCHOR_ID_RE,
@@ -33,7 +35,13 @@ import {
 } from '../../../../src/main/sync/protocol';
 import type { SyncFileType } from '../../../../src/main/sync/protocol';
 import type { VersionChangeKind } from '../../../../src/preload/contract';
-import { FIXTURE_DIR, LAYOUT_CASES, buildSyncContract, layoutRemoteTree } from '../../../../scripts/export-sync-schema';
+import {
+  FIXTURE_DIR,
+  LAYOUT_CASES,
+  SECTION_HASHES,
+  buildSyncContract,
+  layoutRemoteTree,
+} from '../../../../scripts/export-sync-schema';
 
 const root = resolve(import.meta.dirname, '../../../..');
 const fixtureDir = join(root, FIXTURE_DIR);
@@ -108,6 +116,32 @@ describe('version-tree layout fixtures', () => {
       if (c.collapsed.length > 0) continue;
       const ids = layoutRemoteTree(c.tree, []).map((r) => r.id);
       expect(ids.sort(), name).toEqual(c.tree.nodes.map((n) => n.id).sort());
+    }
+  });
+});
+
+describe('section hashes for phone asks (16 §5.1, 08 §6.3)', () => {
+  const contract = JSON.parse(readFileSync(join(root, SECTION_HASHES), 'utf8')) as {
+    documents: { file: string; sections: { id: string; hash: string }[] }[];
+    canonical: { value: unknown; json: string; hash: string }[];
+  };
+
+  it('match the hashes of the parsed documents, so hashing the raw embedded model is enough', () => {
+    expect(contract.documents.length).toBeGreaterThan(3);
+    for (const d of contract.documents) {
+      const html = readFileSync(join(root, 'test/fixtures/documents/build', d.file), 'utf8');
+      const parsed = parseDocument(html).model.tabs.flatMap((t) => t.sections);
+      expect(
+        parsed.map((s) => ({ id: s.id, hash: sectionHash(s) })),
+        d.file,
+      ).toEqual(d.sections);
+    }
+  });
+
+  it('cover the canonical JSON edge cases', () => {
+    for (const c of contract.canonical) {
+      expect(canonicalJson(c.value)).toBe(c.json);
+      expect(sectionHash(c.value as never)).toBe(c.hash);
     }
   });
 });

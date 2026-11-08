@@ -214,6 +214,54 @@ class SyncRepository(
     }
 
     /**
+     * Downloads an older version of a synced document for a preview (16 §6.2 Versions, §6.4: older
+     * versions download on demand). [sha] must belong to an uploaded node of the document's tree.
+     * The file lands next to the current one; the caller holds a [LibraryIndex.lease] on it first, so
+     * a sync pass does not prune it, and drops it with [LibraryIndex.dropPreview] afterwards.
+     */
+    suspend fun fetchVersion(
+        key: String,
+        sha: String,
+    ): FetchResult {
+        if (!DocStore.isValidKey(key) || !DocStore.isValidSha(sha)) return FetchResult.FAILED
+        if (withContext(Dispatchers.IO) { store.read(key, sha) } != null) return FetchResult.OK
+        val row = db.documents().get(key) ?: return FetchResult.FAILED
+        if (row.source != DocumentEntity.SOURCE_SYNCED) return FetchResult.FAILED
+        if (db.versions().forDoc(key).none { it.sha == sha && it.uploaded }) return FetchResult.MISSING
+        if (authState() !is AuthState.Connected) return FetchResult.NOT_CONNECTED
+        return try {
+            val files = remote.all()
+            val blob =
+                files
+                    .filter { it.kind == KIND_BLOB && it.docId == key && it.s == sha }
+                    .minByOrNull { if (it.dev == primaryOf(files)) 0 else 1 }
+                    ?: return FetchResult.MISSING
+            if ((blob.size ?: 0) > MAX_BLOB_BYTES) return FetchResult.FAILED
+            val gz = drive.downloadAtMost(blob.fileId, MAX_BLOB_BYTES) ?: return FetchResult.FAILED
+            val html = withContext(Dispatchers.Default) { gunzip(gz, HtmlImporter.MAX_BYTES) } ?: return FetchResult.FAILED
+            if (DocStore.sha256Hex(html) != sha) return FetchResult.FAILED
+            index.write { d ->
+                // The document may have left the library meanwhile; never write into a removed folder.
+                if (d.get(key)?.source != DocumentEntity.SOURCE_SYNCED) return@write FetchResult.FAILED
+                withContext(Dispatchers.IO) { store.write(key, html) }
+                FetchResult.OK
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: SyncException) {
+            when (e.code) {
+                SyncErrorCode.E_SYNC_AUTH -> FetchResult.NOT_CONNECTED
+                SyncErrorCode.E_SYNC_NOT_FOUND -> FetchResult.MISSING
+                else -> FetchResult.OFFLINE
+            }
+        } catch (e: IOException) {
+            FetchResult.FAILED
+        } catch (e: RuntimeException) {
+            FetchResult.FAILED
+        }
+    }
+
+    /**
      * Disconnect (16 §3.3, §4.8): forget the remote index, cursors and devices so the next Connect
      * (perhaps to another account) starts from a full listing. Documents on the phone stay.
      */

@@ -17,7 +17,8 @@ stay on your machine. The design is in
 > "Send to my Mac" (the share sheet, the outbox, the Inbox and its statuses) is built and tested the
 > same way. The desktop side that runs phone jobs (the inbox behind "Accept jobs from phone") is
 > built and tested against the in-memory store only; it too is unverified against a real Drive
-> until G1.
+> until G1. Versions on the phone (the tree, previews and "Make current on your Mac") are built and
+> tested the same way, against an in-memory Drive and database only.
 > Until G1 passes, treat Stages B and C as a preview; details may change, and if the hidden app
 > folder turns out not to be shared between the desktop and Android clients, sync moves to a
 > visible Drive folder instead.

@@ -191,4 +191,34 @@
     <string name="settings_storage_body">Documents on this phone use %1$s.</string>
     <string name="action_clear_cache">Clear cache</string>
     <string name="cache_cleared">Downloaded copies removed. They download again when needed.</string>
+    <!-- Versions (16 §6.2): the read-only tree, previews and "Make current on your Mac". -->
+    <string name="versions_title">Versions</string>
+    <string name="versions_current">Current</string>
+    <string name="versions_empty">No versions from your Mac yet.</string>
+    <string name="versions_busy">Your Mac is updating this document.</string>
+    <string name="versions_mac_not_taking">Your Mac isn’t taking jobs right now. Requests wait until it is.</string>
+    <string name="versions_not_on_phone_line">%1$s · Not available on this phone</string>
+    <string name="versions_make_current">Make current on your Mac</string>
+    <string name="versions_show_branches">Show branches</string>
+    <string name="versions_hide_branches">Hide branches</string>
+    <string name="versions_expanded">Branches shown</string>
+    <string name="versions_collapsed">Branches hidden</string>
+    <string name="versions_checkout_sent">Sent to your Mac. See the Inbox.</string>
+    <string name="versions_checkout_failed">Couldn’t send this to your Mac.</string>
+    <string name="reader_versions_chip">Versions, current: %1$s</string>
+    <string name="reader_more">More options</string>
+    <string name="reader_preview_of">Earlier version · %1$s</string>
+    <string name="reader_preview_banner">You’re reading an earlier version.</string>
+
+    <!-- Ask (16 §6.2), only when the Mac accepts questions. -->
+    <string name="ask_menu">Ask your Mac</string>
+    <string name="ask_title">Ask about a section</string>
+    <string name="ask_body">Your Mac answers in the document. The answer shows up after your next sync.</string>
+    <string name="ask_pick_section">Section</string>
+    <string name="ask_untitled_section">Untitled section</string>
+    <string name="ask_no_sections">This document has no sections to ask about.</string>
+    <string name="ask_question">Your question</string>
+    <string name="ask_send">Send to my Mac</string>
+    <string name="ask_sent">Sent to your Mac. See the Inbox.</string>
+    <string name="ask_failed">Couldn’t send this question.</string>
 </resources>

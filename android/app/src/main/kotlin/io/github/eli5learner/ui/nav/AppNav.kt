@@ -23,6 +23,9 @@ import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -51,7 +54,21 @@ import io.github.eli5learner.library.LibraryEvent
 import io.github.eli5learner.library.LibraryScreen
 import io.github.eli5learner.library.LibraryViewModel
 import io.github.eli5learner.onboarding.OnboardingScreen
+import io.github.eli5learner.ask.AskSheet
+import io.github.eli5learner.ask.DocOutline
+import io.github.eli5learner.ask.OutlineSection
+import io.github.eli5learner.reader.PreviewLease
+import io.github.eli5learner.reader.ReaderPreview
 import io.github.eli5learner.reader.ReaderScreen
+import io.github.eli5learner.sync.protocol.JobKind
+import io.github.eli5learner.versions.VersionsActions
+import io.github.eli5learner.versions.VersionsEvent
+import io.github.eli5learner.versions.VersionsSheet
+import io.github.eli5learner.versions.VersionsViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import io.github.eli5learner.sync.protocol.ProtocolException
+import java.io.IOException
 import io.github.eli5learner.settings.DiagnosticsScreen
 import io.github.eli5learner.settings.DiagnosticsViewModel
 import io.github.eli5learner.settings.ProbeActions
@@ -81,6 +98,10 @@ data object DiagnosticsKey : NavKey
 @Serializable
 data class ReaderKey(
     val key: String,
+    /** An earlier version to preview (16 §6.2 Versions); null for the phone's own copy. */
+    val previewVersionId: String? = null,
+    val previewSha: String? = null,
+    val previewLabel: String? = null,
 ) : NavKey
 
 private enum class TopLevel(
@@ -339,15 +360,15 @@ fun AppNav(
                                 )
                             }
                             entry<ReaderKey> { k ->
-                                ReaderScreen(
-                                    key = k.key,
-                                    index = container.libraryIndex,
-                                    store = container.docStore,
+                                ReaderEntry(
+                                    container = container,
+                                    k = k,
+                                    snackbar = snackbar,
                                     onBack = { if (backStack.size > 1) backStack.removeAt(backStack.lastIndex) },
-                                    onFetch = container.syncRepository::fetch,
-                                    onSavePosition = { key, sha, pos ->
-                                        // App scope: the screen's own scope is gone by the time the WebView is released.
-                                        container.appScope.launch { container.libraryIndex.saveReadingPosition(key, sha, pos) }
+                                    onPreview = { p ->
+                                        // From a preview, another preview replaces it instead of stacking up.
+                                        if (k.previewSha != null && backStack.lastOrNull() == k) backStack.removeAt(backStack.lastIndex)
+                                        backStack.add(ReaderKey(k.key, p.versionId, p.sha, p.label))
                                     },
                                 )
                             }
@@ -355,5 +376,117 @@ fun AppNav(
                 )
             }
         }
+    }
+}
+
+/**
+ * The Reader with its Versions sheet and Ask sheet (16 §6.2). The sheets' view model is scoped to
+ * this back stack entry. Ask is offered only while the primary Mac accepts `ask` jobs.
+ */
+@Composable
+private fun ReaderEntry(
+    container: AppContainer,
+    k: ReaderKey,
+    snackbar: SnackbarHostState,
+    onBack: () -> Unit,
+    onPreview: (ReaderPreview) -> Unit,
+) {
+    val resources = LocalResources.current
+    val scope = rememberCoroutineScope()
+    val versions: VersionsViewModel = viewModel(factory = VersionsViewModel.factory(container, k.key))
+    val vstate by versions.state.collectAsStateWithLifecycle()
+    val status by container.syncRepository.status.collectAsStateWithLifecycle()
+    var showVersions by rememberSaveable { mutableStateOf(false) }
+    var askSections by remember { mutableStateOf<List<OutlineSection>?>(null) }
+
+    LaunchedEffect(versions) {
+        versions.messages.collect { e ->
+            when (e) {
+                is VersionsEvent.Preview -> {
+                    showVersions = false
+                    onPreview(ReaderPreview(e.versionId, e.sha, e.label))
+                }
+                VersionsEvent.CheckoutQueued -> {
+                    showVersions = false
+                    snackbar.showSnackbar(resources.getString(R.string.versions_checkout_sent))
+                }
+                VersionsEvent.CheckoutFailed -> snackbar.showSnackbar(resources.getString(R.string.versions_checkout_failed))
+            }
+        }
+    }
+
+    val preview = k.previewSha?.let { sha -> k.previewVersionId?.let { ReaderPreview(it, sha, k.previewLabel.orEmpty()) } }
+    if (preview != null) {
+        // Entry-scoped: the preview's file stays through rotation and goes when the entry is popped.
+        viewModel<PreviewLease>(
+            key = "preview-${preview.sha}",
+            factory = PreviewLease.factory(container.libraryIndex, k.key, preview.sha, container.appScope),
+        )
+    }
+    val currentLabel = vstate.items.firstOrNull { it.row.isCurrent }?.label
+    val acceptsAsk = status.mac?.accepts?.contains(JobKind.ASK) == true
+    ReaderScreen(
+        key = k.key,
+        index = container.libraryIndex,
+        store = container.docStore,
+        onBack = onBack,
+        onFetch = container.syncRepository::fetch,
+        onSavePosition = { key, sha, pos ->
+            // App scope: the screen's own scope is gone by the time the WebView is released.
+            container.appScope.launch { container.libraryIndex.saveReadingPosition(key, sha, pos) }
+        },
+        preview = preview,
+        onFetchVersion = container.syncRepository::fetchVersion,
+        versionLabel = currentLabel,
+        onVersions = { showVersions = true },
+        onAsk =
+            if (acceptsAsk) {
+                { sha ->
+                    scope.launch {
+                        // Reading and parsing a whole document stays off the main thread.
+                        askSections =
+                            withContext(Dispatchers.Default) {
+                                container.docStore.read(k.key, sha)?.let { DocOutline.of(it.toString(Charsets.UTF_8)) }.orEmpty()
+                            }
+                    }
+                }
+            } else {
+                null
+            },
+        onMakeCurrent =
+            preview
+                ?.takeIf { p -> vstate.canCheckout && vstate.items.none { it.row.id == p.versionId && it.row.isCurrent } }
+                ?.let { p -> { versions.checkout(p.versionId) } },
+    )
+    if (showVersions) {
+        VersionsSheet(
+            state = vstate,
+            actions = VersionsActions(onToggle = versions::toggle, onPreview = versions::preview, onCheckout = versions::checkout),
+            onDismiss = { showVersions = false },
+        )
+    }
+    val sections = askSections
+    if (sections != null) {
+        AskSheet(
+            sections = sections,
+            onSend = { section, question ->
+                askSections = null
+                val docId = vstate.docId
+                scope.launch {
+                    val ok =
+                        docId != null &&
+                            try {
+                                container.outbox.queueAsk(docId, section.id, section.hash, question, question)
+                                true
+                            } catch (_: ProtocolException) {
+                                false
+                            } catch (_: IOException) {
+                                false
+                            }
+                    snackbar.showSnackbar(resources.getString(if (ok) R.string.ask_sent else R.string.ask_failed))
+                }
+            },
+            onDismiss = { askSections = null },
+        )
     }
 }

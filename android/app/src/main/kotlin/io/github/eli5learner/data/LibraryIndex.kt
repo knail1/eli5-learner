@@ -185,6 +185,23 @@ class LibraryIndex(
 
     fun leased(key: String): Set<String> = leases[key]?.keys?.toSet().orEmpty()
 
+    /**
+     * Removes an older version downloaded for a preview (16 §6.2 Versions) once no Reader shows it.
+     * Only that file goes: the phone's own copy ([DocEntry.sha]), the Mac's current one and anything
+     * leased stay.
+     */
+    suspend fun dropPreview(
+        key: String,
+        sha: String,
+    ) {
+        if (!DocStore.isValidKey(key)) return
+        write { d ->
+            val row = d.get(key) ?: return@write
+            if (sha == row.localSha || sha == row.remoteSha || sha in leased(key)) return@write
+            withContext(Dispatchers.IO) { store.deleteVersion(key, sha) }
+        }
+    }
+
     /** Bytes used by document files. */
     suspend fun storageBytes(): Long = withContext(Dispatchers.IO) { store.root.walkTopDown().filter { it.isFile }.sumOf { it.length() } }
 

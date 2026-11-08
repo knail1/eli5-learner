@@ -11,6 +11,9 @@
 //   tested against the real layout.
 // - `patterns.json`: every id pattern, limit and enum of the protocol, so the Android tests can check
 //   that `Models.kt` repeats them character for character.
+// - `section-hashes.json`: the 08 §6.3 `sectionHash` of every section of the built document fixtures
+//   (test/fixtures/documents/build), plus canonical-JSON edge cases, so the phone's Ask sheet sends
+//   the same hash the desktop computes (16 §5.1 `ask.sectionHash`).
 // - `fixtures/index.json`: every fixture file with its type and whether it must parse, so the
 //   Android tests need no directory listing. Hand-written fixtures follow `<type>.valid.<name>.json`
 //   and `<type>.invalid.<name>.json`.
@@ -25,6 +28,9 @@ import { join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as prettier from 'prettier';
 import { z } from 'zod';
+import { canonicalJson } from '../src/main/document/canonical-json';
+import { sectionHash } from '../src/main/document/interactive/hash';
+import type { Section } from '../src/main/document/types';
 import type { DocVersionNode } from '../src/preload/contract';
 import { layoutVersionTree } from '../src/renderer/src/viewer/version-tree-layout';
 import {
@@ -59,6 +65,8 @@ export const CONTRACT_DIR = 'test/contracts/sync';
 export const FIXTURE_DIR = `${CONTRACT_DIR}/fixtures`;
 const FIXTURE_NAME = /^([a-z-]+)\.(valid|invalid)\.([a-z0-9-]+)\.json$/;
 const LAYOUT_NAME = /^layout\.([a-z0-9-]+)\.json$/;
+export const SECTION_HASHES = `${CONTRACT_DIR}/section-hashes.json`;
+const DOCUMENT_FIXTURES = 'test/fixtures/documents/build';
 
 // ------------------------------------------------------------------------- version-tree layout
 
@@ -278,12 +286,63 @@ export function protocolConstants(): Record<string, unknown> {
   };
 }
 
+// ------------------------------------------------------------------------------ section hashes
+
+/**
+ * Values whose canonical JSON is easy to get wrong in another language: key order by UTF-16 code
+ * unit, escapes (`<` stays literal here; only the script embedding escapes it), U+2028, control
+ * characters, a lone surrogate, astral characters, fractions and exponents as JSON.stringify writes them,
+ * and integer-like keys (a JavaScript object lists array indices first).
+ */
+const CANONICAL_CASES: readonly unknown[] = Object.freeze([
+  { b: 1, a: [true, null, { d: 'x', c: 'y' }], Z: 'upper', é: 'accent', '😀': 'astral', '': 'empty' },
+  { text: 'tab\there "quoted" back\\slash <b>&amp;</b> line\u2028sep \u0001\u001f\u007f end' },
+  { lone: 'a\ud800b', pair: 'a\ud83d\ude00b', nl: 'a\nb\r\n', bs: '\b\f' },
+  { n: [0, -1, 1.5, 0.1, 1e21, 1e-7, 123456789012, -0.25, 2.5e-5, 5e-324, 1.7976931348623157e308, 0.3 - 0.1] },
+  // Array-index keys enumerate first, in numeric order, whatever `sort()` did; '01' and 2^32 - 1 are names.
+  { '10': 'ten', '2': 'two', a: 'name', '01': 'padded', '4294967295': 'max', '4294967294': 'index' },
+]);
+
+const MODEL_SCRIPT_RE = /<script type="application\/json" id="eli5-model">([\s\S]*?)<\/script>/;
+
+/**
+ * sectionHash of every section of every built document fixture, read straight from the embedded
+ * model JSON as the phone reads it (Vitest checks these equal the hashes of `parseDocument`), and of
+ * the canonical cases.
+ */
+export function sectionHashContract(root: string): unknown {
+  const dir = join(root, DOCUMENT_FIXTURES);
+  const documents = readdirSync(dir)
+    .filter((f) => f.endsWith('.html'))
+    .sort()
+    .map((file) => {
+      const json = MODEL_SCRIPT_RE.exec(readFileSync(join(dir, file), 'utf8'))?.[1];
+      if (json === undefined) throw new Error(`${DOCUMENT_FIXTURES}/${file}: no embedded model`);
+      const model = JSON.parse(json) as { tabs: { sections: Section[] }[] };
+      return {
+        file,
+        sections: model.tabs.flatMap((t) => t.sections.map((s) => ({ id: s.id, hash: sectionHash(s) }))),
+      };
+    });
+  const canonical = CANONICAL_CASES.map((value) => ({
+    value,
+    json: canonicalJson(value),
+    hash: sectionHash(value as Section),
+  }));
+  return { documents, canonical };
+}
+
 // ------------------------------------------------------------------------------------- output
 
 async function format(root: string, rel: string, value: unknown): Promise<string> {
   const filepath = join(root, rel);
   const options = (await prettier.resolveConfig(filepath)) ?? {};
-  return prettier.format(JSON.stringify(value), { ...options, filepath });
+  // DEL and the line separators stay escaped, so no generated file holds an invisible character.
+  const json = JSON.stringify(value).replace(
+    /[\u007f\u2028\u2029]/g,
+    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`,
+  );
+  return prettier.format(json, { ...options, filepath });
 }
 
 const toPosix = (p: string) => p.split(sep).join('/');
@@ -296,6 +355,8 @@ export async function buildSyncContract(root: string): Promise<Map<string, strin
     const rel = `${CONTRACT_DIR}/${type}.schema.json`;
     out.set(rel, await format(root, rel, { $id: `eli5-learner/sync/${type}.schema.json`, ...json }));
   }
+
+  out.set(SECTION_HASHES, await format(root, SECTION_HASHES, sectionHashContract(root)));
 
   const patternsRel = `${CONTRACT_DIR}/patterns.json`;
   out.set(patternsRel, await format(root, patternsRel, protocolConstants()));

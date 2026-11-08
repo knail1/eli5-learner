@@ -14,12 +14,18 @@ import io.github.eli5learner.drive.SyncException
 import io.github.eli5learner.importer.HtmlImporter
 import io.github.eli5learner.importer.ImportResult
 import io.github.eli5learner.inMemoryDb
+import io.github.eli5learner.reader.PreviewLease
 import io.github.eli5learner.sync.protocol.DeviceRole
 import io.github.eli5learner.sync.protocol.InboxState
 import io.github.eli5learner.sync.protocol.ManifestFolder
 import io.github.eli5learner.sync.protocol.Placement
 import io.github.eli5learner.sync.protocol.Platform
+import io.github.eli5learner.sync.protocol.RemoteVersionNode
 import io.github.eli5learner.sync.protocol.SyncProtocol
+import io.github.eli5learner.sync.protocol.VersionChangeKind
+import io.github.eli5learner.sync.protocol.VersionTree
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -527,6 +533,96 @@ class SyncRepositoryTest {
 
             val other = reconnect("someone@example.com")
             assertTrue("a different account starts from a full listing", other.contains("list"))
+        }
+
+    @Test fun `an older uploaded version downloads on demand for a preview and is dropped afterwards`() =
+        runTest {
+            val mac = TestMac(drive).bootstrap()
+            val v1 = doc(1, body = "first")
+            mac.publish(1, listOf(v1))
+            val r = repo()
+            r.sync()
+            val v2 = doc(1, body = "second").copy(versionId = "v-000000000002")
+            mac.publish(2, listOf(v2))
+            // The Mac's tree now holds both versions; the first is uploaded, a third one is not.
+            val tree =
+                VersionTree(
+                    1,
+                    v1.docId,
+                    3,
+                    "v-000000000002",
+                    listOf(
+                        RemoteVersionNode("v-000000000001", null, VersionChangeKind.INITIAL, "Original", "2026-11-01T10:00:00Z", v1.sha, true),
+                        RemoteVersionNode("v-000000000002", "v-000000000001", VersionChangeKind.EXPAND, "Expanded", "2026-11-01T10:01:00Z", v2.sha, true),
+                        RemoteVersionNode("v-000000000003", "v-000000000001", VersionChangeKind.ANALOGY, "Analogy", "2026-11-01T10:02:00Z", "e".repeat(64), false),
+                    ),
+                )
+            val treeFile = drive.byKind("tree").single()
+            val props = mapOf("k" to "tree", "dev" to TestMac.MAC_ID, "d" to v1.docId, "n" to "3")
+            drive.rewrite(treeFile.meta.id, SyncProtocol.encode(VersionTree.serializer(), tree).toByteArray(), props)
+            r.sync()
+            assertEquals(v2.sha, index.find(v1.docId)!!.sha)
+            assertFalse("the old copy was pruned when the new one arrived", store.exists(v1.docId, v1.sha))
+            assertEquals(3, db.versions().forDoc(v1.docId).size)
+
+            index.lease(v1.docId, v1.sha)
+            assertEquals(SyncRepository.FetchResult.OK, r.fetchVersion(v1.docId, v1.sha))
+            assertArrayEquals(v1.html, store.read(v1.docId, v1.sha))
+            assertEquals("the current copy is untouched", v2.sha, index.find(v1.docId)!!.sha)
+            // A pass while the preview is open keeps it.
+            r.sync()
+            assertTrue(store.exists(v1.docId, v1.sha))
+            // Not uploaded, or not in the tree: nothing to download.
+            assertEquals(SyncRepository.FetchResult.MISSING, r.fetchVersion(v1.docId, "e".repeat(64)))
+            assertEquals(SyncRepository.FetchResult.MISSING, r.fetchVersion(v1.docId, "f".repeat(64)))
+
+            index.release(v1.docId, v1.sha)
+            index.dropPreview(v1.docId, v1.sha)
+            assertFalse(store.exists(v1.docId, v1.sha))
+            assertTrue(store.exists(v1.docId, v2.sha))
+            // The current copy is never dropped as a preview.
+            index.dropPreview(v1.docId, v2.sha)
+            assertTrue(store.exists(v1.docId, v2.sha))
+
+            // A blob whose bytes do not hash to its sha is refused and never written.
+            val blob = drive.byKind("blob").single { it.meta.appProperties?.get("s") == v1.sha }
+            drive.rewrite(blob.meta.id, FakeDrive.gzip("<html>planted</html>".toByteArray()))
+            assertEquals(SyncRepository.FetchResult.FAILED, r.fetchVersion(v1.docId, v1.sha))
+            assertFalse(store.exists(v1.docId, v1.sha))
+            // A key that is not a synced document, or a malformed sha, is refused before any listing.
+            assertEquals(SyncRepository.FetchResult.FAILED, r.fetchVersion("../" + v1.docId, v1.sha))
+            assertEquals(SyncRepository.FetchResult.FAILED, r.fetchVersion(v1.docId, "../x"))
+
+            auth = AuthState.Disconnected
+            assertEquals(SyncRepository.FetchResult.NOT_CONNECTED, r.fetchVersion(v1.docId, v1.sha))
+        }
+
+    @Test fun `a preview's lease lasts as long as its navigation entry, through rotation`() =
+        runTest {
+            val mac = TestMac(drive).bootstrap()
+            val v1 = doc(1, body = "first")
+            mac.publish(1, listOf(v1))
+            repo().sync()
+            val html = "<html>older</html>".toByteArray()
+            val sha = store.write(v1.docId, html)
+            val dropScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+            val owner = ViewModelStore()
+            val lease =
+                ViewModelProvider.create(owner, PreviewLease.factory(index, v1.docId, sha, dropScope))[PreviewLease::class.java]
+            assertNotNull(lease)
+            assertTrue(sha in index.leased(v1.docId))
+            // A Reader composed, disposed (rotation) and composed again keeps the entry's lease.
+            index.lease(v1.docId, sha)
+            index.release(v1.docId, sha)
+            assertTrue(sha in index.leased(v1.docId))
+            index.dropPreview(v1.docId, sha)
+            assertTrue("leased: not dropped", store.exists(v1.docId, sha))
+            // The entry leaves the back stack: the lease ends and the copy goes; the current one stays.
+            owner.clear()
+            withTimeout(5_000) { while (store.exists(v1.docId, sha)) delay(10) }
+            assertFalse(sha in index.leased(v1.docId))
+            assertTrue(store.exists(v1.docId, v1.sha))
+            dropScope.cancel()
         }
 
     private companion object {

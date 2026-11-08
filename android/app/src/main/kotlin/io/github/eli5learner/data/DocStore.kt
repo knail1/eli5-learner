@@ -78,6 +78,18 @@ class DocStore(
         File(root, key).deleteRecursively()
     }
 
+    /** Removes `<key>/<sha>.html`; the folder goes when nothing is left. */
+    fun deleteVersion(
+        key: String,
+        sha: String,
+    ) {
+        requireKey(key)
+        if (!isValidSha(sha)) return
+        val dir = File(root, key)
+        File(dir, "$sha.html").delete()
+        if (dir.isDirectory && dir.listFiles().isNullOrEmpty()) dir.delete()
+    }
+
     /** Removes the other shas under [key], keeping [sha]. */
     fun prune(
         key: String,

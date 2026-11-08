@@ -22,8 +22,13 @@ its upload worker, cancel files, the acks file, job statuses in the Inbox and th
 notification), and the desktop side that runs phone jobs (§5.3: `inbox.ts`, `ledger.ts`, the
 pipeline's main-side `startFromMain` entry, the `inbox` fetch origin and the "From phone" chip):
 built and tested against the in-memory store and the e2e fake, unverified against a real Drive until
-G1. The desktop accepts `capture` and `checkout` jobs; `ask` stays out of `accepts` until the phone
-has an Ask flow (S11), so an `ask` job is rejected with `E_UNSUPPORTED`.
+G1. The desktop accepts `capture` and `checkout` jobs. Versions on the phone (§6.2 Versions: the
+tree laid out by the Kotlin port of `version-tree-layout.ts`, previews of uploaded versions
+downloaded on demand, "Make current on your Mac" queuing a `checkout`) are built and tested against
+an in-memory Drive and Room database only, unverified against a real Drive until G1. The phone's Ask
+sheet (§6.2 Ask) is built, with section hashes checked against the shared `section-hashes.json`, but
+the desktop inbox does not run the 08 §6.8 Ask path yet: `ask` stays out of `accepts`, an `ask` job
+is rejected with `E_UNSUPPORTED`, and the phone keeps the sheet hidden until a primary lists `ask`.
 
 Related: [01-architecture.md](./01-architecture.md) · [06-generation-pipeline.md](./06-generation-pipeline.md) ·
 [07-output-document.md](./07-output-document.md) · [08-interactive-reading.md](./08-interactive-reading.md) ·
@@ -718,7 +723,10 @@ failures after retries) and `E_SYNC_ABORTED`.
   test resource directory. `npm run gen:sync-schema` (`scripts/export-sync-schema.ts`) writes the
   `<type>.schema.json` files, the `layout.<name>.json` fixtures (expected rows computed by the
   desktop's `layoutVersionTree`), `patterns.json` (every id pattern, limit and enum, which the
-  Android tests compare with `Models.kt`) and `fixtures/index.json`; `-- --check` fails on drift
+  Android tests compare with `Models.kt`), `section-hashes.json` (the 08 §6.3 `sectionHash` of
+  every section of the built document fixtures, read from the embedded model as the phone reads it,
+  plus canonical-JSON edge cases; Vitest checks the hashes equal those of `parseDocument`, and the
+  phone's Ask sheet must reproduce them) and `fixtures/index.json`; `-- --check` fails on drift
   or on an orphaned generated file and runs in CI. Hand-written fixtures are named `<type>.valid.<name>.json` or `<type>.invalid.<name>.json`, and
   both sides must accept every valid one unchanged and reject every invalid one. Cross-field rules
   (for example the 50 MiB per-job attachment total or a manifest folder reference) are not

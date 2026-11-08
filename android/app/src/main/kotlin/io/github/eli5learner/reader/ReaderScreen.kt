@@ -14,7 +14,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,6 +46,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -52,6 +58,13 @@ import io.github.eli5learner.data.DocStore
 import io.github.eli5learner.data.LibraryIndex
 import io.github.eli5learner.sync.SyncRepository.FetchResult
 import kotlinx.coroutines.launch
+
+/** The Reader shows an earlier version from the Versions sheet (16 §6.2) instead of the phone's copy. */
+data class ReaderPreview(
+    val versionId: String,
+    val sha: String,
+    val label: String,
+)
 
 /** What the Reader knows about its document. */
 private sealed interface Loaded {
@@ -68,6 +81,13 @@ private sealed interface Loaded {
  * version on screen is kept on disk until the Reader leaves ([LibraryIndex.lease]). The reading
  * position is remembered per document and sha. A synced document that is not on the phone yet is
  * downloaded through [onFetch].
+ *
+ * Synced documents carry a version chip that opens the Versions sheet ([onVersions]); the overflow
+ * offers Ask ([onAsk]) when the Mac accepts questions and the Reader shows the Mac's current version.
+ * With [preview], the Reader shows that earlier version (downloaded through [onFetchVersion] when it
+ * is not on the phone), never saves a reading position for it, and offers "Make current on your Mac"
+ * ([onMakeCurrent]). The preview's file outlives this screen through a [PreviewLease] held by the
+ * navigation entry, which also drops the downloaded copy once the entry is gone.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -78,6 +98,12 @@ fun ReaderScreen(
     onBack: () -> Unit,
     onFetch: suspend (String) -> FetchResult = { FetchResult.NOT_CONNECTED },
     onSavePosition: (key: String, sha: String, position: Float) -> Unit = { _, _, _ -> },
+    preview: ReaderPreview? = null,
+    onFetchVersion: suspend (key: String, sha: String) -> FetchResult = { _, _ -> FetchResult.NOT_CONNECTED },
+    versionLabel: String? = null,
+    onVersions: (() -> Unit)? = null,
+    onAsk: ((sha: String) -> Unit)? = null,
+    onMakeCurrent: (() -> Unit)? = null,
 ) {
     val loaded by produceState<Loaded>(Loaded.Loading, key) {
         index.find(key) // the first load reconciles the index with the files
@@ -90,6 +116,7 @@ fun ReaderScreen(
     // The version on screen. A newer one only replaces it through Reload.
     var shownSha by rememberSaveable(key) { mutableStateOf<String?>(null) }
     LaunchedEffect(entry?.sha) {
+        if (preview != null) return@LaunchedEffect
         val sha = entry?.sha ?: return@LaunchedEffect
         val shown = shownSha
         if (shown == null || !store.exists(key, shown)) {
@@ -97,11 +124,16 @@ fun ReaderScreen(
             index.markOpened(key)
         }
     }
-    val shown = shownSha
+    // A preview is also leased by its navigation entry (PreviewLease), from before it downloads.
+    var previewReady by remember(key, preview) { mutableStateOf(preview != null && store.exists(key, preview.sha)) }
+    val shown = if (preview != null) preview.sha.takeIf { previewReady } else shownSha
     DisposableEffect(key, shown) {
         if (shown != null) index.lease(key, shown)
         onDispose { if (shown != null) index.release(key, shown) }
     }
+    var menuOpen by remember { mutableStateOf(false) }
+    val versionsLabel = stringResource(R.string.reader_versions_chip, versionLabel ?: stringResource(R.string.versions_title))
+    val askSha = shown?.takeIf { preview == null && entry?.synced == true && !entry.foreign && it == entry.remoteSha }
 
     Scaffold(
         topBar = {
@@ -111,6 +143,52 @@ fun ReaderScreen(
                         Text(entry?.title.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (entry?.foreign == true) {
                             Text(stringResource(R.string.label_foreign), style = MaterialTheme.typography.labelMedium)
+                        }
+                        if (preview != null) {
+                            Text(
+                                stringResource(R.string.reader_preview_of, preview.label),
+                                style = MaterialTheme.typography.labelMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                },
+                actions = {
+                    if (onVersions != null && entry?.synced == true && preview == null) {
+                        AssistChip(
+                            onClick = onVersions,
+                            label = {
+                                Text(
+                                    versionLabel ?: stringResource(R.string.versions_title),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.widthIn(max = 140.dp),
+                                )
+                            },
+                            modifier = Modifier.semantics { contentDescription = versionsLabel },
+                        )
+                    }
+                    val ask = onAsk?.takeIf { askSha != null }
+                    if (preview == null && (onVersions != null && entry?.synced == true || ask != null)) {
+                        Box {
+                            IconButton(onClick = { menuOpen = true }) {
+                                Icon(painterResource(R.drawable.ic_more_vert), contentDescription = stringResource(R.string.reader_more))
+                            }
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                if (onVersions != null && entry?.synced == true) {
+                                    DropdownMenuItem(text = { Text(stringResource(R.string.versions_title)) }, onClick = {
+                                        menuOpen = false
+                                        onVersions()
+                                    })
+                                }
+                                if (ask != null && askSha != null) {
+                                    DropdownMenuItem(text = { Text(stringResource(R.string.ask_menu)) }, onClick = {
+                                        menuOpen = false
+                                        ask(askSha)
+                                    })
+                                }
+                            }
                         }
                     }
                 },
@@ -128,9 +206,13 @@ fun ReaderScreen(
                 loaded is Loaded.Done && e == null ->
                     Text(stringResource(R.string.reader_missing), modifier = Modifier.padding(24.dp))
                 e == null -> Box(Modifier.fillMaxSize())
+                preview != null && shown == null ->
+                    NotOnPhone(key, { k -> onFetchVersion(k, preview.sha).also { r -> if (r == FetchResult.OK) previewReady = true } })
                 shown == null -> NotOnPhone(key, onFetch)
                 else -> {
-                    if (e.sha != null && e.sha != shown) {
+                    if (preview != null) {
+                        PreviewBanner(onMakeCurrent)
+                    } else if (e.sha != null && e.sha != shown) {
                         UpdatedBanner(onReload = {
                             shownSha = e.sha
                             onSavePosition(key, e.sha, 0f)
@@ -142,9 +224,9 @@ fun ReaderScreen(
                             entry = e,
                             sha = shown,
                             store = store,
-                            initialPosition = if (e.readingSha == shown) e.readingPosition else 0f,
+                            initialPosition = if (preview == null && e.readingSha == shown) e.readingPosition else 0f,
                             onRendererGone = { currentOnBack() },
-                            onPosition = { onSavePosition(key, shown, it) },
+                            onPosition = { if (preview == null) onSavePosition(key, shown, it) },
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -160,6 +242,17 @@ private fun UpdatedBanner(onReload: () -> Unit) {
         Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.reader_updated), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
             TextButton(onClick = onReload) { Text(stringResource(R.string.action_reload)) }
+        }
+    }
+}
+
+/** An earlier version on screen; "Make current on your Mac" when the Mac accepts it. */
+@Composable
+private fun PreviewBanner(onMakeCurrent: (() -> Unit)?) {
+    Surface(color = MaterialTheme.colorScheme.tertiaryContainer, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.reader_preview_banner), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            if (onMakeCurrent != null) TextButton(onClick = onMakeCurrent) { Text(stringResource(R.string.versions_make_current)) }
         }
     }
 }

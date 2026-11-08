@@ -19,8 +19,13 @@ app on your phone, follow [SETUP.md](SETUP.md).
 > Inbox with job statuses, Retry and Delete, the acks file and the opt-in "Learnings ready"
 > notification; also tested against an in-memory Drive and database only. The desktop side that
 > runs phone jobs (Settings > Sync > "Accept jobs from phone") is built and tested against the
-> desktop's in-memory store. Everything against a real Google Drive is unverified until gate G1
-> (spec 16 §13).
+> desktop's in-memory store. Versions are built: the Reader's version chip opens a read-only tree
+> (the Kotlin port of the desktop's lane layout, checked against the shared fixtures), previews of
+> versions the Mac uploaded (downloaded on demand), "Not available on this phone" for the rest, and
+> "Make current on your Mac", which sends a `checkout` job. The Ask sheet (a section from the
+> outline and a one-line question) is built and appears only once the Mac lists `ask` among the jobs
+> it accepts; the desktop does not run phone questions yet, so it stays hidden for now. Everything
+> against a real Google Drive is unverified until gate G1 (spec 16 §13).
 
 This is its own Gradle build with one `:app` module. It never touches the npm toolchain, and Prettier
 ignores the folder.
@@ -133,5 +138,13 @@ Sync (after G1, Stages B and C of SETUP.md):
 - [ ] After the first capture the app asks "Tell you when it's ready?"; with Notify me, a finished
       job posts "Learnings ready", and tapping it opens the Inbox.
 - [ ] Cancel a job that is still waiting for the Mac: it shows "Cancelling…", then "Cancelled".
+- [ ] Open a document with several versions and tap its version chip: the tree matches the Mac's
+      Versions panel (lanes, branches, the current one marked). A version the Mac did not upload
+      reads "Not available on this phone".
+- [ ] Tap an older uploaded version: it downloads and opens as "Earlier version"; Back returns to
+      the current one, and the reading position of the current one is unchanged.
+- [ ] "Make current on your Mac" on an older version: the Inbox lists it, the Mac switches to that
+      version, and after the next sync the phone shows "Updated on your Mac · Reload".
+- [ ] The Reader's overflow has no "Ask your Mac" while the Mac does not accept questions.
 - [ ] Revoke access at myaccount.google.com/permissions: the phone shows "Sign in again to keep
       syncing", and reading still works.

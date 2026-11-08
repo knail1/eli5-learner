@@ -108,6 +108,9 @@ abstract class VersionDao {
     @Query("SELECT * FROM versions WHERE docId = :docId ORDER BY position")
     abstract suspend fun forDoc(docId: String): List<VersionEntity>
 
+    @Query("SELECT * FROM versions WHERE docId = :docId ORDER BY position")
+    abstract fun observe(docId: String): Flow<List<VersionEntity>>
+
     @Insert
     protected abstract suspend fun insert(rows: List<VersionEntity>)
 

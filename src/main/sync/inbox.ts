@@ -68,7 +68,7 @@ export const FAILED_FILES_KEEP_MS = 7 * DAY;
 export const LEDGER_KEEP_MS = 60 * DAY;
 /** A job file is a few KiB; anything over this is not a job. */
 export const MAX_JOB_FILE_BYTES = 1024 * 1024;
-/** Job kinds whose desktop path has shipped (16 §4.3 `accepts`). Ask joins once its phone flow exists. */
+/** Job kinds whose desktop path has shipped (16 §4.3 `accepts`). Ask joins once the inbox runs the 08 §6.8 Ask path. */
 export const INBOX_ACCEPTS: readonly JobKind[] = Object.freeze(['capture', 'checkout'] as JobKind[]);
 /** The staged file that carries a capture's shared text. */
 export const SHARED_TEXT_FILE = 'shared-text.txt';
