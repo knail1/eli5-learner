@@ -29,6 +29,9 @@ an in-memory Drive and Room database only, unverified against a real Drive until
 sheet (§6.2 Ask) is built, with section hashes checked against the shared `section-hashes.json`, but
 the desktop inbox does not run the 08 §6.8 Ask path yet: `ask` stays out of `accepts`, an `ask` job
 is rejected with `E_UNSUPPORTED`, and the phone keeps the sheet hidden until a primary lists `ask`.
+Hardening (§11, §12) is done: the `android` CI workflow, the 360 px and 412 px doc-runtime visual
+cases, a release APK signed with the release key and passing the `scripts/android-dist.sh` secret
+scan. The sideload checklist in `android/README.md` and gate G2 still need a real phone.
 
 Related: [01-architecture.md](./01-architecture.md) · [06-generation-pipeline.md](./06-generation-pipeline.md) ·
 [07-output-document.md](./07-output-document.md) · [08-interactive-reading.md](./08-interactive-reading.md) ·
@@ -712,8 +715,10 @@ failures after retries) and `E_SYNC_ABORTED`.
   extension list, and content patterns for `GOCSPX-` secrets and
   `<digits>-<32 chars>.apps.googleusercontent.com` client IDs, over tracked files and `out/**`.
 - `.prettierignore` gains `android/`.
-- CI gains an `android` job (Linux, JDK 21, wrapper validation, lint, unit tests, debug assemble). It
-  uses no secrets and never signs a release.
+- CI gains an `android` job in its own workflow, `.github/workflows/android.yml` (Linux, JDK 21,
+  wrapper validation, lint, unit tests, debug assemble; [13 §12](13-testing-quality.md)), path-filtered
+  to `android/**`, `test/contracts/**` and `test/fixtures/documents/build/**`. It uses no secrets and
+  never signs a release.
 
 ## 12. Testing
 

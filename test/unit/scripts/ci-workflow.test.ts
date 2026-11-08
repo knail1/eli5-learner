@@ -286,6 +286,57 @@ describe('.github/workflows/ci.yml (13 §12)', () => {
   });
 });
 
+describe('.github/workflows/android.yml (13 §12, 16 §11)', () => {
+  const text = read('.github/workflows/android.yml');
+  const wf = obj(parseYamlSubset(text));
+  const jobs = obj(wf.jobs);
+  const job = obj(jobs.android);
+  const steps = arr(job.steps).map(obj);
+  const runs = steps.map((s) => (typeof s.run === 'string' ? s.run : '')).join('\n');
+  const uses = steps.flatMap((s) => (typeof s.uses === 'string' ? [s.uses] : []));
+  const watched = [
+    'android/**',
+    'test/contracts/**',
+    'test/fixtures/documents/build/**',
+    '.github/workflows/android.yml',
+  ];
+
+  it('runs on push to main and pull requests only when the Android inputs change, plus dispatch', () => {
+    const on = obj(wf.on);
+    expect(Object.keys(on).sort()).toEqual(['pull_request', 'push', 'workflow_dispatch']);
+    expect(obj(on.push).branches).toEqual(['main']);
+    expect(obj(on.push).paths).toEqual(watched);
+    expect(obj(on.pull_request).paths).toEqual(watched);
+    expect(text).not.toContain('pull_request_target');
+  });
+
+  it('has one ubuntu job with contents: read and no secrets', () => {
+    expect(Object.keys(jobs)).toEqual(['android']);
+    expect(wf.permissions).toEqual({ contents: 'read' });
+    expect(job.permissions).toBeUndefined();
+    expect(job['runs-on']).toBe('ubuntu-latest');
+    expect(text).not.toMatch(/secrets\./);
+    expect(text).not.toMatch(/ELI5_ANDROID_/);
+  });
+
+  it('validates the wrapper before any Gradle run, on JDK 21', () => {
+    const wrapper = uses.findIndex((u) => u.startsWith('gradle/actions/wrapper-validation@'));
+    const gradle = uses.findIndex((u) => u.startsWith('gradle/actions/setup-gradle@'));
+    expect(wrapper).toBeGreaterThanOrEqual(0);
+    expect(wrapper).toBeLessThan(gradle);
+    const java = steps.find((s) => String(s.uses).startsWith('actions/setup-java@'));
+    expect(obj(java?.with)['java-version']).toBe('21');
+  });
+
+  it('runs the Android gate from android/ and never builds or signs a release', () => {
+    expect(obj(obj(job.defaults).run)['working-directory']).toBe('android');
+    expect(runs).toContain('./gradlew lint testDebugUnitTest assembleDebug');
+    expect(runs).not.toMatch(/Release|bundle|publish|signingReport/i);
+    const up = steps.find((s) => String(s.uses).startsWith('actions/upload-artifact@'));
+    expect(up?.if).toBe('failure()');
+  });
+});
+
 describe('package.json packaging scripts (01 §8.3)', () => {
   const scripts = (JSON.parse(read('package.json')) as { scripts: Record<string, string> }).scripts;
 

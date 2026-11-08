@@ -12,6 +12,11 @@ import { expectRegion, settle } from './shots';
 
 const NOW = new Date('2026-09-28T12:00:00.000Z');
 const NARROW = { width: 420, height: 800 };
+/**
+ * Phone widths (16 §12 Visual): 360 px is the common small Android width, 412 px a Pixel's. The
+ * Android reader is a Chromium WebView, so these run in Chromium only.
+ */
+const PHONE_WIDTHS = [360, 412] as const;
 
 const url = (name: string): string => {
   const g = GOLDENS.find((x) => x.name === name);
@@ -312,5 +317,34 @@ for (const theme of ['light', 'dark'] as const) {
       await open(page, 'showcase');
       await expect(page.locator('#tab-indepth .stepper').first()).toHaveScreenshot(shot('narrow-stepper'));
     });
+
+    for (const width of PHONE_WIDTHS) {
+      test(`phone ${width} px layout (Android reader)`, async ({ page, browserName }) => {
+        test.skip(browserName !== 'chromium', 'phone widths: Chromium only (Android WebView)');
+        await page.setViewportSize({ width, height: 800 });
+        // No golden scrolls sideways at a phone width: wide content scrolls inside its own box.
+        for (const g of GOLDENS) {
+          await open(page, g.name);
+          const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+          expect(overflow, `${g.name} at ${width} px`).toBeLessThanOrEqual(0);
+        }
+        const p = (name: string) => shot(`phone${width}-${name}`);
+        await open(page, 'full');
+        await expect(page.locator('html')).not.toHaveClass(/\bgl-wide\b/);
+        await expect(page).toHaveScreenshot(p('top'));
+        const first = section(page, 'indepth', 0);
+        await first.locator('details.gl-note > summary').first().click();
+        await page.mouse.move(0, 0);
+        await expectRegion(
+          page,
+          p('glossary-open'),
+          [first.locator(':scope > h2'), first.locator(':scope > p'), first.locator('details.gl-note').first()],
+          { pad: 8 },
+        );
+        await expect(page.locator('#tab-indepth figure.chart').first()).toHaveScreenshot(p('chart-bar'));
+        await open(page, 'showcase');
+        await expect(page.locator('#tab-indepth .stepper').first()).toHaveScreenshot(p('stepper'));
+      });
+    }
   });
 }

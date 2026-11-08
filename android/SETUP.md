@@ -6,9 +6,11 @@ following it is ever committed: client IDs, the client secret, signing keys and 
 stay on your machine. The design is in
 [spec/tech/16-android-companion.md](../spec/tech/16-android-companion.md).
 
-> **Status (milestone M5, in progress).** Stage A becomes usable once the Android project lands
-> (the local-mode reader). Stages B and C describe the planned sync. **Sync against a real Google
-> Drive is unverified until gate G1** (spec 16 §13): the code is built and tested against an
+> **Status (milestone M5, built; sync awaiting gate G1).** Stage A works today: the local-mode
+> reader builds, and the release APK is signed with your key and scanned for secrets by
+> `scripts/android-dist.sh`. CI builds and tests the Android project on every change to it
+> (`.github/workflows/android.yml`, no secrets, never a release). Stages B and C describe sync.
+> **Sync against a real Google Drive is unverified until gate G1** (spec 16 §13): the code is built and tested against an
 > in-memory fake Drive first, and the cross-client checks with a real Cloud project come after.
 > The desktop sync engine (push, primary claim, heartbeat, clean-up) is built and tested against
 > that fake Drive only; its behaviour against a real Drive is also unverified until G1. The same
@@ -103,12 +105,18 @@ cp local.properties.example local.properties   # then set sdk.dir=/opt/homebrew/
 ../scripts/android-dist.sh                     # copies the signed APK to release/android/ (git-ignored) and verifies the signature
 ```
 
-`printOAuthFingerprints` prints two lines like:
+`printOAuthFingerprints` prints the application ID and one SHA-1 per key (no passwords or paths):
 
 ```
-debug   io.github.eli5learner  SHA-1 AB:CD:...:12
-release io.github.eli5learner  SHA-1 34:56:...:EF
+Application ID: io.github.eli5learner
+Debug SHA-1:    AB:CD:...:12
+Release SHA-1:  34:56:...:EF
 ```
+
+If the release line says "release signing not configured", Gradle cannot see the four
+`ELI5_ANDROID_*` properties from A2, and the release APK falls back to the debug key.
+`android-dist.sh` then prints a warning; fix the properties before you install, because an app
+signed with the debug key cannot later be updated in place by one signed with the release key.
 
 ### A4. Install on the phone
 
@@ -162,8 +170,8 @@ each other's data.
    | Application type | Fields | What you keep |
    | --- | --- | --- |
    | Desktop app | Name: "ELI5 Learner desktop" | Download the JSON (`client_secret_….json`). Keep it outside the repo. |
-   | Android | Package name and SHA-1 from the **release** line of `printOAuthFingerprints` | Nothing; Google matches the app by package and key. |
-   | Android | Package name and SHA-1 from the **debug** line | Nothing. Only needed if you install debug builds. |
+   | Android | Package name and SHA-1 from the `Release SHA-1` line of `printOAuthFingerprints` | Nothing; Google matches the app by package and key. |
+   | Android | Package name and SHA-1 from the `Debug SHA-1` line | Nothing. Only needed if you install debug builds. |
 
    The Android app needs no client ID in its code or config. Google recognizes it by package name
    plus signing key.

@@ -6,7 +6,9 @@ Google Drive and a share-sheet "Send to my Mac". The design is
 [spec/tech/16-android-companion.md](../spec/tech/16-android-companion.md). To get from nothing to the
 app on your phone, follow [SETUP.md](SETUP.md).
 
-> **Status (M5, in progress).** This folder is being built in slices. The local-mode app is built:
+> **Status (M5, built; real Drive unverified until G1).** All slices are built, CI covers this
+> folder, and the release APK is signed and secret-scanned by `scripts/android-dist.sh`; the smoke
+> checklist below has not yet been run on a phone. The local-mode app is built:
 > import (picker, share sheet, "Open with"), the library, the sandboxed reader and Settings > About.
 > Google authorization (Connect, Disconnect, "Sign in again"), the Drive
 > REST client and a debug-only Drive probe for gate G1 are built and tested against MockWebServer
@@ -84,7 +86,9 @@ the Gradle property `ELI5_APPLICATION_ID` and registers its own OAuth clients.
 All tests are JVM tests under `app/src/test/` (JUnit 4, Robolectric, Compose UI tests,
 MockWebServer) and run headless; no emulator is needed. The sync wire-format tests read the shared
 fixtures in `../test/contracts/sync/`, which the build adds as a test resource folder. CI runs the
-same command on Linux with JDK 21 (spec 16 §11).
+same command on Linux with JDK 21 in `.github/workflows/android.yml` whenever `android/`,
+`test/contracts/` or the built test documents change (spec 16 §11). That workflow reads no secrets
+and never builds a release; release builds happen only on your Mac with your key.
 
 ## Never commit
 
@@ -94,8 +98,22 @@ git-ignored, and `npm run check:hygiene` at the repository root fails if one is 
 
 ## Sideload smoke checklist
 
-Run this on a real phone (tested on a Pixel) before calling a release build good. Install with
-`adb install -r release/android/eli5-learner-release.apk` from the repository root.
+Run this on a real phone (tested on a Pixel) before calling a release build good. Sections run in
+order; stop at the first one your setup does not reach (the sync sections need Stages B and C of
+SETUP.md, and are meaningful only after gate G1). Copy the list into the release notes or an issue
+and tick it there; this file stays unticked.
+
+Build and install (on the Mac, from the repository root):
+
+- [ ] `git status` is clean apart from files you meant to change, and `npm run check:hygiene`
+      passes.
+- [ ] `(cd android && ./gradlew lint testDebugUnitTest assembleDebug :app:assembleRelease)` passes.
+- [ ] `scripts/android-dist.sh` exits 0 (it runs `apksigner verify`) and prints `CN=ELI5 Learner`
+      (not `CN=Android Debug`) and "No secret-shaped content".
+- [ ] `./gradlew :app:printOAuthFingerprints` (in `android/`) shows a `Release SHA-1` that matches
+      the release Android client in your Cloud project.
+- [ ] `adb install -r release/android/eli5-learner-release.apk` succeeds over the previous install
+      (no "signatures do not match"; that means another key signed one of them).
 
 Reader and import (no Google setup):
 
@@ -111,6 +129,9 @@ Reader and import (no Google setup):
 - [ ] Share an `index.html` to ELI5 Learner from another app, and "Open with" from Files: both
       import.
 - [ ] Rotate the phone and use split screen: the layout adapts and nothing is lost.
+- [ ] In portrait no page scrolls sideways; a wide chart or table scrolls inside its own box. Text
+      size at the system's largest font setting still fits.
+- [ ] Dark theme on the phone: the Library, the Reader chrome and an "Auto" document follow it.
 - [ ] Without Google Drive, share a link from Chrome to "Send to my Mac": the sheet opens over
       Chrome, Send closes it at once, and the Inbox lists it as "Connect Google Drive to send".
       Cancel removes it.

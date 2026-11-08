@@ -280,8 +280,10 @@ selection" tab with its "You asked about" quote, the references (used and skippe
 credits", "Added by merge"), the woven merge (legend, violet enhancements, the new-block badge, and
 the "Hide highlights" state), and the 420 px narrow layout (top of page, an opened glossary note, a
 chart, the stepper). v2 adds phone widths for the Android reader (16 §12): the doc runtime at 360 px
-and 412 px. In-app document states use a stand-in `window.eli5Doc` that answers every call at once: the
-grouped selection menu (`full-selection-menu`), the menu with the Explain popup open
+and 412 px, Chromium only (the phone's reader is a Chromium WebView), light and dark: the top of
+the page, an opened glossary note, a chart and the stepper (`phone360-*`, `phone412-*`), and no
+golden scrolls sideways at either width. In-app document states use a stand-in `window.eli5Doc`
+that answers every call at once: the grouped selection menu (`full-selection-menu`), the menu with the Explain popup open
 (`menu-explain-open`), and a section marked "Updating…". The `asked` golden shows an answer box
 closed (`qa-box`) and with its question open (`qa-box-question-open`); these four are taken in
 light and dark. `app.visual.ts` drives the built app through the e2e harness (§8.1, FakeProvider,
@@ -519,6 +521,8 @@ Reviewed false positives are listed in `config/hygiene-allow` as `secret <glob> 
 
 `.github/workflows/ci.yml` (separate from the existing Pages workflow). Triggers: `push` to `main`, `pull_request`, `schedule` (nightly evals), `workflow_dispatch`.
 
+The Android companion has its own workflow, `.github/workflows/android.yml` (v2, [16 §11](16-android-companion.md)), because GitHub's native `paths` filter works per workflow, not per job. It runs on `push` to `main` and `pull_request` when `android/**`, `test/contracts/**`, `test/fixtures/documents/build/**` (the documents the reader tests load) or the workflow itself changed, and on `workflow_dispatch`. One job, `android`, on `ubuntu-latest`: Gradle wrapper validation, `actions/setup-java` 21, `gradle/actions/setup-gradle` with the open-source basic cache, the compileSdk 37 platform from the runner's SDK, then `./gradlew lint testDebugUnitTest assembleDebug` from `android/`; lint and test reports uploaded on failure. It reads no secrets, has `contents: read` only, and never builds, signs or publishes a release.
+
 | Job | Runner | Needs | Steps | Artifacts |
 | --- | --- | --- | --- | --- |
 | `static` | `macos-latest` (arm64) | — | `npm ci`, `typecheck`, `lint`, `prettier --check` | — |
@@ -529,7 +533,6 @@ Reviewed false positives are listed in `config/hygiene-allow` as `secret <glob> 
 | `visual` | `macos-latest` | — | install Playwright WebKit+Chromium; `npm run test:visual` (§7.4); `continue-on-error` (non-blocking) until the runner matches the darwin baselines | contact sheet and diffs, always |
 | `hygiene` | `macos-latest` | `build-public` | §11 | — |
 | `package` | `macos-latest` | all above | `main` only: `electron-builder --mac dmg --arm64` (the runner's architecture; an x64 dmg needs its own Intel job, [01 §8.3](01-architecture.md)), unsigned | dmg (7-day retention) |
-| `android` (v2, 16 §11) | `ubuntu-latest` | — | path filter `android/**`, `test/contracts/**`; `actions/setup-java` 21; Gradle wrapper validation; `./gradlew lint testDebugUnitTest assembleDebug` from `android/`. No secrets; never signs a release | lint and test reports on failure |
 | `evals` | `macos-latest` | — | `schedule`/`workflow_dispatch` only, never on `pull_request`; secrets `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` mapped to `ELI5_EVAL_API_KEY_*`; skips with a notice when unset; `npm run eval`, exit 2 opens an issue; §9 | eval results JSON |
 
 Rules:
