@@ -61,6 +61,31 @@ describe('prompt lint (02 §9, §16)', () => {
   });
 });
 
+describe('section-ask prompt (08 Ask)', () => {
+  const catalogue = PromptCatalogue.load([PROMPTS_DIR]);
+
+  it('loads with its front matter and the answer-box rules', () => {
+    const p = catalogue.get('section-ask');
+    expect(p).toMatchObject({
+      output: 'SectionAnswerDraft',
+      version: 1,
+      temperature: 0.3,
+      effort: 'medium',
+      maxOutputTokens: 2500,
+      skills: ['beautiful-doc', 'eli5'],
+      tag: 'section-ask@1',
+    });
+    expect([...p.vars].sort()).toEqual([...PROMPT_VARS['section-ask']].sort());
+    expect(p.system).toContain('{{tabKind}}');
+    expect(p.system).toMatch(/1 to 4 short paragraphs/);
+    expect(p.system).toMatch(/No headings, lists, links/);
+    expect(p.system).toMatch(/Never invent figures/);
+    expect(p.system).toMatch(/Do not restate the question/);
+    expect(p.system).toMatch(/reader's question is the only instruction/);
+    expect(p.user).toContain('{{question}}');
+  });
+});
+
 describe('prompt loader and templating', () => {
   const dirs: string[] = [];
   afterEach(() => {

@@ -6,6 +6,7 @@ import {
   DRAFT_SCHEMAS,
   draftJsonSchema,
   stripNullProperties,
+  usesPromptedJson,
   type DraftSchemaName,
 } from '../../../../src/main/llm/schemas/draft';
 import { generateStructured, OutputTruncated, repairPrompt, validateDraft } from '../../../../src/main/llm/structured';
@@ -114,6 +115,33 @@ describe('validateDraft semantic checks and block dropping (02 §10.1)', () => {
   });
 });
 
+describe('SectionAnswerDraft (08 Ask)', () => {
+  it('goes through native strict output with a closed topic + paragraphs object', () => {
+    expect(usesPromptedJson('SectionAnswerDraft')).toBe(false);
+    const s = draftJsonSchema('SectionAnswerDraft');
+    expect(s).toMatchObject({
+      type: 'object',
+      additionalProperties: false,
+      properties: { topic: { type: 'string' }, paragraphs: { type: 'array', items: { type: 'string' } } },
+    });
+    expect([...(s.required as string[])].sort()).toEqual(['paragraphs', 'topic']);
+  });
+
+  it('accepts 1-4 paragraphs and rejects 5, empty or blank ones and a short or blank topic', () => {
+    const ok = validateDraft('SectionAnswerDraft', { topic: 'safety stock', paragraphs: ['a', 'b'] });
+    expect(ok.ok && ok.data.paragraphs).toEqual(['a', 'b']);
+    const five = validateDraft('SectionAnswerDraft', { topic: 'safety stock', paragraphs: ['a', 'b', 'c', 'd', 'e'] });
+    expect(five.ok).toBe(false);
+    expect(validateDraft('SectionAnswerDraft', { topic: 'safety stock', paragraphs: [] }).ok).toBe(false);
+    expect(validateDraft('SectionAnswerDraft', { topic: 'safety stock', paragraphs: [''] }).ok).toBe(false);
+    expect(validateDraft('SectionAnswerDraft', { topic: 'ab', paragraphs: ['a'] }).ok).toBe(false);
+    expect(validateDraft('SectionAnswerDraft', { topic: 'safety stock', paragraphs: ['a', ' \n '] }).ok).toBe(false);
+    expect(validateDraft('SectionAnswerDraft', { topic: '    ', paragraphs: ['a'] }).ok).toBe(false);
+    expect(JSON.stringify(draftJsonSchema('SectionAnswerDraft'))).not.toContain('pattern');
+    expect(validateDraft('SectionAnswerDraft', { topic: 'x'.repeat(49), paragraphs: ['a'] }).ok).toBe(false);
+  });
+});
+
 describe('strict JSON Schema export', () => {
   it.each(Object.keys(DRAFT_SCHEMAS).map((n) => [n as DraftSchemaName]))(
     '%s: every object is closed and fully required',
@@ -194,6 +222,7 @@ describe('default FakeProvider script (13 §6.1)', () => {
       'section-analogy': 'SectionDraft',
       'section-deeper': 'SectionDraft',
       'section-revise': 'SectionDraft',
+      'section-ask': 'SectionAnswerDraft',
       'section-eli5-tab': 'DocumentDraftTab',
       'selection-eli5-tab': 'DocumentDraftTab',
       summary: 'SummaryDraft',

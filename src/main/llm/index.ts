@@ -59,6 +59,7 @@ export type {
   PreparedContentJson,
   SectionAction,
   SectionActionInput,
+  SectionAskInput,
   StepCtx,
   StepResult,
   TaskDeps,

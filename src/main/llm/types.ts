@@ -18,6 +18,7 @@ export type PromptId =
   | 'section-analogy'
   | 'section-deeper'
   | 'section-revise'
+  | 'section-ask'
   | 'section-eli5-tab'
   | 'selection-eli5-tab'
   | 'summary'
@@ -35,6 +36,7 @@ export const PROMPT_IDS: readonly PromptId[] = [
   'section-analogy',
   'section-deeper',
   'section-revise',
+  'section-ask',
   'section-eli5-tab',
   'selection-eli5-tab',
   'summary',

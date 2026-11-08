@@ -201,6 +201,13 @@
         }
       ]
     },
+    "section-ask": {
+      "topic": "why the forecast lags",
+      "paragraphs": [
+        "A moving average looks **backwards**: it blends the last few weeks of orders, so a sudden jump in online demand only shows up gradually.",
+        "The section does not say how many weeks of lag the team accepts, only that safety stock covers the gap while the forecast catches up."
+      ]
+    },
     "section-eli5-tab": {
       "kind": "section-eli5",
       "title": "Forecasts, simply",

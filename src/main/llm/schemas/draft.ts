@@ -149,6 +149,17 @@ export const MergePlanDraftSchema = z.object({
 });
 export type MergePlanDraft = z.infer<typeof MergePlanDraftSchema>;
 
+/**
+ * The answer to a reader's question about a selection (02 §10, 08 Ask): a short noun-phrase topic for
+ * the version label and 1-4 paragraphs of inline markdown shown in the section's answer box.
+ */
+export const SectionAnswerDraftSchema = z.object({
+  // `pattern` is stripped from the strict JSON Schema; zod rejects blank text so the repair turn fixes it.
+  topic: z.string().min(3).max(48).regex(/\S/),
+  paragraphs: z.array(z.string().min(1).max(1200).regex(/\S/)).min(1).max(4),
+});
+export type SectionAnswerDraft = z.infer<typeof SectionAnswerDraftSchema>;
+
 /** Schema names usable in prompt front matter `output:` (02 §9, §16 prompt lint). */
 export const DRAFT_SCHEMAS = {
   DocumentDraftTab: DocumentDraftTabSchema,
@@ -159,6 +170,7 @@ export const DRAFT_SCHEMAS = {
   MergeMatchDraft: MergeMatchDraftSchema,
   PhotoPickDraft: PhotoPickDraftSchema,
   MergePlanDraft: MergePlanDraftSchema,
+  SectionAnswerDraft: SectionAnswerDraftSchema,
 } as const;
 export type DraftSchemaName = keyof typeof DRAFT_SCHEMAS;
 

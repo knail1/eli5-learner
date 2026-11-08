@@ -26,6 +26,7 @@ import type {
   MergeMatchDraft,
   PhotoPickDraft,
   MergePlanDraft,
+  SectionAnswerDraft,
   SectionDraft,
   SummaryDraft,
 } from './schemas/draft';
@@ -83,6 +84,19 @@ export interface SectionActionInput {
   sourceExcerpt?: string;
   /** 'eli5-selection' only: headings and adjacent blocks around the selection, for grounding (08 §7.5). */
   context?: string;
+  signal: AbortSignal;
+}
+
+/** The Ask action (08): a reader's question about a selection, answered in a box inside the section. */
+export interface SectionAskInput {
+  tabKind: TabKind;
+  section: SectionDraft;
+  outline: string[];
+  prev?: SectionDraft;
+  next?: SectionDraft;
+  selection: string;
+  /** The reader's question. Wrapped as source text: it is the only instruction, but never trusted markup. */
+  question: string;
   signal: AbortSignal;
 }
 
@@ -265,6 +279,8 @@ export interface LlmTasks {
   generateGlossary(indepth: DocumentDraftTab, ctx: StepCtx): Promise<StepResult<GlossaryDraft>>;
   summarize(indepth: DocumentDraftTab, ctx: StepCtx): Promise<StepResult<SummaryDraft>>;
   runSectionAction(input: SectionActionInput): Promise<SectionDraft | DocumentDraftTab>;
+  /** 08 Ask: one call with the section-ask prompt; 06 checks the shape and inserts the answer box. */
+  answerSectionQuestion(input: SectionAskInput): Promise<SectionAnswerDraft>;
   matchMerge(summary: string, candidates: MergeCandidate[], signal?: AbortSignal): Promise<MergeMatchDraft>;
   /**
    * 07 §7.4: one low-effort vision call (more only when the model takes fewer images per request)
@@ -673,6 +689,19 @@ export function createTasks(deps: TaskDeps): LlmTasks {
         return { ...r.data, kind: 'section-eli5' };
       }
       return (await run<SectionDraft>(id, vars, { signal: input.signal })).data;
+    },
+
+    async answerSectionQuestion(input) {
+      const vars: Record<string, string> = {
+        tabKind: input.tabKind,
+        outline: input.outline.map((t, i) => `${i + 1}. ${t}`).join('\n'),
+        section: wrapSource('current section', JSON.stringify(input.section)),
+        prevText: input.prev ? wrapSource('previous section', sectionText(input.prev)) : '',
+        nextText: input.next ? wrapSource('next section', sectionText(input.next)) : '',
+        selection: input.selection ? wrapSource('selected text', input.selection) : '',
+        question: wrapSource('reader question', input.question),
+      };
+      return (await run<SectionAnswerDraft>('section-ask', vars, { signal: input.signal })).data;
     },
 
     async matchMerge(summary, candidates, signal) {
