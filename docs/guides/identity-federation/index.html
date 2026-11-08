@@ -1,0 +1,690 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signing in without a key</title>
+<meta name="description" content="What the Claude Console's identity-federation dialog offers, how Workload Identity Federation, service accounts and API keys differ, and what it means for ELI5 Learner's desktop app and its GitHub Actions evals.">
+<script>document.documentElement.classList.add('js');</script>
+<style>
+  :root {
+    --ivory:   #FAF9F5;
+    --slate:   #141413;
+    --clay:    #D97757;
+    --oat:     #E3DACC;
+    --olive:   #788C5D;
+    --rust:    #B04A3F;
+    --sky:     #6A8CAF;
+    --gray-150:#F0EEE6;
+    --gray-300:#D1CFC5;
+    --gray-500:#87867F;
+    --gray-700:#3D3D3A;
+    --serif: ui-serif, Georgia, "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+    /* semantic tokens (light) */
+    --bg:      var(--ivory);
+    --surface: #FFFFFF;
+    --sunken:  var(--gray-150);
+    --ink:     var(--slate);
+    --text:    var(--gray-700);
+    --muted:   var(--gray-500);
+    --rule:    var(--gray-300);
+    --accent:  var(--clay);
+    --good:    var(--olive);
+    --bad:     var(--rust);
+    --cool:    var(--sky);
+    --tint-accent: rgba(217,119,87,0.10);
+    --tint-good:   rgba(120,140,93,0.12);
+    --tint-bad:    rgba(176,74,63,0.09);
+    --tint-cool:   rgba(106,140,175,0.12);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:      #1A1A18;
+      --surface: #23231F;
+      --sunken:  #2B2A26;
+      --ink:     #F3F1EA;
+      --text:    #D3D0C6;
+      --muted:   #9C998F;
+      --rule:    #3E3D38;
+      --accent:  #E08A6C;
+      --good:    #9DB27F;
+      --bad:     #D9776B;
+      --cool:    #8FB0D2;
+      --tint-accent: rgba(224,138,108,0.14);
+      --tint-good:   rgba(157,178,127,0.14);
+      --tint-bad:    rgba(217,119,107,0.13);
+      --tint-cool:   rgba(143,176,210,0.14);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:      #1A1A18;
+    --surface: #23231F;
+    --sunken:  #2B2A26;
+    --ink:     #F3F1EA;
+    --text:    #D3D0C6;
+    --muted:   #9C998F;
+    --rule:    #3E3D38;
+    --accent:  #E08A6C;
+    --good:    #9DB27F;
+    --bad:     #D9776B;
+    --cool:    #8FB0D2;
+    --tint-accent: rgba(224,138,108,0.14);
+    --tint-good:   rgba(157,178,127,0.14);
+    --tint-bad:    rgba(217,119,107,0.13);
+    --tint-cool:   rgba(143,176,210,0.14);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15.5px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .page { max-width: 860px; margin: 0 auto; }
+  @media (max-width: 720px) { body { padding: 32px 16px 80px; font-size: 15px; } }
+
+  /* header */
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--serif); font-weight: 500; font-size: 36px; line-height: 1.15;
+    color: var(--ink); letter-spacing: -0.01em; margin-bottom: 14px;
+  }
+  .lead { font-size: 17px; max-width: 680px; margin-bottom: 28px; }
+  @media (max-width: 720px) { h1 { font-size: 29px; } .lead { font-size: 16px; } }
+
+  h2 {
+    font-family: var(--serif); font-weight: 500; font-size: 27px; line-height: 1.2;
+    color: var(--ink); margin: 8px 0 6px;
+  }
+  h3 {
+    font-family: var(--serif); font-weight: 500; font-size: 21px; line-height: 1.25;
+    color: var(--ink); margin: 0 0 10px;
+  }
+  hr.rule { border: 0; border-top: 1px solid var(--rule); margin: 0 0 16px; }
+  section { margin-top: 52px; }
+  section:first-of-type { margin-top: 28px; }
+  p { margin-bottom: 12px; max-width: 700px; }
+  ul, ol { margin: 0 0 14px 22px; max-width: 700px; }
+  li { margin-bottom: 8px; }
+  strong { color: var(--ink); }
+  a { color: var(--accent); text-underline-offset: 2px; }
+  code {
+    font-family: var(--mono); font-size: 0.86em; color: var(--ink);
+    background: var(--sunken); border-radius: 4px; padding: 1px 4px;
+    overflow-wrap: anywhere;
+  }
+  pre {
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.55; color: var(--ink);
+    background: var(--sunken); border: 1px solid var(--rule); border-radius: 10px;
+    padding: 14px 16px; margin: 12px 0 8px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    max-width: 720px;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; overflow-wrap: normal; }
+  pre .c { color: var(--muted); }
+  .snippet-label {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--muted); margin-top: 18px;
+  }
+  .dek { font-size: 16px; color: var(--muted); max-width: 680px; margin-bottom: 4px; }
+
+  /* dialog quote */
+  .dialog {
+    border: 1.5px dashed var(--rule); border-radius: 12px; padding: 14px 18px 6px; margin: 0 0 28px;
+    max-width: 720px; background: var(--sunken);
+  }
+  .dialog p { font-size: 14px; margin-bottom: 8px; }
+  .dialog .btns { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+
+  /* hero card */
+  .hero {
+    border: 1.5px solid var(--rule); border-radius: 14px; background: var(--surface);
+    padding: 20px 22px 18px; margin-bottom: 36px;
+  }
+  .hero .label {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 12px;
+  }
+  .choice {
+    display: grid; grid-template-columns: 170px minmax(0,1fr) 150px; gap: 6px 18px;
+    align-items: start; padding: 14px 0; border-top: 1px solid var(--rule);
+  }
+  .choice:first-of-type { border-top: 0; padding-top: 0; }
+  .choice-name { font-family: var(--serif); font-size: 18px; color: var(--ink); line-height: 1.2; }
+  .choice-name small { display: block; font-family: var(--mono); font-size: 10.5px; color: var(--muted); letter-spacing: 0.04em; margin-top: 4px; }
+  .choice-what { font-size: 14px; line-height: 1.55; }
+  .choice-what p { margin: 0; }
+  .choice-use { font-size: 13px; line-height: 1.45; }
+  .choice-use .pill { display: inline-block; margin-bottom: 5px; }
+  .hero .meta { font-size: 13px; color: var(--muted); margin: 12px 0 0; max-width: none; }
+  @media (max-width: 720px) {
+    .choice { grid-template-columns: minmax(0,1fr); }
+  }
+
+  /* tabs */
+  .tablist {
+    display: none; gap: 4px; border-bottom: 1px solid var(--rule); margin-bottom: 8px;
+    position: sticky; top: 0; background: var(--bg); z-index: 2; padding-top: 8px;
+  }
+  html.js .tablist { display: flex; }
+  .tab {
+    appearance: none; background: none; border: 0; border-bottom: 2.5px solid transparent;
+    font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--muted); padding: 10px 14px 9px; cursor: pointer; margin-bottom: -1px;
+  }
+  .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+  .tab:hover { color: var(--ink); }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .tabpanel[hidden] { display: none; }
+  html:not(.js) .tabpanel + .tabpanel { margin-top: 72px; border-top: 2px solid var(--rule); padding-top: 32px; }
+  .panel-kicker {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--accent); margin-top: 28px;
+  }
+
+  /* figures */
+  figure { margin: 40px 0; }
+  .figscroll { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1.5px solid var(--rule); border-radius: 12px; background: var(--surface); padding: 16px; }
+  .figscroll svg { display: block; width: 100%; height: auto; color: var(--ink); }
+  .figscroll.wide svg { min-width: 640px; }
+  .figscroll.medium svg { min-width: 440px; }
+  figcaption { font-size: 13px; color: var(--muted); margin-top: 10px; max-width: 700px; }
+  svg .acc { stroke: var(--accent); }
+  svg text.acc { fill: var(--accent); stroke: none; }
+  svg .good { stroke: var(--good); }
+  svg text.good { fill: var(--good); stroke: none; }
+  svg .cool { stroke: var(--cool); }
+  svg text.cool { fill: var(--cool); stroke: none; }
+  svg text.mut { fill: var(--muted); }
+
+  /* callouts */
+  .callout, .keypoint {
+    border-left: 3px solid var(--accent); background: var(--tint-accent);
+    border-radius: 0 10px 10px 0; padding: 14px 18px 4px; margin: 18px 0; max-width: 720px;
+  }
+  .keypoint { border-left-color: var(--good); background: var(--tint-good); }
+  .warn { border-left-color: var(--bad); background: var(--tint-bad); }
+  .note { border-left-color: var(--cool); background: var(--tint-cool); }
+  .pullquote { margin: 28px 0; padding: 4px 0 4px 22px; border-left: 2px solid var(--rule); max-width: 640px; }
+  .pullquote p { font-family: var(--serif); font-size: 21px; line-height: 1.4; color: var(--ink); margin-bottom: 6px; }
+  .pullquote cite { font-style: normal; font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: 0.04em; }
+
+  /* tables */
+  .tablewrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 12px 0 16px; }
+  table { border-collapse: collapse; width: 100%; min-width: 620px; font-size: 13.5px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 500; }
+  td:first-child { color: var(--ink); white-space: nowrap; }
+  .pill { font-family: var(--mono); font-size: 11px; white-space: nowrap; padding: 2px 7px; border-radius: 999px; }
+  .pub  { color: var(--good); background: var(--tint-good); }
+  .sec  { color: var(--bad); background: var(--tint-bad); }
+  .mid  { color: var(--accent); background: var(--tint-accent); }
+
+  /* glossary + sources */
+  dl dt { font-family: var(--serif); font-size: 16px; color: var(--ink); margin-top: 12px; }
+  dl dd { font-size: 14px; margin: 2px 0 0; max-width: 700px; }
+  ol.sources { font-size: 13px; margin-left: 20px; }
+  ol.sources li { margin-bottom: 4px; overflow-wrap: anywhere; }
+  .srcgroup { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 16px 0 6px; }
+  .footer { margin-top: 64px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  @media (max-width: 400px) {
+    body { padding: 24px 16px 64px; }
+    h1 { font-size: 26px; }
+    h2 { font-size: 23px; }
+    .hero { padding: 16px 14px 14px; }
+    .tab { padding: 10px 10px 9px; }
+    pre { font-size: 11.5px; padding: 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header>
+  <div class="eyebrow">ELI5 Learner · Claude API · concept explainer · 2026-11-07</div>
+  <h1>Signing in without a key: identity federation, explained</h1>
+  <p class="lead">The Claude Console offered to let your code call the API with no API key at all. This page explains what that offer really is, how the trust behind it works, and where it fits ELI5 Learner: not in the Mac app, but quite possibly in the nightly evals.</p>
+</header>
+
+<div class="dialog" aria-label="The Console dialog, as you saw it">
+  <p><strong>What the dialog said</strong> (Claude Console › Keys &amp; access › API keys): "With identity federation, you don't need an API key. Your cloud or CI provider issues short-lived tokens that authenticate your requests — no static key to manage." Nothing to store in env vars, config files or secret managers; tokens rotate automatically and expire in minutes; works with GCP, AWS, Azure and GitHub Actions. "Local scripts, third-party tools, and environments without an identity provider may still need an API key."</p>
+  <p class="btns">[ Set up identity federation ] &nbsp; [ Continue with an API key ]</p>
+</div>
+
+<div class="hero" aria-labelledby="heroLabel">
+  <div class="label" id="heroLabel">Three words in the Console sidebar, and which you need</div>
+  <div class="choice">
+    <div class="choice-name">API key<small>sk-ant-api… · static secret</small></div>
+    <div class="choice-what"><p>A long string you send on every request. Whoever holds it can use it until it expires or you delete it. It can be personal (acts as you) or belong to a service account.</p></div>
+    <div class="choice-use"><span class="pill mid">Keep</span><br>The ELI5 Learner Mac app, with the key in the macOS Keychain.</div>
+  </div>
+  <div class="choice">
+    <div class="choice-name">Service account<small>svac_… · a robot identity</small></div>
+    <div class="choice-what"><p>Not a credential but an <em>identity</em>: a named, non-human member of your organization with no email, password or login. A service account key or a federated token acts as it.</p></div>
+    <div class="choice-use"><span class="pill pub">Create one</span><br>For the CI evals, e.g. <code>eli5-nightly-evals</code>.</div>
+  </div>
+  <div class="choice">
+    <div class="choice-name">Workload identity<small>federation · OIDC → sk-ant-oat01…</small></div>
+    <div class="choice-what"><p>A way for a service account to get short-lived tokens with no stored secret: the platform your code runs on vouches for it with a signed token, and Anthropic swaps that for a token lasting minutes.</p></div>
+    <div class="choice-use"><span class="pill pub">Consider</span><br>GitHub Actions eval job, replacing the <code>ANTHROPIC_API_KEY</code> repo secret.</div>
+  </div>
+  <p class="meta">No real key or token appears on this page. Any example value is fake and truncated.</p>
+</div>
+
+<div class="tablist" role="tablist" aria-label="Reading level">
+  <button class="tab" type="button" role="tab" id="tab-indepth" aria-controls="panel-indepth" aria-selected="true">In depth</button>
+  <button class="tab" type="button" role="tab" id="tab-eli5" aria-controls="panel-eli5" aria-selected="false" tabindex="-1">ELI5</button>
+</div>
+
+<!-- ═══════════════════════ IN DEPTH ═══════════════════════ -->
+<div class="tabpanel" role="tabpanel" id="panel-indepth" aria-labelledby="tab-indepth" tabindex="0">
+<article class="indepth">
+
+<header>
+  <div class="panel-kicker">In depth</div>
+  <h2>The Password That Was Never There</h2>
+  <p class="dek">Anthropic now lets machines prove who they are instead of carrying a secret. How the swap works, what it protects, and what it can't reach.</p>
+</header>
+
+<section id="lede">
+  <p>For most of the API era, calling Claude meant pasting a long string that begins <code>sk-ant-api</code> into an environment variable and hoping it stayed put. The dialog you saw in the Claude Console is Anthropic's invitation to stop doing that, at least for code that runs somewhere other than your own laptop.</p>
+  <p>The feature is called Workload Identity Federation, or WIF. Anthropic announced it as generally available on June 17, 2026, together with service accounts and an <code>ant auth login</code> command for interactive use. Its documentation describes it plainly: workloads "authenticate to the Claude API with short-lived OpenID Connect (OIDC) tokens instead of long-lived <code>sk-ant-...</code> API keys." The tokens come from an identity provider you already use, such as AWS, Google Cloud, Microsoft Entra ID, GitHub Actions, Kubernetes, SPIFFE or Okta.</p>
+  <p><strong>Why it matters:</strong> an API key is a bearer secret. Anyone who holds it is you, as far as the API is concerned, for as long as it lives. Federation replaces it with a token that, in Anthropic's words, expires "in minutes rather than never," and it removes the stored secret entirely. It only works, though, where some trusted system can vouch for your code. A desktop app on your own Mac has no such system, so for ELI5 Learner the answer splits in two.</p>
+</section>
+
+<section id="keys">
+  <h3>The trouble with a key that never expires</h3>
+  <hr class="rule">
+  <p>An API key works like a house key with no name on it. The API checks only that the string is valid; it does not ask who is presenting it or from where. That makes keys simple, and it makes leaks expensive. Keys end up in shell history, in CI logs, in a <code>.env</code> file committed by accident, in screenshots. Anthropic's own advice is to store keys in a secrets manager, rotate them periodically and delete any you suspect have leaked. The Console now lets you set an expiration when you create a key (3 hours, 1 day, 7 days, 30 days, a custom period, or Never), and organizations can cap it.</p>
+  <p>Anthropic has also changed what a key <em>belongs to</em>. A <strong>personal key</strong> acts as you and dies when you leave the organization. A <strong>service account key</strong> acts as a service account. The older <strong>workspace key</strong> belongs to no one and is now labeled legacy. Anthropic recommends a personal key for your own development and a service account for "shared or automated workloads (CI, production services)," so a bot does not break when the human who created its key departs.</p>
+  <p>Identity-backed keys fix ownership. They do not fix the underlying problem: there is still a durable secret that must be copied into the place where the code runs. Federation attacks that part.</p>
+</section>
+
+<section id="service-accounts">
+  <h3>A name for a machine</h3>
+  <hr class="rule">
+  <p>The sidebar entry "Service accounts" is the foundation. A service account, with an ID beginning <code>svac_</code>, is "a named, non-human identity inside your Anthropic organization." It has no email, no password and no Console login. It lives at the organization level and acts in a workspace only after you add it to that workspace (every service account is implicitly a member of the Default Workspace). Usage then counts against that workspace's rate limits and is attributed to it, the same as with a key.</p>
+  <p>Anthropic's documentation puts the distinction in one line: "A workspace API key <em>is</em> a credential, whereas a service account <em>has</em> credentials." A service account can hold a static service account key, or it can be the target of federation. Either way, the audit trail reads "the nightly-evals robot did this," not "some key did this."</p>
+</section>
+
+<section id="trust">
+  <h3>Trust, written down once</h3>
+  <hr class="rule">
+  <p>Federation needs three objects in the Console, and the "Connect workload" wizard on the Workload identity page creates all three. Together they say, in Anthropic's phrasing, "tokens signed by issuer X, with claims that look like Y, may act as service account Z."</p>
+  <ul>
+    <li><strong>A federation issuer</strong> (<code>fdis_…</code>) registers an identity provider by its issuer URL, the exact value of the <code>iss</code> claim in its tokens. For GitHub Actions that is <code>https://token.actions.githubusercontent.com</code>. Anthropic finds the provider's public signing keys (its JWKS) through standard OIDC discovery, or you give a JWKS URL or paste the keys inline for private clusters.</li>
+    <li><strong>A service account</strong> (<code>svac_…</code>), the identity the workload will act as.</li>
+    <li><strong>A federation rule</strong> (<code>fdrl_…</code>) binds the two. It matches incoming tokens on a <code>subject_prefix</code>, an exact <code>audience</code>, exact values of other claims, or a Common Expression Language (CEL) condition. Every configured matcher must pass, and Anthropic refuses a rule that sets only an audience, so a rule cannot accidentally accept everything an issuer signs. The rule also sets the OAuth scope of the minted token and its lifetime: 60 seconds to 24 hours, with a 3,600-second API default; the wizard prefills 600.</li>
+  </ul>
+  <p>Two details are easy to miss. The client names the rule it wants in every exchange; "there is no implicit rule search." And the rule's scope is a ceiling. <code>workspace:developer</code> matches what a workspace key can do; <code>workspace:inference</code> allows only Messages, token counting, Models and the OpenAI-compatible endpoint, which is enough for a job that just calls Claude.</p>
+</section>
+
+<figure id="diagram">
+  <div class="figscroll wide">
+  <svg viewBox="0 0 780 380" role="img" aria-labelledby="dgTitle dgDesc">
+    <title id="dgTitle">Workload Identity Federation, from setup to API call</title>
+    <desc id="dgDesc">Once, an admin registers an issuer, a service account and a federation rule in the Claude Console. At run time the workload asks its platform for a signed OIDC token, posts it to Anthropic's token endpoint, Anthropic checks the signature against the issuer's public keys and the claims against the rule, returns a short-lived access token for the service account, and the workload calls the Claude API with it.</desc>
+    <defs>
+      <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+    </defs>
+    <g fill="none" stroke="currentColor" stroke-width="1.5">
+      <!-- setup band -->
+      <rect x="400" y="12" width="368" height="96" rx="8" stroke-dasharray="5 4" class="good"/>
+      <!-- actors -->
+      <rect x="12" y="140" width="170" height="104" rx="8" class="cool"/>
+      <rect x="12" y="290" width="170" height="78" rx="8"/>
+      <rect x="300" y="140" width="190" height="104" rx="8" class="acc"/>
+      <rect x="598" y="140" width="170" height="104" rx="8"/>
+      <rect x="598" y="290" width="170" height="78" rx="8"/>
+      <!-- 1: workload asks platform -->
+      <line x1="70" y1="244" x2="70" y2="286" marker-end="url(#arw)"/>
+      <line x1="124" y1="290" x2="124" y2="248" marker-end="url(#arw)"/>
+      <!-- 2: post JWT -->
+      <line x1="182" y1="172" x2="296" y2="172" marker-end="url(#arw)"/>
+      <!-- 3: return token -->
+      <line x1="300" y1="214" x2="186" y2="214" marker-end="url(#arw)"/>
+      <!-- JWKS fetch -->
+      <path d="M395,244 L395,330 L594,330" marker-end="url(#arw)" stroke-dasharray="4 3"/>
+      <!-- setup feeds verifier -->
+      <path d="M520,108 L520,124 L420,124 L420,136" marker-end="url(#arw)" class="good"/>
+      <!-- 4: call API -->
+      <path d="M97,140 L97,118 L683,118 L683,136" marker-end="url(#arw)"/>
+    </g>
+    <g fill="currentColor" font-family="system-ui, sans-serif" font-size="12.5" text-anchor="middle">
+      <text x="584" y="32" font-weight="700" class="good">Once: Claude Console › Workload identity</text>
+      <text x="584" y="54" font-size="11.5">issuer fdis_… (which iss to trust, e.g. GitHub's)</text>
+      <text x="584" y="73" font-size="11.5">rule fdrl_… (sub, aud, claims → scope, lifetime)</text>
+      <text x="584" y="92" font-size="11.5">service account svac_… (in a workspace)</text>
+
+      <text x="97" y="164" font-weight="700" class="cool">Your workload</text>
+      <text x="97" y="184">e.g. the CI eval job</text>
+      <text x="97" y="202">no API key stored</text>
+      <text x="97" y="232" font-family="ui-monospace, monospace" font-size="10.5" class="mut">Anthropic SDK</text>
+
+      <text x="97" y="314" font-weight="700">Platform's OIDC issuer</text>
+      <text x="97" y="334">GitHub, AWS, GCP,</text>
+      <text x="97" y="352">Entra ID, Kubernetes…</text>
+
+      <text x="395" y="164" font-weight="700" class="acc">Anthropic token endpoint</text>
+      <text x="395" y="184" font-family="ui-monospace, monospace" font-size="11">POST /v1/oauth/token</text>
+      <text x="395" y="204">check signature, iss, sub,</text>
+      <text x="395" y="222">aud, exp, jti, rule match</text>
+
+      <text x="683" y="186" font-weight="700">Claude API</text>
+      <text x="683" y="206" font-family="ui-monospace, monospace" font-size="11">/v1/messages</text>
+      <text x="683" y="226" font-size="11.5">Authorization: Bearer …</text>
+
+      <text x="683" y="314" font-weight="700">Issuer's public keys</text>
+      <text x="683" y="334">via OIDC discovery</text>
+      <text x="683" y="352">(the JWKS)</text>
+
+      <text x="22" y="270" text-anchor="start" font-size="11.5" font-weight="700">①</text>
+      <text x="34" y="270" text-anchor="start" font-size="11" class="mut">ask</text>
+      <text x="132" y="270" text-anchor="start" font-size="11" class="mut">signed JWT</text>
+      <text x="239" y="164" font-size="11.5"><tspan font-weight="700">②</tspan> JWT (jwt-bearer)</text>
+      <text x="238" y="234" font-size="11"><tspan font-weight="700">③</tspan> sk-ant-oat01-…</text>
+      <text x="243" y="262" font-size="10.5" class="mut">lasts minutes</text>
+      <text x="500" y="348" font-size="10.5" class="mut">fetched and cached</text>
+      <text x="240" y="112" font-size="11.5"><tspan font-weight="700">④</tspan> call Claude with the short-lived token</text>
+    </g>
+  </svg>
+  </div>
+  <figcaption>One-time setup (green, dashed) tells Anthropic whom to trust. At run time, the workload trades a platform-signed token for a short-lived Anthropic one; no long-lived Anthropic secret exists anywhere. On a narrow screen, scroll the diagram sideways.</figcaption>
+</figure>
+
+<section id="runtime">
+  <h3>What happens at run time</h3>
+  <hr class="rule">
+  <p>The identity token at the heart of this is an OpenID Connect ID token: a JSON Web Token, three base64url segments, signed by the issuer's private key. Its claims say who issued it (<code>iss</code>), whom it describes (<code>sub</code>), whom it is for (<code>aud</code>), and when it was issued and expires (<code>iat</code>, <code>exp</code>). Anyone can verify it by fetching the issuer's published public keys. Nobody can forge one without the issuer's private key.</p>
+  <p>The exchange follows three steps in Anthropic's documentation:</p>
+  <ol>
+    <li><strong>The platform hands the workload a JWT.</strong> On GitHub Actions a job asks a runner-provided endpoint, which only works if the job has the <code>id-token: write</code> permission. On Google Cloud it comes from the metadata server; on Azure from the Instance Metadata Service; on AWS from STS's <code>GetWebIdentityToken</code>; on Kubernetes from a projected service-account token file.</li>
+    <li><strong>The SDK exchanges it.</strong> It posts the JWT to <code>POST /v1/oauth/token</code> on <code>api.anthropic.com</code> using the RFC 7523 <code>jwt-bearer</code> grant, along with the rule ID, organization ID, service account ID and, where needed, workspace ID. These IDs identify; they are not secrets. Anthropic verifies the signature against the issuer's keys (asymmetric algorithms only; HMAC and <code>none</code> are rejected), requires <code>sub</code>, <code>iat</code> and an unexpired <code>exp</code>, caps the JWT's own lifetime at an hour by default, and, by default, rejects a reused <code>jti</code> as a replay. Then it checks the rule. On success it returns an access token beginning <code>sk-ant-oat01-</code> and an <code>expires_in</code>.</li>
+    <li><strong>The SDK uses and refreshes it.</strong> Your code builds the client with no key. The SDK attaches the token as <code>Authorization: Bearer</code>, tries to refresh 120 seconds before expiry and must succeed by 30 seconds before.</li>
+  </ol>
+  <p>A failed exchange returns the same opaque <code>401</code> "Authentication failed" whatever went wrong; the reason appears on the Console's authentication history tab. The docs don't say why; the effect is that someone probing your rules learns nothing from the reply.</p>
+  <p>The minted token's lifetime is the lesser of the rule's setting and twice the remaining life of the JWT you presented, and never under 60 seconds. That second bound matters for GitHub, whose tokens expire about five minutes after issue: an Anthropic token derived from one lasts at most about ten minutes, however generous the rule.</p>
+</section>
+
+<section id="lineage">
+  <h3>Not a new idea, just a new door</h3>
+  <hr class="rule">
+  <p>None of this was invented for Claude. The cloud providers have used the same pattern for years, in the other direction. GitHub's documentation describes the payoff: "You won't need to duplicate your cloud credentials as long-lived GitHub secrets." AWS accepts an OIDC token through STS <code>AssumeRoleWithWebIdentity</code> and returns temporary credentials for an IAM role whose trust policy names the issuer and conditions on its claims. Google Cloud's Workload Identity Federation trades external tokens through its Security Token Service, which implements RFC 8693 token exchange. Azure attaches "federated identity credentials" (issuer, subject and audience) to an app registration or managed identity.</p>
+  <p>Anthropic's version is the same shape with Anthropic as the party doing the checking. One technical difference: it uses the RFC 7523 JWT-bearer grant rather than RFC 8693 token exchange. Both are OAuth 2.0 extensions that let a signed assertion be swapped for an access token.</p>
+</section>
+
+<div class="pullquote">
+  <p>"A workspace API key is a credential, whereas a service account has credentials."</p>
+  <cite>Claude Platform docs, Workload Identity Federation</cite>
+</div>
+
+<section id="compare">
+  <h3>API key, service account, workload identity</h3>
+  <hr class="rule">
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th></th><th>API key</th><th>Service account</th><th>Workload identity federation</th></tr></thead>
+    <tbody>
+      <tr><td>What it is</td><td>A credential (static bearer secret)</td><td>An identity (non-human principal)</td><td>A way to get credentials for a service account</td></tr>
+      <tr><td>Stored secret?</td><td><span class="pill sec">Yes</span> wherever the code runs</td><td>None by itself</td><td><span class="pill pub">No</span> Anthropic-side secret</td></tr>
+      <tr><td>Lifetime</td><td>Up to never; set at creation</td><td>Until archived</td><td>60 s to 24 h per rule; wizard suggests 10 min</td></tr>
+      <tr><td>Acts as</td><td>You (personal), a service account, or a workspace (legacy)</td><td>Itself, in workspaces it belongs to</td><td>The rule's target service account, capped by the rule's scope</td></tr>
+      <tr><td>Needs</td><td>A safe place to keep it</td><td>An org admin to create it</td><td>A platform that can mint OIDC tokens, plus admin setup</td></tr>
+      <tr><td>Fits</td><td>Laptops, local scripts, desktop apps, third-party tools</td><td>Any shared or automated workload</td><td>CI, cloud services, Kubernetes</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="limits">
+  <h3>What federation can't do</h3>
+  <hr class="rule">
+  <p>The dialog's last line is the honest one: "Local scripts, third-party tools, and environments without an identity provider may still need an API key." Federation needs a party that can sign a token about your code and that Anthropic can reach to fetch public keys. Your MacBook has no such issuer, and neither does an app installed on someone else's Mac. Anthropic's own authentication guide recommends API keys for "local development, prototyping, scripts, and servers where you control secret storage."</p>
+  <p>Federation also moves trust rather than removing it. The token is "only as strong as the upstream identity provider that signs the JWT," and Anthropic warns that "a long-lived secret one step earlier in that chain," such as a static cloud credential able to mint tokens, can undermine it. On GitHub, anyone who can make a workflow run that matches your rule can obtain a token, which is why the docs warn that a loose rule such as <code>repo:your-org/*</code> also matches pull requests from forks.</p>
+  <p>Two other options appeared alongside it. <code>ant auth login</code> runs a browser OAuth flow for the <code>ant</code> CLI and stores credentials on disk; Anthropic says it is meant for "local development and scripting on your own machine." App Attest lets genuine installs of a registered iOS or macOS app get one-hour, Messages-only tokens billed to the developer's workspace, for apps with no back end. ELI5 Learner asks each user for their own key, so App Attest would mean paying for everyone's usage: a business decision, not a security fix.</p>
+</section>
+
+<section id="eli5-learner">
+  <h3>What it means for ELI5 Learner</h3>
+  <hr class="rule">
+  <p><strong>The Mac app keeps its API key.</strong> It runs on your Mac (and on users' Macs) with no identity provider, which is exactly the case the dialog carves out. The Keychain is the right home. Two small hygiene steps fit Anthropic's guidance: use a personal key (acts as you) rather than a legacy workspace key, and give it a name you'll recognize so you can delete it at once if it ever leaks. An expiration is optional; the trade-off is that the app stops working until you paste a new key.</p>
+  <p><strong>The nightly evals are a good fit for federation.</strong> The <code>evals</code> job in <code>.github/workflows/ci.yml</code> runs only on <code>schedule</code> and <code>workflow_dispatch</code>, and today it reads the Claude key from the <code>ANTHROPIC_API_KEY</code> repository secret into <code>ELI5_EVAL_API_KEY_CLAUDE</code>. Anthropic documents GitHub Actions as a supported issuer, with a dedicated guide. The move would look like this:</p>
+  <ol>
+    <li>In the Console, run Connect workload › GitHub Actions. Create a service account such as <code>eli5-nightly-evals</code> in the workspace the evals bill to.</li>
+    <li>Pin the rule tightly: <code>subject_prefix</code> <code>repo:knail1/eli5-learner:ref:refs/heads/main</code> (no <code>*</code>), <code>audience</code> <code>https://api.anthropic.com</code>, and claim <code>repository_owner: knail1</code>. Scheduled runs use the default branch, so their <code>sub</code> should have that form; confirm with the Console's test window or authentication history. Choose scope <code>workspace:inference</code>, since evals only call Messages.</li>
+    <li>Give the <code>evals</code> job <code>id-token: write</code>. It has its own <code>permissions</code> block, which replaces the workflow-level one, so add it there.</li>
+    <li>Change the eval runner's Claude path to build the SDK client with federated <code>credentials</code> instead of <code>apiKey</code>. Today the app's provider passes <code>apiKey</code> explicitly, and in the TypeScript SDK an <code>apiKey</code> or <code>authToken</code>, including one picked up from <code>ANTHROPIC_API_KEY</code> or <code>ANTHROPIC_AUTH_TOKEN</code>, takes precedence over <code>credentials</code>.</li>
+    <li>Once a run succeeds, remove the secret from the workflow and from GitHub, then delete the key in the Console. The OpenAI key stays a secret; this changes only the Claude side.</li>
+  </ol>
+  <p class="snippet-label">Workflow change · adapted from Anthropic's GitHub Actions guide</p>
+<pre><code>  evals:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    permissions:
+      contents: read
+      issues: write
+      id-token: write            <span class="c"># lets this job request a GitHub OIDC token</span>
+    env:
+      <span class="c"># IDs from the Connect workload wizard. Identifiers, not secrets.</span>
+      ANTHROPIC_FEDERATION_RULE_ID: fdrl_...
+      ANTHROPIC_ORGANIZATION_ID: 00000000-0000-0000-0000-000000000000
+      ANTHROPIC_SERVICE_ACCOUNT_ID: svac_...
+      ANTHROPIC_WORKSPACE_ID: wrkspc_...
+      ELI5_EVAL_API_KEY_OPENAI: ${{ secrets.OPENAI_API_KEY }}
+      <span class="c"># ELI5_EVAL_API_KEY_CLAUDE removed: no Claude secret in this job</span></code></pre>
+  <p>One wrinkle needs care. GitHub's tokens last about five minutes, Anthropic by default treats each token's <code>jti</code> as single-use, and the minted token then lasts at most about ten minutes, while an eval run can easily take longer. Anthropic's guide shows writing the token to a file once, which works for short jobs. For a long one it suggests re-fetching periodically or giving the SDK a function that asks GitHub for a fresh token on each exchange. The installed SDK (0.128) exposes that hook:</p>
+  <p class="snippet-label">Sketch, not tested · built from the SDK's documented types</p>
+<pre><code>import Anthropic from '@anthropic-ai/sdk';
+import { oidcFederationProvider } from '@anthropic-ai/sdk/lib/credentials/oidc-federation';
+
+<span class="c">// A fresh GitHub OIDC token for every exchange (they last ~5 min and are single-use).</span>
+async function githubIdToken(): Promise&lt;string&gt; {
+  const url = `${process.env.ACTIONS_ID_TOKEN_REQUEST_URL}&amp;audience=https://api.anthropic.com`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` },
+  });
+  if (!res.ok) throw new Error(`GitHub OIDC request failed: ${res.status}`);
+  return (await res.json()).value;
+}
+
+const client = new Anthropic({
+  apiKey: null,     <span class="c">// null (not undefined) stops ANTHROPIC_API_KEY from winning</span>
+  authToken: null,  <span class="c">// same for ANTHROPIC_AUTH_TOKEN</span>
+  credentials: oidcFederationProvider({
+    identityTokenProvider: githubIdToken,
+    federationRuleId: process.env.ANTHROPIC_FEDERATION_RULE_ID!,
+    organizationId: process.env.ANTHROPIC_ORGANIZATION_ID!,
+    serviceAccountId: process.env.ANTHROPIC_SERVICE_ACCOUNT_ID,
+    workspaceId: process.env.ANTHROPIC_WORKSPACE_ID,
+    baseURL: 'https://api.anthropic.com',
+    fetch,
+  }),
+});</code></pre>
+  <p>Never print either token in logs. The GitHub request token and the minted <code>sk-ant-oat01-…</code> are both live credentials while they last.</p>
+  <div class="keypoint">
+    <p><strong>The bottom line:</strong> click "Continue with an API key" for the Mac app; that is the case the dialog itself exempts. For CI, "Set up identity federation" is worth doing for the eval job: it removes the only long-lived Claude secret in the repo, and the worst a stolen token can do is last a few minutes in one workspace, at inference scope. Pin the rule to <code>knail1/eli5-learner</code> on <code>main</code>, never a wildcard, and remove the old secret only after a federated run succeeds.</p>
+  </div>
+</section>
+
+<section id="glossary">
+  <h3>Glossary</h3>
+  <hr class="rule">
+  <dl>
+    <dt>API key</dt><dd>A static <code>sk-ant-api…</code> bearer secret. Personal, service-account or (legacy) workspace type.</dd>
+    <dt>Bearer token</dt><dd>Any credential that works for whoever presents it, sent as <code>Authorization: Bearer …</code>.</dd>
+    <dt>Service account</dt><dd>A named non-human identity (<code>svac_…</code>) in your Anthropic organization. Has credentials; is not one.</dd>
+    <dt>Workload</dt><dd>Code running unattended somewhere: a CI job, a container, a cloud function.</dd>
+    <dt>Identity provider / issuer</dt><dd>The system that signs tokens about the workload, named by the <code>iss</code> claim. GitHub's is <code>https://token.actions.githubusercontent.com</code>.</dd>
+    <dt>OIDC ID token / JWT</dt><dd>A signed JSON Web Token carrying claims such as <code>iss</code>, <code>sub</code>, <code>aud</code>, <code>exp</code>.</dd>
+    <dt>JWKS</dt><dd>The issuer's published set of public keys, used to verify token signatures.</dd>
+    <dt>Federation issuer, rule</dt><dd>Console objects (<code>fdis_…</code>, <code>fdrl_…</code>): which issuer to trust, and which tokens from it may act as which service account, with what scope and lifetime.</dd>
+    <dt>jwt-bearer grant (RFC 7523)</dt><dd>The OAuth 2.0 method Anthropic's <code>/v1/oauth/token</code> uses to swap a signed JWT for an access token.</dd>
+    <dt>Token exchange (RFC 8693)</dt><dd>A related OAuth 2.0 standard, used by Google Cloud's STS; not what Anthropic's endpoint uses.</dd>
+    <dt>jti</dt><dd>A unique token ID. Anthropic accepts each one once per issuer, to block replays.</dd>
+    <dt>Scope</dt><dd>The ceiling on what a minted token may call, e.g. <code>workspace:inference</code> or <code>workspace:developer</code>.</dd>
+  </dl>
+</section>
+
+<section id="sources">
+  <h3>Sources</h3>
+  <hr class="rule">
+  <div class="srcgroup">Anthropic</div>
+  <ol class="sources">
+    <li><a href="https://platform.claude.com/docs/en/manage-claude/workload-identity-federation">Claude Platform docs: Workload Identity Federation</a></li>
+    <li><a href="https://platform.claude.com/docs/en/manage-claude/wif-providers/github-actions">Claude Platform docs: Use WIF with GitHub Actions</a></li>
+    <li><a href="https://platform.claude.com/docs/en/manage-claude/wif-reference">Claude Platform docs: WIF reference (exchange fields, scopes, JWT verification, JWKS modes)</a></li>
+    <li><a href="https://platform.claude.com/docs/en/manage-claude/authentication">Claude Platform docs: Authentication (key types, expiration, App Attest)</a></li>
+    <li><a href="https://platform.claude.com/docs/en/manage-claude/wif-providers/aws">Claude Platform docs: Use WIF with AWS</a></li>
+    <li><a href="https://platform.claude.com/docs/en/manage-claude/wif-providers/gcp">Claude Platform docs: Use WIF with Google Cloud</a></li>
+    <li><a href="https://platform.claude.com/docs/en/manage-claude/wif-providers/azure">Claude Platform docs: Use WIF with Microsoft Entra ID</a></li>
+    <li><a href="https://platform.claude.com/docs/en/cli-sdks-libraries/cli/authentication">Claude Platform docs: CLI authentication (ant auth login)</a></li>
+    <li><a href="https://claude.com/blog/workload-identity-federation">Claude blog: Secure access to the Claude Platform with Workload Identity Federation (June 17, 2026)</a></li>
+  </ol>
+  <div class="srcgroup">Standards and other platforms</div>
+  <ol class="sources" start="10">
+    <li><a href="https://openid.net/specs/openid-connect-core-1_0.html">OpenID Connect Core 1.0 (ID tokens)</a></li>
+    <li><a href="https://www.rfc-editor.org/rfc/rfc7519">RFC 7519: JSON Web Token</a></li>
+    <li><a href="https://www.rfc-editor.org/rfc/rfc7523">RFC 7523: JWT Profile for OAuth 2.0 Client Authentication and Authorization Grants</a></li>
+    <li><a href="https://www.rfc-editor.org/rfc/rfc8693">RFC 8693: OAuth 2.0 Token Exchange</a></li>
+    <li><a href="https://www.rfc-editor.org/rfc/rfc6749#section-5.1">RFC 6749 §5.1: OAuth 2.0 access token response</a></li>
+    <li><a href="https://docs.github.com/en/actions/concepts/security/openid-connect">GitHub Docs: OpenID Connect in GitHub Actions</a></li>
+    <li><a href="https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRoleWithWebIdentity.html">AWS STS: AssumeRoleWithWebIdentity</a></li>
+    <li><a href="https://docs.aws.amazon.com/STS/latest/APIReference/API_GetWebIdentityToken.html">AWS STS: GetWebIdentityToken</a></li>
+    <li><a href="https://cloud.google.com/iam/docs/workload-identity-federation">Google Cloud: Workload Identity Federation</a></li>
+    <li><a href="https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation">Microsoft Learn: Workload identity federation (federated identity credentials)</a></li>
+  </ol>
+  <p style="font-size:13px;color:var(--muted)">Anthropic docs fetched 2026-11-07. Repo facts (the <code>evals</code> job's triggers, permissions and secret names; the app's provider passing <code>apiKey</code>; installed <code>@anthropic-ai/sdk</code> 0.128 and its <code>oidcFederationProvider</code> and <code>credentials</code> option) were read from the local checkout, not changed. Sources 10 to 19 describe the general mechanism and other providers' implementations; they were not all re-fetched for this page.</p>
+</section>
+
+</article>
+</div>
+
+<!-- ═══════════════════════ ELI5 ═══════════════════════ -->
+<div class="tabpanel" role="tabpanel" id="panel-eli5" aria-labelledby="tab-eli5" tabindex="0">
+
+<section id="eli5-intro">
+  <div class="panel-kicker">ELI5</div>
+  <h2>The short version: a key, or a pass from the front desk</h2>
+  <hr class="rule">
+  <p>Picture Claude as an office building with a front desk. To get in, you need something the desk accepts.</p>
+  <p>The old way is a <strong>door key</strong>. That's an API key. You get it once and it opens the door every time. The desk never asks your name, only whether the key fits. That is handy, and it is also the problem: if you drop the key in the street, whoever picks it up walks in as you, and keeps walking in until you notice and change the lock.</p>
+  <p>The new way, the one the dialog offered, is a <strong>visitor pass</strong>. You carry no key at all. Instead, someone the desk already trusts vouches for you each time, and the desk prints you a paper pass that stops working in a few minutes.</p>
+  <figure>
+    <div class="figscroll medium">
+    <svg viewBox="0 0 520 170" role="img" aria-label="A robot shows a badge signed by its employer; the front desk checks it against a list and prints a pass that expires in minutes" fill="none" stroke="currentColor" stroke-width="2" font-family="system-ui, sans-serif" font-size="12.5">
+      <defs><marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="currentColor" stroke="none"/></marker></defs>
+      <rect x="20" y="40" width="90" height="70" rx="8" class="cool"/>
+      <circle cx="50" cy="66" r="5" class="cool"/><circle cx="80" cy="66" r="5" class="cool"/>
+      <line x1="48" y1="90" x2="82" y2="90" class="cool"/>
+      <rect x="190" y="40" width="130" height="70" rx="8" class="acc"/>
+      <rect x="400" y="50" width="100" height="52" rx="6" class="good"/>
+      <line x1="114" y1="75" x2="186" y2="75" marker-end="url(#a1)"/>
+      <line x1="324" y1="75" x2="396" y2="75" marker-end="url(#a1)"/>
+      <g fill="currentColor" stroke="none" text-anchor="middle">
+        <text x="65" y="130">robot (CI job)</text>
+        <text x="150" y="64" font-size="11.5">badge signed</text>
+        <text x="150" y="98" font-size="11.5">by GitHub</text>
+        <text x="255" y="70" font-weight="700">front desk</text>
+        <text x="255" y="90" font-size="11.5">checks the list</text>
+        <text x="255" y="130">Anthropic</text>
+        <text x="450" y="74" font-weight="700" class="good">pass</text>
+        <text x="450" y="92" font-size="11.5">gone in minutes</text>
+        <text x="450" y="130">then: Claude</text>
+      </g>
+    </svg>
+    </div>
+  </figure>
+</section>
+
+<section id="eli5-pieces">
+  <h3>Who's who in the building</h3>
+  <hr class="rule">
+  <ul>
+    <li><strong>The robot</strong> is your code running somewhere by itself, like the nightly test job on GitHub.</li>
+    <li><strong>The badge</strong> is a signed note from the robot's employer, GitHub, saying "this is a job from the <code>eli5-learner</code> project, on the main branch, running right now." Nobody can fake GitHub's signature, and the desk can check it against GitHub's public stamp.</li>
+    <li><strong>The robot's name tag</strong> is a <em>service account</em>. It's not a key. It's a name, like "nightly-evals robot," so the building's logbook says which robot came in, not just "someone with a key."</li>
+    <li><strong>The list at the front desk</strong> is something you write once in the Claude Console: "Badges signed by GitHub, for the <code>eli5-learner</code> project, on the main branch, may get a pass with the nightly-evals robot's name on it." That's the issuer plus the rule.</li>
+    <li><strong>The pass</strong> is the short-lived token. It lets the robot talk to Claude for a few minutes. The robot's helper (the SDK) quietly asks for a new pass before the old one runs out.</li>
+  </ul>
+  <p>The win: there is no key to lose. If someone steals a pass, it is useless in minutes. If someone copies your project's code, they still can't get a GitHub badge that says "main branch of your project."</p>
+</section>
+
+<section id="eli5-laptop">
+  <h3>Why your Mac app still needs a key</h3>
+  <hr class="rule">
+  <p>Passes only work when someone the desk trusts is there to sign a badge. GitHub can do that for its robots. Big cloud companies can do it for theirs.</p>
+  <p>Your Mac can't. When ELI5 Learner runs on your laptop, there is no employer standing behind it to vouch. That's what the small print in the dialog means: "Local scripts, third-party tools, and environments without an identity provider may still need an API key."</p>
+  <p>So the Mac app keeps its key, and the key lives in the macOS Keychain, a locked drawer that only your logged-in Mac can open. That is the right place for it. The rule is the same as for any house key: don't make copies, don't leave it lying in files, and if you ever think it's been lost, cancel it in the Console and make a new one.</p>
+</section>
+
+<section id="eli5-yours">
+  <h3>What you'd actually do</h3>
+  <hr class="rule">
+  <div class="keypoint">
+    <p><strong>Mac app:</strong> pick "Continue with an API key." Nothing changes.</p>
+    <p><strong>Nightly evals on GitHub:</strong> this is where passes shine. Today the test job carries a copy of your door key, stored as a GitHub secret. Instead you could:</p>
+    <ol>
+      <li>Make a robot name tag (service account) called something like <code>eli5-nightly-evals</code>.</li>
+      <li>Write the front-desk list: GitHub badges, only your <code>eli5-learner</code> project, only the main branch. Never "any project of mine," which would also let strangers' pull requests in.</li>
+      <li>Let the test job ask GitHub for badges (<code>id-token: write</code>) and change the eval code to ask for passes instead of using a key.</li>
+      <li>After one good night's run, throw away the old key and the GitHub secret.</li>
+    </ol>
+  </div>
+  <div class="callout warn">
+    <p><strong>One trap:</strong> if a key is still lying around, the helper uses the key and never asks for a pass. Remove <code>ANTHROPIC_API_KEY</code> from the job, or the switch silently doesn't happen.</p>
+  </div>
+  <p>That's the whole idea. A key is something you have to keep safe forever. A pass is something nobody has to keep safe at all, because by the time anyone could misuse it, it has already expired.</p>
+</section>
+
+</div>
+
+<p class="footer">Made 2026-11-07 for ELI5 Learner. Self-contained; no network requests. No real keys or tokens shown.</p>
+</div>
+
+<script>
+(function () {
+  var KEY = 'claude-identity-federation-explained.tab';
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  function select(tab, focus) {
+    tabs.forEach(function (t) {
+      var on = t === tab;
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.tabIndex = on ? 0 : -1;
+      var panel = document.getElementById(t.getAttribute('aria-controls'));
+      if (panel) panel.hidden = !on;
+    });
+    if (focus) tab.focus();
+    try { localStorage.setItem(KEY, tab.id); } catch (e) {}
+  }
+  tabs.forEach(function (tab, i) {
+    tab.addEventListener('click', function () { select(tab, false); });
+    tab.addEventListener('keydown', function (e) {
+      var n = null;
+      if (e.key === 'ArrowRight') n = tabs[(i + 1) % tabs.length];
+      else if (e.key === 'ArrowLeft') n = tabs[(i - 1 + tabs.length) % tabs.length];
+      else if (e.key === 'Home') n = tabs[0];
+      else if (e.key === 'End') n = tabs[tabs.length - 1];
+      if (n) { e.preventDefault(); select(n, true); }
+    });
+  });
+  var saved = null;
+  try { saved = localStorage.getItem(KEY); } catch (e) {}
+  var start = (saved && document.getElementById(saved)) || tabs[0];
+  if (start) select(start, false);
+})();
+</script>
+</body>
+</html>

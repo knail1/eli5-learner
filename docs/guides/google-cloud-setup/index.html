@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ELI5 Learner · Google Cloud setup</title>
+<style>
+  :root {
+    --ivory: #FAF9F5; --slate: #141413; --clay: #D97757; --oat: #E3DACC; --olive: #788C5D; --rust: #B04A3F;
+    --gray-150: #F0EEE6; --gray-300: #D1CFC5; --gray-500: #87867F; --gray-700: #3D3D3A; --white: #FFFFFF;
+    --serif: ui-serif, Georgia, 'Times New Roman', serif;
+    --sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: var(--sans); background: var(--ivory); color: var(--gray-700); line-height: 1.55;
+    padding: 56px 32px 120px; -webkit-font-smoothing: antialiased; }
+  .page { max-width: 860px; margin: 0 auto; }
+  a { color: var(--clay); text-underline-offset: 3px; }
+  code, .mono { font-family: var(--mono); font-size: 0.88em; }
+  code { background: var(--gray-150); border: 1px solid var(--gray-300); border-radius: 5px; padding: 1px 6px; color: var(--slate); }
+
+  header { margin-bottom: 40px; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 12px; }
+  h1 { font-family: var(--serif); font-weight: 500; font-size: 38px; line-height: 1.15; color: var(--slate); margin-bottom: 16px; letter-spacing: -0.01em; }
+  .lede { font-size: 16.5px; max-width: 700px; }
+
+  .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 32px 0 52px; }
+  .cell { background: var(--white); border: 1.5px solid var(--gray-300); border-radius: 12px; padding: 16px 18px; }
+  .cell .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 4px; }
+  .cell .v { font-family: var(--serif); font-size: 28px; color: var(--slate); }
+  .cell .v.accent { color: var(--olive); }
+  .cell .s { font-size: 12.5px; color: var(--gray-500); }
+
+  section { margin-bottom: 52px; }
+  .sec-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+  .sec-head .num { font-family: var(--mono); font-size: 12px; background: var(--oat); color: var(--slate); padding: 3px 9px; border-radius: 8px; }
+  h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--slate); letter-spacing: -0.01em; }
+  hr.rule { border: 0; border-top: 1px solid var(--gray-300); margin: 10px 0 22px; }
+  .intro { color: var(--gray-500); font-size: 14.5px; margin-bottom: 22px; max-width: 700px; }
+
+  .callout { border-left: 3px solid var(--clay); background: var(--white); border-radius: 0 10px 10px 0; padding: 14px 18px; font-size: 14.5px; margin: 18px 0; }
+  .callout.good { border-left-color: var(--olive); }
+  .callout strong { color: var(--slate); }
+
+  /* steps */
+  .steps { list-style: none; counter-reset: step; }
+  .step { display: grid; grid-template-columns: 34px 1fr; gap: 0 16px; position: relative; padding-bottom: 26px; }
+  .step::before { counter-increment: step; content: counter(step); font-family: var(--mono); font-size: 13px; width: 30px; height: 30px; border-radius: 50%;
+    border: 2px solid var(--clay); color: var(--clay); display: grid; place-items: center; background: var(--white); }
+  .step:not(:last-child)::after { content: ''; position: absolute; left: 15px; top: 34px; bottom: 4px; width: 2px; background: var(--gray-300); }
+  .step.done::before { content: '✓'; background: var(--olive); border-color: var(--olive); color: var(--white); }
+  .step h3 { font-family: var(--serif); font-weight: 500; font-size: 19px; color: var(--slate); margin: 2px 0 4px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .step h3 label { font-family: var(--mono); font-size: 11px; color: var(--gray-500); font-weight: 400; cursor: pointer; user-select: none; }
+  .step h3 input { accent-color: var(--olive); vertical-align: -2px; }
+  .step p, .step li { font-size: 14.5px; }
+  .step ul { margin: 6px 0 0 18px; }
+  .path { font-family: var(--mono); font-size: 12.5px; color: var(--gray-700); background: var(--gray-150); border-radius: 6px; padding: 2px 8px; display: inline-block; margin-top: 4px; }
+
+  .copy { display: flex; align-items: center; gap: 8px; background: var(--white); border: 1.5px solid var(--gray-300); border-radius: 8px; padding: 6px 6px 6px 12px; margin: 6px 0; max-width: 640px; }
+  .copy code { border: 0; background: none; padding: 0; flex: 1; overflow-x: auto; white-space: nowrap; }
+  .copy button { font-family: var(--mono); font-size: 11px; border: 1px solid var(--gray-300); background: var(--gray-150); color: var(--gray-700); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  .copy button.ok { background: var(--olive); color: var(--white); border-color: var(--olive); }
+
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; background: var(--white); border: 1.5px solid var(--gray-300); border-radius: 12px; overflow: hidden; }
+  th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); background: var(--gray-150); padding: 10px 14px; }
+  td { padding: 12px 14px; border-top: 1px solid var(--gray-300); vertical-align: top; }
+  td:first-child { color: var(--slate); font-weight: 600; white-space: nowrap; }
+
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card { background: var(--white); border: 1.5px solid var(--gray-300); border-radius: 12px; padding: 18px 20px; }
+  .card h3 { font-family: var(--serif); font-weight: 500; font-size: 18px; color: var(--slate); margin-bottom: 8px; }
+  .card ol { margin-left: 18px; font-size: 14px; }
+  .card li { margin-bottom: 4px; }
+
+  .badge { font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 6px; background: var(--gray-150); border: 1px solid var(--gray-300); }
+  .badge.warn { color: var(--rust); border-color: #E6C2BC; background: #FBF1EF; }
+  footer { margin-top: 64px; color: var(--gray-500); font-size: 13px; border-top: 1px solid var(--gray-300); padding-top: 18px; }
+
+  @media (max-width: 720px) {
+    body { padding: 32px 16px 80px; }
+    h1 { font-size: 30px; }
+    .summary { grid-template-columns: repeat(2, 1fr); }
+    .two { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header>
+  <div class="eyebrow">ELI5 Learner · Android companion · one-time setup</div>
+  <h1>Connect your Mac and Pixel through your own Google Drive</h1>
+  <p class="lede">About 20 minutes of clicks in the Google Cloud console. There's no server to run: your
+  documents sync through a hidden app folder in <em>your</em> Drive, and nothing you create here ever
+  goes into the public repository.</p>
+</header>
+
+<div class="summary">
+  <div class="cell"><div class="k">Time</div><div class="v">~20 min</div><div class="s">one time only</div></div>
+  <div class="cell"><div class="k">Projects</div><div class="v">1</div><div class="s">everything in one</div></div>
+  <div class="cell"><div class="k">OAuth clients</div><div class="v">3</div><div class="s">desktop + 2 Android</div></div>
+  <div class="cell"><div class="k">Secrets in repo</div><div class="v accent">0</div><div class="s">stay on your Mac</div></div>
+</div>
+
+<div class="callout good"><strong>You can skip this for now.</strong> The Android app works without it as an
+offline reader: import any exported <code>index.html</code> and read it. This setup only unlocks sync and
+"Send to my Mac" from the phone's share sheet.</div>
+
+<section>
+  <div class="sec-head"><span class="num">01</span><h2>Create the Google Cloud project</h2></div>
+  <hr class="rule">
+  <p class="intro">Sign in to the console with the Google account you'll use on both devices. Tick each step
+  as you go; your progress is remembered in this browser.</p>
+
+  <ol class="steps">
+    <li class="step" data-step="1"><div>
+      <h3>Create a project <label><input type="checkbox"> done</label></h3>
+      <p>Any name works, for example <strong>ELI5 Learner personal</strong>.</p>
+      <a class="path" href="https://console.cloud.google.com/projectcreate">console.cloud.google.com/projectcreate ↗</a>
+    </div></li>
+
+    <li class="step" data-step="2"><div>
+      <h3>Enable the Google Drive API <label><input type="checkbox"> done</label></h3>
+      <p>APIs &amp; Services → Library → search <strong>Google Drive API</strong> → <strong>Enable</strong>.</p>
+      <a class="path" href="https://console.cloud.google.com/apis/library/drive.googleapis.com">Google Drive API in the library ↗</a>
+    </div></li>
+
+    <li class="step" data-step="3"><div>
+      <h3>Branding <label><input type="checkbox"> done</label></h3>
+      <p>Google Auth Platform → Branding. App name <strong>ELI5 Learner</strong>, your email as support and
+      developer contact. <strong>Don't upload a logo</strong>; it triggers a brand review.</p>
+    </div></li>
+
+    <li class="step" data-step="4"><div>
+      <h3>Audience <label><input type="checkbox"> done</label></h3>
+      <p>User type <strong>External</strong>. Leave publishing status on <strong>Testing</strong> for now, and add
+      your own Gmail address under <strong>Test users</strong>.</p>
+    </div></li>
+
+    <li class="step" data-step="5"><div>
+      <h3>Data access: three scopes, nothing more <label><input type="checkbox"> done</label></h3>
+      <p>Add exactly these. Never add the full <code>drive</code> scope.</p>
+      <div class="copy"><code>openid</code><button type="button">Copy</button></div>
+      <div class="copy"><code>https://www.googleapis.com/auth/userinfo.email</code><button type="button">Copy</button></div>
+      <div class="copy"><code>https://www.googleapis.com/auth/drive.appdata</code><button type="button">Copy</button></div>
+    </div></li>
+
+    <li class="step" data-step="6"><div>
+      <h3>Create three OAuth clients <label><input type="checkbox"> done</label></h3>
+      <p>Google Auth Platform → Clients → <strong>Create client</strong>, three times:</p>
+    </div></li>
+  </ol>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Type</th><th>What to enter</th><th>What you keep</th></tr></thead>
+    <tbody>
+      <tr><td>Desktop app</td><td>Name: <strong>ELI5 Learner desktop</strong></td><td>Download the JSON (<code>client_secret_….json</code>). Keep it <strong>outside</strong> the repo, for example in Downloads.</td></tr>
+      <tr><td>Android (release)</td><td>Package <code>io.github.eli5learner</code> + the <strong>release</strong> SHA-1 below</td><td>Nothing. Google matches the app by package name and signing key. <strong>This is the one the APK you'll install uses.</strong></td></tr>
+      <tr><td>Android (debug)</td><td>Package <code>io.github.eli5learner</code> + the <strong>debug</strong> SHA-1 below</td><td>Nothing. Only needed if you install debug builds.</td></tr>
+    </tbody>
+  </table></div>
+  <h3 style="font-family:var(--serif);font-weight:500;font-size:19px;color:var(--slate);margin:26px 0 8px">Your values (ready to paste)</h3>
+  <p style="font-size:14px;color:var(--gray-500);margin-bottom:6px">Package name, for both Android clients:</p>
+  <div class="copy"><code>io.github.eli5learner</code><button type="button">Copy</button></div>
+  <p style="font-size:14px;color:var(--gray-500);margin:12px 0 6px">Release SHA-1 (the APK in <code>release/android/</code> is signed with this key):</p>
+  <div class="copy"><code>CF:43:8F:EA:DF:22:55:97:16:2E:09:53:90:D1:CA:A8:11:9C:22:DC</code><button type="button">Copy</button></div>
+  <p style="font-size:14px;color:var(--gray-500);margin:12px 0 6px">Debug SHA-1:</p>
+  <div class="copy"><code>54:C1:10:61:F7:33:98:E7:99:C1:2E:AA:61:1B:71:DE:2B:D9:A0:2D</code><button type="button">Copy</button></div>
+  <div class="callout">These are public certificate fingerprints, not secrets. They come from the signing keys on your
+  Mac (<code>~/.config/eli5-learner/eli5-release.jks</code> and <code>~/.android/debug.keystore</code>). Back up the
+  release keystore: every future APK must be signed with it, or the phone refuses the update. You can re-print them
+  any time with <code>./gradlew :app:printOAuthFingerprints</code>. A mismatch shows up on the phone as
+  "Developer error (10)".</div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">02</span><h2>Connect both apps</h2></div>
+  <hr class="rule">
+  <div class="two">
+    <div class="card">
+      <h3>On the Mac</h3>
+      <ol>
+        <li>ELI5 Learner → <strong>Settings → Sync</strong>.</li>
+        <li>Drop the downloaded Desktop client JSON on the <strong>Google client</strong> field. It goes into the macOS Keychain.</li>
+        <li>Click <strong>Connect Google Drive</strong> and allow access in the browser.</li>
+        <li>Turn on <strong>Sync</strong>, and <strong>Accept jobs from phone</strong> if you want to send links from the Pixel.</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h3>On the Pixel</h3>
+      <ol>
+        <li>ELI5 Learner → <strong>Settings → Connect Google Drive</strong>.</li>
+        <li>Pick the <strong>same</strong> Google account and allow access.</li>
+        <li>It shows "Waiting for your Mac…", then downloads your library.</li>
+        <li>Share any link or photo to ELI5 Learner → <strong>Send to my Mac</strong>. The Mac app must be running (the menu bar is enough).</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">03</span><h2>Once it works: publish the app</h2></div>
+  <hr class="rule">
+  <p class="intro">In <span class="badge warn">Testing</span>, Google signs both devices out every 7 days.
+  When sync works, go to Audience → <strong>Publish app</strong>. The app asks only for non-sensitive scopes, so
+  there's no review. Google may still show "Google hasn't verified this app"; as the owner you can continue past it.</p>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">04</span><h2>Where your data goes</h2></div>
+  <hr class="rule">
+  <p class="intro">A hidden app folder in your Drive. You can't browse it, other apps can't read it, and it counts
+  against your storage. It holds your documents with their titles and summaries, not your source files. It isn't
+  end-to-end encrypted. To remove it: Mac Settings → Sync → <strong>Delete cloud copy</strong>. To revoke access
+  entirely: <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>. Your Mac's
+  library is never affected.</p>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">05</span><h2>If something goes wrong</h2></div>
+  <hr class="rule">
+  <div class="table-wrap"><table>
+    <thead><tr><th>Symptom</th><th>Fix</th></tr></thead>
+    <tbody>
+      <tr><td>Phone: "Developer error (10)"</td><td>Package or SHA-1 doesn't match an Android client. Re-check against <code>printOAuthFingerprints</code> (release vs debug).</td></tr>
+      <tr><td>Phone sees no Mac</td><td>Clients are in different projects, or you used different Google accounts. Keep one project, one account.</td></tr>
+      <tr><td>"access_denied" in the browser</td><td>Add your Gmail under Audience → Test users.</td></tr>
+      <tr><td>Sync stops every 7 days</td><td>Still in Testing. Publish the app (section 03).</td></tr>
+      <tr><td>Inbox job waits forever</td><td>The Mac app isn't running, the Mac is asleep, or "Accept jobs from phone" is off.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<footer>Never commit: the Desktop client JSON, <code>*.jks</code> / <code>*.keystore</code>,
+<code>local.properties</code>, <code>.env</code>, or APK files. The repo's <code>npm run check:hygiene</code> fails if any is
+tracked. · Generated 2026-11-07 from the ELI5 Learner Android setup plan.</footer>
+</div>
+
+<script>
+  // Copy buttons.
+  document.querySelectorAll('.copy button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var text = b.parentElement.querySelector('code').textContent;
+      (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function () {
+        b.textContent = 'Copied'; b.classList.add('ok');
+        setTimeout(function () { b.textContent = 'Copy'; b.classList.remove('ok'); }, 1500);
+      }, function () { b.textContent = 'Select'; });
+    });
+  });
+  // Step checkboxes, remembered in this browser only.
+  var KEY = 'eli5-gcloud-setup-steps';
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) {}
+  document.querySelectorAll('.step').forEach(function (s) {
+    var box = s.querySelector('input[type=checkbox]');
+    var id = s.getAttribute('data-step');
+    if (saved[id]) { box.checked = true; s.classList.add('done'); }
+    box.addEventListener('change', function () {
+      s.classList.toggle('done', box.checked);
+      saved[id] = box.checked;
+      try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {}
+    });
+  });
+</script>
+</body>
+</html>

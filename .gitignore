@@ -159,6 +159,7 @@ docs/*
 !docs/.nojekyll
 !docs/index.html
 !docs/sample/
+!docs/guides/
 
 # Local secrets and config (.env* is covered above)
 *.pem

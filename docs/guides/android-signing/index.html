@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signing your Android app, explained</title>
+<meta name="description" content="What the SHA-1 signing certificate fingerprint is, why Google OAuth Android clients ask for it, and how to protect the key behind it, for ELI5 Learner (io.github.eli5learner).">
+<script>document.documentElement.classList.add('js');</script>
+<style>
+  :root {
+    --ivory:   #FAF9F5;
+    --slate:   #141413;
+    --clay:    #D97757;
+    --oat:     #E3DACC;
+    --olive:   #788C5D;
+    --rust:    #B04A3F;
+    --sky:     #6A8CAF;
+    --gray-150:#F0EEE6;
+    --gray-300:#D1CFC5;
+    --gray-500:#87867F;
+    --gray-700:#3D3D3A;
+    --serif: ui-serif, Georgia, "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+    /* semantic tokens (light) */
+    --bg:      var(--ivory);
+    --surface: #FFFFFF;
+    --sunken:  var(--gray-150);
+    --ink:     var(--slate);
+    --text:    var(--gray-700);
+    --muted:   var(--gray-500);
+    --rule:    var(--gray-300);
+    --accent:  var(--clay);
+    --good:    var(--olive);
+    --bad:     var(--rust);
+    --tint-accent: rgba(217,119,87,0.10);
+    --tint-good:   rgba(120,140,93,0.12);
+    --tint-bad:    rgba(176,74,63,0.09);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:      #1A1A18;
+      --surface: #23231F;
+      --sunken:  #2B2A26;
+      --ink:     #F3F1EA;
+      --text:    #D3D0C6;
+      --muted:   #9C998F;
+      --rule:    #3E3D38;
+      --accent:  #E08A6C;
+      --good:    #9DB27F;
+      --bad:     #D9776B;
+      --tint-accent: rgba(224,138,108,0.14);
+      --tint-good:   rgba(157,178,127,0.14);
+      --tint-bad:    rgba(217,119,107,0.13);
+      color-scheme: dark;
+    }
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15.5px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .page { max-width: 860px; margin: 0 auto; }
+  @media (max-width: 720px) { body { padding: 32px 16px 80px; font-size: 15px; } }
+
+  /* header */
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--serif); font-weight: 500; font-size: 36px; line-height: 1.15;
+    color: var(--ink); letter-spacing: -0.01em; margin-bottom: 14px;
+  }
+  .lead { font-size: 17px; max-width: 680px; margin-bottom: 28px; }
+  @media (max-width: 720px) { h1 { font-size: 29px; } .lead { font-size: 16px; } }
+
+  h2 {
+    font-family: var(--serif); font-weight: 500; font-size: 27px; line-height: 1.2;
+    color: var(--ink); margin: 8px 0 6px;
+  }
+  h3 {
+    font-family: var(--serif); font-weight: 500; font-size: 21px; line-height: 1.25;
+    color: var(--ink); margin: 0 0 10px;
+  }
+  hr.rule { border: 0; border-top: 1px solid var(--rule); margin: 0 0 16px; }
+  section { margin-top: 52px; }
+  section:first-of-type { margin-top: 28px; }
+  p { margin-bottom: 12px; max-width: 700px; }
+  ul, ol { margin: 0 0 14px 22px; max-width: 700px; }
+  li { margin-bottom: 8px; }
+  strong { color: var(--ink); }
+  a { color: var(--accent); text-underline-offset: 2px; }
+  code {
+    font-family: var(--mono); font-size: 0.86em; color: var(--ink);
+    background: var(--sunken); border-radius: 4px; padding: 1px 4px;
+    overflow-wrap: anywhere;
+  }
+  .dek { font-size: 16px; color: var(--muted); max-width: 680px; margin-bottom: 4px; }
+
+  /* hero card */
+  .hero {
+    border: 1.5px solid var(--rule); border-radius: 14px; background: var(--surface);
+    padding: 20px 22px 18px; margin-bottom: 36px;
+  }
+  .hero .label {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 12px;
+  }
+  .fp-row {
+    display: grid; grid-template-columns: 130px minmax(0,1fr) auto; gap: 6px 16px;
+    align-items: center; padding: 12px 0; border-top: 1px solid var(--rule);
+  }
+  .fp-row:first-of-type { border-top: 0; padding-top: 0; }
+  .fp-name { font-family: var(--serif); font-size: 17px; color: var(--ink); line-height: 1.2; }
+  .fp-name small { display: block; font-family: var(--mono); font-size: 10.5px; color: var(--muted); letter-spacing: 0.04em; margin-top: 3px; }
+  .fp-val {
+    font-family: var(--mono); font-size: 13.5px; color: var(--ink);
+    overflow-wrap: anywhere; word-break: break-all; line-height: 1.5;
+  }
+  .fp-row.release .fp-val { color: var(--accent); }
+  .copy {
+    appearance: none; border: 1.5px solid var(--rule); background: var(--sunken); color: var(--ink);
+    border-radius: 6px; font-family: var(--mono); font-size: 11px; padding: 6px 12px; cursor: pointer;
+    min-width: 72px;
+  }
+  .copy:hover { background: var(--oat); color: var(--slate); }
+  .copy:focus-visible, .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .copy.done { border-color: var(--good); color: var(--good); }
+  html:not(.js) .copy { display: none; }
+  .hero .meta { font-size: 13px; color: var(--muted); margin: 12px 0 0; max-width: none; }
+  @media (max-width: 720px) {
+    .fp-row { grid-template-columns: minmax(0,1fr) auto; }
+    .fp-val { grid-column: 1 / -1; grid-row: 2; }
+  }
+
+  /* tabs */
+  .tablist {
+    display: none; gap: 4px; border-bottom: 1px solid var(--rule); margin-bottom: 8px;
+    position: sticky; top: 0; background: var(--bg); z-index: 2; padding-top: 8px;
+  }
+  html.js .tablist { display: flex; }
+  .tab {
+    appearance: none; background: none; border: 0; border-bottom: 2.5px solid transparent;
+    font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--muted); padding: 10px 14px 9px; cursor: pointer; margin-bottom: -1px;
+  }
+  .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+  .tab:hover { color: var(--ink); }
+  .tabpanel[hidden] { display: none; }
+  html:not(.js) .tabpanel + .tabpanel { margin-top: 72px; border-top: 2px solid var(--rule); padding-top: 32px; }
+  .panel-kicker {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--accent); margin-top: 28px;
+  }
+
+  /* figures */
+  figure { margin: 40px 0; }
+  .figscroll { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1.5px solid var(--rule); border-radius: 12px; background: var(--surface); padding: 16px; }
+  .figscroll svg { display: block; width: 100%; height: auto; color: var(--ink); }
+  .figscroll.wide svg { min-width: 620px; }
+  .figscroll.medium svg { min-width: 440px; }
+  figcaption { font-size: 13px; color: var(--muted); margin-top: 10px; max-width: 700px; }
+  svg .acc { stroke: var(--accent); }
+  svg text.acc { fill: var(--accent); stroke: none; }
+
+  /* callouts */
+  .callout, .keypoint {
+    border-left: 3px solid var(--accent); background: var(--tint-accent);
+    border-radius: 0 10px 10px 0; padding: 14px 18px 4px; margin: 18px 0; max-width: 720px;
+  }
+  .keypoint { border-left-color: var(--good); background: var(--tint-good); }
+  .warn { border-left-color: var(--bad); background: var(--tint-bad); }
+  p.keypoint { padding-bottom: 14px; }
+  .pullquote { margin: 28px 0; padding: 4px 0 4px 22px; border-left: 2px solid var(--rule); max-width: 640px; }
+  .pullquote p { font-family: var(--serif); font-size: 21px; line-height: 1.4; color: var(--ink); margin-bottom: 6px; }
+  .pullquote cite { font-style: normal; font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: 0.04em; }
+
+  /* tables */
+  .tablewrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 12px 0 16px; }
+  table { border-collapse: collapse; width: 100%; min-width: 620px; font-size: 13.5px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 500; }
+  td code { word-break: break-all; }
+  .pill { font-family: var(--mono); font-size: 11px; white-space: nowrap; padding: 2px 7px; border-radius: 999px; }
+  .pub  { color: var(--good); background: var(--tint-good); }
+  .sec  { color: var(--bad); background: var(--tint-bad); }
+  .mid  { color: var(--accent); background: var(--tint-accent); }
+
+  /* glossary + sources */
+  dl dt { font-family: var(--serif); font-size: 16px; color: var(--ink); margin-top: 12px; }
+  dl dd { font-size: 14px; margin: 2px 0 0; max-width: 700px; }
+  ol.sources { font-size: 13px; margin-left: 20px; }
+  ol.sources li { margin-bottom: 4px; overflow-wrap: anywhere; }
+  .footer { margin-top: 64px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header>
+  <div class="eyebrow">ELI5 Learner · Android · concept explainer · 2026-11-07</div>
+  <h1>Signing your Android app, explained</h1>
+  <p class="lead">Google Cloud asked you for two SHA-1 fingerprints to set up Google sign-in. This page explains what those strings are, why they are safe to publish, and why the key behind the release one must never be lost or leaked.</p>
+</header>
+
+<div class="hero" aria-labelledby="heroLabel">
+  <div class="label" id="heroLabel">Your values · package <code>io.github.eli5learner</code></div>
+  <div class="fp-row release">
+    <div class="fp-name">Release SHA-1<small>eli5-release.jks · alias eli5</small></div>
+    <div class="fp-val" id="fpRelease">CF:43:8F:EA:DF:22:55:97:16:2E:09:53:90:D1:CA:A8:11:9C:22:DC</div>
+    <button class="copy" type="button" data-copy="fpRelease" aria-label="Copy release SHA-1">Copy</button>
+  </div>
+  <div class="fp-row">
+    <div class="fp-name">Debug SHA-1<small>~/.android/debug.keystore</small></div>
+    <div class="fp-val" id="fpDebug">54:C1:10:61:F7:33:98:E7:99:C1:2E:AA:61:1B:71:DE:2B:D9:A0:2D</div>
+    <button class="copy" type="button" data-copy="fpDebug" aria-label="Copy debug SHA-1">Copy</button>
+  </div>
+  <p class="meta">One Google Cloud "Android" OAuth client per row, both with package <code>io.github.eli5learner</code>. Fingerprints are public. The keystore files and their passwords are not.</p>
+</div>
+
+<div class="tablist" role="tablist" aria-label="Reading level">
+  <button class="tab" type="button" role="tab" id="tab-indepth" aria-controls="panel-indepth" aria-selected="true">In depth</button>
+  <button class="tab" type="button" role="tab" id="tab-eli5" aria-controls="panel-eli5" aria-selected="false" tabindex="-1">ELI5</button>
+</div>
+
+<!-- ═══════════════════════ IN DEPTH ═══════════════════════ -->
+<div class="tabpanel" role="tabpanel" id="panel-indepth" aria-labelledby="tab-indepth" tabindex="0">
+<article class="indepth">
+
+<header>
+  <div class="panel-kicker">In depth</div>
+  <h2>The 40-Character Name Google Uses for Your App</h2>
+  <p class="dek">Why a Google Cloud form asked for a string like <code>CF:43:8F:…:22:DC</code>, what it proves, and what it costs to lose the key behind it.</p>
+</header>
+
+<section id="lede">
+  <p>The Google Cloud form for an "Android" OAuth client asks for two things and nothing else: a package name and a "SHA-1 signing certificate fingerprint." It wants no client secret, no redirect URL and no app-store link. For ELI5 Learner the package name is <code>io.github.eli5learner</code>, and the fingerprint is the 59-character string <code>CF:43:8F:EA:DF:22:55:97:16:2E:09:53:90:D1:CA:A8:11:9C:22:DC</code>, which is 40 hex digits with colons between each pair.</p>
+  <p>That string identifies the app to Google. It is a hash of the certificate that signed the APK now sitting in <code>release/android/</code>, and the certificate in turn is backed by a 4,096-bit RSA private key stored in <code>~/.config/eli5-learner/eli5-release.jks</code>. When someone taps "Sign in" on a phone, Google never sees a password or a client ID from ELI5 Learner, because the app embeds neither. Google Play services on the device reports which package is asking and which certificate signed it, and Google looks for a registered client that matches both.</p>
+  <p><strong>Why it matters:</strong> app signing is not a formality that ends at build time. The same key decides whether Android will install your next update over the current one, whether Google sign-in works, and whether you can register the package under Android's developer-verification rules. The fingerprint is safe to publish: nobody can sign as you without the private key. Its one practical exposure is that a package-plus-SHA-1 pair can be claimed by only one Google Cloud or Firebase project, so register your Android clients promptly. The key behind it has to stay secret, and if it is lost it cannot be recovered.</p>
+</section>
+
+<section id="signing">
+  <h3>A signature with no authority behind it</h3>
+  <hr class="rule">
+  <p>Every Android app must be signed by its developer before it can be installed. Unlike the certificates that secure websites, Android signing certificates are self-signed: developers "can generate without external assistance or permission," in the words of Android's security documentation, and no certificate authority vouches for them. Running <code>keytool -genkeypair</code> on your own Mac creates one.</p>
+  <p>That sounds weak until you see what the signature is for. It does not prove that you are a real company; anyone could make a certificate that also says <code>CN=ELI5 Learner</code>. It proves integrity and continuity: the APK has not been altered since it was signed, and whoever signed version 2 holds the same private key as whoever signed version 1. When Android installs an update, the system "compares the certificate(s) in the new version with those in the existing version. The system allows the update if the certificates match." The same rule underpins signature-level permissions and the old shared-user-ID mechanism, which both trust only apps signed with the same certificate.</p>
+  <p>How the signature sits inside the file has changed over time. The original scheme (v1, JAR signing, from Android 1.0) signed individual ZIP entries and left the ZIP metadata unprotected. That gap was exploited by the 2017 "Janus" vulnerability (CVE-2017-13156), which affected Android 5.0 through 8.0 (patched in the December 2017 security bulletin) and only APKs verified with a v1 signature alone; v2 signatures on Android 7.0 and later were not affected. APK Signature Scheme v2, introduced in Android 7.0, signs the whole archive. An APK Signing Block placed just before the ZIP central directory covers the entry contents, the central directory and the end-of-directory record, hashed in 1 MB chunks so the check runs in parallel and installs go faster. v3 (Android 9) adds key rotation, v3.1 (Android 13) targets rotation at newer platforms, and v4 (Android 11) supports streaming installs through a separate <code>.idsig</code> file.</p>
+  <p>ELI5 Learner's release APK carries only a v2 signature. Running <code>apksigner verify -v --print-certs</code> on it reports "Verifies," with v2 true and v1, v3 and v4 false. That is correct for this app: <code>minSdk</code> is 31, and v1 only matters for devices older than Android 7.0. Apps that target API 30 or higher must be signed with "APK Signature Scheme v2 or higher" to install on Android 11 and later, so a v2-or-newer signature is required; v2 is what this build uses.</p>
+</section>
+
+<figure id="diagram">
+  <div class="figscroll wide">
+  <svg viewBox="0 0 760 300" role="img" aria-labelledby="dgTitle dgDesc">
+    <title id="dgTitle">From private key to OAuth client match</title>
+    <desc id="dgDesc">The private key in the keystore signs the APK. The certificate inside the APK hashes to a SHA-1 fingerprint. Google Play services reports package plus fingerprint, and Google matches them against registered Android OAuth clients.</desc>
+    <defs>
+      <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+    </defs>
+    <g fill="none" stroke="currentColor" stroke-width="1.5">
+      <rect x="10" y="20" width="160" height="90" rx="8" class="acc"/>
+      <rect x="210" y="20" width="160" height="90" rx="8"/>
+      <rect x="410" y="20" width="160" height="90" rx="8"/>
+      <rect x="610" y="20" width="140" height="90" rx="8"/>
+      <rect x="210" y="180" width="360" height="100" rx="8" stroke-dasharray="5 4"/>
+      <line x1="170" y1="65" x2="206" y2="65" marker-end="url(#arw)"/>
+      <line x1="370" y1="65" x2="406" y2="65" marker-end="url(#arw)"/>
+      <line x1="570" y1="65" x2="606" y2="65" marker-end="url(#arw)"/>
+      <path d="M680,110 L680,230 L574,230" marker-end="url(#arw)"/>
+    </g>
+    <g fill="currentColor" font-family="system-ui, sans-serif" font-size="13" text-anchor="middle">
+      <text x="90" y="45" font-weight="700">Private key</text>
+      <text x="90" y="65">eli5-release.jks</text>
+      <text x="90" y="83">alias eli5, RSA 4096</text>
+      <text x="90" y="101" font-style="italic" class="acc">SECRET</text>
+      <text x="290" y="45" font-weight="700">Signed APK</text>
+      <text x="290" y="65">v2 signing block +</text>
+      <text x="290" y="83">certificate</text>
+      <text x="290" y="101">CN=ELI5 Learner</text>
+      <text x="490" y="45" font-weight="700">SHA-1 fingerprint</text>
+      <text x="490" y="65">hash of the</text>
+      <text x="490" y="83">certificate bytes</text>
+      <text x="490" y="101" font-family="ui-monospace, monospace" font-size="11">CF:43:8F:…:22:DC</text>
+      <text x="680" y="45" font-weight="700">Play services</text>
+      <text x="680" y="65">reports package</text>
+      <text x="680" y="83">+ fingerprint</text>
+      <text x="680" y="101" font-style="italic">PUBLIC</text>
+      <text x="390" y="205" font-weight="700">Google Cloud: Android OAuth clients</text>
+      <text x="390" y="228" font-family="ui-monospace, monospace" font-size="11">io.github.eli5learner + CF:43:8F:…:22:DC (release)</text>
+      <text x="390" y="248" font-family="ui-monospace, monospace" font-size="11">io.github.eli5learner + 54:C1:10:…:A0:2D (debug)</text>
+      <text x="390" y="270" font-size="12">match → consent and token; no match → usually DEVELOPER_ERROR (10)</text>
+    </g>
+  </svg>
+  </div>
+  <figcaption>The key signs the APK, the certificate in the APK hashes to the fingerprint, and Google matches package plus fingerprint against the Android clients you registered. On a narrow screen, scroll the diagram sideways.</figcaption>
+</figure>
+
+<section id="fingerprint">
+  <h3>What a fingerprint is, and why SHA-1</h3>
+  <hr class="rule">
+  <p>Android's documentation calls a certificate fingerprint "a short and unique representation of a certificate that is often requested by API providers alongside the package name to register an app." Technically, it is a hash of the certificate's DER-encoded bytes. On this Mac, exporting the debug certificate and piping it through <code>shasum -a 1</code> gives exactly the SHA-1 that keytool prints. One certificate has one MD5, one SHA-1 (20 bytes) and one SHA-256 (32 bytes) fingerprint. None of them is a key.</p>
+  <p>Choosing SHA-1 can look odd in 2026. NIST disallowed SHA-1 for generating digital signatures after 2013 and plans to retire it entirely by 31 December 2030. What attackers broke, though, was collision resistance: the 2017 SHAttered attack produced two inputs with the same hash. To impersonate ELI5 Learner, an attacker would need a certificate that hashes to an existing, registered value. That is a second-preimage attack, and none is known to be practical for SHA-1. The APK signature itself is checked with RSA-4096 over SHA-256 digests (scheme v2); SHA-1 appears only in the fingerprint Google uses as a lookup label. Google has not published its reasoning, so treat this as an informed reading rather than official policy. Whatever the reason, the form wants SHA-1, so paste the line labelled SHA1, not SHA-256 or MD5.</p>
+  <blockquote class="pullquote">
+    <p>"…it's intended to be shared, as it does not contain your private key."</p>
+    <cite>Android Developers, on the app signing certificate used to register with API providers</cite>
+  </blockquote>
+  <p>The fingerprint is a hash of exactly that shareable certificate, so the same reasoning covers it.</p>
+</section>
+
+<section id="secret-public">
+  <h3>What you can publish and what you must guard</h3>
+  <hr class="rule">
+  <p>The public repo already lists the package name and both fingerprints, and that is fine. The table shows where the line falls.</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Item</th><th>ELI5 Learner value</th><th>Status</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Package name</td><td><code>io.github.eli5learner</code></td><td><span class="pill pub">Public</span></td><td>It is in every APK's manifest.</td></tr>
+      <tr><td>Release SHA-1</td><td><code>CF:43:8F:EA:DF:22:55:97:16:2E:09:53:90:D1:CA:A8:11:9C:22:DC</code></td><td><span class="pill pub">Public</span></td><td>A hash of the certificate, which is designed to be shared.</td></tr>
+      <tr><td>Debug SHA-1</td><td><code>54:C1:10:61:F7:33:98:E7:99:C1:2E:AA:61:1B:71:DE:2B:D9:A0:2D</code></td><td><span class="pill pub">Public</span></td><td>Same reason.</td></tr>
+      <tr><td>Certificate</td><td>CN=ELI5 Learner, RSA 4096, valid to 26 Mar 2054 (UTC)</td><td><span class="pill pub">Public</span></td><td>It ships inside every APK.</td></tr>
+      <tr><td>Release keystore</td><td><code>~/.config/eli5-learner/eli5-release.jks</code> (mode 0600)</td><td><span class="pill sec">Secret</span></td><td>It holds the private key.</td></tr>
+      <tr><td>Keystore and key passwords</td><td>Only in <code>~/.gradle/gradle.properties</code></td><td><span class="pill sec">Secret</span></td><td>They unlock the private key.</td></tr>
+      <tr><td>Debug keystore</td><td><code>~/.android/debug.keystore</code>, password <code>android</code></td><td><span class="pill mid">Private (lower stakes)</span></td><td>The password is public, but the key inside is random and exists only on this Mac, and the debug OAuth client trusts it. Anyone holding the file could sign an APK that Google treats as ELI5 Learner. Never commit or share it, never ship with it, and consider deleting the debug OAuth client when you are not using it.</td></tr>
+      <tr><td>Desktop OAuth client secret</td><td>(used by the Mac app)</td><td><span class="pill mid">Not confidential, keep out of git</span></td><td>Google says installed-app secrets are "obviously not treated as a secret." Repo rules still forbid committing credentials.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>One detail: the release file ends in <code>.jks</code> but is really PKCS12. Its first bytes are <code>30 82</code>, not the <code>FEEDFEED</code> magic of a true Java KeyStore, because modern keytool writes PKCS12 by default. Most tools detect this automatically. If one asks, pass <code>-storetype PKCS12</code>, and keep the store and key passwords identical, which PKCS12 tooling expects.</p>
+</section>
+
+<section id="walkthrough">
+  <h3>What happens when you tap "Sign in"</h3>
+  <hr class="rule">
+  <p>ELI5 Learner syncs through the Drive <code>appDataFolder</code> using three scopes: <code>openid</code>, <code>userinfo.email</code> and <code>drive.appdata</code>. On Android it uses Google's <code>AuthorizationClient</code>, which Google recommends for accessing account data such as Drive, as opposed to Credential Manager, which handles plain authentication. The sequence:</p>
+  <ol>
+    <li><strong>The app builds a request.</strong> <code>AuthorizationRequest.Builder.setRequestedScopes()</code> takes the scope list and nothing else. No client ID is involved; one would only be needed for <code>requestOfflineAccess(serverClientId)</code>, which serves a backend server.</li>
+    <li><strong>Play services identifies the caller.</strong> Android knows the requesting app's package and the certificate it was verified against at install time. Play services passes <code>io.github.eli5learner</code> and that certificate's identity to Google.</li>
+    <li><strong>Google looks for a match.</strong> It searches for an Android OAuth client registered with that exact package and SHA-1. Each pair may exist in only one Google Cloud or Firebase project (<a href="https://support.google.com/firebase/answer/6401008">Firebase support</a>). Because both values are public, a third party could in principle register the pair first; they still could not get tokens without your private key, but you would be blocked from registering it. If Google ever reports "already exists in another project," raise it with Google support; signing with a new key is the only workaround.</li>
+    <li><strong>The user consents.</strong> If the result <code>hasResolution()</code>, the app launches the returned PendingIntent and the consent screen appears, branded with the project's consent-screen settings.</li>
+    <li><strong>A token comes back.</strong> The result carries an access token valid for about an hour. Later calls to <code>authorize()</code> return a fresh token without prompting while the grant stands. Google advises against storing refresh tokens on the device.</li>
+    <li><strong>The app learns who signed in.</strong> Authorization responses don't name the account, so the app calls the userinfo endpoint with the token. That is why <code>openid</code> and <code>userinfo.email</code> are in the scope list.</li>
+  </ol>
+  <p>The Mac app follows a different path. It uses a "Desktop app" client, which takes no fingerprint, and a loopback redirect to <code>127.0.0.1</code> on a random port, protected by PKCE. Google has deprecated loopback redirects for Android clients, so each platform uses its own client type.</p>
+  <aside class="callout">
+    <p><strong>Testing mode caveat.</strong> While the consent screen's user type is External and its publishing status is "Testing," you can list at most 100 test users, and refresh tokens Google issues expire after 7 days because <code>drive.appdata</code> is outside the openid/email/profile exemption (<a href="https://developers.google.com/identity/protocols/oauth2#expiration">Google OAuth 2.0, token expiration</a>). Expect the Mac app to need re-consent about weekly. Google doesn't document how this affects Android's <code>AuthorizationClient</code>, which holds no refresh token, so test it. Moving to Production removes the limit; check the current verification requirements for your scopes in the console when you do.</p>
+    <p>The Android client's optional "Verify app ownership" step works only for apps registered in Play Console. Leave it unverified for a sideloaded build; sign-in still works.</p>
+  </aside>
+</section>
+
+<section id="debug-release">
+  <h3>Two keys, two clients</h3>
+  <hr class="rule">
+  <p>ELI5 Learner is signed by two different keys depending on how it is built. A debug build from Android Studio or <code>./gradlew assembleDebug</code> is signed automatically with <code>~/.android/debug.keystore</code>, which the build tools created on this Mac. It holds alias <code>androiddebugkey</code>, password <code>android</code>, an RSA 2048 key and a certificate valid until 2056, with SHA-1 <code>54:C1:10:…:A0:2D</code>. A release build is signed with the <code>eli5</code> key, SHA-1 <code>CF:43:8F:…:22:DC</code>.</p>
+  <p>An Android OAuth client holds one package and one SHA-1, so ELI5 Learner needs two clients, both for <code>io.github.eli5learner</code>. Register only one and sign-in fails for the other build. Google's client-auth guide tells you to collect both the release and debug fingerprints; because each Android client takes one SHA-1, that means one client per key.</p>
+  <p>Three practical consequences follow:</p>
+  <ul>
+    <li><strong>The debug key belongs to this Mac.</strong> A new laptop, a CI runner or a deleted <code>~/.android</code> produces a new debug key with a new SHA-1, and the debug client stops matching. Copying the keystore file between machines keeps the SHA-1 stable.</li>
+    <li><strong>The release build can silently use the debug key.</strong> Stock Gradle would produce an unsigned release APK, but this project's <code>android/app/build.gradle.kts</code> deliberately falls back to the debug signing config when the <code>ELI5_ANDROID_*</code> properties are missing. A file named <code>eli5-learner-release.apk</code> built on another machine may therefore carry the debug SHA-1. Check the actual APK with <code>apksigner verify -v --print-certs</code> and read the <em>certificate</em> SHA-1 digest line, not the "public key SHA-1 digest" line next to it. apksigner prints the fingerprint as lowercase hex without colons (<code>cf438fea…22dc</code>); it is the same value as <code>CF:43:8F:…</code>. <code>keytool -printcert -jarfile &lt;apk&gt;</code> prints the colon form if you want an exact visual match.</li>
+    <li><strong>You can't switch an installed copy between debug and release.</strong> Installing one over the other fails with <code>INSTALL_FAILED_UPDATE_INCOMPATIBLE</code>, shown on the phone as "App not installed." Neither <code>adb install -r</code> nor <code>-d</code> gets around it. The fix is <code>adb uninstall io.github.eli5learner</code>, which deletes local app data. To keep both builds installed side by side, add an <code>applicationIdSuffix</code> such as <code>.debug</code>. That changes the package name, so the debug OAuth client must then use the suffixed package.</li>
+  </ul>
+</section>
+
+<section id="play-vs-sideload">
+  <h3>Play App Signing versus sideloading</h3>
+  <hr class="rule">
+  <p>Much Google documentation assumes Play App Signing. In that model you sign uploads with an upload key, and Google re-signs what users install with an app signing key that only Google holds. The certificate on users' phones is then Google's, so Google warns that "you must register the Google-held app signing key fingerprint with your API providers, not just your local upload key."</p>
+  <p>None of that applies to ELI5 Learner today. Nothing re-signs a sideloaded APK, so the certificate Google OAuth sees is the one from <code>eli5-release.jks</code>. If the app ever moves to Play with a Google-generated signing key, it would need a third Android client for the SHA-1 shown on Play Console's app signing page. Uploading your own release key when you enroll in Play App Signing avoids that. It means handing Google a copy of the private key (through the encrypted export the Play Console provides); you keep your own copy and backups as before.</p>
+  <p>Sideloading is also changing. Under Android developer verification, apps on certified devices must be registered to a verified developer, with the package name tied to its signing key. Enforcement began on 30 September 2026 in a few countries, and Google plans to expand it globally in 2027; its FAQ indicates that sideloaded installs are not yet affected during the first phase. Google's FAQ also says "Apps installed using ADB won't require verification," so <code>adb install -r</code> keeps working. Once enforcement covers sideloading, tapping an APK of an unregistered app in Files or Drive will need the device's one-time "advanced flow" (developer mode, a restart, a 24-hour wait, then biometric confirmation, after which installs are allowed for 7 days or indefinitely); updates to unregistered apps need the same, or ADB. A free limited-distribution account can register the package instead, but it is limited to 20 specific devices, for testing and personal use; wider distribution needs a full-distribution account ($25, with ID verification). Registration is proven with the signing key. Google changed this policy several times in 2025 and 2026, so re-check the <a href="https://developer.android.com/developer-verification/guides/faq">FAQ</a> before the global rollout.</p>
+</section>
+
+<section id="losing-key">
+  <h3>If the key is lost, or leaked</h3>
+  <hr class="rule">
+  <p>Google is blunt about this: "You cannot regenerate a previously generated key." Without Play App Signing, nobody can recover it. For ELI5 Learner, losing the <code>.jks</code> file or its passwords would mean every installed copy must be uninstalled, losing its local data, before a build signed with a new key can go on. The release OAuth client would need a new SHA-1, and if the package is registered for developer verification, you would have to register the new key (or a new package) as well.</p>
+  <p>Key rotation under v3 does not help. <code>apksigner rotate</code> requires the old signer's keystore, so it is a way to migrate away from a key you still have, not a way to replace one you lost. By default apksigner applies a rotated key only on Android 13 and later (the v3.1 block), because rotation had known bugs on Android 11 and 12; older devices keep checking the original key. With <code>minSdk</code> 31, devices on Android 12 and 12L would keep needing the old key.</p>
+  <p>Leaking the key is as bad as losing it, or worse. Anyone with the file and its passwords can build an "update" that phones will accept over your app, with access to its data. If that happens, stop using the key and move to a new package and a new key.</p>
+  <aside class="keypoint">
+    <p><strong>Key point:</strong> the signing identity is the file <code>eli5-release.jks</code> plus the keystore and key passwords in <code>~/.gradle/gradle.properties</code> (<code>ELI5_ANDROID_KEYSTORE_PASSWORD</code> and <code>ELI5_ANDROID_KEY_PASSWORD</code>; they may be identical, but back up both). A backup of the file without the passwords is useless. Store the keystore in an encrypted backup and the passwords in a password manager, both somewhere other than this Mac, and never in the public repo. The key's validity of 10,000 days, about 27.4 years, meets Google's 25-year recommendation, so expiry is not a concern before March 2054.</p>
+  </aside>
+</section>
+
+<section id="dev-error">
+  <h3>Troubleshooting "Developer error (10)"</h3>
+  <hr class="rule">
+  <p>When Play services finds no match, it usually returns <code>CommonStatusCodes.DEVELOPER_ERROR</code> (10): "The application is misconfigured. This error is not recoverable and will be treated as fatal. The developer should look at the logs after this to determine more actionable information." The most common cause is that no registered client matches the installed APK's package and SHA-1, but an incomplete consent screen or the wrong project can trigger it too. Check in this order:</p>
+  <ol start="0">
+    <li><strong>What do the logs say?</strong> Run <code>adb logcat</code> and reproduce the failure; look for the Play services or auth message logged at that moment.</li>
+    <li><strong>Which key signed the installed APK?</strong> Run <code>apksigner verify -v --print-certs</code> on that exact file, or <code>./gradlew signingReport</code> for Gradle variants.</li>
+    <li><strong>Is that SHA-1 registered?</strong> Confirm there is an Android client with exactly that fingerprint. SHA-256 or MD5 pasted by mistake will not match.</li>
+    <li><strong>Does the package match the applicationId?</strong> A suffix or a product flavor changes it.</li>
+    <li><strong>Is everything in one project?</strong> Keep the Android clients, the Desktop client, the consent screen and the enabled Google Drive API in the same Google Cloud project.</li>
+    <li><strong>Was the client just created?</strong> Google says changes can take "5 minutes to a few hours" to apply.</li>
+    <li><strong>Is the client still there?</strong> Clients are deleted after six months of inactivity, with an email 30 days beforehand; deleted clients are typically restorable for at least 30 days. Restore a deleted client inside that window rather than recreating it.</li>
+  </ol>
+  <p>Other setup problems surface differently: a Google account that is not on the test-user list gets <code>access_denied</code>, for example. Because error 10 is fatal, the app should show a clear "sign-in is misconfigured" message instead of retrying. <code>NETWORK_ERROR</code> (7) is the one worth retrying.</p>
+</section>
+
+<section id="glossary">
+  <h3>Glossary</h3>
+  <hr class="rule">
+  <dl>
+    <dt>Keystore</dt><dd>A file (<code>.jks</code>, <code>.keystore</code>, PKCS12) holding private keys and certificates under aliases. Secret.</dd>
+    <dt>Alias</dt><dd>The name of one key in a keystore: <code>eli5</code> for release, <code>androiddebugkey</code> for debug.</dd>
+    <dt>Certificate</dt><dd>The public key plus owner details, self-signed on Android. Ships inside the APK.</dd>
+    <dt>Fingerprint</dt><dd>A hash (MD5, SHA-1 or SHA-256) of the certificate bytes. Public; used to register the app with API providers.</dd>
+    <dt>APK Signature Scheme v2</dt><dd>Whole-file signing introduced in Android 7.0. ELI5 Learner's release APK uses it.</dd>
+    <dt>Android OAuth client</dt><dd>A Google Cloud registration of one package plus one SHA-1. Has no client secret.</dd>
+    <dt>Desktop app client</dt><dd>The Mac app's OAuth client, using a loopback redirect and PKCE. Takes no fingerprint.</dd>
+    <dt>Play App Signing</dt><dd>Google re-signs apps distributed through Play with a key it holds. Not used for sideloaded builds.</dd>
+    <dt>INSTALL_FAILED_UPDATE_INCOMPATIBLE</dt><dd>The install error when an installed package has a different signature from the new one.</dd>
+    <dt>DEVELOPER_ERROR (10)</dt><dd>Play services' fatal "misconfigured" status, usually a package or SHA-1 mismatch.</dd>
+  </dl>
+</section>
+
+<section id="sources">
+  <h3>Sources</h3>
+  <hr class="rule">
+  <ol class="sources">
+    <li><a href="https://source.android.com/docs/security/features/apksigning">source.android.com: Application signing</a></li>
+    <li><a href="https://source.android.com/docs/security/features/apksigning/v2">source.android.com: APK Signature Scheme v2</a></li>
+    <li><a href="https://source.android.com/docs/security/features/apksigning/v3">source.android.com: APK Signature Scheme v3</a></li>
+    <li><a href="https://source.android.com/docs/security/features/apksigning/v3-1">source.android.com: APK Signature Scheme v3.1</a></li>
+    <li><a href="https://source.android.com/docs/security/features/apksigning/v4">source.android.com: APK Signature Scheme v4</a></li>
+    <li><a href="https://source.android.com/docs/security/bulletin/2017-12-01">source.android.com: Android Security Bulletin, December 2017</a></li>
+    <li><a href="https://developer.android.com/studio/publish/app-signing">developer.android.com: Sign your app</a></li>
+    <li><a href="https://developer.android.com/about/versions/11/behavior-changes-11">developer.android.com: Android 11 behavior changes</a></li>
+    <li><a href="https://developer.android.com/tools/apksigner">developer.android.com: apksigner</a></li>
+    <li><a href="https://developer.android.com/tools/adb">developer.android.com: Android Debug Bridge (adb)</a></li>
+    <li><a href="https://developer.android.com/identity/authorization">developer.android.com: Authorize access to user data</a></li>
+    <li><a href="https://developer.android.com/identity/sign-in/credential-manager-siwg">developer.android.com: Sign in with Google (Credential Manager)</a></li>
+    <li><a href="https://developer.android.com/build/build-variants">developer.android.com: Configure build variants</a></li>
+    <li><a href="https://developer.android.com/developer-verification/guides/faq">developer.android.com: Developer verification FAQ</a></li>
+    <li><a href="https://developers.google.com/android/guides/client-auth">developers.google.com: Authenticating your client</a></li>
+    <li><a href="https://developers.google.com/android/reference/com/google/android/gms/auth/api/identity/AuthorizationRequest.Builder">developers.google.com: AuthorizationRequest.Builder</a></li>
+    <li><a href="https://developers.google.com/android/reference/com/google/android/gms/common/api/CommonStatusCodes#DEVELOPER_ERROR">developers.google.com: CommonStatusCodes.DEVELOPER_ERROR</a></li>
+    <li><a href="https://developers.google.com/identity/protocols/oauth2#expiration">developers.google.com: Using OAuth 2.0 (refresh token expiration)</a></li>
+    <li><a href="https://developers.google.com/identity/protocols/oauth2/native-app">developers.google.com: OAuth 2.0 for mobile and desktop apps</a></li>
+    <li><a href="https://developers.google.com/workspace/drive/api/guides/api-specific-auth">developers.google.com: Drive API scopes</a></li>
+    <li><a href="https://support.google.com/cloud/answer/15549257">support.google.com: Manage OAuth clients</a></li>
+    <li><a href="https://support.google.com/cloud/answer/15549945">support.google.com: OAuth consent screen and audience</a></li>
+    <li><a href="https://support.google.com/cloud/answer/10311615">support.google.com: OAuth app verification</a></li>
+    <li><a href="https://support.google.com/firebase/answer/6401008">support.google.com: Firebase, package name and SHA-1 already in use</a></li>
+    <li><a href="https://support.google.com/googleplay/android-developer/answer/9842756">support.google.com: Play App Signing</a></li>
+    <li><a href="https://support.google.com/android-developer-console/answer/16561738">support.google.com: Android developer verification</a></li>
+    <li><a href="https://android-developers.googleblog.com/2026/03/android-developer-verification-rolling-out-to-all-developers.html">Android Developers Blog: developer verification rolling out (March 2026)</a></li>
+    <li><a href="https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/core/java/android/content/pm/PackageManager.java">AOSP: PackageManager.java</a></li>
+    <li><a href="https://www.nist.gov/news-events/news/2022/12/nist-retires-sha-1-cryptographic-algorithm">NIST: NIST retires SHA-1 (2022)</a></li>
+    <li><a href="https://docs.oracle.com/en/java/javase/21/docs/specs/man/keytool.html">Oracle: keytool reference (Java 21)</a></li>
+  </ol>
+  <p style="font-size:13px;color:var(--muted)">Local facts (certificate dates, signature schemes, PKCS12 header bytes, fingerprint values) were checked against the APK in <code>release/android/</code> and the keystores on this Mac with apksigner, keytool and openssl on 2026-11-07.</p>
+</section>
+
+</article>
+</div>
+
+<!-- ═══════════════════════ ELI5 ═══════════════════════ -->
+<div class="tabpanel" role="tabpanel" id="panel-eli5" aria-labelledby="tab-eli5" tabindex="0">
+
+<section id="eli5-intro">
+  <div class="panel-kicker">ELI5</div>
+  <h2>The short version: your app has a wax seal</h2>
+  <hr class="rule">
+  <p>Picture an old-fashioned letter closed with a wax seal. The sender presses a signet ring into hot wax. Anyone who sees an unbroken seal can tell the letter wasn't opened, and that it came from the same ring as the last letter. It doesn't prove who you are, only that it's the same you each time.</p>
+  <p>Android apps work the same way. Every APK is sealed before a phone will install it. Your ELI5 Learner APK, package <code>io.github.eli5learner</code>, carries a seal pressed by your own ring. You made the ring yourself. No authority is needed to make the ring.</p>
+  <p>Separately, Google is starting to require that apps on certified phones are registered to a verified developer: in a few countries from September 2026, and worldwide in 2027. Installs over USB with <code>adb</code> are exempt. If you hand the APK to other people after that, register <code>io.github.eli5learner</code> and this key in the Android Developer Console (a free account type covers up to 20 devices for testing and personal use).</p>
+  <figure>
+    <div class="figscroll medium">
+    <svg viewBox="0 0 520 150" role="img" aria-label="A signet ring presses a seal onto the APK; the phone checks the seal" fill="none" stroke="currentColor" stroke-width="2" font-family="system-ui, sans-serif" font-size="13">
+      <defs><marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="currentColor" stroke="none"/></marker></defs>
+      <circle cx="60" cy="70" r="30" class="acc"/><circle cx="60" cy="70" r="14" class="acc"/>
+      <text x="60" y="125" text-anchor="middle" fill="currentColor" stroke="none">Ring (private key)</text>
+      <path d="M100 70 H170" marker-end="url(#a1)"/>
+      <rect x="180" y="35" width="120" height="70" rx="6"/>
+      <circle cx="240" cy="70" r="16" stroke-width="3" class="acc"/>
+      <text x="240" y="125" text-anchor="middle" fill="currentColor" stroke="none">Sealed APK</text>
+      <path d="M310 70 H380" marker-end="url(#a1)"/>
+      <rect x="395" y="25" width="60" height="95" rx="10"/>
+      <text x="425" y="76" text-anchor="middle" fill="currentColor" stroke="none">✓</text>
+      <text x="425" y="140" text-anchor="middle" fill="currentColor" stroke="none">Phone checks seal</text>
+    </svg>
+    </div>
+    <figcaption>The ring stays with you. The seal travels with every copy of the app.</figcaption>
+  </figure>
+</section>
+
+<section id="eli5-pieces">
+  <h3>The pieces, in seal language</h3>
+  <hr class="rule">
+  <ul>
+    <li><strong>The ring is the private key.</strong> It lives in a locked box (the keystore file) that opens with a password. It is the only secret part.</li>
+    <li><strong>The seal is the signature pressed onto this exact APK,</strong> together with a card (the certificate) showing your ring's pattern. Anyone can read the card. Only your ring can make a seal that matches it, and changing even one byte of the APK breaks the seal.</li>
+    <li><strong>The fingerprint (SHA-1) is a short description of the pattern on the card,</strong> something like "eagle facing left, three stars". It is 20 bytes, written as 40 hex digits, usually in pairs separated by colons, calculated from the certificate. It helps nobody forge the ring, so it is safe to publish.</li>
+  </ul>
+  <p class="keypoint">Fingerprints and the package name are public. The keystore file and its password(s), meaning the store and key password entries in <code>~/.gradle/gradle.properties</code>, are secret. Treat the practice ring's file (below) as private too.</p>
+</section>
+
+<section id="eli5-updates">
+  <h3>Why the phone cares: updates</h3>
+  <hr class="rule">
+  <p>When you install a new version, the phone checks the seal, then compares the card with the one on the copy already installed. If they match, the update goes through and your data stays. If they don't, the phone refuses with a message like "App not installed". To the phone, a different card means a stranger is trying to replace your app.</p>
+  <p>You have two rings, and they make different seals:</p>
+  <ul>
+    <li><strong>A practice ring (debug key).</strong> The build tools made it automatically at <code>~/.android/debug.keystore</code>. Its password is the well-known "android", but the ring itself is unique to this Mac, so don't share the file. It is used for builds you run from your Mac while developing. Each Mac makes its own practice ring.</li>
+    <li><strong>The real ring (release key).</strong> You made it on purpose: <code>~/.config/eli5-learner/eli5-release.jks</code>, alias <code>eli5</code>. It signs the APK in <code>release/android/</code>.</li>
+  </ul>
+  <p>Since the two seals differ, a debug build can't be installed over the release build (or the other way round). You have to uninstall first, and that deletes the app's data on the phone.</p>
+</section>
+
+<section id="eli5-bouncer">
+  <h3>Google sign-in: the bouncer with a guest list</h3>
+  <hr class="rule">
+  <p>When the app asks for Google Drive access, Google's helper on the phone (Play services) acts like a bouncer. It doesn't ask for a password. It looks at two things: the app's name (the package) and its card. It then checks a guest list you keep in Google Cloud.</p>
+  <p>Each entry on the guest list is an "Android" OAuth client, and each one holds exactly one name and one fingerprint. That is why Google asked you for SHA-1 fingerprints. It is also why your app embeds no client ID: the seal itself identifies the app.</p>
+  <figure>
+    <div class="figscroll medium">
+    <svg viewBox="0 0 520 170" role="img" aria-label="Bouncer checks package and seal against two guest-list entries" fill="none" stroke="currentColor" stroke-width="2" font-family="system-ui, sans-serif" font-size="12">
+      <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="currentColor" stroke="none"/></marker></defs>
+      <rect x="10" y="50" width="120" height="60" rx="6"/>
+      <text x="70" y="75" text-anchor="middle" fill="currentColor" stroke="none">APK on phone</text>
+      <text x="70" y="93" text-anchor="middle" fill="currentColor" stroke="none">name + seal</text>
+      <path d="M135 80 H185" marker-end="url(#a2)"/>
+      <circle cx="215" cy="60" r="14"/><rect x="198" y="76" width="34" height="40" rx="6"/>
+      <text x="215" y="135" text-anchor="middle" fill="currentColor" stroke="none">Bouncer</text>
+      <path d="M245 80 H290" marker-end="url(#a2)"/>
+      <rect x="295" y="15" width="215" height="140" rx="6" class="acc"/>
+      <text x="305" y="38" fill="currentColor" stroke="none" font-weight="bold">Guest list (Google Cloud)</text>
+      <text x="305" y="68" fill="currentColor" stroke="none">1. io.github.eli5learner</text>
+      <text x="320" y="84" fill="currentColor" stroke="none">seal 54:C1:10:...:A0:2D (debug)</text>
+      <text x="305" y="112" fill="currentColor" stroke="none">2. io.github.eli5learner</text>
+      <text x="320" y="128" fill="currentColor" stroke="none">seal CF:43:8F:...:22:DC (release)</text>
+    </svg>
+    </div>
+    <figcaption>No match on the list, no entry. The app usually gets DEVELOPER_ERROR (code 10, "the application is misconfigured"). A missing match is the most common cause, but an unfinished consent screen can trigger it too.</figcaption>
+  </figure>
+  <p>Your Mac app goes through a different door. It uses a "Desktop app" client that signs in through the browser, and it has no seal involved at all.</p>
+</section>
+
+<section id="eli5-checklist">
+  <h3>What you actually have to do</h3>
+  <hr class="rule">
+  <ol>
+    <li>In the Google Cloud project, enable the <strong>Google Drive API</strong>, set up the consent screen (Branding), and add your own Google account as a <strong>test user</strong>.</li>
+    <li>Create an <strong>Android</strong> OAuth client with package <code>io.github.eli5learner</code> and SHA-1 <code>54:C1:10:61:F7:33:98:E7:99:C1:2E:AA:61:1B:71:DE:2B:D9:A0:2D</code> (debug).</li>
+    <li>Create a second <strong>Android</strong> client with the same package and SHA-1 <code>CF:43:8F:EA:DF:22:55:97:16:2E:09:53:90:D1:CA:A8:11:9C:22:DC</code> (release). Do both soon: each name-plus-fingerprint pair can be claimed by only one project.</li>
+    <li>Paste the line labelled <strong>SHA1</strong>, not SHA-256 or MD5. If you read it from <code>apksigner</code>, use "certificate SHA-1 digest", not "public key SHA-1 digest". apksigner shows it as <code>cf438fea…</code> (lowercase, no colons); it's the same value as <code>CF:43:8F:EA:…</code>, and <code>keytool</code> shows the colon form.</li>
+    <li>Keep the Mac's "Desktop app" client separate, in the same project. It doesn't need a SHA-1.</li>
+    <li>If sign-in fails right after setup, wait. Changes can take minutes or a few hours to reach every server.</li>
+    <li>While the app stays in Testing, the Mac app's sign-in expires after 7 days and will ask again. Test whether Android does the same. Publishing to Production removes that limit.</li>
+    <li>Not sure which seal an APK carries? Run <code>apksigner verify -v --print-certs</code> on that exact file.</li>
+  </ol>
+  <div class="callout">
+    <p><strong>Things that quietly change a seal:</strong> a new Mac or a deleted <code>~/.android</code> folder makes a new practice ring, so the debug entry stops matching. In this project's build script, a release build made without your four <code>ELI5_ANDROID_*</code> signing settings silently falls back to the practice ring, and the file is still called a release APK. Before sharing any APK, check that its SHA-1 is <code>CF:43:…:22:DC</code>. If you ever add a suffix such as <code>.debug</code> to the debug build's name, the debug guest-list entry has to use that name too.</p>
+    <p><strong>If you ever publish on Google Play</strong> with Play App Signing, Play re-signs the app with a different key. Add another Android client with the SHA-1 from Play Console's App signing page.</p>
+  </div>
+</section>
+
+<section id="eli5-never-lose">
+  <h3>The one thing never to lose</h3>
+  <hr class="rule">
+  <div class="keypoint warn">
+    <p><strong>The real ring and its passwords:</strong> <code>~/.config/eli5-learner/eli5-release.jks</code>, plus the keystore password and key password (<code>ELI5_ANDROID_KEYSTORE_PASSWORD</code> and <code>ELI5_ANDROID_KEY_PASSWORD</code>, which currently live only in <code>~/.gradle/gradle.properties</code>; they may be identical). Back up both.</p>
+    <p>A ring can't be recreated. If you lose it, or lose the passwords, no update will ever install over existing copies. Everyone would have to uninstall, lose their local data and start again, you would need a new guest-list entry, and if you have registered the app for developer verification you would have to register the new key as well. A backup of the ring without its passwords is useless.</p>
+    <p>Leaking it is just as bad: anyone with the file and passwords can make an "update" your phone will accept. If that happens, stop using the key and move to a new package and a new key.</p>
+    <p>So back up both, separately and away from this Mac: for example, the file in an encrypted backup and the passwords in a password manager. Never put either in the public repo. The fingerprints can go anywhere.</p>
+  </div>
+  <p>The ring is good for 10,000 days, until March 2054, so expiry isn't something to worry about. Losing it, or leaking it, is.</p>
+</section>
+
+</div>
+
+<p class="footer">Made 2026-11-07 for ELI5 Learner (io.github.eli5learner). Self-contained; no network requests.</p>
+</div>
+
+<script>
+(function () {
+  // Copy buttons
+  function fallbackCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
+  function flash(btn, msg) {
+    btn.textContent = msg; btn.classList.add('done');
+    setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('done'); }, 1600);
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.copy'), function (btn) {
+    btn.addEventListener('click', function () {
+      var el = document.getElementById(btn.getAttribute('data-copy'));
+      var text = el ? el.textContent.trim() : '';
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { flash(btn, 'Copied'); },
+          function () { flash(btn, fallbackCopy(text) ? 'Copied' : 'Select it'); });
+      } else {
+        flash(btn, fallbackCopy(text) ? 'Copied' : 'Select it');
+      }
+    });
+  });
+
+  // Tabs
+  var KEY = 'android-signing-explained.tab';
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  function select(tab, focus) {
+    tabs.forEach(function (t) {
+      var on = t === tab;
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.tabIndex = on ? 0 : -1;
+      var panel = document.getElementById(t.getAttribute('aria-controls'));
+      if (panel) panel.hidden = !on;
+    });
+    if (focus) tab.focus();
+    try { localStorage.setItem(KEY, tab.id); } catch (e) {}
+  }
+  tabs.forEach(function (tab, i) {
+    tab.addEventListener('click', function () { select(tab, false); });
+    tab.addEventListener('keydown', function (e) {
+      var n = null;
+      if (e.key === 'ArrowRight') n = tabs[(i + 1) % tabs.length];
+      else if (e.key === 'ArrowLeft') n = tabs[(i - 1 + tabs.length) % tabs.length];
+      else if (e.key === 'Home') n = tabs[0];
+      else if (e.key === 'End') n = tabs[tabs.length - 1];
+      if (n) { e.preventDefault(); select(n, true); }
+    });
+  });
+  var saved = null;
+  try { saved = localStorage.getItem(KEY); } catch (e) {}
+  var start = (saved && document.getElementById(saved)) || tabs[0];
+  if (start) select(start, false);
+})();
+</script>
+</body>
+</html>
