@@ -7,7 +7,7 @@
     "DOC_ID": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
     "VERSION_ID": "^v-[0-9a-f]{12}$",
     "FOLDER_ID": "^f-[0-9a-f]{8}$",
-    "TAB_KEY": "^(indepth|eli5|sx[0-9a-f]{6})$",
+    "TAB_KEY": "^(indepth|eli5|ste|sx[0-9a-f]{6})$",
     "SECTION_ID": "^sec-[a-z][a-z0-9]{1,15}-[0-9a-f]{8}$",
     "SHA256": "^[0-9a-f]{64}$",
     "ERROR_CODE": "^E_[A-Z][A-Z0-9_]{0,39}$",

@@ -48,7 +48,7 @@ object Patterns {
     val DOC_ID = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
     val VERSION_ID = Regex("^v-[0-9a-f]{12}$")
     val FOLDER_ID = Regex("^f-[0-9a-f]{8}$")
-    val TAB_KEY = Regex("^(indepth|eli5|sx[0-9a-f]{6})$")
+    val TAB_KEY = Regex("^(indepth|eli5|ste|sx[0-9a-f]{6})$")
     val SECTION_ID = Regex("^sec-[a-z][a-z0-9]{1,15}-[0-9a-f]{8}$")
     val SHA256 = Regex("^[0-9a-f]{64}$")
     val ERROR_CODE = Regex("^E_[A-Z][A-Z0-9_]{0,39}$")

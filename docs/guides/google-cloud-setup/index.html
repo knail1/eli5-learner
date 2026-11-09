@@ -130,7 +130,11 @@ offline reader: import any exported <code>index.html</code> and read it. This se
     <li class="step" data-step="3"><div>
       <h3>Branding <label><input type="checkbox"> done</label></h3>
       <p>Google Auth Platform → Branding. App name <strong>ELI5 Learner</strong>, your email as support and
-      developer contact. <strong>Don't upload a logo</strong>; it triggers a brand review.</p>
+      developer contact. <strong>Don't upload a logo</strong>; it triggers a brand review. For publishing later
+      (section 03), also fill in pages you control: <strong>Application home page</strong> (for example
+      <code>https://&lt;your-user&gt;.github.io/&lt;your-repo&gt;/</code>), <strong>Application privacy policy
+      link</strong> (for example <code>https://&lt;your-user&gt;.github.io/&lt;your-repo&gt;/privacy/</code>) and,
+      under <strong>Authorized domains</strong>, their domain (for example <code>&lt;your-user&gt;.github.io</code>).</p>
     </div></li>
 
     <li class="step" data-step="4"><div>
@@ -204,8 +208,15 @@ offline reader: import any exported <code>index.html</code> and read it. This se
   <div class="sec-head"><span class="num">03</span><h2>Once it works: publish the app</h2></div>
   <hr class="rule">
   <p class="intro">In <span class="badge warn">Testing</span>, Google signs both devices out every 7 days.
-  When sync works, go to Audience → <strong>Publish app</strong>. The app asks only for non-sensitive scopes, so
-  there's no review. Google may still show "Google hasn't verified this app"; as the owner you can continue past it.</p>
+  When sync works, check that Branding has the home page, privacy policy link and authorized domain (step 3), then
+  go to Audience → <strong>Publish app</strong> and confirm. The status becomes <strong>In production</strong> and new
+  sign-ins no longer expire after 7 days. The app asks only for non-sensitive scopes, so there's no review.</p>
+  <p class="intro"><strong>Then reconnect both apps:</strong> a sign-in made during Testing keeps its 7-day expiry
+  after you publish. On the Mac, Settings → Sync → <strong>Disconnect</strong>, then <strong>Connect Google
+  Drive</strong>; on the phone, Settings → <strong>Disconnect</strong>, then <strong>Connect</strong>. Your library stays.</p>
+  <p class="intro">Expect a <strong>"Google hasn't verified this app"</strong> screen when you reconnect, on
+  the Mac and on the phone. Check that it names your app and your email, then choose <strong>Advanced</strong> →
+  <strong>Go to ELI5 Learner (unsafe)</strong> (wording varies) and allow access as before.</p>
 </section>
 
 <section>
@@ -227,7 +238,8 @@ offline reader: import any exported <code>index.html</code> and read it. This se
       <tr><td>Phone: "Developer error (10)"</td><td>Package or SHA-1 doesn't match an Android client. Re-check against <code>printOAuthFingerprints</code> (release vs debug).</td></tr>
       <tr><td>Phone sees no Mac</td><td>Clients are in different projects, or you used different Google accounts. Keep one project, one account.</td></tr>
       <tr><td>"access_denied" in the browser</td><td>Add your Gmail under Audience → Test users.</td></tr>
-      <tr><td>Sync stops every 7 days</td><td>Still in Testing. Publish the app (section 03).</td></tr>
+      <tr><td>Sync stops every 7 days</td><td>Still in Testing, or connected before you published. Publish the app, then disconnect and reconnect on both (section 03).</td></tr>
+      <tr><td><strong>Publish app</strong> asks for more</td><td>Branding lacks a home page, privacy policy link or authorized domain (step 3).</td></tr>
       <tr><td>Inbox job waits forever</td><td>The Mac app isn't running, the Mac is asleep, or "Accept jobs from phone" is off.</td></tr>
     </tbody>
   </table></div>

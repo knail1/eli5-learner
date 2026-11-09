@@ -37,7 +37,7 @@
             "minItems": 1,
             "maxItems": 20,
             "type": "array",
-            "items": { "type": "string", "pattern": "^(indepth|eli5|sx[0-9a-f]{6})$" }
+            "items": { "type": "string", "pattern": "^(indepth|eli5|ste|sx[0-9a-f]{6})$" }
           },
           "createdAt": {
             "type": "string",

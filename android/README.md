@@ -28,6 +28,22 @@ app on your phone, follow [SETUP.md](SETUP.md).
 > outline and a one-line question) is built and appears only once the Mac lists `ask` among the jobs
 > it accepts; the desktop does not run phone questions yet, so it stays hidden for now. Everything
 > against a real Google Drive is unverified until gate G1 (spec 16 §13).
+>
+> **0.4.0 (versionCode 3): reads everything the desktop now writes.** The reader opens three-tab
+> documents (In depth, ELI5 and the optional ASD-STE100 tab with its one-line hint, plus section ELI5
+> tabs), the model-written animations (each in an `<iframe sandbox="allow-scripts" srcdoc>` whose two
+> scripts the reader's CSP header pins by hash; `connect-src` and `frame-src` stay `'none'` and the
+> WebView client answers nothing but `/docs/`, so an animation has no HTTP, fetch or WebSocket
+> access), the shared chart palette and dark mode (the document follows the phone's dark theme;
+> algorithmic darkening is off). WebRTC is the one channel neither CSP nor the WebView client covers,
+> and Android's WebView has no switch for it (the desktop turns off non-proxied UDP); on the phone it
+> rests on the frame shell, which removes `RTCPeerConnection` and its relatives before the
+> animation's code runs, and on the desktop's lint, which rejects animation code that names them.
+> A document the Mac rebuilt arrives as a new version: Versions lists "Rebuilt with prompt set …"
+> under the first version, indented as its child and marked current; the first version stays
+> readable. The phone accepts the `ste` tab key in the manifest from 0.4.0 on; the Mac still leaves
+> it out while 0.3.0 phones may be syncing, and the phone reads the tab labels from the document
+> itself.
 
 This is its own Gradle build with one `:app` module. It never touches the npm toolchain, and Prettier
 ignores the folder.
@@ -85,7 +101,15 @@ the Gradle property `ELI5_APPLICATION_ID` and registers its own OAuth clients.
 
 All tests are JVM tests under `app/src/test/` (JUnit 4, Robolectric, Compose UI tests,
 MockWebServer) and run headless; no emulator is needed. The sync wire-format tests read the shared
-fixtures in `../test/contracts/sync/`, which the build adds as a test resource folder. CI runs the
+fixtures in `../test/contracts/sync/`, which the build adds as a test resource folder. The round
+trip (`sync/RoundTripTest.kt`) imports `../test/contracts/sync/roundtrip/library.json`: every file the
+desktop engine wrote to its fake Drive for a library with a rebuilt three-tab document with
+animations (regenerate it with `ELI5_UPDATE_GOLDENS=1 npx vitest run test/unit/main/sync/roundtrip.test.ts`
+at the repository root). The phone syncs it, checks History and serves the document through the
+reader. Robolectric does not run a real WebView, so JavaScript inside the animation frames, the
+chart palette and dark-mode rendering are covered by the desktop's Playwright and visual suites
+(the phone gets the same bytes, checked byte for byte) and the smoke checklist below, not here; the
+unit tests only pin the WebView settings, such as algorithmic darkening off. CI runs the
 same command on Linux with JDK 21 in `.github/workflows/android.yml` whenever `android/`,
 `test/contracts/` or the built test documents change (spec 16 §11). That workflow reads no secrets
 and never builds a release; release builds happen only on your Mac with your key.
@@ -122,6 +146,12 @@ Reader and import (no Google setup):
 - [ ] Open it: the In depth tab shows; switching to ELI5 works; a glossary note opens; a chart and
       the stepper render.
 - [ ] Toggle the document theme; it sticks after leaving and reopening the document.
+- [ ] A document with an ASD-STE100 tab shows it with its one-line hint under the tab; a section
+      ELI5 tab opens too.
+- [ ] An animation runs: drag its control and the readout and drawing change. In airplane mode it
+      still runs. Its poster shows before it loads.
+- [ ] With the phone in dark theme, an "Auto" document and its animations are dark, and chart
+      labels stay readable.
 - [ ] Turn on airplane mode and reopen the document: it still opens and works.
 - [ ] Tap an external link: it opens in a Custom Tab, not in the reader.
 - [ ] Back goes back inside the document first, then to the Library.
@@ -162,6 +192,8 @@ Sync (after G1, Stages B and C of SETUP.md):
 - [ ] Open a document with several versions and tap its version chip: the tree matches the Mac's
       Versions panel (lanes, branches, the current one marked). A version the Mac did not upload
       reads "Not available on this phone".
+- [ ] A document the Mac rebuilt shows "Rebuilt with prompt set …" as the current version, listed
+      under the first version (rows run oldest first) and indented as its child.
 - [ ] Tap an older uploaded version: it downloads and opens as "Earlier version"; Back returns to
       the current one, and the reading position of the current one is unchanged.
 - [ ] "Make current on your Mac" on an older version: the Inbox lists it, the Mac switches to that

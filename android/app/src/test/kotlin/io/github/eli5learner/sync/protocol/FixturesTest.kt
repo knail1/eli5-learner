@@ -128,6 +128,10 @@ class FixturesTest {
             listOf(Placement.Folder("f-0a1b2c3d"), Placement.Unfiled, Placement.Archive, Placement.Trash),
             manifest.docs.map { it.placement },
         )
+        // 0.4.0 accepts the ASD-STE100 tab key (16 §4.4), so the Mac can list it once 0.3.0 phones are gone.
+        val withSte = SyncProtocol.decodeManifest(read("manifest.valid.ste-tab.json"))
+        assertEquals(listOf("indepth", "eli5", "ste", "sx0a1b2c"), withSte.docs.single().tabs)
+        assertEquals("In depth\nELI5\nASD-STE100", io.github.eli5learner.sync.SyncRepository.tabLabels(withSte.docs.single().tabs))
         val status = SyncProtocol.decodeJobStatus(read("jobstatus.valid.done.json"))
         assertTrue(status.state.terminal)
         assertFalse(SyncProtocol.decodeJobStatus(read("jobstatus.valid.running.json")).state.terminal)

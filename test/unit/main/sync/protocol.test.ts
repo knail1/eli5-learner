@@ -25,6 +25,7 @@ import {
   HTTP_URL_RE,
   JobRequestSchema,
   LIMITS,
+  MANIFEST_TAB_KEY_RE,
   ONE_LINE_RE,
   SECTION_ID_RE,
   SYNC_SCHEMAS,
@@ -174,13 +175,15 @@ describe('protocol stays in step with the app', () => {
   it('repeats the library id patterns and limits', () => {
     expect(VERSION_ID_RE.source).toBe(LIBRARY_VERSION_ID_RE.source);
     expect(FOLDER_ID_RE.source).toBe(LIBRARY_FOLDER_ID_RE.source);
-    // 16 §4.4 (D21): the protocol keeps the 0.3.0 tab-key pattern on purpose; the app's pattern is
-    // the same plus 'ste', which the manifest filters out.
-    expect(TAB_KEY_RE.source).toBe('^(indepth|eli5|sx[0-9a-f]{6})$');
+    // 16 §4.4 (D21): readers (0.4.0 phones) accept the app's full tab-key set, 'ste' included; the
+    // manifest still writes only the 0.3.0 keys so older phones keep parsing it.
+    expect(TAB_KEY_RE.source).toBe('^(indepth|eli5|ste|sx[0-9a-f]{6})$');
+    expect(MANIFEST_TAB_KEY_RE.source).toBe('^(indepth|eli5|sx[0-9a-f]{6})$');
     expect(TAB_KEY_PATTERN.source).toBe('^(?:indepth|eli5|ste|sx[0-9a-f]{6})$');
-    for (const k of ['indepth', 'eli5', 'sx0a1b2c'])
-      expect(TAB_KEY_RE.test(k) && TAB_KEY_PATTERN.test(k), k).toBe(true);
-    expect(TAB_KEY_RE.test('ste')).toBe(false);
+    for (const k of ['indepth', 'eli5', 'ste', 'sx0a1b2c', 'sx', 'notes', 'STE', 'sx0a1b2'])
+      expect(TAB_KEY_RE.test(k), k).toBe(TAB_KEY_PATTERN.test(k));
+    for (const k of ['indepth', 'eli5', 'sx0a1b2c']) expect(MANIFEST_TAB_KEY_RE.test(k), k).toBe(true);
+    expect(MANIFEST_TAB_KEY_RE.test('ste')).toBe(false);
     expect(SECTION_ID_RE.source).toBe(SECTION_ID_PATTERN.source);
     expect(MAX_FOLDER_NAME_CHARS).toBe(60);
     expect(DOC_ID_RE.test(randomUUID())).toBe(true);

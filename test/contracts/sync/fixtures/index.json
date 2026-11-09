@@ -112,6 +112,7 @@
     { "file": "manifest.invalid.unknown-placement.json", "type": "manifest", "valid": false },
     { "file": "manifest.valid.basic.json", "type": "manifest", "valid": true },
     { "file": "manifest.valid.empty.json", "type": "manifest", "valid": true },
+    { "file": "manifest.valid.ste-tab.json", "type": "manifest", "valid": true },
     { "file": "sync-info.invalid.extra-field.json", "type": "sync-info", "valid": false },
     { "file": "sync-info.invalid.missing-created-at.json", "type": "sync-info", "valid": false },
     { "file": "sync-info.invalid.zero-format.json", "type": "sync-info", "valid": false },

@@ -22,7 +22,7 @@ class HtmlImporterTest {
     @get:Rule val tmp = TemporaryFolder()
 
     @Test fun `desktop fixtures are ELI5 documents with their model's id, title, tabs and headings`() {
-        for (name in listOf("full.html", "showcase.html", "with-tab.html", "merged.html")) {
+        for (name in listOf("full.html", "showcase.html", "with-tab.html", "merged.html", "with-ste.html")) {
             val i = HtmlImporter.inspect(TestDocs.fixture(name).toString(Charsets.UTF_8))
             assertTrue("$name is ELI5", i.isEli5)
             assertTrue(i.docId!!.isNotBlank())
@@ -30,9 +30,32 @@ class HtmlImporterTest {
             assertTrue(i.tabs.size >= 2)
             assertTrue(i.headings.isNotEmpty())
             // The runtime, plus the shell and model scripts of the showcase's animation frame.
-            assertEquals(name, if (name == "showcase.html") 3 else 1, i.scriptHashes.size)
+            assertEquals(name, if (name == "showcase.html" || name == "with-ste.html") 3 else 1, i.scriptHashes.size)
         }
     }
+
+    @Test fun `a document with an ASD-STE100 tab and two animation frames imports with every tab and the frames pinned`() =
+        runTest {
+            val bytes = TestDocs.fixture("with-ste.html")
+            val html = bytes.toString(Charsets.UTF_8)
+            assertEquals(2, Regex("<iframe sandbox=\"allow-scripts\" srcdoc=\"").findAll(html).count())
+            val i = HtmlImporter.inspect(html)
+            assertTrue(i.isEli5)
+            assertEquals(listOf("In depth", "ELI5", "ASD-STE100", "ELI5: From click to doorstep"), i.tabs)
+            for (h in i.scriptHashes) assertTrue(h, html.substring(0, html.indexOf("</head>")).contains(h))
+
+            val store = DocStore(tmp.newFolder())
+            val index = LibraryIndex(inMemoryDb(), store)
+            val entry = (HtmlImporter(store, index).import(bytes, "index.html") as ImportResult.Imported).entry
+            assertFalse(entry.foreign)
+            assertEquals(i.tabs, entry.tabs)
+            // The STE tab's headings and the animation captions are searchable; the animation code is not.
+            assertTrue(i.headings.contains("Why the packing line gets long"))
+            val text = HtmlImporter.modelText(html)
+            assertTrue(text.contains("Why the packing line gets long"))
+            assertTrue(text.contains("Drag the number of packers"))
+            assertFalse(text.contains("ELI5.slider"))
+        }
 
     @Test fun `a document with an animation frame imports with the runtime and the frame's two scripts pinned`() {
         val html = TestDocs.fixture("showcase.html").toString(Charsets.UTF_8)

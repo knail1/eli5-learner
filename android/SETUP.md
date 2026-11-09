@@ -140,7 +140,9 @@ the most reliable route; Android's developer verification rules exempt them.
 
 - **Import:** Library > Import, or share an `index.html` to ELI5 Learner from Files, Gmail or the
   Drive app, or tap it and choose "Open with ELI5 Learner".
-- **Read offline:** both tabs (In depth and ELI5), glossary, charts, theme.
+- **Read offline:** every tab (In depth, ELI5, the optional ASD-STE100 tab with its one-line hint,
+  and section ELI5 tabs), glossary, charts, the interactive animations (sandboxed; they cannot load
+  or send anything over HTTP), theme and dark mode (a document set to "Auto" follows the phone).
 - **Capture:** sharing a link, text, photos, a PDF or an Office file to **Send to my Mac** works;
   the capture waits in the Inbox as "Connect Google Drive to send" (Cancel removes it).
 
@@ -160,7 +162,14 @@ each other's data.
    "ELI5 Learner personal".
 2. **Enable the Drive API:** APIs & Services > Library > "Google Drive API" > Enable.
 3. **Google Auth Platform > Branding:** app name "ELI5 Learner", your email as support and developer
-   contact. Do **not** upload a logo (it triggers a brand review).
+   contact. Do **not** upload a logo (it triggers a brand review). To publish the app later (see
+   "Testing vs In production"), also fill in, with pages you control:
+   - **Application home page:** for example `https://<your-user>.github.io/<your-repo>/`.
+   - **Application privacy policy link:** for example `https://<your-user>.github.io/<your-repo>/privacy/`.
+   - **Authorized domains:** the domain of both pages, for example `<your-user>.github.io`.
+
+   The pages only need to exist and describe the app (a GitHub Pages site is enough); nothing in
+   the apps reads these values.
 4. **Audience:** User type **External**. Publishing status stays **Testing** for now. Under Test
    users, add your own Gmail address.
 5. **Data access:** Add scopes `openid`, `.../auth/userinfo.email` and
@@ -181,10 +190,22 @@ each other's data.
 *(Unverified until G1.)*
 
 In **Testing**, Google lets the desktop stay signed in for only 7 days, and the phone's permission
-lapses after 7 days too. Sync then stops each week with "Sign in again to keep syncing". Once Stage C
-works, go to Audience and click **Publish app** to move to **In production**. Because the app asks
-only for non-sensitive scopes, no review is required. Google may still show a "Google hasn't verified
-this app" notice on the consent screen; as the app's owner you can continue past it.
+lapses after 7 days too. Sync then stops each week with "Sign in again to keep syncing". To end
+that:
+
+1. Make sure Branding has the home page, privacy policy link and authorized domain (Stage B step 3).
+2. Go to **Google Auth Platform > Audience** and click **Publish app**, then confirm. The publishing
+   status changes to **In production**. Because the app asks only for non-sensitive scopes
+   (`openid`, email and `drive.appdata`), no verification review is required, and new sign-ins no
+   longer expire after 7 days.
+3. **Reconnect both apps.** A sign-in made while the project was in Testing keeps its 7-day expiry
+   even after you publish. On the Mac, Settings > Sync > **Disconnect**, then **Connect Google Drive**; on
+   the phone, Settings > **Disconnect**, then **Connect**. Your library stays where it is.
+4. Expect the **"Google hasn't verified this app"** screen when you reconnect, on the Mac and on
+   the phone. It appears because the app is not verified, not because something is wrong. Check
+   that it names your own app and your own email as developer, then choose **Advanced** and
+   **Go to ELI5 Learner (unsafe)** (the exact wording varies) and allow access as before. Only you
+   (and anyone you hand your client to) ever sees this screen.
 
 ### Gate G1 · the cross-client check (once, before trusting sync)
 
@@ -212,8 +233,8 @@ folder as described at the top.
 
 *(Unverified until G1. The phone's Connect button is built (Settings and the first-run screen),
 and so is the desktop Settings > Sync section with the sidebar sync indicator; both are tested only
-against a stand-in for Google so far. Library sync on the phone (step C2.3) is built and tested
-against an in-memory Drive only. "Send to my Mac" (step C2.4) arrives in a later M5 slice.)*
+against a stand-in for Google so far. Library sync on the phone (step C2.3) and "Send to my Mac"
+(step C2.4) are built and tested against an in-memory Drive only.)*
 
 ### C1. Desktop
 
@@ -246,6 +267,21 @@ off and leaves your library on the Mac as it is.
    Mac**. The Inbox shows its progress. The Mac must be running ELI5 Learner (the menu bar is enough)
    for the job to start.
 
+### C3. First real-Drive check (gate G1 hand-off)
+
+Once Stages B, C1 and C2 are done, confirm in one sitting:
+
+- [ ] Desktop: Settings > Sync shows "Connected as" your address, and the sidebar cloud icon goes
+      idle after the first push.
+- [ ] Phone: install the 0.4.0 APK (A3, A4) over the old one, connect with the **same** Google
+      account, and wait for "Waiting for your Mac…" to clear.
+- [ ] Every document in the Mac's library appears on the phone with its title, and opens.
+- [ ] A document with an ASD-STE100 tab or an animation renders on the phone as it does on the Mac.
+- [ ] A document the Mac rebuilt shows "Rebuilt with prompt set …" as its current version under
+      the version chip.
+
+If a step fails, note which one and see Troubleshooting below.
+
 ### Where your data goes
 
 Sync uses a hidden app folder in your Google Drive. You cannot browse it in Drive, other apps cannot
@@ -264,7 +300,9 @@ Manage apps > ELI5 Learner > Options > **Delete hidden app data**. To revoke acc
 | --- | --- | --- |
 | Phone: "Developer error" or error code 10 when connecting | Package name or SHA-1 doesn't match an Android client | Re-run `printOAuthFingerprints`; the APK you installed must match one Android client exactly (debug vs release). |
 | Phone sees no Mac and no documents | Desktop and Android clients are in different Cloud projects, or different Google accounts | Put all clients in one project; use the same account on both. |
-| Sync stops every 7 days | Project still in Testing | Publish the app (Stage B). |
+| Sync stops every 7 days | Project still in Testing, or the apps were connected before you published | Publish the app, then disconnect and reconnect on both (Stage B, "Testing vs In production"). |
+| "Google hasn't verified this app" when connecting | The app is In production but not verified | Expected for a personal project; continue past it (Stage B). |
+| **Publish app** is greyed out or asks for more | Branding lacks a home page, privacy policy link or authorized domain | Fill them in (Stage B step 3). |
 | Desktop: "access_denied" in the browser | Your account isn't a test user | Add it under Audience > Test users. |
 | `adb install` fails with "signatures do not match" | Installed app was signed with another key | Use the same keystore; or uninstall first (deletes the phone's cached data, not your library). |
 | Phone: a document says "Not on this phone yet" | The offline policy skips it, it is over 5 MB on mobile data, or the Mac is still uploading it | Open it to download it now, or pull down to sync later. |

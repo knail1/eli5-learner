@@ -108,9 +108,13 @@ restricted scopes.
 
 The consent screen starts in **Testing** with the user listed as a test user. In Testing, the
 desktop's refresh token and the Android grant expire after 7 days. The setup guide tells the user to
-move the project to **In production** once the spike (§13 gate G1) passes. Non-sensitive scopes need
-no verification. Google may still show an "unverified app" notice; the guide says so rather than
-promising a clean screen. No logo is uploaded, because a logo triggers brand verification.
+move the project to **In production** once the spike (§13 gate G1) passes: Branding gets an
+application home page, a privacy policy link and their authorized domain (pages the user controls;
+the public guides show placeholders only), then Audience > **Publish app**. Non-sensitive scopes need
+no verification, and in production new grants no longer expire after 7 days; grants made during
+Testing keep their 7-day expiry, so the guide tells the user to disconnect and reconnect both apps
+after publishing. Google then shows a "Google hasn't verified this app" screen at each consent; the
+guide says so and shows the way past it rather than promising a clean screen. No logo is uploaded, because a logo triggers brand verification.
 
 ### 3.2 Desktop (Electron)
 
@@ -289,12 +293,13 @@ type VersionTree = {
   entry with `replaces`; the old entry is dropped.
 - Readers ignore a manifest or tree whose `seq` is not greater than the one they hold.
 - `busy` mirrors the 08 locks so the phone can say "Your Mac is updating this document".
-- `tabs` keeps only keys that match the protocol's own `TAB_KEY_RE` (`src/main/sync/protocol.ts`,
-  `indepth|eli5|sx` + 6 hex), which is intentionally older than the app's canonical pattern
-  ([07](07-output-document.md) §4.1): the ASD-STE100 key `ste` is filtered out of the manifest, so
-  0.3.0 phones, which parse tab keys strictly (`Models.kt`), keep reading it. The phone reader still
-  shows the ASD-STE100 tab, because it renders the document's own HTML and model. Widening the
-  protocol pattern waits for an Android release.
+- Readers validate `tabs` against the protocol's `TAB_KEY_RE` (`src/main/sync/protocol.ts`), which
+  from 0.4.0 equals the app's canonical pattern ([07](07-output-document.md) §4.1): `indepth`,
+  `eli5`, `ste` and `sx` + 6 hex. The desktop still writes only keys that match
+  `MANIFEST_TAB_KEY_RE` (the 0.3.0 set, without `ste`), because 0.3.0 phones parse tab keys strictly
+  (`Models.kt`) and would reject the whole manifest. Once no 0.3.0 phone is left, the write filter
+  becomes `TAB_KEY_RE` with no phone release. The phone reader shows the ASD-STE100 tab either way,
+  because it renders the document's own HTML and model.
 
 ### 4.5 Push (primary desktop)
 
@@ -792,6 +797,13 @@ failures after retries) and `E_SYNC_ABORTED`.
   driver; share intent parsing; importer; WebView settings, CSP header and URL policy; Compose UI
   tests for Library, Inbox and the capture sheet; the version-tree layout port against the shared
   fixtures.
+- **Round trip (desktop to phone).** `test/unit/main/sync/roundtrip.test.ts` pushes a library through
+  the real engine to the fake Drive (an old two-tab document, and a document rebuilt as a new version
+  with an ASD-STE100 tab, a section ELI5 tab and animation frames) and records every file it wrote
+  in `test/contracts/sync/roundtrip/library.json`, blobs by the built fixture they hold. The phone's
+  `RoundTripTest` loads exactly those files into its fake Drive, syncs, and checks the bytes, the tab
+  labels, History (the rebuild current, the first version previewable) and the reader's CSP header
+  and no-network client for that document.
 - **Manual on a phone.** The sideload checklist in `android/README.md`.
 
 ## 13. Gates

@@ -31,11 +31,17 @@ export const VERSION_ID_RE = /^v-[0-9a-f]{12}$/;
 /** 09 §4.2 folder ids. */
 export const FOLDER_ID_RE = /^f-[0-9a-f]{8}$/;
 /**
- * 07 tab keys as 0.3.0 phones parse them. Intentionally older than the canonical preload-contract
- * pattern: it omits 'ste', so the manifest filters the ASD-STE100 tab out (16 §4.4) and phones on
- * 0.3.0 keep parsing it strictly. Widen only together with an Android release.
+ * 07 tab keys as readers parse them (0.4.0 and later): the canonical preload-contract set, so a
+ * manifest that lists the ASD-STE100 key `ste` is valid. Shared with the phone character for
+ * character (patterns.json).
  */
-export const TAB_KEY_RE = /^(indepth|eli5|sx[0-9a-f]{6})$/;
+export const TAB_KEY_RE = /^(indepth|eli5|ste|sx[0-9a-f]{6})$/;
+/**
+ * The tab keys the desktop writes into the manifest (16 §4.4, D21): the 0.3.0 pattern, without
+ * `ste`, because 0.3.0 phones reject a manifest with a key they do not know. Drop this filter (write
+ * every TAB_KEY_RE key) once no 0.3.0 phone is left; 0.4.0 phones already accept `ste`.
+ */
+export const MANIFEST_TAB_KEY_RE = /^(indepth|eli5|sx[0-9a-f]{6})$/;
 /** 07 section ids. */
 export const SECTION_ID_RE = /^sec-[a-z][a-z0-9]{1,15}-[0-9a-f]{8}$/;
 /** sha256 of the uncompressed bytes, lowercase hex. */

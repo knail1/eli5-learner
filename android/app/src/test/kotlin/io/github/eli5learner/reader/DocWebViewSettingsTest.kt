@@ -14,6 +14,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.fakes.RoboWebSettings
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -50,6 +51,22 @@ class DocWebViewSettingsTest {
         assertEquals(WebSettings.MIXED_CONTENT_NEVER_ALLOW, s.mixedContentMode)
         assertFalse(s.javaScriptCanOpenWindowsAutomatically)
         assertFalse(s.supportMultipleWindows())
+    }
+
+    @Test fun `algorithmic darkening stays off so the document's own dark palette is what shows`() {
+        // Robolectric's settings ignore this flag, so a recording subclass checks that it is pinned.
+        val settings =
+            object : RoboWebSettings() {
+                var darkening: Boolean? = true
+
+                override fun setAlgorithmicDarkeningAllowed(allow: Boolean) {
+                    darkening = allow
+                }
+
+                override fun isAlgorithmicDarkeningAllowed(): Boolean = darkening ?: true
+            }
+        DocWebViewFactory.applySettings(settings, foreign = false)
+        assertEquals(false, settings.darkening)
     }
 
     @Test fun `foreign files get no JavaScript`() {

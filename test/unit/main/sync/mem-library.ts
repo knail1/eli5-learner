@@ -87,14 +87,19 @@ export class MemLibrary implements SyncLibrary {
     return doc;
   }
 
-  /** A new current version (a section action). */
-  addVersion(slug: string, html?: string): VersionNodeRecord {
+  /** A new current version (a section action, unless `over` names another kind, e.g. a rebuild). */
+  addVersion(
+    slug: string,
+    html?: string,
+    over: Partial<Pick<VersionNodeRecord, 'kind' | 'label' | 'topic'>> = {},
+  ): VersionNodeRecord {
     const doc = this.need(slug);
     const id = `v-${(++verSeq).toString(16).padStart(12, '0')}`;
     const body = Buffer.from(
       html ?? `<!doctype html><html><body><h1>${doc.entry.title}</h1><p>${id}</p></body></html>`,
     );
     const parent = doc.tree.currentId || null;
+    if (!parent && Object.keys(over).length > 0) throw new Error('addVersion: the first version is always initial');
     const node: VersionNodeRecord = {
       id,
       parentId: parent,
@@ -104,6 +109,7 @@ export class MemLibrary implements SyncLibrary {
       topic: `Section ${verSeq}`,
       sha256: sha256(body),
       bytes: gzipSync(body).byteLength,
+      ...(parent ? over : {}),
     };
     doc.tree.nodes.push(node);
     if (!parent) doc.tree.rootId = id;

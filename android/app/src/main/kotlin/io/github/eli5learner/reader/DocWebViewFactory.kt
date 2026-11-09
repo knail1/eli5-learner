@@ -2,6 +2,7 @@ package io.github.eli5learner.reader
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.os.Build
 import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
@@ -45,6 +46,11 @@ object DocWebViewFactory {
         settings.javaScriptCanOpenWindowsAutomatically = false
         settings.setGeolocationEnabled(false)
         settings.mediaPlaybackRequiresUserGesture = true
+        // Dark mode: the document follows prefers-color-scheme, which the WebView takes from the app
+        // theme (values-night), and hands the theme to its animation frames itself. Algorithmic
+        // darkening would recolor the chart palette behind the document's back, so it stays off.
+        // Off is already the default for targetSdk 33+; this pins it (API 33+ has the setter).
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) settings.isAlgorithmicDarkeningAllowed = false
         // No network: Client.shouldInterceptRequest answers every request itself (403 outside /docs/),
         // so nothing reaches the network stack. blockNetworkLoads is left alone on purpose.
         settings.cacheMode = WebSettings.LOAD_NO_CACHE

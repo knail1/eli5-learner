@@ -727,6 +727,7 @@ class SyncRepository(
                     when (it) {
                         "indepth" -> "In depth"
                         "eli5" -> "ELI5"
+                        "ste" -> "ASD-STE100"
                         else -> ""
                     }
                 }.filter { it.isNotEmpty() }
