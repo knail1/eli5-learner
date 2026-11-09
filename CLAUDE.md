@@ -13,8 +13,8 @@ ASD-STE100 tab (Simplified Technical English, generated from the in-depth draft,
   pipeline and job queue (06), document (07), interactive reading (08), library and merge
   suggestions (09), publishing (10), the app shell (11), and M4 hardening (e2e, cross-browser,
   evals, edition cells, CI, hygiene, packaging). M5 (v2, optional: personal sync and the Android
-  companion, `spec/tech/16-android-companion.md`) is built; real-Drive behavior is unverified
-  until gate G1. After M5: the prompt catalogue in `config/prompts/` with prompt sets, the
+  companion, `spec/tech/16-android-companion.md`) is built; the gate G1 smoke test against a real
+  Drive passed (Nov 2026), and the rest of real-Drive behavior is still unverified. After M5: the prompt catalogue in `config/prompts/` with prompt sets, the
   ASD-STE100 tab, AI-written sandboxed `animation` blocks (no fixed animation kinds; spec 07 §7.1),
   the shared chart palette, ELI5 critique, and rebuild-as-new-version through the dev real-run
   driver (`scripts/real-run/README.md`). See the build order in `spec/tech/README.md`.

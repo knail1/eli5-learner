@@ -10,7 +10,9 @@ stay on your machine. The design is in
 > reader builds, and the release APK is signed with your key and scanned for secrets by
 > `scripts/android-dist.sh`. CI builds and tests the Android project on every change to it
 > (`.github/workflows/android.yml`, no secrets, never a release). Stages B and C describe sync.
-> **Sync against a real Google Drive is unverified until gate G1** (spec 16 §13): the code is built and tested against an
+> **Update:** The G1 smoke test passed against a real Google Drive in November 2026: sign-in on the Mac and on a Pixel, desktop push, primary claim, and the phone pulling and listing the library. Phone jobs (Ask) and conflict paths are still unverified against a real Drive.
+>
+> **Original note (before G1)** (spec 16 §13): the code is built and tested against an
 > in-memory fake Drive first, and the cross-client checks with a real Cloud project come after.
 > The desktop sync engine (push, primary claim, heartbeat, clean-up) is built and tested against
 > that fake Drive only; its behaviour against a real Drive is also unverified until G1. The same

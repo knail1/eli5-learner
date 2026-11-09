@@ -7,22 +7,49 @@ macOS app that turns decks, docs, PDFs, screenshots and URLs into interactive HT
 
 ## Download
 
-**Latest release: [v0.3.0](https://github.com/knail1/eli5-learner/releases/tag/v0.3.0).**
+**Latest release: [v0.4.0](https://github.com/knail1/eli5-learner/releases/tag/v0.4.0)** ·
+[all releases](https://github.com/knail1/eli5-learner/releases) ·
+[always the newest](https://github.com/knail1/eli5-learner/releases/latest)
 
-- **Mac (Apple silicon, unsigned):**
-  [`ELI5.Learner-0.3.0-arm64.dmg`](https://github.com/knail1/eli5-learner/releases/download/v0.3.0/ELI5.Learner-0.3.0-arm64.dmg).
-  Open it and drag the app to Applications. The build is unsigned, so on first launch macOS may block
-  it: open **System Settings > Privacy & Security** and click **Open Anyway**. Then add a Claude
-  (default) or ChatGPT (OpenAI) API key in **Settings > AI**. To build it yourself, see
+| Platform | Download |
+| --- | --- |
+| Mac (Apple silicon, unsigned) | [`ELI5.Learner-0.4.0-arm64.dmg`](https://github.com/knail1/eli5-learner/releases/download/v0.4.0/ELI5.Learner-0.4.0-arm64.dmg) |
+| Android (sideload companion) | [`eli5-learner-0.4.0.apk`](https://github.com/knail1/eli5-learner/releases/download/v0.4.0/eli5-learner-0.4.0.apk) |
+
+- **Mac:** open the dmg and drag the app to Applications. The build is unsigned, so on first launch
+  macOS may block it: open **System Settings > Privacy & Security** and click **Open Anyway**. Then add
+  a Claude (default) or ChatGPT (OpenAI) API key in **Settings > AI**. To build it yourself, see
   [Packaging (macOS)](#packaging-macos).
-- **Android (sideload, v2 companion):**
-  [`eli5-learner-0.3.0.apk`](https://github.com/knail1/eli5-learner/releases/download/v0.3.0/eli5-learner-0.3.0.apk).
-  Install it with `adb install -r` or open it on the phone and allow "Install unknown apps". It reads
-  exported documents offline right away; syncing with the Mac through your own Google Drive needs the
-  one-time setup in [android/SETUP.md](android/SETUP.md) and is not yet verified against a real Drive.
-  Note: this APK is signed with the project owner's release key, so Google sign-in in it only works
-  with the owner's Google Cloud project. Forks build and sign their own (see
-  [android/README.md](android/README.md)).
+- **Android:** install it with `adb install -r` or open it on the phone and allow "Install unknown
+  apps". It reads exported documents offline right away. Syncing with the Mac through your own Google
+  Drive needs the one-time setup in [android/SETUP.md](android/SETUP.md) (including turning on the
+  Google Drive API); it has been verified end to end against a real Drive. This APK is signed with the
+  project owner's release key, so Google sign-in in it only works with the owner's Google Cloud project.
+  Forks build and sign their own (see [android/README.md](android/README.md)).
+
+### What's new in v0.4.0
+
+- **ASD-STE100 tab.** A third view that restates the In depth content in Simplified Technical English
+  (short sentences, one meaning per word, active voice), reusing the same charts and animations. A hint
+  in the tab explains what it is.
+- **AI-designed animations.** When motion or a slider makes an idea clearer, the model writes a small
+  interactive animation for *that* topic. It runs in a locked-down sandbox (no network, no access to the
+  page or the app) with a still poster for print, Markdown and no-JS readers.
+- **WSJ Five-Box In depth** with Dona Wong chart rules: takeaway titles, few series, honest axes, values
+  in order, annotations, one high-contrast palette across every theme. Broken charts are fixed in code
+  instead of costing another model call.
+- **Simpler, more visual ELI5** with one self-critique pass that is only accepted when it keeps the
+  facts and adds clarity.
+- **Prompt sets in `config/prompts/`.** Every prompt is a file; `default` is the new set and `wsj-v1`
+  keeps the original In depth and ELI5 prompts so you can compare. See
+  [config/prompts/README.md](config/prompts/README.md).
+- **Rebuild as a new version** (developer tool): regenerate existing documents with new prompts; the
+  previous version stays one click away in History.
+- **Android** shows everything the desktop makes: the third tab, the animations and the new palette.
+- **Sync** gives a clear message when the Google Drive API is turned off in your Cloud project.
+
+Earlier releases: [v0.3.0](https://github.com/knail1/eli5-learner/releases/tag/v0.3.0) (personal sync,
+Android companion), [v0.2.0](https://github.com/knail1/eli5-learner/releases/tag/v0.2.0).
 
 ## What it does
 
@@ -206,9 +233,8 @@ The public build needs nothing but an API key: no accounts, no logins and no oth
 
 > **Built (v2, milestone M5); sync unverified against a real Google Drive.** The Android companion
 > and personal sync are specified in [spec/tech/16-android-companion.md](spec/tech/16-android-companion.md).
-> The local reader works with no setup. Sync is built and tested against an in-memory fake Drive
-> only; it stays unverified until you run gate G1 with your own Google Cloud project
-> ([android/SETUP.md](android/SETUP.md)).
+> The local reader works with no setup. Sync needs your own Google Cloud project
+> ([android/SETUP.md](android/SETUP.md)). The G1 smoke test passed against a real Google Drive in November 2026: sign-in on the Mac and on a Pixel, desktop push, primary claim, and the phone pulling and listing the library. Phone jobs (Ask) and conflict paths are still unverified against a real Drive.
 
 An optional Android app reads your learnings offline and sends links, photos and files from the
 phone's share sheet to your Mac, which does the generating. It is sideloaded (no Play Store).

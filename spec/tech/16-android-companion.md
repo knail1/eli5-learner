@@ -33,6 +33,8 @@ Hardening (§11, §12) is done: the `android` CI workflow, the 360 px and 412 px
 cases, a release APK signed with the release key and passing the `scripts/android-dist.sh` secret
 scan. The sideload checklist in `android/README.md` and gate G2 still need a real phone.
 
+> **G1 smoke result (Nov 2026).** The G1 smoke test passed against a real Google Drive in November 2026: sign-in on the Mac and on a Pixel, desktop push, primary claim, and the phone pulling and listing the library. Phone jobs (Ask) and conflict paths are still unverified against a real Drive.
+
 Related: [01-architecture.md](./01-architecture.md) · [06-generation-pipeline.md](./06-generation-pipeline.md) ·
 [07-output-document.md](./07-output-document.md) · [08-interactive-reading.md](./08-interactive-reading.md) ·
 [09-library-storage.md](./09-library-storage.md) · [10-publishing.md](./10-publishing.md) ·

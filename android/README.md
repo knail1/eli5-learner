@@ -6,7 +6,7 @@ Google Drive and a share-sheet "Send to my Mac". The design is
 [spec/tech/16-android-companion.md](../spec/tech/16-android-companion.md). To get from nothing to the
 app on your phone, follow [SETUP.md](SETUP.md).
 
-> **Status (M5, built; real Drive unverified until G1).** All slices are built, CI covers this
+> **Status (M5, built; G1 smoke passed, see below).** All slices are built, CI covers this
 > folder, and the release APK is signed and secret-scanned by `scripts/android-dist.sh`; the smoke
 > checklist below has not yet been run on a phone. The local-mode app is built:
 > import (picker, share sheet, "Open with"), the library, the sandboxed reader and Settings > About.
@@ -27,7 +27,7 @@ app on your phone, follow [SETUP.md](SETUP.md).
 > "Make current on your Mac", which sends a `checkout` job. The Ask sheet (a section from the
 > outline and a one-line question) is built and appears only once the Mac lists `ask` among the jobs
 > it accepts; the desktop does not run phone questions yet, so it stays hidden for now. Everything
-> against a real Google Drive is unverified until gate G1 (spec 16 §13).
+> against a real Google Drive was smoke-tested at gate G1 (spec 16 §13). The G1 smoke test passed against a real Google Drive in November 2026: sign-in on the Mac and on a Pixel, desktop push, primary claim, and the phone pulling and listing the library. Phone jobs (Ask) and conflict paths are still unverified against a real Drive.
 >
 > **0.4.0 (versionCode 3): reads everything the desktop now writes.** The reader opens three-tab
 > documents (In depth, ELI5 and the optional ASD-STE100 tab with its one-line hint, plus section ELI5
