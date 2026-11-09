@@ -1,8 +1,8 @@
 # ELI5 Learner
 
-macOS app that turns decks, docs, PDFs, screenshots and URLs into interactive HTML explainers: an in-depth WSJ-style view plus an ELI5 view, refinable section by section.
+macOS app that turns decks, docs, PDFs, screenshots and URLs into interactive HTML explainers: an in-depth WSJ-style view, an ELI5 view and an ASD-STE100 (Simplified Technical English) view, with AI-designed animations, refinable section by section.
 
-> **Status:** v1 is feature-complete (milestones M0 to M4): generation, interactive reading, the library, local publishing, completion notifications, and test, CI and packaging hardening. Builds are unsigned.
+> **Status:** v1 is feature-complete (milestones M0 to M4): generation, interactive reading, the library, local publishing, completion notifications, and test, CI and packaging hardening. The optional v2 Android companion and personal sync (M5) are built. Since then: the ASD-STE100 tab, AI-designed sandboxed animations, the WSJ Five-Box In depth and picture-first ELI5 prompts, prompt sets in `config/prompts/`, and rebuild as a new version (a developer tool). Builds are unsigned.
 > Full requirements: [spec/ELI5 Learner Product Requirements Document.md](spec/ELI5%20Learner%20Product%20Requirements%20Document.md)
 
 ## Download
@@ -26,10 +26,11 @@ macOS app that turns decks, docs, PDFs, screenshots and URLs into interactive HT
 
 ## What it does
 
-Drop in source material, optionally type a few clarifying specifics, press Start (⌘⏎), and walk away. ELI5 Learner builds one self-contained `index.html` learning document with two views:
+Drop in source material, optionally type a few clarifying specifics, press Start (⌘⏎), and walk away. ELI5 Learner builds one self-contained `index.html` learning document with three views:
 
-- **In depth.** Wall Street Journal-grade explanatory writing, with charts, diagrams, annotated figures, pull quotes and light interactivity. An optional in-context glossary explains jargon and acronyms in the right margin, next to where each one first appears.
+- **In depth.** Wall Street Journal-grade explanatory writing, with charts, diagrams, annotated figures, pull quotes and interactive animations. An optional in-context glossary explains jargon and acronyms in the right margin, next to where each one first appears.
 - **ELI5.** The same material, rebuilt from scratch for comprehension, in plain words. It doesn't follow the structure of the source.
+- **ASD-STE100.** The in-depth content restated in Simplified Technical English: short sentences, one instruction each, one meaning per word, active voice. It reuses the in-depth charts and diagrams and adds no facts.
 
 The document opens in the app's viewer and in any browser.
 
@@ -56,6 +57,31 @@ The ELI5 tab rebuilds the same material in plain words, with analogies, simple d
 
 ## Features
 
+- **A WSJ-style feature, not a summary.** The In depth tab follows the Wall Street Journal "Five-Box"
+  formula: a lede on one concrete case from your material (never invented people, quotes or
+  numbers), a nut graf with the thesis, sections that open with their takeaway, one "boring but
+  important" section with the background and caveats, and a kicker. Charts follow the WSJ graphics
+  rules after Dona M. Wong (one point per chart with a takeaway title, bars from zero, at most four
+  series, direct labels, the source credited). The app applies one high-contrast chart palette in
+  every theme, light and dark, and fixes small chart faults itself instead of dropping the chart.
+- **Picture-first ELI5, checked once.** Every ELI5 section is built around a picture (a diagram, a
+  stepper, an everyday analogy, a simple chart, a photo or a simple animation), then explained in
+  short, plain sentences. One critique pass then revises the draft against a rubric and an automatic
+  plain-language checker; code keeps the revision only if it is no worse and adds no new numbers.
+- **ASD-STE100 tab.** A third tab restates the In depth content in
+  [Simplified Technical English](https://en.wikipedia.org/wiki/Simplified_Technical_English), the
+  controlled writing standard from aerospace maintenance manuals. A short hint at the top of the tab
+  (and on its tooltip) explains the standard. An automatic checker counts sentences that break its
+  rules and triggers at most one repair. If the step fails, the document simply has two tabs.
+- **AI-designed animations, in a sandbox.** When a topic has a mechanism you understand better by
+  moving it (a learning rate on a loss curve, a sampler's random walk, estimates shrinking toward a
+  group mean), the model writes a small interactive animation for that topic, with a slider or two
+  and a live readout. There are no canned animations: each one is designed for the document it is
+  in. The model's code runs in a sandboxed frame with its own strict content security policy: no
+  network requests, no access to the page around it, no navigation or storage, and a trusted shell
+  removes the network APIs (WebRTC included) before the model's code runs. The app also checks the
+  code first and drops an animation that reaches for anything forbidden. Each animation has a still poster
+  that shows without JavaScript, in print and in the Markdown export.
 - **Fire-and-forget generation.** No modals and no mid-job questions. A source that fails is skipped and listed in the document's references. Jobs can be queued.
 - **Queue links, then run.** Enter in the URL field (or Add) turns each link into a chip and starts nothing, so you can collect several first; Start (⌘⏎) sends them all. The sent links move to a dimmed *Last run* row: **Run again** re-sends them, **Use again** puts them back as chips, and your specifics stay. Clear empties the input zone. The panel above the input zone can be dragged taller.
 - **Several documents at once.** Settings > Documents > *Documents generated at once* (1 to 3); waiting jobs say what they're waiting for.
@@ -103,6 +129,8 @@ The ELI5 tab rebuilds the same material in plain words, with analogies, simple d
   visited. The **Versions** panel (Cmd+Y, or the Versions button in the document header) shows the
   whole tree with what changed and when; click any version to open it, and the viewer lands on the
   section it changed. Older documents get the new menu the first time you open them.
+  A document rebuilt with new prompts is a new version too ("Rebuilt with new prompts"); checking out
+  the version before it restores the old document exactly.
 - **Section ELI5 tabs.** Focused ELI5 tabs, spun off from any passage and labeled by topic. You can close them.
 - **Real photos for real-world scenes.** People, places and everyday situations are shown with open-licensed stock photos (Openverse, with Wikimedia Commons as a fallback) instead of hand-drawn pictures; lists, flows and comparisons stay clean diagrams. Photos are embedded in the file, each with a credit and license marked "Illustrative stock photo". Only a few generic search words leave your Mac, and a setting turns it off.
 - **Library and menu bar.** Every document is listed in a sidebar, which you can prune with folders (drag documents in), an Archive and a recoverable Trash: swipe a document left to archive it or right to trash it, with Undo. The menu bar shows the last three, and the app keeps running in the menu bar when the window is closed.
@@ -168,6 +196,7 @@ The public build needs nothing but an API key: no accounts, no logins and no oth
 ## Configuration
 
 - LLM provider (Claude or OpenAI) and model name
+- Prompt set (no UI, see [Prompt sets](#prompt-sets))
 - API key, stored in the macOS Keychain
 - Default setting for "Explain domain-specific terms"
 - "Use stock photos for real-world scenes" (on by default)
@@ -184,8 +213,8 @@ The public build needs nothing but an API key: no accounts, no logins and no oth
 An optional Android app reads your learnings offline and sends links, photos and files from the
 phone's share sheet to your Mac, which does the generating. It is sideloaded (no Play Store).
 
-- **Without any Google setup:** install the APK and import exported `index.html` files. Both tabs,
-  the glossary, charts and the theme work offline.
+- **Without any Google setup:** install the APK and import exported `index.html` files. All three tabs
+  (In depth, ELI5, ASD-STE100), the glossary, charts, the theme and the sandboxed animations work offline.
 - **With sync (off by default):** connect both apps to a hidden app folder in your own Google Drive.
   Your library shows up on the phone, and "Send to my Mac" queues a job that your Mac runs when it is
   awake. Your API key never leaves the Mac. Sync copies your learnings (not your sources or notes),
@@ -279,6 +308,39 @@ When the app first reads the key, macOS asks for permission:
 Click **Always Allow**. Unsigned builds get a new code identity every time they are rebuilt, so macOS
 asks again after each rebuild; a build signed with a stable identity (a Developer ID, see above)
 asks only once. **Deny** is safe: the app then cannot use the key and asks you to add one in Settings.
+
+### Prompt sets
+
+Every prompt the app sends to a model is a plain Markdown file in
+[`config/prompts/`](config/prompts/README.md), not TypeScript. It ships with the app as
+`Resources/prompts`. `config/prompts/default/` holds every prompt and the shared fragments (chart
+rules, diagram rules, animation rules and more). A **prompt set** is a sibling folder that holds only
+the files it overrides; everything else comes from `default`. The repo ships `wsj-v1`, the frozen
+earlier In depth and ELI5 prompts, so you can compare old and new output.
+
+To try a set:
+
+1. Create `config/prompts/<my-set>/` (lowercase letters, digits and dashes) and copy in only the
+   prompts you want to change, for example `in-depth.md`. Keep the front matter and bump `version`.
+2. Run it in development with `ELI5_PROMPT_SET=<my-set> npm run dev`. The variable is ignored by an
+   installed app, which loads prompts only from its own `Resources/prompts`: a new set reaches it only
+   after you rebuild and reinstall the app (`scripts/build.sh`). To select a set without the variable,
+   quit the app, set `"llm": { "promptSet": "<my-set>" }` in its `settings.json` (there is no UI for
+   it), then relaunch; the setting is read once at startup. To go back, remove the setting.
+3. Generate a document. Its `meta.json` records `generation.promptSet`, the prompt tags (for example
+   `in-depth@5~<my-set>`) and a digest of every prompt and fragment used.
+
+A well-formed set name with no matching folder, or a set with broken files, is logged as
+`prompts.set-invalid` and the app uses `default`. A `settings.json` value that is not a valid name
+(anything but lowercase letters, digits and dashes, at most 40) fails the settings check instead: the
+app logs `settings.reset` and rewrites the value to `default`. `npm test`
+lints every prompt (front matter, variables, the untrusted-content wording); after changing
+`default`, update the rendered-request golden with `npm run test:update-goldens`.
+
+**Rebuilding documents with new prompts** is a developer tool for now: the real-run driver in
+[`scripts/real-run/`](scripts/real-run/README.md) (rebuild mode) regenerates existing documents from
+their source files and saves each as a new version, with a dry run and a fake-LLM rehearsal that cost
+nothing, and a hard spending cap for the real run.
 
 ### Generation-quality evals
 

@@ -337,7 +337,7 @@ the runtime changed) the runtime blocks.
 
 **Runtime upgrades.** A document keeps its embedded runtime (`generator.runtimeVersion`, the
 `eli5-css` and `eli5-runtime` blocks) until one of these explicit exceptions re-renders the same
-model with the bundled runtime (`bundledDocRuntime()`, `DOC_RUNTIME_VERSION`, currently `1.3.1`, the shared chart palette of 11.1; `1.3.0` was the first runtime with animation frames, 7.1; `1.2.0` was an unreleased runtime with declarative explorables, now removed):
+model with the bundled runtime (`bundledDocRuntime()`, `DOC_RUNTIME_VERSION`, currently `1.3.1`, the shared chart palette of 11.1; `1.3.0` was the first runtime with animation frames, 7.1; `1.2.0` was an unreleased runtime whose fixed, built-in animation kinds were removed before release):
 
 1. **On open** ([08](08-interactive-reading.md) §5.1): when a document with an older runtime is
    opened in the app's viewer, the library is writable, the document parses and nothing in it is

@@ -4,7 +4,7 @@ Sep 27, 2026 · @Omer
 
 ## Overview and goals
 
-ELI5 Learner is a macOS Electron app that turns any source material into one beautiful, interactive HTML learning document with two views: a Wall Street Journal grade in depth explainer and an "explain like I'm five" version.
+ELI5 Learner is a macOS Electron app that turns any source material into one beautiful, interactive HTML learning document with three views: a Wall Street Journal grade in depth explainer, an "explain like I'm five" version, and an ASD-STE100 (Simplified Technical English) version.
 
 The user drops in files, screenshots, or URLs, optionally types a few clarifying specifics, hits enter, and walks away. The app generates the full document unattended. Afterward the user reads it inside the app and sculpts it: selecting any passage to expand it, simplify it, or spin off a focused ELI5 tab for just that section.
 
@@ -136,15 +136,41 @@ Each learning produces one self contained `index.html` with tabs across the top.
 | --- | --- | --- | --- | --- |
 | In depth (WSJ style) | Yes, opens first | May follow the source's logical structure | Yes, in the right margin | Yes, at the bottom |
 | ELI5 | Always generated | Rebuilt from scratch for comprehension. Never mirrors the source structure | No. Uses plain words instead of jargon | No |
+| ASD-STE100 (optional) | Generated after the in depth tab | The in depth content rewritten in Simplified Technical English, section for section, with the same visuals | No | No |
 | Section ELI5 (0 to many) | Created on demand | Focused ELI5 of one selected passage | No | No |
+
+Tabs are always in this order: In depth, ELI5, ASD-STE100 (when present), then section ELI5 tabs in the order they were created. The in depth, ELI5 and ASD-STE100 tabs can never be closed.
 
 **In depth tab: visual quality bar**
 
 - Wall Street Journal grade explanatory journalism: charts, bar graphs, diagrams, annotated figures, pull quotes, and light interactivity where it aids understanding. Far richer than Markdown.
 - The builder must study how the Wall Street Journal presents graphics and explainers and apply those patterns.
-- Generation follows the HTML skills the user will supply (the ELI5 skill and the beautiful documentation skill), and the approach described in Thariq's "unreasonable effectiveness of HTML" article and GitHub repo. Both skills may be used for either tab.
+- Structure follows the WSJ "Five-Box" feature formula: a lede on one concrete case from the material (or a scenario that says plainly that it is hypothetical; never invented people, names, quotes or numbers), a nut graf that states the thesis by the third or fourth paragraph, body sections that open with their takeaway and back each claim with a number or an example, one "boring but important" section with the background, assumptions and caveats a newcomer needs, and a kicker that returns to the lede. Headings state takeaways; sentences are short and declarative; numbers come with context.
+- Charts follow the WSJ graphics rules after Dona M. Wong: one point per chart with a full takeaway title, bars that start at zero, at most four lines or series and five pie slices, natural round units, sentence case, direct labels instead of legends, the source credited, and a chart that passes a five-second test. The app, not the model, applies one shared, high-contrast chart palette in every theme and both color schemes, and fixes small chart faults in code (duplicate categories are merged, a blank title is derived from the section) instead of dropping the chart. Diagrams use flat fills only, no gradients.
+- Generation follows the HTML skills the user will supply (the ELI5 skill and the beautiful documentation skill), and the approach described in Thariq's "unreasonable effectiveness of HTML" article and GitHub repo. Both skills may be used for any tab.
 
-**Pictures (both tabs, mainly ELI5)**
+**ELI5 tab: picture first, then one critique pass**
+
+- Each ELI5 section is built around a picture: the visual (a diagram, a short stepper, an everyday analogy, a simple chart, a photo, or one simple animation) is chosen first, and the words explain it. One idea per section, short sentences, everyday numbers, no jargon, formulas or Greek letters.
+- After the first ELI5 draft, the app runs exactly one critique pass: the model revises the draft against a fixed rubric and the findings of an automatic plain-language checker. Code, not the model, decides whether the revision replaces the draft: it is kept only if it parses, keeps about the same number of sections (within one, and at least three) and at least as many visuals, keeps every figure, photo and animation of the draft, does not read worse to the checker, and adds no number that is in neither the draft nor the in depth tab. Otherwise the first draft stays. The reader never sees a warning either way.
+
+**ASD-STE100 tab**
+
+- ASD-STE100 (Simplified Technical English) is a controlled writing standard that began in aerospace maintenance manuals. The tab restates the in depth content under its rules: short sentences (instructions at most 20 words, descriptions at most 25), one instruction per sentence, one meaning per word, active voice.
+- It is generated from the finished in depth draft only, so it adds no facts. Charts, diagrams, tables, figures, photos and animations are reused from the in depth tab unchanged; the model can only point at them, never redraw them.
+- An automatic checker counts sentences that break the rules. If too many do, the app makes one repair call and keeps the repaired text only if it scores better.
+- The tab opens with a short plain-text hint that explains what ASD-STE100 is. The hint also shows as the tab button's tooltip, without JavaScript, in print and in the Markdown export.
+- The tab is optional: if its generation step fails, the document has no ASD-STE100 tab (never a placeholder) and is otherwise complete. The glossary and the references stay in the in depth tab.
+- Accepting a merge suggestion drops the ASD-STE100 tab (keeping it would leave stale text); the version before the merge keeps it, and a rebuild recreates it.
+
+**Animations (AI-designed, sandboxed)**
+
+- When a document's topic has a mechanism, process, trade-off or dynamic that motion or a control makes clearer than a static chart, the model designs and writes a small interactive animation for that topic: one idea, one or two controls whose extremes show the failure modes, a visible numeric readout, and a caption that says what to try and what to notice. Gradient descent's learning rate on a loss curve is an example of the style, not a template; there are no fixed animation kinds, and an example is never reused for a different topic.
+- At most one animation per section, two per tab and four per document. The ELI5 tab may have its own simpler one (one control, big shapes, an everyday analogy). The ASD-STE100 tab reuses the in depth ones as identical copies; those copies are not counted against the four-per-document cap (they never exceed the in depth tab's count), so a document can show up to six animation frames.
+- The model's code runs only inside a sandboxed frame with its own strict content security policy: no network, no access to the document around it, no navigation, forms, pop-ups or storage. The app checks the code before accepting it and drops an animation that uses a forbidden capability. The real boundary is the sandbox, its policy, and a trusted shell that removes the network APIs before the model's code runs: a content security policy does not cover WebRTC, so the shell deletes the WebRTC APIs too (inside the app, WebRTC is also limited to proxied traffic).
+- Every animation has a still poster image of its key insight, shown without JavaScript, in print, before the frame loads, and described in words in the Markdown export. It works in the app, in any browser from a file, in dark mode, at phone width, and honors reduced motion.
+
+**Pictures (every tab, mainly ELI5)**
 
 - Every ELI5 section gets one picture, chosen by what the idea is.
 - Structured ideas (lists, flows, comparisons, timelines) get a clean diagram: a few labeled boxes and arrows, labels that fit inside their shapes, never drawings of people, buildings or scenes.
@@ -201,6 +227,7 @@ Any document in the Library, new or months old, can be refined in place from the
 - A **Versions** panel (toggled from the document header, with Cmd+Y, or View > Show Versions) shows the document's history as a tree: one row per version, named by what changed ("Expanded: Why the plan matters", "Asked: pricing"), with branches indented. Clicking any version opens it and lands on the place where it changed; clicking the current version just scrolls there.
 - Versions are kept per document, inside the document's folder, and travel with it to the Trash and back. Very old versions on side branches may have their saved copy removed to bound disk use; their row stays, marked "snapshot removed".
 - A document edited outside the app is saved as a version on the next change.
+- A document regenerated with new prompts (a rebuild) becomes a new version of the same document, shown in the Versions panel as "Rebuilt with new prompts". It keeps its identity, creation date, folder, merge history and publications. Answer boxes, the action history and section ELI5 tabs are not carried into the rebuilt version; they stay in the earlier versions, and checking out the earlier version restores the old document exactly. Rebuilding is a developer tool in this release, with no menu item.
 
 **Section ELI5 tabs**
 
@@ -274,6 +301,7 @@ The public build saves locally only and pushes nothing. The enterprise edition a
 
 - LLM provider (Claude or OpenAI), API key stored in the macOS Keychain, model name.
 - Default for the "Explain domain specific terms" toggle.
+- Prompt set (power users, no UI): every prompt the app sends lives in a plain-text prompt catalogue that ships with the app. A prompt set is a folder that overrides only the files it contains; the setting `llm.promptSet` selects it (default `default`), and an unknown or broken set falls back to the default with an error in the log. The app ships the frozen baseline set `wsj-v1` (the earlier in depth and ELI5 prompts), so the previous behavior is one setting away. Each document records the prompt set and a digest of the prompts that produced it. An organization overlay can override individual prompts (hook: HOOK-LLM-02).
 - "Use stock photos for real-world scenes" toggle (`images.stockPhotos`, default on). An organization can lock it off.
 - **Notifications** section:
   - "Notify me when a document is ready" toggle (`notifications.enabled`, default on).
@@ -298,6 +326,8 @@ The public build saves locally only and pushes nothing. The enterprise edition a
 
 **Open items**
 
+- [ ] Rebuild from the app UI (today a developer-only tool) and a first-class "rebuild" version kind, once the Android companion understands it.
+- [ ] Older installed apps show documents generated by this build (new or rebuilt, all of which can have an ASD-STE100 tab) as invalid or view only; readers must run the current build before opening them.
 - [ ] User to supply the ELI5 HTML skill and the beautiful documentation HTML skill.
 - [ ] Define the enterprise publishing targets and repo layout.
 
@@ -314,7 +344,7 @@ hold for everyone who does not turn it on.
 **What it does**
 
 - **Android app (sideloaded, not on the Play Store):** an offline Library, a read-only reader for the
-  same self-contained `index.html` (both tabs, glossary, charts, theme), import of exported documents
+  same self-contained `index.html` (all three tabs including ASD-STE100, glossary, charts, theme, sandboxed animations), import of exported documents
   with no Google setup at all, a read-only Versions view with "Make current on your Mac", a share
   sheet capture ("Send to my Mac") and an Inbox with job status.
 - **Desktop:** a Settings > Sync section, Google sign-in in the system browser, a push of the Library

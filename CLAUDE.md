@@ -5,15 +5,19 @@ Guidance for Claude Code when working in this repository.
 ## Project
 
 ELI5 Learner is a macOS Electron app that turns decks, docs, PDFs, screenshots and URLs into one
-self-contained interactive `index.html` with an in-depth (WSJ-style) tab and an ELI5 tab, refinable
-section by section.
+self-contained interactive `index.html` with three tabs, refinable section by section: In depth
+(WSJ Five-Box feature, Wong chart rules), ELI5 (picture first, one critique pass) and an optional
+ASD-STE100 tab (Simplified Technical English, generated from the in-depth draft, tab key `ste`).
 
 - **Status:** M0 to M4 are built: LLM (02), sources (03), extraction (04), URL fetching (05),
   pipeline and job queue (06), document (07), interactive reading (08), library and merge
   suggestions (09), publishing (10), the app shell (11), and M4 hardening (e2e, cross-browser,
   evals, edition cells, CI, hygiene, packaging). M5 (v2, optional: personal sync and the Android
   companion, `spec/tech/16-android-companion.md`) is built; real-Drive behavior is unverified
-  until gate G1. See the build order in `spec/tech/README.md`.
+  until gate G1. After M5: the prompt catalogue in `config/prompts/` with prompt sets, the
+  ASD-STE100 tab, AI-written sandboxed `animation` blocks (no fixed animation kinds; spec 07 §7.1),
+  the shared chart palette, ELI5 critique, and rebuild-as-new-version through the dev real-run
+  driver (`scripts/real-run/README.md`). See the build order in `spec/tech/README.md`.
 - **Source of truth:** `spec/ELI5 Learner Product Requirements Document.md` (what) and
   `spec/tech/` (how: one engineering spec per module; start at `spec/tech/README.md`, which also
   has the build order). `README.md` is the user-facing summary.
@@ -76,6 +80,8 @@ LICENSE, CLAUDE.md, tsconfig.json (a pointer into config/ for editors), .gitigno
 - URL fetching: plain HTTP + Readability-style extraction, falling back to a hidden Electron
   `BrowserWindow`. No Puppeteer or extra Chromium.
 - Images go straight to the model's vision input; no OCR engine.
+- Model-written code exists only as an `animation` block: it runs in an `<iframe sandbox="allow-scripts">`
+  srcdoc with its own hash-pinned CSP, after a static lint; never in the document or the app.
 - Every section of every tab carries a stable, unique ID so one section can be regenerated in place.
 - Not in v1: logins/authenticated sources, audio/speech-to-text, cloud publishing. Personal sync
   (v2, `spec/tech/16`) is an opt-in exception: off by default, to the user's own Google Drive
