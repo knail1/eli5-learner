@@ -152,7 +152,7 @@ Tabs are always in this order: In depth, ELI5, ASD-STE100 (when present), then s
 **ELI5 tab: picture first, then one critique pass**
 
 - Each ELI5 section is built around a picture: the visual (a diagram, a short stepper, an everyday analogy, a simple chart, a photo, or one simple animation) is chosen first, and the words explain it. One idea per section, short sentences, everyday numbers, no jargon, formulas or Greek letters.
-- After the first ELI5 draft, the app runs exactly one critique pass: the model revises the draft against a fixed rubric and the findings of an automatic plain-language checker. Code, not the model, decides whether the revision replaces the draft: it is kept only if it parses, keeps about the same number of sections (within one, and at least three) and at least as many visuals, keeps every figure, photo and animation of the draft, does not read worse to the checker, and adds no number that is in neither the draft nor the in depth tab. Otherwise the first draft stays. The reader never sees a warning either way.
+- After the first ELI5 draft, the app runs exactly one critique pass: the model revises the draft against a fixed rubric and the findings of an automatic plain-language checker. Code, not the model, decides whether the revision replaces the draft: it is kept only if it parses, keeps about the same number of sections (within one, and at least three) and at least as many visuals, keeps every figure, photo and animation of the draft, does not read worse to the checker, and adds no number that is in neither the draft nor the in depth tab. Otherwise the first draft stays. A one-section draft is left as it is, since no revision of it could pass. The reader never sees a warning either way.
 
 **ASD-STE100 tab**
 

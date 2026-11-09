@@ -63,6 +63,18 @@ describe('initAnimations (booted on the showcase golden)', () => {
     expect(sent.mock.calls).toEqual([[{ type: 'eli5-anim-theme', theme: 'dark' }, '*']]);
   });
 
+  it('follows a system light/dark switch when the document has no explicit theme (audit round 4)', async () => {
+    const { doc, sent, setWide } = await booted();
+    expect(doc.documentElement.getAttribute('data-theme')).toBe('auto');
+    sent.mockClear();
+    // The fake matchMedia flips every query at once, (prefers-color-scheme: dark) included.
+    setWide(true);
+    expect(sent.mock.calls).toContainEqual([{ type: 'eli5-anim-theme', theme: 'dark' }, '*']);
+    sent.mockClear();
+    setWide(false);
+    expect(sent.mock.calls).toContainEqual([{ type: 'eli5-anim-theme', theme: 'light' }, '*']);
+  });
+
   it('a height from the frame reveals it; anything else, or from anyone else, is ignored', async () => {
     const { win, frame, fig } = await booted();
     const stage = frame.parentElement as HTMLElement;

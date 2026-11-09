@@ -175,6 +175,41 @@ describe('buildDocumentModel with an ASD-STE100 tab (07 §5)', () => {
     expect(model.assets.filter((x) => x.credit)).toHaveLength(1);
   });
 
+  it('titles a kept blank-title chart after its In depth heading, so the copies are identical (audit round 4)', () => {
+    const chart = {
+      type: 'chart' as const,
+      chart: { kind: 'bar' as const, title: '', categories: ['a', 'b'], series: [{ name: 's', values: [1, 2] }] },
+    };
+    const indepth: DocumentDraftTab = {
+      kind: 'indepth',
+      title: 'Warehouse',
+      sections: [
+        { heading: 'Stock levels by aisle', blocks: [{ type: 'paragraph', md: 'Aisles hold stock.' }, chart] },
+      ],
+    };
+    const ste: DocumentDraftTab = {
+      kind: 'ste',
+      title: 'Warehouse',
+      sections: [
+        {
+          heading: 'How much stock is in each aisle',
+          blocks: [{ type: 'paragraph', md: 'Each aisle holds stock.' }, structuredClone(chart)],
+        },
+      ],
+    };
+    const { model } = buildDocumentModel(
+      steInput({ indepth, glossary: null, ste: { tab: ste, origins: [[null, { section: 0, block: 1 }]] } }),
+    );
+    const chartOf = (key: string) =>
+      model.tabs
+        .find((t) => t.key === key)
+        ?.sections.flatMap((s) => s.blocks)
+        .find((b) => b.type === 'chart');
+    const a = chartOf('indepth');
+    expect(a?.type === 'chart' && a.chart.title).toBe('Stock levels by aisle');
+    expect(chartOf('ste')).toEqual(a);
+  });
+
   it('drops a photo whose STE block has no origin', () => {
     const ste: DocumentDraftTab = {
       ...STE_DRAFT,

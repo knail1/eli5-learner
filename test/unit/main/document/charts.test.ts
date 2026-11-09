@@ -298,6 +298,20 @@ describe('normalizeChart (07 §5.2)', () => {
     expect(run(base({ series: [{ name: 's', values: [1, null, 3] }] })).chart?.footnote).toBe('No data for B.');
   });
 
+  it('a stacked bar names only categories with no segment at all; a grouped bar names any gap (audit round 4)', () => {
+    const c = base({
+      categories: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'],
+      series: [
+        { name: 's1', values: [1, 2, 3, null, 5, 6, 7, 8, 9, 10] },
+        { name: 's2', values: [1, null, 3, null, 5, 6, 7, 8, 9, 10] },
+      ],
+    });
+    const stacked = run({ ...c, kind: 'stacked-bar' }).chart;
+    expect(stacked?.series.map((x) => x.name)).toEqual(['s1', 's2']);
+    expect(stacked?.footnote).toBe('No data for D.');
+    expect(run(c).chart?.footnote).toBe('No data for B and D.');
+  });
+
   it("order 'value' sorts bars largest first; given order and lines are untouched", () => {
     const c = base({ categories: ['A', 'B', 'C', 'D'], series: [{ name: 's', values: [2, null, 9, 4] }] });
     expect(run({ ...c, order: 'value' }).chart?.categories).toEqual(['C', 'D', 'A', 'B']);

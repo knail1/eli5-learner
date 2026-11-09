@@ -1,6 +1,6 @@
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { DocumentDraftTab, LlmTasks } from '../../../../src/main/llm';
 import type { Job } from '../../../../src/main/pipeline';
 import type { Logger, LogFields } from '../../../../src/main/security';
@@ -250,5 +250,95 @@ describe('generating step 1b (06 §5.4)', () => {
     expect(b.fake.calls.map((c) => c.taskId)).toEqual(['summary']);
     const meta = await b.lib.getMeta(job.result?.topicSlug ?? '');
     expect(meta.tabs.map((t) => t.key)).toEqual(['indepth', 'eli5', 'ste']);
+  });
+
+  it('skips the critique call for a 1-section ELI5 draft, which the gate could never accept (audit round 4)', async () => {
+    const s = defaultScript();
+    const one = structuredClone(s.responses.eli5) as DocumentDraftTab;
+    one.sections.splice(1);
+    const h = await harness({ script: { ...s, responses: { ...s.responses, eli5: one as never } } });
+    const { jobId } = await h.queue.start({ inputs: [fileInput('sources/text/notes.md')], options: opts });
+    const job = await h.finished(jobId);
+    expect(job.status).toBe('done');
+    expect(h.fake.calls.map((c) => c.taskId)).not.toContain('eli5-critique');
+    expect(job.warnings).toEqual([]);
+    const meta = await h.lib.getMeta(job.result?.topicSlug ?? '');
+    expect(meta.tabs.find((t) => t.key === 'eli5')?.sectionCount).toBe(1);
+  });
+
+  it('a resumed record that lists ste but lost gen/ste.json runs the STE call again (audit round 4)', async () => {
+    const a = await harness({ tasks: (t) => ({ ...t, summarize: () => new Promise(() => {}) }) });
+    const { jobId } = await a.queue.start({ inputs: [fileInput('sources/text/notes.md')], options: opts });
+    await new Promise<void>((resolve) => {
+      const off = a.queue.on('changed', (s) => {
+        if (s.id === jobId && s.statusLine === 'Generating document (finishing up)') {
+          off();
+          resolve();
+        }
+      });
+    });
+    await a.queue.close();
+    const rec = JSON.parse(await readFile(path.join(jobsDir(a.userData), `${jobId}.json`), 'utf8')) as Job;
+    expect(rec.checkpoint?.completedSteps).toContain('ste');
+    await rm(path.join(jobsDir(a.userData), jobId, 'gen', 'ste.json'));
+    const b = await harness({ from: a });
+    const job = await b.finished(jobId);
+    expect(job.status).toBe('done');
+    expect(b.fake.calls.map((c) => c.taskId).sort()).toEqual(['ste', 'summary']);
+    expect(job.warnings).toEqual([]);
+    const meta = await b.lib.getMeta(job.result?.topicSlug ?? '');
+    expect(meta.tabs.map((t) => t.key)).toEqual(['indepth', 'eli5', 'ste']);
+  });
+
+  it('checkpoints a finished STE result before the critique returns, so a resume does not pay for it again (audit round 4)', async () => {
+    const a = await harness({ tasks: (t) => ({ ...t, critiqueEli5: () => new Promise(() => {}) }) });
+    const { jobId } = await a.queue.start({ inputs: [fileInput('sources/text/notes.md')], options: opts });
+    const recPath = path.join(jobsDir(a.userData), `${jobId}.json`);
+    await vi.waitFor(
+      async () => {
+        const rec = JSON.parse(await readFile(recPath, 'utf8')) as Job;
+        expect(rec.checkpoint?.completedSteps).toContain('ste');
+      },
+      { timeout: 10_000, interval: 20 },
+    );
+    await a.queue.close();
+    const rec = JSON.parse(await readFile(recPath, 'utf8')) as Job;
+    expect(rec.checkpoint?.completedSteps).not.toContain('eli5-critique');
+    const b = await harness({ from: a });
+    const job = await b.finished(jobId);
+    expect(job.status).toBe('done');
+    expect(b.fake.calls.map((c) => c.taskId).sort()).toEqual(['eli5-critique', 'glossary', 'summary']);
+    const meta = await b.lib.getMeta(job.result?.topicSlug ?? '');
+    expect(meta.tabs.map((t) => t.key)).toEqual(['indepth', 'eli5', 'ste']);
+  });
+
+  it('a re-run STE step that succeeds clears the earlier ste-omitted warning (audit round 4)', async () => {
+    const a = await harness({
+      script: defaultScript({ errors: { ste: 'server' } }),
+      tasks: (t) => ({ ...t, summarize: () => new Promise(() => {}) }),
+    });
+    const { jobId } = await a.queue.start({ inputs: [fileInput('sources/text/notes.md')], options: opts });
+    await new Promise<void>((resolve) => {
+      const off = a.queue.on('changed', (s) => {
+        if (s.id === jobId && s.statusLine === 'Generating document (finishing up)') {
+          off();
+          resolve();
+        }
+      });
+    });
+    await a.queue.close();
+    const recPath = path.join(jobsDir(a.userData), `${jobId}.json`);
+    const rec = JSON.parse(await readFile(recPath, 'utf8')) as Job;
+    expect(rec.warnings.map((w) => w.kind)).toEqual(['ste-omitted']);
+    // The STE step is re-run on resume (its artifact is gone) and succeeds this time.
+    await rm(path.join(jobsDir(a.userData), jobId, 'gen', 'ste.json'));
+    const b = await harness({ from: a });
+    const job = await b.finished(jobId);
+    expect(job.status).toBe('done');
+    expect(b.fake.calls.map((c) => c.taskId)).toContain('ste');
+    expect(job.warnings).toEqual([]);
+    const meta = await b.lib.getMeta(job.result?.topicSlug ?? '');
+    expect(meta.tabs.map((t) => t.key)).toEqual(['indepth', 'eli5', 'ste']);
+    expect(meta.warnings).toEqual([]);
   });
 });

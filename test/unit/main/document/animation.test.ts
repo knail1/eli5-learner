@@ -134,12 +134,15 @@ describe('lint (design addendum: static lint, drop on a hit)', () => {
       "ELI5.button('Refresh', go); ELI5.readout('Rate: ' + r); var t = 'File: 3';",
       "var s = document.createElementNS('http://www.w3.org/2000/svg', 'g'); go(1); //draw the axes",
       "var x = 'a/b' + '/c'; label('ratio 1/2');",
+      // `<a` in code is a comparison, not markup (the link rule is html-only, audit round 4)
+      'for (var i = 0; i <a.length; i++) go(i);',
     ];
     for (const js of benign) expect(lintAnimation({ js }), js).toEqual([]);
     expect(lintAnimation({ js: 'go()', css: 'div{background:url(data:image/png;base64,AAAA)}' })).toEqual([]);
     expect(
       lintAnimation({ js: 'go()', html: '<div class="row"><span id="v">0</span></div><svg><rect/></svg>' }),
     ).toEqual([]);
+    expect(lintAnimation({ js: 'go()', html: '<abbr>CPU</abbr><aside>x</aside><address>y</address>' })).toEqual([]);
   });
 
   const js = [
@@ -249,6 +252,9 @@ describe('lint (design addendum: static lint, drop on a hit)', () => {
     "class Worker {} new window.Worker('w.js');",
     "var k = x['ev' + 'al'];",
     "f()?.['ev' + 'al']",
+    // audit round 4: reaching into a shadow root, or making one
+    "var a = ELI5.stage.querySelector('#h').shadowRoot.getElementById('go'); var u = ['https:', '', 'example.org', 'p?d=' + 42].join('/'); a.href = u; a.click();",
+    "ELI5.stage.attachShadow({ mode: 'open' })",
   ];
   it.each(js)('drops js: %s', (code) => {
     expect(lintAnimation({ js: code }).length).toBeGreaterThan(0);
@@ -267,6 +273,15 @@ describe('lint (design addendum: static lint, drop on a hit)', () => {
     '<object data="x"></object>',
     '<embed src="x">',
     '<a href="javascript:go()">x</a>',
+    // audit round 4: declarative shadow DOM hides banned elements from the shell's sweep; a link
+    // without href can get one from code
+    '<div id="h"><template shadowrootmode="open"><a id="go">x</a></template></div>',
+    '<div><template shadowrootmode="closed"><p>x</p></template></div>',
+    '<template shadowroot="open"><p>x</p></template>',
+    '<a id="go">x</a>',
+    '<map><area id="z"></map>',
+    '<frameset></frameset>',
+    '<fencedframe></fencedframe>',
   ];
   it.each(html)('drops html: %s', (code) => {
     expect(lintAnimation({ js: 'go()', html: code }).length).toBeGreaterThan(0);
@@ -767,7 +782,7 @@ describe('the sandboxed frame (07 §6.2, §7.1)', () => {
 
   it('keeps the runtime 1.3.0 shell (version 1) byte for byte, so frames built with it still parse', () => {
     expect(ANIMATION_SHELLS[0]).toEqual({ js: ANIMATION_SHELL_JS, css: ANIMATION_SHELL_CSS });
-    const v1 = ANIMATION_SHELLS[3];
+    const v1 = ANIMATION_SHELLS[4];
     if (!v1) throw new Error('version 1 shell missing');
     // The hashes of the shell that commit A1 shipped (runtime 1.3.0).
     expect(sha(v1.js)).toBe("'sha256-e0IZQWdbe3ACvYq4uAxQ5qL1XqULufinduwV3RqYVMk='");
@@ -787,8 +802,27 @@ describe('the sandboxed frame (07 §6.2, §7.1)', () => {
     expect(animationSrcdoc(parts)).toBe(current);
   });
 
+  it('keeps the runtime 1.3.3 shell (version 4) byte for byte; version 5 only adds the shadow-root sweep', () => {
+    const v4 = ANIMATION_SHELLS[1];
+    if (!v4) throw new Error('version 4 shell missing');
+    expect(sha(v4.js)).toBe("'sha256-vhJ/P4IR2OLZLrJOqKP0CVTbtviW3sC1C9VB1/6lNNY='");
+    expect(v4.css).toBe(ANIMATION_SHELL_CSS);
+    for (const piece of ['if (e.shadowRoot) sweep(e.shadowRoot);', "guard(W.Element.prototype, 'attachShadow');"]) {
+      expect(ANIMATION_SHELL_JS).toContain(piece);
+      expect(v4.js).not.toContain(piece);
+    }
+    expect(v4.js).toContain("kill(W, 'navigation');");
+    const current = animationSrcdoc(b);
+    const old = current.replace(sha(ANIMATION_SHELL_JS), () => sha(v4.js)).replace(ANIMATION_SHELL_JS, () => v4.js);
+    expect(old).not.toBe(current);
+    expect(parseAnimationSrcdoc(old)?.hashes).toEqual([sha(v4.js), sha(PACKING_JS)]);
+    const parts = parseAnimationSrcdoc(old);
+    if (!parts) throw new Error('version 4 frame did not parse');
+    expect(animationSrcdoc(parts)).toBe(current);
+  });
+
   it('keeps the runtime 1.3.2 shell (version 3) byte for byte; version 4 only adds the copy and navigation guards', () => {
-    const v3 = ANIMATION_SHELLS[1];
+    const v3 = ANIMATION_SHELLS[2];
     if (!v3) throw new Error('version 3 shell missing');
     expect(sha(v3.js)).toBe("'sha256-CuW7KActI4XR8Y5CzOBDl6275PF6kd1D5JI8jAW/EEA='");
     expect(v3.css).toBe(ANIMATION_SHELL_CSS);
@@ -810,7 +844,7 @@ describe('the sandboxed frame (07 §6.2, §7.1)', () => {
   });
 
   it('keeps the runtime 1.3.1 shell (version 2) byte for byte; version 3 only adds the custom-elements kill', () => {
-    const v2 = ANIMATION_SHELLS[2];
+    const v2 = ANIMATION_SHELLS[3];
     if (!v2) throw new Error('version 2 shell missing');
     expect(sha(v2.js)).toBe("'sha256-qapybaZtPi+c5Z1d6LGoe3kSdvMLnHX5sxin4stl5r0='");
     expect(sha(v2.css)).toBe("'sha256-5FeL6y3VrX++DJ9B2wc2DA6xLWo3NFwwCZOL9bd3eNk='");

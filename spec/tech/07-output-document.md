@@ -293,7 +293,7 @@ export function buildDocumentModel(input: BuildInput): { model: DocumentModel; w
 | Chart series length ≠ categories length | Drop block (02 already checks; re-checked here) |
 | Chart text (`charts/normalize.ts`) | Strip inline emphasis; ALL CAPS to sentence case, acronyms kept (§7.2 rule 13) |
 | Chart category repeated (after text normalization), not scatter | Merge into the first occurrence: bar, stacked bar and pie sum each series (an all-null group stays null); line and area keep the first non-null value; the footnote names the combined categories ("Repeated A and B combined (values added)." or "(first value shown)."); warning `chart-categories-merged`. Never a repair call or a drop |
-| Chart title blank | Derive it from the section heading, else the y-axis label, else the first series name, else "Chart" (capped at 120 characters, like a heading); warning `chart-title-derived`. Never a repair call or a drop |
+| Chart title blank | Derive it from the section heading (in the ASD-STE100 tab, a kept chart uses the heading of its In depth origin section, so both copies stay identical), else the y-axis label, else the first series name, else "Chart" (capped at 120 characters, like a heading); warning `chart-title-derived`. Never a repair call or a drop |
 | Chart with > 30 categories | Keep top 29 by first series value, fold the rest into `Other` |
 | Chart series missing > 20 % of its values (and more than one), not scatter | Drop the series and name it in the note, warning `chart-series-sparse`; when every series drops, the block becomes a table (title as caption, "No data" cells), warning `chart-sparse-tabled` |
 | Pie with negative values | Convert to horizontal bar, warning `pie-converted` |
@@ -338,7 +338,7 @@ the runtime changed) the runtime blocks.
 
 **Runtime upgrades.** A document keeps its embedded runtime (`generator.runtimeVersion`, the
 `eli5-css` and `eli5-runtime` blocks) until one of these explicit exceptions re-renders the same
-model with the bundled runtime (`bundledDocRuntime()`, `DOC_RUNTIME_VERSION`, currently `1.3.3`, animation shell version 4; `1.3.2` was the 3:1 `--viz-muted` of 11.1 and animation shell version 3; `1.3.1` was the shared chart palette of 11.1; `1.3.0` was the first runtime with animation frames, 7.1; `1.2.0` was an unreleased runtime whose fixed, built-in animation kinds were removed before release):
+model with the bundled runtime (`bundledDocRuntime()`, `DOC_RUNTIME_VERSION`, currently `1.3.4`, animation shell version 5; `1.3.3` was animation shell version 4; `1.3.2` was the 3:1 `--viz-muted` of 11.1 and animation shell version 3; `1.3.1` was the shared chart palette of 11.1; `1.3.0` was the first runtime with animation frames, 7.1; `1.2.0` was an unreleased runtime whose fixed, built-in animation kinds were removed before release):
 
 1. **On open** ([08](08-interactive-reading.md) §5.1): when a document with an older runtime is
    opened in the app's viewer, the library is writable, the document parses and nothing in it is
@@ -647,8 +647,8 @@ SHELL CSS</style><style>MODEL CSS</style></head><body><main id="eli5-anim">MODEL
 
 **Shell** (`animation/shell.ts`, frozen; a change adds a version next to it so older documents
 still parse and validate, and bumps `DOC_RUNTIME_VERSION`; rendering always writes the current
-shell, so an older document's frames change when it is re-rendered, like its runtime; `ANIMATION_SHELLS` holds version 4,
-runtime 1.3.3; version 3, runtime 1.3.2, which lacks only the copy and navigation guards; version 2, runtime 1.3.1, which lacks only the custom-elements lines; and version 1, runtime 1.3.0, which differs from version 2 only in its series colours). Before the model's code runs it
+shell, so an older document's frames change when it is re-rendered, like its runtime; `ANIMATION_SHELLS` holds version 5,
+runtime 1.3.4; version 4, runtime 1.3.3, which lacks only the shadow-root sweep and the `attachShadow` guard; version 3, runtime 1.3.2, which lacks only the copy and navigation guards; version 2, runtime 1.3.1, which lacks only the custom-elements lines; and version 1, runtime 1.3.0, which differs from version 2 only in its series colours). Before the model's code runs it
 captures the parent window, then makes `fetch`, `XMLHttpRequest`, `WebSocket`, `WebTransport`,
 `EventSource`, `RTCPeerConnection` (and the `webkit` form and data channels), `Worker`,
 `SharedWorker`, `BroadcastChannel`, `MessageChannel`, `importScripts`, `open`, `opener`, `parent`,
@@ -661,7 +661,10 @@ elements return null, `createElement`/`createElementNS` throw for `iframe`, `fra
 customized built-in, `new F()` for a class extending `HTMLAnchorElement`, would otherwise create a
 banned element without `createElement`), every banned element already in the frame except its two
 scripts is removed before the model's code runs (the four shell metas too: their policies stay in
-force once parsed, and a meta copied and turned into a refresh would navigate the frame),
+force once parsed, and a meta copied and turned into a refresh would navigate the frame), including
+those inside open shadow roots and template contents (declarative shadow DOM is parsed before any
+script and `querySelectorAll` does not enter it; a closed root is out of reach of both the shell and
+the model's code, and the lint drops `shadowrootmode` markup), `attachShadow` throws,
 `cloneNode`, `importNode` and `DOMImplementation.createDocument` throw when the result is or holds a
 banned element, `navigation` (the Navigation API) is undefined, and the HTML-string sinks (`innerHTML`/`outerHTML` setters, `insertAdjacentHTML`,
 `setHTMLUnsafe`, `document.write`, `execCommand`, `createContextualFragment`, `DOMParser`,
@@ -711,11 +714,14 @@ always a hit; `cloneNode`, `importNode`, `adoptNode`, `.implementation` and `nav
 computed member keys built by string concatenation (`x['fe' + 'tch']`; array literals such as `[['Rate', r + '%']]` are data), creating a banned element by name
 (`createElement`, `createElementNS`, `ELI5.el`), a string holding an external URL (`//host`, any
 scheme; the SVG namespace is allowed), a URL split to dodge that rule (`'http:' + …`, `'/' + '/host'`),
-`http-equiv`, the string `'refresh'` and refresh content (`0;url=`), `</script` and `<!--`. In the
+`http-equiv`, the string `'refresh'` and refresh content (`0;url=`), `</script` and `<!--`,
+`shadowroot…` and `attachShadow` (a shadow root hides elements from the shell's sweep). In the
 text of every string and template literal, anywhere in it: `//host` and a network scheme (`https:`,
 `wss:`, `ftp:`, `file:`, `blob:`) followed by more text. In `js`, `html` and `css`: `<iframe`,
 `<frame`, `<form`, `<a href`, `<meta`, `<base`, `<script src`, `<link`, `<object`/`<embed`/`<portal`,
-`javascript:` and `url(` with anything but `data:`; in `html` also `<script`, inline `on…=` handlers and
+`javascript:` and `url(` with anything but `data:`; in `html` also `<script`, any `<a` or `<area`
+(with or without `href`: code could set one later), `<frameset`, `<fencedframe`, the declarative
+shadow DOM attributes (`shadowrootmode`, `shadowroot`, …), inline `on…=` handlers and
 any `src`/`href`/`action` … that is not `data:` or a fragment; in `css` also `@import`, `</style` and
 `expression(`. A block whose `js` is the keep marker outside a regenerated section is dropped too.
 The lint cannot close every alias (a declared `top` that is later assigned the real one, indexed
@@ -729,7 +735,7 @@ only when `event.source` is one of its own frames' windows; the height is clampe
 set on the stage, and the figure gets `anim-live`. Before that the frame sits over the poster in a
 16:10 box (max 560 px tall, 720 px wide) at opacity 0, so the poster shows until the frame has run.
 Without JS the frame is hidden (`html:not(.js)`). `figure.animation` is outside the select-and-act
-menu (08 §5.6). Budget: the parent side ≤ 2 KiB minified JS and ≤ 1.5 KiB CSS; the shell ≤ 12 KiB JS
+menu (08 §5.6). Budget: the parent side ≤ 2 KiB minified JS and ≤ 1.5 KiB CSS; the shell ≤ 13 KiB JS
 and 2.5 KiB CSS (golden test).
 
 **Validity** (13 §7.1, `checkAnimationFrame`): the only allowed `<iframe>` is inside

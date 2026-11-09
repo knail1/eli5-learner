@@ -539,6 +539,17 @@ describe('startRebuildRun: real run', () => {
     expect(s.codes).toEqual([1]);
   });
 
+  it('stops before the loop when the ledger cannot pay for a minimum response, whatever the doc gate (audit round 4)', async () => {
+    // A doc gate below the cost of MIN_OUTPUT_TOKENS ($0.04 at $20/MTok) would let a document start.
+    const s = await setup(['doc-one'], { capUsd: 12, docGateUsd: 0.001 });
+    charge(s.session.ledger, 12 - 0.01);
+    const jobs = new ScriptedRebuildQueue();
+    const summary = await startRebuildRun(s.opts({ jobs }));
+    expect(jobs.started).toEqual([]);
+    expect(summary).toMatchObject({ ok: false, error: 'budget exhausted' });
+    expect(s.codes).toEqual([1]);
+  });
+
   it(`hard-stops before a document once the ledger has passed $${REBUILD_HARD_STOP_USD}`, async () => {
     const s = await setup(['doc-one'], { capUsd: 20 });
     charge(s.session.ledger, REBUILD_HARD_STOP_USD + 0.01);

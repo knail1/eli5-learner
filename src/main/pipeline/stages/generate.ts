@@ -10,6 +10,7 @@ import {
   type PreparedContent,
   type PreparedContentJson,
   type SteStepDraft,
+  critiquable,
   type StepCtx,
   type TokenUsage,
   usageOf,
@@ -215,82 +216,114 @@ function logUsage(ctx: StageContext, step: string, u: TokenUsage | undefined): v
 /**
  * Step 1b (06 §5.4): the ASD-STE100 tab from the final In depth draft and one critique pass over
  * the ELI5 draft, concurrently. Both degrade: a failed STE step omits the tab (`ste-omitted`); a
- * failed or rejected critique keeps the step 1 draft without a user-facing warning (D17).
+ * failed or rejected critique keeps the step 1 draft without a user-facing warning (D17). The
+ * critique is skipped when there is no ELI5 draft or when no revision of it could pass the gate's
+ * section rule (a 1-section draft). Each step's result is handed to `save` as soon as that step
+ * settles, so an interruption while the other call runs does not pay for a finished one again.
  */
 async function stepOneB(
   ctx: StageContext,
   doc: DocumentStepOutput,
   step: StepCtx,
   todo: { ste: boolean; critique: boolean },
-): Promise<{ ste: SteStepOutput | null; critique: Eli5CritiqueStepOutput | null }> {
-  const { job, deps } = ctx;
+  save: {
+    ste: (out: SteStepOutput) => Promise<void>;
+    critique: (out: Eli5CritiqueStepOutput) => Promise<void>;
+  },
+): Promise<void> {
+  const { deps } = ctx;
   throwIfAborted(ctx.signal);
+  const eli5 = doc.eli5 && critiquable(doc.eli5) ? doc.eli5 : null;
   const order: JobStep[] = [];
   if (todo.ste) order.push('ste');
-  if (todo.critique && doc.eli5) order.push('eli5-critique');
+  if (todo.critique && eli5) order.push('eli5-critique');
   const running = new Set<JobStep>(order);
   ctx.setRunningSteps(order);
-  const settle = <T>(s: JobStep, pr: Promise<T>): Promise<T> =>
-    pr.finally(() => {
+  /** Runs one step's call, then (unless the job was aborted) saves its outcome right away. */
+  const branch = async <T, O>(
+    s: JobStep,
+    call: () => Promise<T>,
+    outcome: (r: PromiseSettledResult<T>) => O,
+    put: (o: O) => Promise<void>,
+  ): Promise<void> => {
+    let r: PromiseSettledResult<T>;
+    try {
+      r = { status: 'fulfilled', value: await call() };
+    } catch (err) {
+      r = { status: 'rejected', reason: err };
+    } finally {
       running.delete(s);
       if (!ctx.signal.aborted) ctx.setRunningSteps(order.filter((x) => running.has(x)));
-    });
-  const eli5 = doc.eli5;
-  const [steR, critR] = await Promise.allSettled([
-    todo.ste ? settle('ste', deps.tasks.generateSte(doc.indepth, step)) : Promise.resolve(null),
-    todo.critique && eli5
-      ? settle('eli5-critique', deps.tasks.critiqueEli5(eli5, doc.indepth, step))
-      : Promise.resolve(null),
-  ]);
-  throwIfAborted(ctx.signal);
-
-  let ste: SteStepOutput | null = null;
-  if (todo.ste) {
-    clearWarnings(job, 'ste-omitted');
-    if (steR.status === 'fulfilled' && steR.value) {
-      const r = steR.value;
-      ste = { ste: r.draft, prompt: r.prompt, usage: r.usage };
-      logUsage(ctx, 'ste', r.usage);
-      deps.log.info('pipeline.ste-lint', {
-        jobId: job.id,
-        count: r.draft.lint.final.failing,
-        status: r.draft.lint.repairTried ? (r.draft.lint.repairAccepted ? 'repaired' : 'repair-kept-first') : 'first',
-      });
-    } else {
-      const reason = steR.status === 'rejected' ? steR.reason : null;
-      deps.log.warn('pipeline.step-degraded', { jobId: job.id, step: 'ste', errorKind: errorKind(reason) });
-      addWarning(job, stepWarning('ste-omitted'));
-      const spent = usageOf(reason);
-      logUsage(ctx, 'ste', spent);
-      ste = { ste: null, ...(spent ? { usage: spent } : {}) };
     }
-  }
-
-  let critique: Eli5CritiqueStepOutput | null = null;
+    if (ctx.signal.aborted) return;
+    await put(outcome(r));
+  };
+  const branches: Promise<void>[] = [];
+  if (todo.ste)
+    branches.push(
+      branch(
+        'ste',
+        () => deps.tasks.generateSte(doc.indepth, step),
+        (r) => steOutcome(ctx, r),
+        save.ste,
+      ),
+    );
   if (todo.critique) {
-    if (!eli5) critique = { eli5: null, outcome: 'skipped' };
-    else if (critR.status === 'fulfilled' && critR.value) {
-      const r = critR.value;
-      logUsage(ctx, 'eli5-critique', r.usage);
-      if (r.gate.ok) critique = { eli5: r.draft, outcome: 'accepted', prompt: r.prompt, usage: r.usage };
-      else {
-        deps.log.info('pipeline.eli5-critique-rejected', { jobId: job.id, code: r.gate.reason ?? 'unknown' });
-        critique = {
-          eli5: null,
-          outcome: 'rejected',
-          ...(r.gate.reason ? { reason: r.gate.reason } : {}),
-          usage: r.usage,
-        };
-      }
-    } else {
-      const reason = critR.status === 'rejected' ? critR.reason : null;
-      deps.log.warn('pipeline.step-degraded', { jobId: job.id, step: 'eli5-critique', errorKind: errorKind(reason) });
-      const spent = usageOf(reason);
-      logUsage(ctx, 'eli5-critique', spent);
-      critique = { eli5: null, outcome: 'failed', ...(spent ? { usage: spent } : {}) };
-    }
+    if (eli5)
+      branches.push(
+        branch(
+          'eli5-critique',
+          () => deps.tasks.critiqueEli5(eli5, doc.indepth, step),
+          (r) => critiqueOutcome(ctx, r),
+          save.critique,
+        ),
+      );
+    else branches.push(save.critique({ eli5: null, outcome: 'skipped' }));
   }
-  return { ste, critique };
+  const settled = await Promise.allSettled(branches);
+  throwIfAborted(ctx.signal);
+  for (const r of settled) if (r.status === 'rejected') throw r.reason;
+}
+
+function steOutcome(
+  ctx: StageContext,
+  r: PromiseSettledResult<Awaited<ReturnType<StageContext['deps']['tasks']['generateSte']>>>,
+): SteStepOutput {
+  const { job, deps } = ctx;
+  clearWarnings(job, 'ste-omitted');
+  if (r.status === 'fulfilled') {
+    const v = r.value;
+    logUsage(ctx, 'ste', v.usage);
+    deps.log.info('pipeline.ste-lint', {
+      jobId: job.id,
+      count: v.draft.lint.final.failing,
+      status: v.draft.lint.repairTried ? (v.draft.lint.repairAccepted ? 'repaired' : 'repair-kept-first') : 'first',
+    });
+    return { ste: v.draft, prompt: v.prompt, usage: v.usage };
+  }
+  deps.log.warn('pipeline.step-degraded', { jobId: job.id, step: 'ste', errorKind: errorKind(r.reason) });
+  addWarning(job, stepWarning('ste-omitted'));
+  const spent = usageOf(r.reason);
+  logUsage(ctx, 'ste', spent);
+  return { ste: null, ...(spent ? { usage: spent } : {}) };
+}
+
+function critiqueOutcome(
+  ctx: StageContext,
+  r: PromiseSettledResult<Awaited<ReturnType<StageContext['deps']['tasks']['critiqueEli5']>>>,
+): Eli5CritiqueStepOutput {
+  const { job, deps } = ctx;
+  if (r.status === 'fulfilled') {
+    const v = r.value;
+    logUsage(ctx, 'eli5-critique', v.usage);
+    if (v.gate.ok) return { eli5: v.draft, outcome: 'accepted', prompt: v.prompt, usage: v.usage };
+    deps.log.info('pipeline.eli5-critique-rejected', { jobId: job.id, code: v.gate.reason ?? 'unknown' });
+    return { eli5: null, outcome: 'rejected', ...(v.gate.reason ? { reason: v.gate.reason } : {}), usage: v.usage };
+  }
+  deps.log.warn('pipeline.step-degraded', { jobId: job.id, step: 'eli5-critique', errorKind: errorKind(r.reason) });
+  const spent = usageOf(r.reason);
+  logUsage(ctx, 'eli5-critique', spent);
+  return { eli5: null, outcome: 'failed', ...(spent ? { usage: spent } : {}) };
 }
 
 /** Stock photos are offered when the setting is on and a real (non-stub) provider is wired (07 §7.4). */
@@ -385,10 +418,16 @@ export async function generateStage(ctx: StageContext): Promise<void> {
   // Step 1b: ASD-STE100 tab || ELI5 critique (06 §5.4).
   const todo = { ste: !completed.has('ste'), critique: !completed.has('eli5-critique') };
   if (todo.ste || todo.critique) {
-    const r = await stepOneB(ctx, doc, step, todo);
-    if (r.ste) await store.writeJson(job.id, GEN.ste, r.ste);
-    if (r.critique) await store.writeJson(job.id, GEN.eli5Critique, r.critique);
-    await persistStep(...(['ste', 'eli5-critique'] as const).filter((s) => (s === 'ste' ? todo.ste : todo.critique)));
+    await stepOneB(ctx, doc, step, todo, {
+      ste: async (out) => {
+        await store.writeJson(job.id, GEN.ste, out);
+        await persistStep('ste');
+      },
+      critique: async (out) => {
+        await store.writeJson(job.id, GEN.eli5Critique, out);
+        await persistStep('eli5-critique');
+      },
+    });
   }
   const critique = (await store.readJson(job.id, GEN.eli5Critique)) as Eli5CritiqueStepOutput | null;
   const eli5 = finalEli5(doc, critique);

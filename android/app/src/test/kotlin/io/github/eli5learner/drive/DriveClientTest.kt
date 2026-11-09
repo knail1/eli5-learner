@@ -433,6 +433,20 @@ class DriveClientTest {
                 ),
             )
             expect(SyncErrorCode.E_SYNC_API_DISABLED) { client().create("i", "n", emptyMap(), "application/json", byteArrayOf(1)) }
+            // Another reason first in errors[], SERVICE_DISABLED in details[]: still disabled, as on the
+            // desktop (audit round 4).
+            server.enqueue(
+                json(
+                    """{"error":{"code":403,"errors":[{"reason":"forbidden"}],"details":[{"reason":"SERVICE_DISABLED"}]}}""",
+                    403,
+                ),
+            )
+            expect(SyncErrorCode.E_SYNC_API_DISABLED) { client().create("i", "n", emptyMap(), "application/json", byteArrayOf(1)) }
+            // A later errors[] entry also counts.
+            server.enqueue(
+                json("""{"error":{"code":403,"errors":[{"reason":"forbidden"},{"reason":"accessNotConfigured"}]}}""", 403),
+            )
+            expect(SyncErrorCode.E_SYNC_API_DISABLED) { client().create("i", "n", emptyMap(), "application/json", byteArrayOf(1)) }
             assertTrue(sleeps.isEmpty())
         }
 

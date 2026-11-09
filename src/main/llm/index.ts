@@ -72,7 +72,14 @@ export { resolveSte, steInputJson, indepthOutline, KEEPABLE_TYPES, SteResolveErr
 export type { ResolvedSte, SteOrigin } from './ste';
 export { lintSte, steFindingsText, STE_REPAIR_THRESHOLD } from './lint/ste-lint';
 export type { SteFinding, SteLintResult } from './lint/ste-lint';
-export { lintEli5, eli5FindingsText, critiqueGate, countVisuals } from './lint/eli5-lint';
+export {
+  lintEli5,
+  eli5FindingsText,
+  critiqueGate,
+  critiquable,
+  countVisuals,
+  CRITIQUE_MIN_SECTIONS,
+} from './lint/eli5-lint';
 export type { CritiqueGateResult, Eli5Finding, Eli5LintResult } from './lint/eli5-lint';
 export { defaultPromptPolicy } from './policy';
 export { registerPublic } from './register';

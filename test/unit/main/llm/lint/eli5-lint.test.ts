@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  critiquable,
   critiqueGate,
   eli5FindingsText,
   lintEli5,
@@ -83,6 +84,20 @@ describe('ELI5 critique accept gate (D17)', () => {
     const two = revised();
     two.sections.pop(); // 2 sections: within one, but below 3
     expect(critiqueGate(first(), two, indepth())).toMatchObject({ ok: false, reason: 'sections' });
+  });
+
+  it('a 1-section draft is not critiquable: no revision of it can pass the section rule (audit round 4)', () => {
+    const one = first();
+    one.sections.splice(1);
+    expect(critiquable(one)).toBe(false);
+    expect(critiquable(first())).toBe(true); // 2 sections: a 3-section revision can pass
+    // Every revision size the gate could see for a 1-section draft is rejected.
+    for (const n of [1, 2, 3]) {
+      const r = revised();
+      while (r.sections.length < n) r.sections.push(structuredClone(r.sections[0]!));
+      r.sections.splice(n);
+      expect(critiqueGate(one, r, indepth()), String(n)).toMatchObject({ ok: false, reason: 'sections' });
+    }
   });
 
   it('rejects fewer visual blocks and a dropped photo or figure', () => {

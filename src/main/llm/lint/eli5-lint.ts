@@ -288,6 +288,18 @@ function mediaKeys(tab: DocumentDraftTab): Set<string> {
   return out;
 }
 
+/** The fewest sections a critique revision may have (D17). */
+export const CRITIQUE_MIN_SECTIONS = 3;
+
+/**
+ * Whether a critique of this draft can pass the gate's section rule at all: a revision has to be
+ * within one of the draft's section count and at least {@link CRITIQUE_MIN_SECTIONS}, so a 1-section
+ * draft can never be accepted and its critique call is skipped (audit round 4).
+ */
+export function critiquable(draft: DocumentDraftTab): boolean {
+  return draft.sections.length + 1 >= CRITIQUE_MIN_SECTIONS;
+}
+
 /**
  * D17 accept gate: the revision replaces the first draft only when its section count is within one
  * of the draft's and at least 3, it has no fewer visual blocks, it keeps every figure, photo and
@@ -303,7 +315,8 @@ export function critiqueGate(
   const lintAfter = lintEli5(revised, indepth).findings.length;
   const base = { lintBefore, lintAfter };
   const n = revised.sections.length;
-  if (n < 3 || Math.abs(n - first.sections.length) > 1) return { ok: false, reason: 'sections', ...base };
+  if (n < CRITIQUE_MIN_SECTIONS || Math.abs(n - first.sections.length) > 1)
+    return { ok: false, reason: 'sections', ...base };
   if (countVisuals(revised) < countVisuals(first)) return { ok: false, reason: 'visuals', ...base };
   const theirs = mediaKeys(revised);
   if ([...mediaKeys(first)].some((k) => !theirs.has(k))) return { ok: false, reason: 'media', ...base };

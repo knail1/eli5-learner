@@ -178,6 +178,8 @@ const JS_RAW: readonly [string, RegExp][] = [
   ['ice-url', /['"`]\s*(stuns?|turns?):(?!\s)/i],
   ['ice', /iceServers|createDataChannel|createOffer|setLocalDescription/],
   ['script-close', /<\/script|<!--/i],
+  // a shadow root hides its elements from the shell's checks (audit round 4)
+  ['shadow', /shadowroot|attachShadow/i],
   // a meta refresh (audit round 3): the pragma, its content syntax ("0;url=…") or the bare name
   ['http-equiv', /http-?equiv/i],
   ['refresh', /(['"`])\s*refresh\s*\1/],
@@ -343,6 +345,13 @@ const MARKUP: readonly [string, RegExp][] = [
 /** HTML-only rules. */
 const HTML_ONLY: readonly [string, RegExp][] = [
   ['<script', /<\s*script\b/i],
+  // declarative shadow DOM is parsed before any script, out of reach of the shell's sweep when
+  // closed (audit round 4)
+  ['shadowroot', /\bshadowroot(mode|clonable|delegatesfocus|serializable)?\b/i],
+  // any link or image-map area, with or without href: code can set the href later; and the frame
+  // elements the generic rules miss (audit round 4). Html only: in js, `i <a.length` is code.
+  ['<a', /<\s*(a|area)\b/i],
+  ['<frame', /<\s*(frameset|fencedframe)\b/i],
   ['inline-handler', /\son[a-z]+\s*=/i],
   [
     'external-ref',

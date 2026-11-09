@@ -36,6 +36,12 @@ describe('README.md', () => {
     expect(readme).toMatch(/content security policy/);
   });
 
+  it('does not promise the animation poster in the Markdown export, which carries only its text (audit round 4)', () => {
+    // 10 §5.2: the export writes the title, alt text and caption, never the code or the poster SVG.
+    expect(readme).not.toMatch(/in print and in the Markdown export/);
+    expect(readme).toMatch(/Markdown export carries its description and caption/);
+  });
+
   it('describes the WSJ Five-Box feature and the picture-first ELI5 with its critique', () => {
     expect(readme).toMatch(/Five-Box/);
     expect(readme).toMatch(/Dona M\. Wong/);

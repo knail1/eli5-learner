@@ -43,6 +43,12 @@ export interface ConvertContext {
   /** The section heading: a chart with a blank title takes it (07 §5.2). */
   heading?: string;
   /**
+   * The heading a blank-titled chart at `blockIndex` takes instead of `heading`: the ASD-STE100
+   * tab passes the In depth heading of a kept chart's origin, so the mirror stays identical to its
+   * original (D15). Undefined: `heading`.
+   */
+  chartHeading?(blockIndex: number): string | undefined;
+  /**
    * Animation caps beyond one section (07 §5.2: two per tab, four per document). Called once per
    * animation that passed every other check; false drops it. `force` is true for a block that
    * resolved through the keep marker: kept blocks always stay (07 §5.2) and are only counted.
@@ -193,7 +199,8 @@ export function convertBlock(b: DraftBlock, ctx: ConvertContext, blockIndex = -1
     }
     case 'chart': {
       // Wong rules (07 §5.2): normalized quietly; a chart with no plottable series becomes a table.
-      const chart = normalizeChart(b.chart, ctx.warn, ctx.heading === undefined ? {} : { heading: ctx.heading });
+      const heading = (blockIndex >= 0 ? ctx.chartHeading?.(blockIndex) : undefined) ?? ctx.heading;
+      const chart = normalizeChart(b.chart, ctx.warn, heading === undefined ? {} : { heading });
       if (chart === null) return null;
       return 'table' in chart ? { type: 'table', ...chart.table } : { type: 'chart', chart };
     }

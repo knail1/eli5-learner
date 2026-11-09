@@ -157,7 +157,7 @@ class DriveClient(
                 refreshed = true // a token refresh is not a backoff attempt
                 continue
             }
-            val reason = errorReason(res)
+            val (reason, apiDisabled) = errorReason(res)
             if (spec.retry && Backoff.isRetryable(status, reason) && backoff.canRetry(attempt)) {
                 backoff.pause(attempt)
                 attempt++
@@ -165,7 +165,7 @@ class DriveClient(
             }
             throw when {
                 reason in QUOTA_REASONS -> SyncException(SyncErrorCode.E_SYNC_QUOTA, status = status)
-                status == 403 && reason in API_DISABLED_REASONS -> SyncException(SyncErrorCode.E_SYNC_API_DISABLED, status = status)
+                status == 403 && apiDisabled -> SyncException(SyncErrorCode.E_SYNC_API_DISABLED, status = status)
                 status == 404 -> SyncException(SyncErrorCode.E_SYNC_NOT_FOUND, "Remote file not found", status)
                 status == 410 -> SyncException(SyncErrorCode.E_SYNC_TOKEN, "Change token expired", status)
                 else -> SyncException(SyncErrorCode.E_SYNC_HTTP, "Drive request failed ($status)", status)
@@ -193,26 +193,31 @@ class DriveClient(
             throw SyncException(SyncErrorCode.E_SYNC_HTTP, "Drive response could not be read")
         }
 
+    /** What an error body says: its first reason, and whether any reason says the API is disabled. */
+    private data class ErrorInfo(val reason: String?, val apiDisabled: Boolean)
+
     /**
-     * The first `error.errors[].reason`, or a string `error` (OAuth style), from an error body; when
-     * only `error.details[]` names a reason the API is disabled (`SERVICE_DISABLED`), that one.
+     * The first `error.errors[].reason`, or a string `error` (OAuth style), from an error body, and
+     * whether ANY reason in `error.errors[]` or `error.details[]` says the API is disabled
+     * (`accessNotConfigured`, `SERVICE_DISABLED`), as the desktop does (audit round 4).
      */
-    private suspend fun errorReason(res: Response): String? {
-        val bytes = runCatching { bytesOf(res) }.getOrNull() ?: return null
+    private suspend fun errorReason(res: Response): ErrorInfo {
+        val none = ErrorInfo(null, false)
+        val bytes = runCatching { bytesOf(res) }.getOrNull() ?: return none
         return runCatching {
             val error = DriveJson.parseToJsonElement(bytes.decodeToString()).jsonObject["error"]
             when (error) {
-                is JsonPrimitive -> error.content
+                is JsonPrimitive -> ErrorInfo(error.content, false)
                 is JsonObject -> {
                     fun reasons(key: String): List<String> =
                         error[key]?.jsonArray?.mapNotNull { (it as? JsonObject)?.get("reason")?.jsonPrimitive?.content }
                             ?: emptyList()
-                    val first = reasons("errors").firstOrNull()
-                    first ?: reasons("details").firstOrNull { it in API_DISABLED_REASONS }
+                    val errors = reasons("errors")
+                    ErrorInfo(errors.firstOrNull(), (errors + reasons("details")).any { it in API_DISABLED_REASONS })
                 }
-                else -> null
+                else -> none
             }
-        }.getOrNull()
+        }.getOrDefault(none)
     }
 
     private fun api(vararg segments: String): HttpUrl.Builder = apiRoot.newBuilder().apply { segments.forEach { addPathSegment(it) } }

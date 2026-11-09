@@ -81,7 +81,7 @@ The ELI5 tab rebuilds the same material in plain words, with analogies, simple d
   network requests, no access to the page around it, no navigation or storage, and a trusted shell
   removes the network APIs (WebRTC included) before the model's code runs. The app also checks the
   code first and drops an animation that reaches for anything forbidden. Each animation has a still poster
-  that shows without JavaScript, in print and in the Markdown export.
+  that shows without JavaScript and in print; the Markdown export carries its description and caption.
 - **Fire-and-forget generation.** No modals and no mid-job questions. A source that fails is skipped and listed in the document's references. Jobs can be queued.
 - **Queue links, then run.** Enter in the URL field (or Add) turns each link into a chip and starts nothing, so you can collect several first; Start (⌘⏎) sends them all. The sent links move to a dimmed *Last run* row: **Run again** re-sends them, **Use again** puts them back as chips, and your specifics stay. Clear empties the input zone. The panel above the input zone can be dragged taller.
 - **Several documents at once.** Settings > Documents > *Documents generated at once* (1 to 3); waiting jobs say what they're waiting for.

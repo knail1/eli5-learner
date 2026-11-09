@@ -71,6 +71,8 @@ export interface SectionBuildContext {
     sectionIndex: number,
     blockIndex: number,
   ): { assetId: string; alt: string; caption: string } | undefined;
+  /** The heading a blank-titled chart at (draft section index, block index) takes (ConvertContext.chartHeading). */
+  chartHeading?(sectionIndex: number, blockIndex: number): string | undefined;
   warn(w: string): void;
   /** Tab and document animation caps (validate.ts animationBudget); absent: per section only. */
   takeAnimation?(force?: boolean): boolean;
@@ -78,6 +80,11 @@ export interface SectionBuildContext {
   keepAnimation?(): Extract<DocBlock, { type: 'animation' }> | undefined;
   /** When given, receives the draft index of each kept section (07 §9.1 step 2 indexes drafts). */
   draftIndices?: number[];
+}
+
+/** A draft section heading as the document shows it. */
+function sectionHeading(h: string): string {
+  return capText(collapseWs(h), MAX_HEADING);
 }
 
 /** Converts section drafts for one tab, minting an id per kept section (07 §5.1 step 2). */
@@ -89,11 +96,13 @@ export function buildSections(drafts: DocumentDraftTab['sections'], ctx: Section
       break;
     }
     const resolvePhoto = ctx.resolvePhoto;
-    const heading = capText(collapseWs(d.heading), MAX_HEADING);
+    const chartHeading = ctx.chartHeading;
+    const heading = sectionHeading(d.heading);
     const blocks = convertBlocks(d.blocks, {
       idSource: ctx.idSource,
       resolveFigure: ctx.resolveFigure,
       ...(resolvePhoto ? { resolvePhoto: (bi: number) => resolvePhoto(di, bi) } : {}),
+      ...(chartHeading ? { chartHeading: (bi: number) => chartHeading(di, bi) } : {}),
       ...(ctx.takeAnimation ? { takeAnimation: ctx.takeAnimation } : {}),
       ...(ctx.keepAnimation ? { keepAnimation: ctx.keepAnimation } : {}),
       heading,
@@ -260,6 +269,12 @@ export function buildDocumentModel(input: BuildInput): BuildResult {
       resolvePhoto: (si, bi) => {
         const o = origins[si]?.[bi];
         return o ? fromIndepth(o.section, o.block) : undefined;
+      },
+      // A kept chart with a blank title takes its In depth heading, so the copies stay identical (D15).
+      chartHeading: (si, bi) => {
+        const o = origins[si]?.[bi];
+        const src = o ? input.indepth.sections[o.section] : undefined;
+        return src ? sectionHeading(src.heading) : undefined;
       },
       takeAnimation: steAnimations,
     });

@@ -12,7 +12,9 @@
 // String.raw keeps the source text exactly.
 
 /**
- * Version 4 of the shell script: version 3 (version 2 that also removes custom elements, since a
+ * Version 5 of the shell script: version 4 whose sweep also reaches open shadow roots and template
+ * contents (declarative shadow DOM is parsed before any script and querySelectorAll does not enter
+ * it), and that denies attachShadow (audit round 4). Version 4 is version 3 (version 2 that also removes custom elements, since a
  * customized built-in creates a banned element without createElement; version 2 is version 1 with
  * the shared chart palette, 07 §11.1) that also removes every banned element already in the frame
  * (its own metas too), denies cloneNode, importNode and createDocument results that are or hold a
@@ -103,6 +105,16 @@ export const ANIMATION_SHELL_JS = String.raw`(function () {
       value: function (ns, n, t) { if (n && bannedTag(n)) deny(); return mkDoc.call(this, ns, n, t); } });
   } catch (e) {}
   kill(W, 'navigation');
+  // Version 5: the sweep also enters shadow roots and templates; no new shadow roots.
+  function sweep(r) {
+    Array.prototype.forEach.call(r.querySelectorAll('*'), function (e) {
+      if (e.localName !== 'script' && bannedTag(e.localName)) { e.remove(); return; }
+      if (e.shadowRoot) sweep(e.shadowRoot);
+      if (e.localName === 'template' && e.content) sweep(e.content);
+    });
+  }
+  try { sweep(D); } catch (e) {}
+  guard(W.Element.prototype, 'attachShadow');
   var themes = {
     light: { paper: '#fbfaf7', ink: '#1b1b1b', muted: '#5a5a5a', grid: '#e4e0d7', accent: '#0f5fa8',
       series: ['#0067a5', '#b84c00', '#a12a7e', '#4a4a4a', '#047c74', '#2e7514', '#5a32e0', '#7e6600'] },
@@ -276,7 +288,7 @@ export const ANIMATION_SHELL_JS = String.raw`(function () {
   if (W.ResizeObserver) new W.ResizeObserver(function () { height(false); }).observe(D.body);
 })();`;
 
-/** Version 2 of the shell stylesheet (also used by versions 3 and 4): theme tokens, layout at 320 px and up, accessible controls. */
+/** Version 2 of the shell stylesheet (also used by versions 3 to 5): theme tokens, layout at 320 px and up, accessible controls. */
 export const ANIMATION_SHELL_CSS =
   ':root{color-scheme:light dark;--paper:#fbfaf7;--ink:#1b1b1b;--muted:#5a5a5a;--grid:#e4e0d7;--accent:#0f5fa8;' +
   '--s1:#0067a5;--s2:#b84c00;--s3:#a12a7e;--s4:#4a4a4a;--s5:#047c74;--s6:#2e7514;--s7:#5a32e0;--s8:#7e6600}' +
@@ -300,12 +312,15 @@ export const ANIMATION_SHELL_CSS =
   'button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}' +
   '.eli5-readout{margin:8px 0 0;font-variant-numeric:tabular-nums}';
 
-// Version 3 (runtime 1.3.2) is version 4 without the lines between its "Version 4" comment and
-// the theme table; its stylesheet is the current one. A test pins its exact hashes.
-const V4_START = '  // Version 4: ';
-const SHELL_V3_JS =
-  ANIMATION_SHELL_JS.slice(0, ANIMATION_SHELL_JS.indexOf(V4_START)) +
-  ANIMATION_SHELL_JS.slice(ANIMATION_SHELL_JS.indexOf('  var themes = {'));
+// Each older version is the next one without the lines between that version's comment and the
+// theme table; their stylesheet is the current one. A test pins their exact hashes.
+const THEMES_START = '  var themes = {';
+const without = (js: string, start: string): string =>
+  js.slice(0, js.indexOf(start)) + js.slice(js.indexOf(THEMES_START));
+// Version 4 (runtime 1.3.3).
+const SHELL_V4_JS = without(ANIMATION_SHELL_JS, '  // Version 5: ');
+// Version 3 (runtime 1.3.2).
+const SHELL_V3_JS = without(SHELL_V4_JS, '  // Version 4: ');
 
 // Version 2 (runtime 1.3.1) is version 3 without the custom-elements lines; its stylesheet is the
 // current one. A test pins its exact hashes.
@@ -337,6 +352,7 @@ const SHELL_V1_CSS = shellV1(ANIMATION_SHELL_CSS, seriesCss);
 /** Every shell version a valid document may contain, newest first (07 §6.2 validity). */
 export const ANIMATION_SHELLS: readonly { js: string; css: string }[] = [
   { js: ANIMATION_SHELL_JS, css: ANIMATION_SHELL_CSS },
+  { js: SHELL_V4_JS, css: ANIMATION_SHELL_CSS },
   { js: SHELL_V3_JS, css: ANIMATION_SHELL_CSS },
   { js: SHELL_V2_JS, css: ANIMATION_SHELL_CSS },
   { js: shellV1(SHELL_V2_JS, seriesJs), css: SHELL_V1_CSS },

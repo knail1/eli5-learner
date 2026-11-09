@@ -188,6 +188,9 @@ describe('resolveSte (02 §12, D15)', () => {
         {
           heading: 'B',
           blocks: [
+            // the poster marker must name the same animation as the js marker (audit round 4)
+            { ...marker('poster elsewhere', 1), poster: 'keep:0' },
+            { ...marker('poster missing', 1), poster: '<svg>new</svg>' },
             marker('', 1),
             marker('repeat', 1),
             marker('unknown', 7),

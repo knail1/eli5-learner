@@ -99,11 +99,18 @@ const escAttr = (v: string): string =>
  * The showcase with its animation code replaced by `js` in the frame and both CSPs, bypassing the
  * lint, to test the boundary itself (sandbox + CSP) rather than the lint.
  */
-function hostileDocument(js: string): string {
+function hostileDocument(js: string, markup = ''): string {
   let html = readFileSync(fileURLToPath(URL), 'utf8');
   const at = html.lastIndexOf(escAttr(PACKING_JS));
   expect(at).toBeGreaterThan(0);
   html = html.slice(0, at) + escAttr(js) + html.slice(at + escAttr(PACKING_JS).length);
+  if (markup) {
+    // The model's markup goes first in the stage (html is not hashed, so the CSPs stay valid).
+    const stage = escAttr('<main id="eli5-anim">');
+    const st = html.lastIndexOf(stage, at);
+    expect(st).toBeGreaterThan(0);
+    html = html.slice(0, st + stage.length) + escAttr(markup) + html.slice(st + stage.length);
+  }
   html = html.split(sha(PACKING_JS)).join(sha(js));
   const dir = resolve(import.meta.dirname, '../../test-results/crossbrowser-docs');
   mkdirSync(dir, { recursive: true });
@@ -210,4 +217,24 @@ test('a frame whose code throws at start-up keeps the poster', async ({ page }) 
   await page.waitForTimeout(500);
   await expect(figure(page)).not.toHaveClass(/\banim-live\b/);
   await expect(figure(page).locator('.anim-poster svg')).toBeVisible();
+});
+
+test('the shell removes banned elements inside declarative shadow roots and templates (audit round 4)', async ({
+  page,
+}) => {
+  const markup =
+    '<div id="h"><template shadowrootmode="open"><a id="go">x</a><p>kept</p></template></div>' +
+    '<template id="t"><a id="t-go">x</a><p>kept</p></template>';
+  const js = `var r = {};
+var h = document.getElementById('h');
+r.shadow = h.shadowRoot ? String(h.shadowRoot.querySelectorAll('a').length) + '/' + String(h.shadowRoot.querySelectorAll('p').length) : 'none';
+var t = document.getElementById('t');
+r.template = String(t.content.querySelectorAll('a').length) + '/' + String(t.content.querySelectorAll('p').length);
+try { document.createElement('div').attachShadow({ mode: 'open' }); r.attach = 'made'; } catch (e) { r.attach = 'threw'; }
+document.body.setAttribute('data-probe', JSON.stringify(r));`;
+  await open(page, hostileDocument(js, markup));
+  const body = frameOf(page).locator('body');
+  await expect(body).toHaveAttribute('data-probe', /\{/);
+  const r = JSON.parse((await body.getAttribute('data-probe')) ?? '{}') as Record<string, string>;
+  expect(r).toEqual({ shadow: '0/1', template: '0/1', attach: 'threw' });
 });
