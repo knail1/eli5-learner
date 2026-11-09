@@ -11,7 +11,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MemoryKeyStore } from '../../src/main/config';
 import { DEFAULTS, type Settings } from '../../src/main/config/schema';
-import { prepareRealRun, startRebuildRun, verifyRebuild } from '../../src/main/devtools';
+import { prepareRealRun, REBUILD_VERIFY_CHECKS, startRebuildRun, verifyRebuild } from '../../src/main/devtools';
 import { bundledDocRuntime, type DocRuntime } from '../../src/main/document';
 import { registerPublicCapabilities } from '../../src/main/editions/public';
 import { Registry } from '../../src/main/editions/registry';
@@ -180,5 +180,51 @@ describe('rebuild as a new version (design §5)', () => {
       baseHtmlSha256: sha(oldHtml),
     });
     expect(again).toMatchObject({ ok: true, parentHtmlMatches: true });
+
+    // Every boolean the verifier reports is part of ok.
+    const checks = Object.keys(again).filter((k) => k !== 'ok' && typeof again[k as keyof typeof again] === 'boolean');
+    expect([...REBUILD_VERIFY_CHECKS].sort()).toEqual(checks.sort());
+
+    // Each failure path on its own: exactly that check reads false, and ok with it.
+    const expectGood = {
+      slug,
+      jobId: row?.jobId ?? '',
+      docId: oldMeta.id,
+      createdAt: oldMeta.createdAt,
+      baseVersionId: parentId,
+      baseHtmlSha256: sha(oldHtml),
+    };
+    const failing = async (
+      x: typeof expectGood,
+      lib: Parameters<typeof verifyRebuild>[0] = app.lib,
+    ): Promise<string[]> => {
+      const v = await verifyRebuild(lib, x);
+      expect(v.ok).toBe(false);
+      return REBUILD_VERIFY_CHECKS.filter((k) => !v[k]);
+    };
+    expect(await failing({ ...expectGood, jobId: 'another-job' })).toEqual(['jobNode']);
+    expect(await failing({ ...expectGood, docId: 'another-doc' })).toEqual(['catalogStable']);
+    expect(await failing({ ...expectGood, createdAt: '2020-01-01T00:00:00.000Z' })).toEqual(['catalogStable']);
+    expect(await failing({ ...expectGood, baseVersionId: 'v-other' })).toEqual(['parentIsBase']);
+    expect(await failing({ ...expectGood, baseHtmlSha256: sha('other') })).toEqual(['parentHtmlMatches']);
+    // The html on disk no longer round-trips (one byte after </html>): only roundTrip fails.
+    const { writeFile } = await import('node:fs/promises');
+    const extra = path.join(app.userData, 'not-round-trip.html');
+    await writeFile(extra, `${newHtml.toString('utf8')}\n`);
+    const reRead = Object.create(app.lib) as typeof app.lib;
+    reRead.docPath = ((s: string, f?: string) =>
+      f ? app.lib.docPath(s, f as never) : extra) as typeof app.lib.docPath;
+    const rt = await verifyRebuild(reRead, expectGood);
+    expect(rt.ok).toBe(false);
+    expect(rt.roundTrip).toBe(false);
+    // A meta without the ste tab: hasSte is false (validity fails with it, as the tabs disagree).
+    const noSte = Object.create(app.lib) as typeof app.lib;
+    noSte.getMeta = async (s: string) => {
+      const m = await app.lib.getMeta(s);
+      return { ...m, tabs: m.tabs.filter((t) => t.kind !== 'ste') };
+    };
+    const ns = await verifyRebuild(noSte, expectGood);
+    expect(ns.ok).toBe(false);
+    expect(ns.hasSte).toBe(false);
   });
 });

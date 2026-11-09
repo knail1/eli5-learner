@@ -82,6 +82,31 @@ class HtmlImporterTest {
         for (c in cases) assertFalse(HtmlImporter.inspect(c).isEli5)
     }
 
+    @Test fun `a frame needs exactly two plain scripts, each pinned by the frame's own CSP`() {
+        val html = TestDocs.fixture("showcase.html").toString(Charsets.UTF_8)
+        assertTrue(HtmlImporter.inspect(html).isEli5)
+        val frameHash = HtmlImporter.inspect(html).scriptHashes.last() // the last frame's model script
+        val close = "&lt;/body&gt;&lt;/html&gt;\""
+        val at = html.lastIndexOf(close)
+        // A third script whose hash both CSPs pin: only the two-scripts rule rejects it.
+        val extra = HtmlImporter.scriptHash("x()")
+        val third =
+            (html.substring(0, at) + "&lt;script&gt;x()&lt;/script&gt;" + html.substring(at))
+                .replace("$frameHash;", "$frameHash $extra;")
+        assertFalse(HtmlImporter.inspect(third).isEli5)
+        // A frame script with an attribute.
+        val typed = html.substring(0, at).let { pre ->
+            val s = pre.lastIndexOf("&lt;script&gt;")
+            pre.substring(0, s) + "&lt;script type=&quot;module&quot;&gt;" + pre.substring(s + "&lt;script&gt;".length)
+        } + html.substring(at)
+        assertFalse(HtmlImporter.inspect(typed).isEli5)
+        // The frame's own CSP no longer pins its model script; the document CSP still does.
+        val pin = html.lastIndexOf(" $frameHash;")
+        assertTrue(pin > html.indexOf("</head>"))
+        val unpinned = html.substring(0, pin) + ";" + html.substring(pin + " $frameHash;".length)
+        assertFalse(HtmlImporter.inspect(unpinned).isEli5)
+    }
+
     @Test fun `the runtime hash matches the one the desktop pinned in the meta CSP`() {
         val html = TestDocs.fixture("full.html").toString(Charsets.UTF_8)
         val i = HtmlImporter.inspect(html)

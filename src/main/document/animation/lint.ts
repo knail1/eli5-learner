@@ -367,6 +367,12 @@ const CSS_ONLY: readonly [string, RegExp][] = [
 ];
 
 /**
+ * The rule tables, exported for the per-rule tests only (13 §7.1): each entry has a sample that only
+ * it flags, so deleting or weakening one rule fails a test.
+ */
+export const ANIMATION_LINT_TABLES = { JS_RAW, JS_LITERAL, JS_CODE, MARKUP, HTML_ONLY, CSS_ONLY } as const;
+
+/**
  * The rules an animation's code breaks, as `<part>:<rule>` strings (empty: accepted). Never throws.
  */
 export function lintAnimation(code: AnimationCode): string[] {

@@ -14,7 +14,7 @@ import {
 } from './srcdoc';
 
 export { ANIMATION_SHELL_CSS, ANIMATION_SHELL_JS, ANIMATION_SHELLS } from './shell';
-export { codeOnly, lintAnimation, type AnimationCode } from './lint';
+export { ANIMATION_LINT_TABLES, codeOnly, lintAnimation, type AnimationCode } from './lint';
 export {
   ANIMATION_SANDBOX,
   animationCsp,

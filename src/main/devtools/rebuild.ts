@@ -228,6 +228,17 @@ export interface VerifyExpect {
   baseHtmlSha256: string;
 }
 
+/** Every post-commit check; a rebuild verifies only when all of them hold. */
+export const REBUILD_VERIFY_CHECKS = [
+  'validity',
+  'roundTrip',
+  'hasSte',
+  'catalogStable',
+  'jobNode',
+  'parentIsBase',
+  'parentHtmlMatches',
+] as const satisfies readonly (keyof RebuildVerify)[];
+
 const sha256Hex = (b: string | Buffer): string => createHash('sha256').update(b).digest('hex');
 
 /** Post-commit checks for one rebuilt document (design §5). Never throws; failures read false. */
@@ -273,7 +284,7 @@ export async function verifyRebuild(lib: RebuildLibrary, x: VerifyExpect): Promi
   } catch (err) {
     log.warn('realrun.verify-failed', { slug: x.slug, errorKind: (err as Error | null)?.name ?? 'Error' });
   }
-  v.ok = v.validity && v.roundTrip && v.hasSte && v.catalogStable && v.jobNode && v.parentIsBase && v.parentHtmlMatches;
+  v.ok = REBUILD_VERIFY_CHECKS.every((k) => v[k]);
   return v;
 }
 

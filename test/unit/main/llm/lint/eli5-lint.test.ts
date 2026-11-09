@@ -84,6 +84,17 @@ describe('ELI5 critique accept gate (D17)', () => {
     const two = revised();
     two.sections.pop(); // 2 sections: within one, but below 3
     expect(critiqueGate(first(), two, indepth())).toMatchObject({ ok: false, reason: 'sections' });
+    // The +-1 boundary: one more section than the draft passes, two more do not.
+    const base = first();
+    base.sections.push(structuredClone(base.sections[0]!), structuredClone(base.sections[1]!)); // 4
+    const plusOne = revised();
+    plusOne.sections.push(structuredClone(plusOne.sections[0]!), structuredClone(plusOne.sections[1]!)); // 5
+    expect(critiqueGate(base, plusOne, indepth())).toMatchObject({ ok: true });
+    const minusOne = revised(); // 3
+    expect(critiqueGate(base, minusOne, indepth())).not.toMatchObject({ reason: 'sections' });
+    const plusTwo = structuredClone(plusOne);
+    plusTwo.sections.push(structuredClone(plusTwo.sections[0]!)); // 6
+    expect(critiqueGate(base, plusTwo, indepth())).toMatchObject({ ok: false, reason: 'sections' });
   });
 
   it('a 1-section draft is not critiquable: no revision of it can pass the section rule (audit round 4)', () => {
@@ -149,12 +160,18 @@ describe('ELI5 critique accept gate (D17)', () => {
     const bad = revised();
     bad.sections[0]?.blocks.push({ type: 'analogy', md: 'Orders grew by 73 in a week.' });
     expect(critiqueGate(first(), bad, indepth())).toMatchObject({ ok: false, reason: 'new-number' });
-    // A rounding of a known number (40 -> about 42, within 10%) is not a new fact.
+    // A rounding of a known number (30 -> about 32, within 10%) is not a new fact. 32 itself is
+    // in neither tab, so only the rounding rule can let it through.
+    const known = new Set([...tabNumbers(first()), ...tabNumbers(indepth())]);
+    expect(known.has('30')).toBe(true);
+    expect(known.has('32')).toBe(false);
     const rounded = revised();
-    rounded.sections[0]?.blocks.push({ type: 'analogy', md: 'Online orders reached about 42.' });
+    rounded.sections[0]?.blocks.push({ type: 'analogy', md: 'Online orders reached about 32.' });
     expect(critiqueGate(first(), rounded, indepth())).toMatchObject({ ok: true });
+    // 34 is more than 10% from every known number (30, 28: 13%; 40: 15%).
+    expect(known.has('34')).toBe(false);
     const far = revised();
-    far.sections[0]?.blocks.push({ type: 'analogy', md: 'Online orders reached about 48.' });
+    far.sections[0]?.blocks.push({ type: 'analogy', md: 'Online orders reached about 34.' });
     expect(critiqueGate(first(), far, indepth())).toMatchObject({ ok: false, reason: 'new-number' });
     expect([
       ...tabNumbers(tab([{ heading: '3 steps', blocks: [{ type: 'paragraph', md: 'About 1,200 or 3.5.' }] }])),

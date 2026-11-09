@@ -39,6 +39,7 @@ export type {
 } from './real-run';
 export {
   REBUILD_HARD_STOP_USD,
+  REBUILD_VERIFY_CHECKS,
   TYPICAL_OUTPUT_TOKENS,
   TYPICAL_RETRY_SHARE,
   planRebuildCost,

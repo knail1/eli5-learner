@@ -33,6 +33,7 @@ import {
   MAX_ANIMATION_CSS,
   MAX_ANIMATION_HTML,
   MAX_ANIMATION_JS,
+  MAX_ANIMATION_POSTER,
   MAX_ANIMATION_TITLE,
   animationCsp,
   animationHashes,
@@ -334,6 +335,15 @@ describe('the shell cannot be swallowed by malformed markup (audit round 1)', ()
     expect(frameParsesAsBuilt(A)).toBe(true);
   });
 
+  it.each([
+    ['a script inside a template', '<template><script>x()</script></template>'],
+    ['a script inside the stage', '<div><script>x()</script></div>'],
+  ])('refuses %s: the frame holds exactly the two scripts it was built with', (_, html) => {
+    // Well-formed markup, so the head and body shape still match; only the script count catches it.
+    expect(frameParsesAsBuilt({ js: PACKING_JS, html })).toBe(false);
+    expect(parseAnimationSrcdoc(animationSrcdoc({ js: PACKING_JS, html }))).toBeNull();
+  });
+
   it('lints the WebRTC beacon through top-level this', () => {
     const hits = lintAnimation({ js: webrtc });
     expect(hits).toEqual(expect.arrayContaining(['js:ice-url', 'js:ice', 'js:this-global']));
@@ -387,6 +397,13 @@ describe('convert (07 §5.2)', () => {
     ['js over the cap', { ...A, js: `/*${'x'.repeat(MAX_ANIMATION_JS)}*/go()` }],
     ['html over the cap', { ...A, html: `<p>${'x'.repeat(MAX_ANIMATION_HTML)}</p>` }],
     ['css over the cap', { ...A, css: `p{}/*${'x'.repeat(MAX_ANIMATION_CSS)}*/` }],
+    [
+      'a poster over the cap',
+      {
+        ...A,
+        poster: A.poster.replace('</svg>', `<text x="0" y="9">${'x'.repeat(MAX_ANIMATION_POSTER)}</text></svg>`),
+      },
+    ],
     ['a lint hit', { ...A, js: `${PACKING_JS}\nfetch('https://x.example')` }],
     ['the keep marker outside a regenerated section', { ...A, poster: ANIMATION_KEEP, js: ANIMATION_KEEP }],
     ['the keep marker as js with a real poster', { ...A, js: ANIMATION_KEEP }],
@@ -941,6 +958,16 @@ describe('validity: the only allowed iframe shape (07 §6.2, 13 §7.1)', () => {
     ['a frame outside an animation figure', (h) => h.replace('<figure class="animation">', '<figure class="diagram">')],
     ['the parent CSP without the frame hashes', (h) => h.replace(/(script-src '[^']+')[^;]*;/, '$1;')],
   ];
+  it('rejects a document script that reuses an animation frame hash', () => {
+    const b = show.model.tabs[0]?.sections.flatMap((s) => s.blocks).find((x) => x.type === 'animation');
+    if (b?.type !== 'animation') throw new Error('fixture');
+    // The frame's model code as a top-level script: the CSP already pins its hash for the frame.
+    const reused = good.replace('</body>', `<script>${b.js}</script></body>`);
+    const errs = validateDocument(reused).errors;
+    expect(errs.map((e) => e.rule)).toEqual(['csp']);
+    expect(errs[0]?.detail).toContain('an inline script of the document has an animation frame hash');
+  });
+
   it.each(mutations)('rejects %s', (_name, mutate) => {
     const bad = mutate(good);
     expect(bad).not.toBe(good);

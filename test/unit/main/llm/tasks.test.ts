@@ -12,6 +12,7 @@ import {
   type SteDraft,
 } from '../../../../src/main/llm/schemas/draft';
 import { SkillLibrary } from '../../../../src/main/llm/skills';
+import { lintSte, STE_REPAIR_THRESHOLD } from '../../../../src/main/llm/lint/ste-lint';
 import { isKeepable } from '../../../../src/main/llm/ste';
 import {
   createTasks,
@@ -651,6 +652,35 @@ describe('ASD-STE100 step (02 §12, D15, D16)', () => {
     const c = await createTasks(deps(clean)).generateSte(indepth(), ctx);
     expect(c.draft.lint).toMatchObject({ repairTried: false, repairAccepted: false, first: { failing: 0 } });
     expect(clean.calls.filter((x) => x.taskId === 'ste')).toHaveLength(1);
+  });
+
+  it('repairs only strictly above the 20% threshold, and keeps a repair only when it scores strictly better', async () => {
+    const shortSentences = (n: number) => ({
+      type: 'paragraph' as const,
+      md: Array.from({ length: n }, () => 'The pump moves water.').join(' '),
+    });
+    const base = lintSte(steFixture());
+    expect(base.failing).toBe(0);
+    // f failing sentences out of exactly 5f: score is exactly the threshold.
+    const f = Math.ceil((base.sentences + 1) / 4); // at least one short sentence to swap below
+    const atThreshold = steFixture();
+    atThreshold.sections[0]?.blocks.unshift(longParagraph(f), shortSentences(4 * f - base.sentences));
+    expect(lintSte(atThreshold).score).toBe(STE_REPAIR_THRESHOLD);
+    const at = new FakeProvider(withSte(atThreshold));
+    const a = await createTasks(deps(at)).generateSte(indepth(), ctx);
+    expect(a.draft.lint.repairTried).toBe(false);
+    expect(at.calls.filter((c) => c.taskId === 'ste')).toHaveLength(1);
+
+    // One more failing sentence in place of a passing one: just above, so one repair runs.
+    const above = steFixture();
+    above.sections[0]?.blocks.unshift(longParagraph(f + 1), shortSentences(4 * f - base.sentences - 1));
+    expect(lintSte(above).score).toBeGreaterThan(STE_REPAIR_THRESHOLD);
+    // The repair returns the same text: an equal score is not better, so the first draft stays.
+    const same = new FakeProvider(withSte([above, structuredClone(above)]));
+    const b = await createTasks(deps(same)).generateSte(indepth(), ctx);
+    expect(b.draft.lint).toMatchObject({ repairTried: true, repairAccepted: false });
+    expect(b.draft.lint.final.score).toBe(b.draft.lint.first.score);
+    expect(same.calls.filter((c) => c.taskId === 'ste')).toHaveLength(2);
   });
 
   it('retries once after an output overflow, keeping every section; a second overflow is invalid_output', async () => {
