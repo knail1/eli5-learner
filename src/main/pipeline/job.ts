@@ -1,5 +1,6 @@
 // Job records: creation, the persisted-record schema, and the renderer snapshot (06 §3, §9.1).
 import { z } from 'zod';
+import { SLUG_PATTERN } from '../library';
 import { statusLine } from './status';
 import type {
   Job,
@@ -157,6 +158,25 @@ export const JobRecordSchema = z
     origin: z
       .object({ kind: z.literal('inbox'), ref: z.string().regex(/^[0-9a-f-]{1,64}$/) })
       .strict()
+      .optional(),
+    // Design §5: a rebuild job saves into this existing document as a new version.
+    rebuild: z
+      .object({
+        slug: z.string().regex(SLUG_PATTERN),
+        docId: z.string().min(1).max(128),
+        baseVersionId: z
+          .string()
+          .regex(/^v-[0-9a-f]{12}$/)
+          .nullable(),
+        baseHtmlSha256: z.string().regex(/^[0-9a-f]{64}$/),
+        promptSet: z.string().regex(/^[a-z0-9-]{1,40}$/),
+        report: z
+          .object({
+            steLint: z.object({ sentences: z.number(), failing: z.number(), score: z.number() }).nullable(),
+            eli5Critique: z.enum(['accepted', 'rejected', 'failed', 'skipped']).nullable(),
+          })
+          .optional(),
+      })
       .optional(),
   })
   .passthrough();

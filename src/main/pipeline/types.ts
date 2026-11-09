@@ -23,7 +23,7 @@ import type {
 } from '../document';
 import type { Edition } from '../editions';
 import type { ExtractLimits, ExtractResult, JobImageBudget } from '../extract';
-import type { CatalogEntry, DocumentMeta, SlugReservation } from '../library';
+import type { CatalogEntry, DocumentMeta, DocumentPatch, SlugReservation, VersionTreeView } from '../library';
 import type { DocumentDraftTab, LLMErrorKind, LlmTasks } from '../llm';
 import type { Logger } from '../security';
 import type {
@@ -145,6 +145,36 @@ export interface Job {
    * sent from the phone (16 §5.3), `ref` its phone job id. Drives the "From phone" chip.
    */
   origin?: JobOrigin;
+  /**
+   * Present on a rebuild job (design §5, D19-D20; dev driver only): the job regenerates `slug` from
+   * its sources and saves the result as a new version of the same document, not a new document.
+   */
+  rebuild?: RebuildJob;
+}
+
+/** What a rebuild job rebuilds, and the version it must replace (captured by the driver's preflight). */
+export interface RebuildTarget {
+  slug: string;
+  /** DocumentMeta.id of `slug`; the save refuses a folder holding another document. */
+  docId: string;
+  /** The live version when the rebuild was planned; null when the document had no version tree. */
+  baseVersionId: string | null;
+  /** sha256 of the live index.html at that time. */
+  baseHtmlSha256: string;
+  /** The prompt set the rebuild runs with (names the version: "Rebuilt with prompt set <set> (...)"). */
+  promptSet: string;
+}
+
+/** Generation outcomes the rebuild driver reports (set by the saving stage from gen/ artifacts). */
+export interface RebuildReport {
+  /** STE lint of the accepted draft; null when the ASD-STE100 step was omitted. */
+  steLint: { sentences: number; failing: number; score: number } | null;
+  /** The ELI5 critique outcome; null when the job predates step 1b. */
+  eli5Critique: 'accepted' | 'rejected' | 'failed' | 'skipped' | null;
+}
+
+export interface RebuildJob extends RebuildTarget {
+  report?: RebuildReport;
 }
 
 /** Who asked for a job that main started itself (16 §5.3). */
@@ -210,6 +240,15 @@ export interface PipelineLibrary {
   getEntry(idOrSlug: string): CatalogEntry | undefined;
   /** Adds catalog entries for committed folders missing from the catalog (09 §7 step 6). */
   reconcile(): Promise<void>;
+  // Rebuild jobs (design §5): save into an existing document as a new version.
+  hasSlug(slug: string): boolean;
+  getMeta(slug: string): Promise<DocumentMeta>;
+  /** Caller holds withDocLock(slug); with `html` the change becomes a new version node (09 §4.1). */
+  updateDocument(slug: string, patch: DocumentPatch): Promise<CatalogEntry>;
+  /** The version tree right now; lock-free, never writes. */
+  versions(slug: string): Promise<VersionTreeView>;
+  /** One version's exact index.html and meta snapshot; lock-free. */
+  readVersion(slug: string, id: string): Promise<{ html: Buffer; meta: DocumentMeta }>;
 }
 
 /** Electron powerSaveBlocker, injected (06 §4.3). */

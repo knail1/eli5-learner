@@ -27,6 +27,11 @@ function library(calls: string[] = []): PipelineLibrary & { runMergeCheck(id: st
     docPath: no,
     getEntry: () => undefined,
     reconcile: async () => {},
+    hasSlug: () => false,
+    getMeta: no,
+    updateDocument: no,
+    versions: no,
+    readVersion: no,
     runMergeCheck: async (id) => {
       calls.push(id);
       return null;

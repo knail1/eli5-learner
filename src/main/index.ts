@@ -34,7 +34,7 @@ import { Registry } from './editions/registry';
 import { registerPublicCapabilities } from './editions/public';
 import { loadOverlay } from './editions/load-overlay';
 import { edition } from './editions/types';
-import { prepareRealRun, startRealRun } from './devtools';
+import { prepareRealRun, rebuildPlanInputs, startRealRun, startRebuildRun } from './devtools';
 import { createElectronViewerPort, createInteractiveReading, parseDocument } from './document';
 import { PDF_RENDER_SCHEME_PRIVILEGES } from './extract';
 import { configureFetch } from './fetch';
@@ -246,10 +246,11 @@ async function bootstrap(): Promise<void> {
   }
 
   // Dev-only budget-capped real run: wraps the LLM providers before the freeze; inert unless
-  // ELI5_REAL_RUN_URLS is set, and never reachable in packaged builds (scripts/real-run/README.md).
+  // ELI5_REAL_RUN_URLS or ELI5_REAL_RUN_REBUILD is set, and never reachable in packaged builds
+  // (scripts/real-run/README.md). A rebuild with ELI5_LLM_FAKE=1 is a rehearsal (test builds only).
   const realRun = app.isPackaged
     ? undefined
-    : prepareRealRun({ env: process.env, isPackaged: app.isPackaged, userData, registry });
+    : prepareRealRun({ env: process.env, isPackaged: app.isPackaged, testBuild: __ELI5_TEST__, userData, registry });
   // 5. freeze
   registry.freeze();
 
@@ -416,6 +417,30 @@ async function bootstrap(): Promise<void> {
   quitSteps.unshift({ name: 'interactive', run: () => interactive.dispose() });
 
   // Headless real run: no IPC, windows or Tray; the driver prints a summary and quits.
+  const quitRealRun = (code: number): void => {
+    exitCode = code;
+    app.quit();
+  };
+  if (realRun?.config.rebuild) {
+    // Design §5: rebuild existing documents as new versions; the key is read in-process (D23).
+    void startRebuildRun({
+      session: realRun,
+      jobs,
+      library,
+      provider: () => registry.llm(),
+      promptSet: pipeline.prompts.set,
+      keyPresent: () => providerKeyPresent(settings.get().llm.provider, keyStore),
+      planInputs: rebuildPlanInputs({
+        prompts: pipeline.prompts,
+        skills: pipeline.skills,
+        contextTokens: () => registry.llm().limits.contextTokens,
+        maxOutputSetting: () => settings.get().llm.maxOutputTokens,
+      }),
+      stockPhotos: settings.get().images.stockPhotos,
+      quit: quitRealRun,
+    });
+    return;
+  }
   if (realRun) {
     void startRealRun({
       session: realRun,
@@ -423,10 +448,7 @@ async function bootstrap(): Promise<void> {
       library,
       provider: () => registry.llm(),
       glossary: settings.get().glossary.defaultOn,
-      quit: (code) => {
-        exitCode = code;
-        app.quit();
-      },
+      quit: quitRealRun,
     });
     return;
   }

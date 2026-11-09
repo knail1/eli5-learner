@@ -31,6 +31,11 @@ const UNBILLED: readonly LLMErrorKind[] = ['auth', 'bad_request', 'context_overf
 // Integer arithmetic for the 1.1 factor: 100 * 1.1 is 110.00000000000001 in floating point.
 const estimateChars = (chars: number): number => Math.ceil((Math.ceil(chars / 3) * 11) / 10);
 
+/** The guard's text estimate, ceil(chars/3)*1.1 tokens (also used by the rebuild cost plan). */
+export function estimateTextTokens(chars: number): number {
+  return estimateChars(chars);
+}
+
 /** ceil(chars/3)*1.1 over system and messages, plus 1600 tokens per image. */
 export function estimateInputTokens(req: Pick<GenerationRequest, 'system' | 'messages'>): number {
   const chars = req.messages.reduce((n, m) => n + m.text.length, req.system.length);

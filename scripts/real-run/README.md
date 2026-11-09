@@ -57,7 +57,7 @@ npx electron .
 
 The run refuses to start when:
 
-- `ELI5_LLM_FAKE=1` is set,
+- `ELI5_LLM_FAKE=1` is set (except a rebuild rehearsal in a test build, below),
 - a URL is not `http(s)`, or
 - the budget is missing or out of range.
 
@@ -92,6 +92,97 @@ To raise the cap for a later run, pass a larger `ELI5_REAL_RUN_BUDGET_USD`. To r
 
 `costSoFarUsd` is the ledger total (across all runs) at the moment that job settled. Calls are not
 attributed to individual jobs, because jobs run concurrently.
+
+## Rebuild mode (new versions of existing documents)
+
+`ELI5_REAL_RUN_REBUILD` regenerates existing Library documents from their source files with the
+current prompts and saves each result as a new version of the same document (spec 06 §5.7.1,
+09 §9 "Rebuild patch"). The id, slug, `createdAt`, merges, publications and folder stay; Q&A
+answers, the action log and section ELI5 tabs stay in the previous version in History. The
+version is labelled `Rebuilt with prompt set <set> (<digest8>)`, and History shows it as
+"Rebuilt with new prompts". To roll back, check out its parent in History (`Original` for a
+document that had no versions before).
+
+```sh
+npm run build
+ELI5_USER_DATA_DIR="$TMPDIR/eli5-rebuild/userData" \
+ELI5_LIBRARY_DIR="<library root>" \
+ELI5_REAL_RUN_LEDGER="$HOME/.eli5-rebuild-owner-ledger.jsonl" \
+ELI5_REAL_RUN_BUDGET_USD=12 \
+ELI5_REAL_RUN_PROMPT_SET=default \
+ELI5_REAL_RUN_REBUILD="my-topic=/abs/path/source.md,other-topic=/abs/path/other.md" \
+ELI5_REAL_RUN_DRY=1 \
+npx electron .
+```
+
+| Variable | Meaning |
+| --- | --- |
+| `ELI5_REAL_RUN_REBUILD` | 1-4 `slug=/absolute/source-file` entries, run in order, one at a time. Exclusive with `ELI5_REAL_RUN_URLS` |
+| `ELI5_REAL_RUN_LEDGER` | Required for a rebuild (not a rehearsal). Use a new file of its own, never the URL runs' ledger: the rebuild spends on the owner's key, and the $10 hard stop and the per-document gate read this ledger's total |
+| `ELI5_REAL_RUN_DRY=1` | Preflight and cost plan only. No job, no provider call, nothing written to the ledger. Wins over a rehearsal |
+| `ELI5_REAL_RUN_PROMPT_SET` | Optional. Must equal the prompt set in effect (`ELI5_PROMPT_SET` or settings `llm.promptSet`), else the run refuses |
+| `ELI5_REAL_RUN_DOC_GATE_USD` | Default 4. Before each document the remaining cap must be at least this, else the run stops cleanly with `stopped: "budget-gate"` |
+
+No `ELI5_KEYSTORE` is needed: the key is read in-process from the macOS Keychain, so macOS may
+ask once for access ("Always Allow"). The run also stops with `stopped: "hard-stop"` before a
+document once the ledger total has passed $10. Check `ledgerBeforeUsd` in the dry run: on a new
+ledger it is 0. A job that runs past `ELI5_REAL_RUN_TIMEOUT_MS` is cancelled, the driver waits for it
+to stop, and the run ends with `stopped: "timeout"`; no further document starts.
+
+Rebuild jobs are never resumed. If the run is interrupted (Ctrl-C, crash), the next launch with the
+same userData finishes the job as done when its version had committed, and otherwise fails it with
+`INTERRUPTED`; rerun the driver to retry (the preflight captures the base again).
+
+Preflight (all documents, before any call; any problem aborts the whole run): the Library is
+writable (quit the app first: a locked Library is read-only), each slug exists, the sha256 of each
+source file equals the one recorded in that document's `meta.sourcesUsed` (matched by file name)
+and is that document's only source, the live `index.html` is a known version (not changed outside
+the app), the model is priced, the prompt set matches, and the provider key is present. It captures each
+document's current version id and the sha256 of its `index.html`; the save refuses
+(`SAVE_FAILED`, detail `REBUILD_BASE_MOVED`) if either changed meanwhile.
+
+The plan gives, per document, a typical cost (the design's output sizes) and a worst case (every
+call at its full `maxOutputTokens`, one STE repair, one more in-depth-sized retry, input at the
+cache-write rate) over in-depth, ELI5, ASD-STE100, the ELI5 critique (step 1b), the glossary (when
+the document had it), the summary, photo-pick (when stock photos are on) and a retry allowance.
+Source tokens are a rough bound from the file size (images at the flat vision rate). The worst case
+is a planning bound; the budget guard's cap is what limits spend.
+
+The printed summary has no clarifying input and only source file names, not paths. It is still
+private: report the totals ("owner key: $X"), not the rows.
+
+After each document commits, the driver verifies: the new `index.html` passes the validity checks
+and parses and renders back byte for byte, it has the ASD-STE100 tab, the catalog id and
+`createdAt` are unchanged, the current version node is this job's, its parent is the captured base,
+and the parent's stored html hashes to the captured sha256 (so the rollback restores it exactly).
+
+**Rehearsal.** In a test build (`ELI5_TEST_BUILD=1 npm run build`), `ELI5_LLM_FAKE=1` together with
+`ELI5_REAL_RUN_REBUILD` runs the same flow against the fake LLM on a copy of the library: no guard,
+no pricing, no key check and no money gates (a budget is still required). With
+`ELI5_REAL_RUN_DRY=1` it stays a dry run: preflight and plan only, nothing is written. Everywhere
+else `ELI5_LLM_FAKE=1` is refused.
+
+Summary (one row per document that started):
+
+```json
+{
+  "ok": true, "mode": "rebuild", "provider": "claude", "model": "…", "promptSet": "default",
+  "budgetUsd": 12, "docGateUsd": 4, "hardStopUsd": 10, "ledgerPath": "…",
+  "ledgerBeforeUsd": 0, "ledgerAfterUsd": 1.7, "spentUsd": 1.7, "remainingUsd": 10.3,
+  "preflight": [{ "slug": "…", "ok": true, "sha256": "…", "shaMatches": true, "baseVersionId": "v-…", "baseHtmlSha256": "…" }],
+  "plan": [{ "slug": "…", "sourceTokens": 20000, "typicalUsd": 1.7, "worstUsd": 4.1 }],
+  "planTotal": { "typicalUsd": 1.7, "worstUsd": 4.1 },
+  "docs": [{
+    "slug": "…", "ok": true, "jobId": "…", "status": "done", "versionId": "v-…", "parentVersionId": "v-…",
+    "label": "Rebuilt with prompt set default (1a2b3c4d)", "spentUsd": 1.7,
+    "steLint": { "sentences": 120, "failing": 9, "score": 0.075 }, "eli5CritiqueAccepted": true,
+    "warnings": [], "verify": { "ok": true, "parentHtmlMatches": true, "roundTrip": true }
+  }]
+}
+```
+
+The installed app must be at least the version that wrote the rebuilt documents (it has the
+ASD-STE100 tab); an older app shows them as view-only.
 
 ## Limits
 

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -423,5 +423,113 @@ describe('startRealRun', () => {
     expect(q.started).toEqual([]);
     expect(summary).toMatchObject({ ok: false, error: 'budget exhausted' });
     expect(h.codes).toEqual([1]);
+  });
+});
+
+// ---- rebuild mode (design §5, D19-D24) ----
+
+describe('realRunConfigFromEnv rebuild mode', () => {
+  let a: string;
+  let b: string;
+  beforeEach(async () => {
+    a = path.join(dir, 'part-1.md');
+    b = path.join(dir, 'part-2.md');
+    await writeFile(a, '# One\n');
+    await writeFile(b, '# Two\n');
+  });
+  const rb = (over: Record<string, string | undefined> = {}): Record<string, string | undefined> => ({
+    ELI5_REAL_RUN_REBUILD: `doc-one=${a}, doc-two=${b}`,
+    ELI5_REAL_RUN_BUDGET_USD: '12',
+    ELI5_REAL_RUN_LEDGER: path.join(dir, 'owner-ledger.jsonl'),
+    ...over,
+  });
+
+  it('parses slug=file entries with the defaults: no dry run, no rehearsal, a $4 per-document gate', () => {
+    expect(realRunConfigFromEnv(rb(), unpackaged())).toEqual({
+      urls: [],
+      budgetUsd: 12,
+      ledgerPath: path.join(dir, 'owner-ledger.jsonl'),
+      timeoutMs: 30 * 60_000,
+      rebuild: {
+        entries: [
+          { slug: 'doc-one', file: a },
+          { slug: 'doc-two', file: b },
+        ],
+        dry: false,
+        rehearsal: false,
+        docGateUsd: 4,
+      },
+    });
+  });
+
+  it('reads DRY, PROMPT_SET and DOC_GATE_USD', () => {
+    const cfg = realRunConfigFromEnv(
+      rb({ ELI5_REAL_RUN_DRY: '1', ELI5_REAL_RUN_PROMPT_SET: 'wsj-v1', ELI5_REAL_RUN_DOC_GATE_USD: '2.5' }),
+      unpackaged(),
+    );
+    expect(cfg?.rebuild).toMatchObject({ dry: true, promptSet: 'wsj-v1', docGateUsd: 2.5 });
+  });
+
+  it('is inactive in packaged builds', () => {
+    expect(realRunConfigFromEnv(rb(), { isPackaged: true, userData: dir })).toBeUndefined();
+  });
+
+  it('accepts ELI5_LLM_FAKE=1 only in a test build, as a rehearsal', () => {
+    expect(() => realRunConfigFromEnv(rb({ ELI5_LLM_FAKE: '1' }), unpackaged())).toThrow(/ELI5_LLM_FAKE/);
+    const cfg = realRunConfigFromEnv(rb({ ELI5_LLM_FAKE: '1' }), { ...unpackaged(), testBuild: true });
+    expect(cfg?.rebuild?.rehearsal).toBe(true);
+    // A rehearsal spends nothing, so it may use the default ledger.
+    const noLedger = realRunConfigFromEnv(rb({ ELI5_LLM_FAKE: '1', ELI5_REAL_RUN_LEDGER: undefined }), {
+      ...unpackaged(),
+      testBuild: true,
+    });
+    expect(noLedger?.ledgerPath).toBe(path.join(dir, 'devtools', 'real-run-ledger.jsonl'));
+    // Real (URL) mode still refuses the fake in a test build.
+    expect(() => realRunConfigFromEnv(env({ ELI5_LLM_FAKE: '1' }), { ...unpackaged(), testBuild: true })).toThrow(
+      /ELI5_LLM_FAKE/,
+    );
+  });
+
+  it.each([
+    ['with URLS', { ELI5_REAL_RUN_URLS: 'https://example.com/' }, /exclusive/],
+    ['an empty list', { ELI5_REAL_RUN_REBUILD: ' , ' }, /REBUILD/],
+    ['an entry without =', { ELI5_REAL_RUN_REBUILD: 'doc-one' }, /slug=/],
+    ['an invalid slug', { ELI5_REAL_RUN_REBUILD: 'Doc One=/tmp/x.md' }, /slug/],
+    ['a relative path', { ELI5_REAL_RUN_REBUILD: 'doc-one=part-1.md' }, /absolute/],
+    ['a missing file', { ELI5_REAL_RUN_REBUILD: 'doc-one=/nonexistent/eli5/part.md' }, /regular file/],
+    ['a duplicate slug', { ELI5_REAL_RUN_REBUILD: 'doc-one=/a.md,doc-one=/b.md' }, /twice/],
+    ['DRY not 1', { ELI5_REAL_RUN_DRY: 'yes' }, /DRY/],
+    ['a bad prompt set', { ELI5_REAL_RUN_PROMPT_SET: '../x' }, /PROMPT_SET/],
+    ['a zero gate', { ELI5_REAL_RUN_DOC_GATE_USD: '0' }, /DOC_GATE/],
+    ['a non-numeric gate', { ELI5_REAL_RUN_DOC_GATE_USD: 'four' }, /DOC_GATE/],
+    ['no budget', { ELI5_REAL_RUN_BUDGET_USD: undefined }, /BUDGET/],
+    ['no ledger of its own (D24)', { ELI5_REAL_RUN_LEDGER: undefined }, /ELI5_REAL_RUN_LEDGER/],
+    ['a blank ledger', { ELI5_REAL_RUN_LEDGER: ' ' }, /ELI5_REAL_RUN_LEDGER/],
+  ])('refuses %s', (_name, over, msg) => {
+    expect(() => realRunConfigFromEnv(rb(over), unpackaged())).toThrow(msg);
+  });
+
+  it('refuses a directory and more than four documents', async () => {
+    await mkdir(path.join(dir, 'folder'));
+    expect(() =>
+      realRunConfigFromEnv(rb({ ELI5_REAL_RUN_REBUILD: `doc-one=${path.join(dir, 'folder')}` }), unpackaged()),
+    ).toThrow(/regular file/);
+    const five = ['a', 'b', 'c', 'd', 'e'].map((s) => `doc-${s}=${a}`).join(',');
+    expect(() => realRunConfigFromEnv(rb({ ELI5_REAL_RUN_REBUILD: five }), unpackaged())).toThrow(/1-4/);
+  });
+
+  it('prepareRealRun in rehearsal opens the ledger but installs no guard (the fake stays registered)', () => {
+    const ids: string[] = [];
+    const spy = { frozen: false, registerLLMProvider: (id: string) => void ids.push(id) };
+    const session = prepareRealRun({
+      env: rb({ ELI5_LLM_FAKE: '1' }),
+      isPackaged: false,
+      testBuild: true,
+      userData: dir,
+      registry: spy,
+    });
+    expect(session?.config.rebuild?.rehearsal).toBe(true);
+    expect(ids).toEqual([]);
+    session?.ledger.release();
   });
 });

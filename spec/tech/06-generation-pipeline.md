@@ -95,6 +95,18 @@ export interface Job {
   failure?: JobFailure;                        // set when failed
   cancelRequested?: boolean;
   section?: SectionJobPayload;                 // doc 08; present iff kind === 'section'
+  rebuild?: RebuildTarget & { report?: RebuildReport };  // §5.7.1; a create job that saves as a new version
+}
+
+export interface RebuildTarget {                // captured by the dev driver's read-only preflight
+  slug: string; docId: string;
+  baseVersionId: string | null;                // the live version then
+  baseHtmlSha256: string;                      // sha256 of the live index.html then
+  promptSet: string;
+}
+export interface RebuildReport {                // read by the driver's summary (scripts/real-run/README.md)
+  steLint: { sentences: number; failing: number; score: number } | null;
+  eli5Critique: 'accepted' | 'rejected' | 'failed' | 'skipped' | null;
 }
 
 export interface JobSnapshot {                 // what the renderer receives; no file contents
@@ -250,6 +262,18 @@ Clarifying input (PRD "Processing pipeline") goes verbatim into the `indepth` an
 
 Step 3 is the commit point. Crash recovery (§9.4) treats "folder exists with `meta.json.jobId === job.id` but no catalog entry" as "finish step 4". Saving failures, such as a full disk or permission errors, get 1 retry after 2s and then fail with `SAVE_FAILED`. The generated outputs stay in staging so Retry skips straight to saving.
 
+### 5.7.1 Rebuild jobs (dev driver only)
+
+A rebuild regenerates an existing document from its sources with the current prompts and saves the result as a new version of the same document ([09](09-library-storage.md) §4.1 and §9 "Rebuild patch"). There is no UI: only the dev real-run driver starts one (`ELI5_REAL_RUN_REBUILD`, `scripts/real-run/README.md`), through `JobQueue.startRebuild(req, target)`, which is modelled on `startFromMain`: it refuses a read-only library (`E_LIBRARY_READ_ONLY`), an unknown slug (`E_NOT_FOUND`) and pasted items, and enqueues an ordinary `create` job with `job.rebuild = target` persisted in its record. Reading, extracting and generating (including step 1b) are unchanged. Saving differs:
+
+1. If a version node already carries this job's id, the rebuild committed before a crash: finish as done.
+2. `meta = library.getMeta(slug)`; `meta.id` must equal `rebuild.docId` (else `SAVE_FAILED`, detail `REBUILD_DOC_MISMATCH`).
+3. Build the model with the document's id and `createdAt` and `reservedIds` (the live section IDs, `meta.retiredIds` and every version's `retiredIds`), render, and run the validity checks against the patched meta. The STE lint and critique outcome go to `job.rebuild.report`.
+4. Under `withDocLock(slug)`: if the live version id or the live html's sha256 differs from the captured base, fail `SAVE_FAILED` (detail `REBUILD_BASE_MOVED`) without writing; else `library.updateDocument(slug, …)` with the rebuild patch. `setCommitStarted` is on from just before the lock, so cancel is refused from there. No slug is allocated and nothing is committed through `commitDocument`.
+5. Done as in §5.7 steps 5 and 6, but with no merge check (§10): the document already exists.
+
+Crash recovery (§9.4 step 2) applies step 1 to a rebuild job found in `saving`. A rebuild job is never resumed: it spends only inside the driver's session (budget guard, per-document gate, hard stop), so any other non-terminal rebuild job found at launch fails with `INTERRUPTED` (detail `rebuild-not-resumed`), and the owner reruns the driver.
+
 ## 6. Status line strings
 
 Doc 11 renders the status line (lower right). `status.ts` is the only producer of these strings. They are plain English, sentence case and have no trailing period. Placeholders are in `{}`.
@@ -404,7 +428,7 @@ Recovery runs once in the main process after the registry loads and before the r
 1. Load all job records (§9.1).
 2. For each non-terminal job, in `JobId` order:
    1. If `cancelRequested`, finish it as `failed/CANCELLED` and delete staging.
-   2. If `status === 'saving'` and `checkpoint.topicSlug` is set:
+   2. A rebuild job (§5.7.1) is never resumed: if `status === 'saving'` and a version node of its document carries its `jobId`, mark it `done` (no merge check); otherwise fail it with `INTERRUPTED` and apply its staging retention. For other jobs, if `status === 'saving'` and `checkpoint.topicSlug` is set:
       - If `docs/<slug>/meta.json` exists with a matching `jobId`, ask doc 09 to finish the commit (upsert the catalog entry if it is missing), then mark it `done` (and fire the merge check if the catalog entry was just added).
       - Otherwise remove any leftover `docs/.staging/<jobId>/` and resume at saving.
    3. If `policy.resumeAfterCrash?.(job) === false`, fail it with `INTERRUPTED` and apply its staging retention.
@@ -442,7 +466,7 @@ export interface PipelinePolicy {
 
 ## 10. Post-save merge check trigger
 
-1. The trigger fires only after §5.7 step 3 has committed the folder and catalog entry, and only for `kind === 'create'`.
+1. The trigger fires only after §5.7 step 3 has committed the folder and catalog entry, and only for `kind === 'create'` jobs that are not rebuilds (§5.7.1).
 2. It calls `library.runMergeCheck(docId)` (doc 09 owns the matching algorithm and the `MergeSuggestion` type) as a detached task. The call is not awaited by the job, the job is already `done`, and the status line is not affected.
 3. The merge check never goes through the Create lane, so it never delays the next queued job. It may call the LLM when doc 09's algorithm needs it. Such calls go through doc 02's shared limiter like any other.
 4. Failures are logged and swallowed. No suggestion is produced and nothing is shown.

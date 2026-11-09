@@ -4,11 +4,20 @@ export { CACHE_READ_MULTIPLIER, CACHE_WRITE_MULTIPLIER, MODEL_RATES, costOf, rat
 export type { CostTokens, ModelRates } from './rates';
 export { BudgetLedger } from './ledger';
 export type { BudgetLedgerOptions, Charge, LedgerClock, Reservation } from './ledger';
-export { BudgetGuardProvider, IMAGE_TOKENS, MIN_OUTPUT_TOKENS, estimateInputTokens, maxAttempts } from './budget-guard';
+export {
+  BudgetGuardProvider,
+  IMAGE_TOKENS,
+  MIN_OUTPUT_TOKENS,
+  estimateInputTokens,
+  estimateTextTokens,
+  maxAttempts,
+} from './budget-guard';
 export type { BudgetGuardOptions } from './budget-guard';
 export {
+  DEFAULT_DOC_GATE_USD,
   DEFAULT_REAL_RUN_TIMEOUT_MS,
   MAX_REAL_RUN_BUDGET_USD,
+  MAX_REBUILD_DOCS,
   installBudgetGuard,
   prepareRealRun,
   realRunConfigFromEnv,
@@ -23,5 +32,32 @@ export type {
   RealRunQueue,
   RealRunSession,
   RealRunSummary,
+  RebuildRunConfig,
   StartRealRunOptions,
 } from './real-run';
+export {
+  REBUILD_HARD_STOP_USD,
+  TYPICAL_OUTPUT_TOKENS,
+  TYPICAL_RETRY_SHARE,
+  planRebuildCost,
+  rebuildPlanInputs,
+  startRebuildRun,
+  verifyRebuild,
+} from './rebuild';
+export type {
+  CostPlan,
+  CostPlanInput,
+  PlannedCall,
+  RebuildDocRow,
+  RebuildLibrary,
+  RebuildPlanInputs,
+  RebuildPlanRow,
+  RebuildPlanStep,
+  RebuildPreflight,
+  RebuildPromptId,
+  RebuildQueue,
+  RebuildRunSummary,
+  RebuildVerify,
+  StartRebuildRunOptions,
+  VerifyExpect,
+} from './rebuild';

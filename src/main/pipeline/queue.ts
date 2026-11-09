@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { readdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { monotonicFactory } from 'ulid';
-import { STAGING_DIR } from '../library';
+import { isValidSlug, STAGING_DIR } from '../library';
 import { log as defaultLog } from '../security';
 import { PipelineFailure, PipelineRequestError, failureFromError } from './errors';
 import { dedupeInputs, runPendingCopy, snapshotInputs, type PendingCopy } from './inputs';
@@ -13,7 +13,7 @@ import { checkpointOf, resetToReading, stageIndex, type StageContext } from './s
 import { extractStage } from './stages/extract';
 import { GEN, generateStage } from './stages/generate';
 import { readStage, resolvedArtifactsExist } from './stages/read';
-import { libraryStagingDir, saveStage } from './stages/save';
+import { libraryStagingDir, rebuildCommitted, saveStage } from './stages/save';
 import { assertTransition } from './status';
 import { JobStore } from './store';
 import type {
@@ -28,6 +28,7 @@ import type {
   JobStatus,
   JobStep,
   PipelineDeps,
+  RebuildTarget,
   SectionJobPayload,
   SourceInput,
   StartFromMainOptions,
@@ -266,6 +267,23 @@ export class JobQueue {
     return this.startCreate({ ...rest, inputs }, { kind: opts.origin, ref: opts.ref });
   }
 
+  /**
+   * A rebuild job (design §5; the dev driver only, no UI): regenerates an existing document from
+   * `req.inputs` and saves the result as a new version of `target.slug` (kind `outside`), keeping
+   * its id, slug and createdAt. No merge check follows. Pasted items are refused.
+   */
+  async startRebuild(req: StartJobRequest, target: RebuildTarget): Promise<{ jobId: JobId }> {
+    if (this.d.library.readOnly) throw new PipelineRequestError('E_LIBRARY_READ_ONLY', 'The Library is read-only');
+    if (!isValidSlug(target.slug) || !this.d.library.hasSlug(target.slug)) {
+      throw new PipelineRequestError('E_NOT_FOUND', 'No such document');
+    }
+    if (req.inputs.some((i) => i.kind !== 'file' && i.kind !== 'url')) {
+      throw new PipelineRequestError('E_BAD_REQUEST', 'Pasted items cannot be rebuilt');
+    }
+    const { draftId: _draft, ...rest } = req;
+    return this.startCreate(rest, undefined, target);
+  }
+
   /** The newest job main started for `ref` (16 §5.3 step 2 dedupe), including dismissed ones. */
   findByOrigin(ref: string): JobSnapshot | undefined {
     let hit: Job | undefined;
@@ -279,7 +297,11 @@ export class JobQueue {
     return o ? { ...o } : undefined;
   }
 
-  private async startCreate(req: StartJobRequest, origin?: JobOrigin): Promise<{ jobId: JobId }> {
+  private async startCreate(
+    req: StartJobRequest,
+    origin?: JobOrigin,
+    rebuild?: RebuildTarget,
+  ): Promise<{ jobId: JobId }> {
     if (!req.inputs.length) throw new PipelineRequestError('E_BAD_REQUEST', 'Add at least one source');
     if (this.d.library.readOnly) throw new PipelineRequestError('E_LIBRARY_READ_ONLY', 'The Library is read-only');
     const now = this.d.clock.now();
@@ -295,6 +317,7 @@ export class JobQueue {
     });
     const job = createJob({ id, kind: 'create', now, inputs, options: { ...req.options } });
     if (origin) job.origin = { ...origin };
+    if (rebuild) job.rebuild = { ...rebuild };
     await this.store.save(job);
     this.jobs.set(id, job);
     if (pending.length) this.startCopies(job, pending);
@@ -511,7 +534,8 @@ export class JobQueue {
       await this.transition(job, 'saving', rt);
       const entry = await saveStage(ctx);
       job.result = { docId: entry.id, topicSlug: entry.topicSlug, title: entry.title };
-      await this.finishDone(job, rt, true);
+      // A rebuild replaces a version of an existing document: no merge suggestion (design §5).
+      await this.finishDone(job, rt, !job.rebuild);
     } catch (err) {
       const failure = failureFromError(err, rt.controller.signal.aborted || job.cancelRequested === true);
       if (failure.code === 'INTERNAL')
@@ -698,6 +722,15 @@ export class JobQueue {
       await this.store.removeStaging(job.id);
       return;
     }
+    if (job.rebuild) {
+      // Design §5: a rebuild spends on the owner's key only inside the dev driver's session (budget
+      // guard, per-document gate, hard stop). A later launch never resumes one: it finishes as done
+      // when its version committed, else it fails INTERRUPTED (rerun the driver to retry).
+      if (job.status === 'saving' && (await this.finishInterruptedRebuild(job))) return;
+      await this.fail(job, new PipelineFailure('INTERRUPTED', 'rebuild-not-resumed').toFailure());
+      await this.cleanupStaging(job, 'failed');
+      return;
+    }
     if (job.status === 'queued' && !job.resuming) {
       waiting.push(job);
       return;
@@ -751,6 +784,18 @@ export class JobQueue {
     if (!entry) return false;
     job.result = { docId: entry.id, topicSlug: entry.topicSlug, title: entry.title };
     await this.finishDone(job, undefined, !before);
+    await this.d.endFetchJob?.(job.id).catch(() => {});
+    return true;
+  }
+
+  /** Design §5 step 5: the current version node carries this job's id, so the rebuild committed. */
+  private async finishInterruptedRebuild(job: Job): Promise<boolean> {
+    const r = job.rebuild;
+    if (!r) return false;
+    const done = await rebuildCommitted(this.d.library, r.slug, job.id).catch(() => undefined);
+    if (!done) return false;
+    job.result = { docId: done.id, topicSlug: done.topicSlug, title: done.title };
+    await this.finishDone(job, undefined, false);
     await this.d.endFetchJob?.(job.id).catch(() => {});
     return true;
   }

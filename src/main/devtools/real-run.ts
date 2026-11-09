@@ -1,7 +1,9 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import type { ProviderId, Settings } from '../config';
 import { createClaudeProvider, createOpenAIProvider, DEFAULT_RETRY } from '../llm';
 import type { LLMProvider, RetryPolicy } from '../llm';
+import { isValidSlug } from '../library';
 import { isTerminal } from '../pipeline';
 import type { Job, JobFailureCode, JobSnapshot, JobStatus, StartJobRequest } from '../pipeline';
 import { log } from '../security';
@@ -25,29 +27,115 @@ export interface RealRunConfig {
   budgetUsd: number;
   ledgerPath: string;
   timeoutMs: number;
+  /** Present in rebuild mode (ELI5_REAL_RUN_REBUILD; design §5), when `urls` is empty. */
+  rebuild?: RebuildRunConfig;
+}
+
+/** Rebuild mode: each listed document is regenerated from its source as a new version of itself. */
+export interface RebuildRunConfig {
+  /** 1-4 documents, in run order: the library slug and the absolute path of its one source file. */
+  entries: { slug: string; file: string }[];
+  /** ELI5_REAL_RUN_DRY=1: preflight and plan only; no provider call. */
+  dry: boolean;
+  /** ELI5_LLM_FAKE=1 in a test build: the fake LLM, no guard, no pricing, no money gates. */
+  rehearsal: boolean;
+  /** ELI5_REAL_RUN_PROMPT_SET: must equal the prompt set in effect, else the run refuses. */
+  promptSet?: string;
+  /** ELI5_REAL_RUN_DOC_GATE_USD: before each document the remaining cap must be at least this. */
+  docGateUsd: number;
+}
+
+export const MAX_REBUILD_DOCS = 4;
+export const DEFAULT_DOC_GATE_USD = 4;
+const PROMPT_SET_RE = /^[a-z0-9-]{1,40}$/;
+
+function parseRebuild(env: RealRunEnv, rehearsal: boolean): RebuildRunConfig {
+  const raw = (env.ELI5_REAL_RUN_REBUILD ?? '')
+    .split(',')
+    .map((e) => e.trim())
+    .filter(Boolean);
+  if (raw.length === 0) throw new Error('Real run refused: ELI5_REAL_RUN_REBUILD has no entry');
+  if (raw.length > MAX_REBUILD_DOCS) {
+    throw new Error(`Real run refused: ELI5_REAL_RUN_REBUILD takes 1-${MAX_REBUILD_DOCS} documents`);
+  }
+  const entries = raw.map((e) => {
+    const eq = e.indexOf('=');
+    if (eq <= 0) throw new Error('Real run refused: each ELI5_REAL_RUN_REBUILD entry is slug=/absolute/file');
+    const slug = e.slice(0, eq).trim();
+    const file = e.slice(eq + 1).trim();
+    if (!isValidSlug(slug)) throw new Error('Real run refused: an ELI5_REAL_RUN_REBUILD slug is not a valid slug');
+    if (!path.isAbsolute(file))
+      throw new Error('Real run refused: an ELI5_REAL_RUN_REBUILD file is not an absolute path');
+    return { slug, file };
+  });
+  if (new Set(entries.map((e) => e.slug)).size !== entries.length) {
+    throw new Error('Real run refused: ELI5_REAL_RUN_REBUILD names a slug twice');
+  }
+  for (const e of entries) {
+    let regular = false;
+    try {
+      regular = fs.lstatSync(e.file).isFile();
+    } catch {
+      regular = false;
+    }
+    if (!regular) throw new Error('Real run refused: an ELI5_REAL_RUN_REBUILD file is not a regular file');
+  }
+  const dryRaw = env.ELI5_REAL_RUN_DRY;
+  if (dryRaw !== undefined && dryRaw !== '1' && dryRaw !== '0' && dryRaw !== '') {
+    throw new Error('Real run refused: ELI5_REAL_RUN_DRY must be 1 when set');
+  }
+  const promptSet = env.ELI5_REAL_RUN_PROMPT_SET?.trim();
+  if (promptSet !== undefined && promptSet !== '' && !PROMPT_SET_RE.test(promptSet)) {
+    throw new Error('Real run refused: ELI5_REAL_RUN_PROMPT_SET is not a prompt set name');
+  }
+  let docGateUsd = DEFAULT_DOC_GATE_USD;
+  if (env.ELI5_REAL_RUN_DOC_GATE_USD !== undefined) {
+    docGateUsd = Number(env.ELI5_REAL_RUN_DOC_GATE_USD);
+    if (!env.ELI5_REAL_RUN_DOC_GATE_USD.trim() || !Number.isFinite(docGateUsd) || docGateUsd <= 0) {
+      throw new Error('Real run refused: ELI5_REAL_RUN_DOC_GATE_USD must be a positive number');
+    }
+  }
+  return {
+    entries,
+    dry: dryRaw === '1',
+    rehearsal,
+    ...(promptSet ? { promptSet } : {}),
+    docGateUsd,
+  };
 }
 
 export type RealRunEnv = Readonly<Record<string, string | undefined>>;
 
 /**
- * Reads ELI5_REAL_RUN_URLS (comma separated), ELI5_REAL_RUN_BUDGET_USD, and the optional
- * ELI5_REAL_RUN_LEDGER and ELI5_REAL_RUN_TIMEOUT_MS. Undefined when packaged or not requested;
- * throws on a malformed request so a typo never runs without a cap.
+ * Reads ELI5_REAL_RUN_URLS (comma separated) or ELI5_REAL_RUN_REBUILD (`slug=/abs/file`, comma
+ * separated, with the optional ELI5_REAL_RUN_DRY, ELI5_REAL_RUN_PROMPT_SET and
+ * ELI5_REAL_RUN_DOC_GATE_USD), ELI5_REAL_RUN_BUDGET_USD, and the optional ELI5_REAL_RUN_LEDGER and
+ * ELI5_REAL_RUN_TIMEOUT_MS. Undefined when packaged or not requested; throws on a malformed request
+ * so a typo never runs without a cap. ELI5_LLM_FAKE=1 is refused, except with REBUILD in a test
+ * build (`testBuild`), where it makes the run a rehearsal.
  */
 export function realRunConfigFromEnv(
   env: RealRunEnv,
-  o: { isPackaged: boolean; userData: string },
+  o: { isPackaged: boolean; userData: string; testBuild?: boolean },
 ): RealRunConfig | undefined {
-  if (o.isPackaged || env.ELI5_REAL_RUN_URLS === undefined) return undefined;
-  if (env.ELI5_LLM_FAKE === '1') throw new Error('Real run refused: ELI5_LLM_FAKE=1 is set');
+  const wantsRebuild = env.ELI5_REAL_RUN_REBUILD !== undefined;
+  if (o.isPackaged || (env.ELI5_REAL_RUN_URLS === undefined && !wantsRebuild)) return undefined;
+  if (wantsRebuild && env.ELI5_REAL_RUN_URLS !== undefined) {
+    throw new Error('Real run refused: ELI5_REAL_RUN_URLS and ELI5_REAL_RUN_REBUILD are mutually exclusive');
+  }
+  const fake = env.ELI5_LLM_FAKE === '1';
+  const rehearsal = fake && wantsRebuild && o.testBuild === true;
+  if (fake && !rehearsal) throw new Error('Real run refused: ELI5_LLM_FAKE=1 is set');
+  const rebuild = wantsRebuild ? parseRebuild(env, rehearsal) : undefined;
   const urls = [
     ...new Set(
-      env.ELI5_REAL_RUN_URLS.split(',')
+      (env.ELI5_REAL_RUN_URLS ?? '')
+        .split(',')
         .map((u) => u.trim())
         .filter(Boolean),
     ),
   ];
-  if (urls.length === 0) throw new Error('Real run refused: ELI5_REAL_RUN_URLS has no URL');
+  if (urls.length === 0 && !rebuild) throw new Error('Real run refused: ELI5_REAL_RUN_URLS has no URL');
   for (const u of urls) {
     let ok = false;
     try {
@@ -69,10 +157,14 @@ export function realRunConfigFromEnv(
       throw new Error('Real run refused: ELI5_REAL_RUN_TIMEOUT_MS must be a positive integer');
     }
   }
+  // D24: a rebuild spends on the owner's key, tallied on its own ledger, never the default dev one.
+  if (rebuild && !rebuild.rehearsal && !env.ELI5_REAL_RUN_LEDGER?.trim()) {
+    throw new Error('Real run refused: a rebuild needs its own ELI5_REAL_RUN_LEDGER (a new file for the owner key)');
+  }
   const ledgerPath = env.ELI5_REAL_RUN_LEDGER
     ? path.resolve(env.ELI5_REAL_RUN_LEDGER)
     : path.join(o.userData, 'devtools', 'real-run-ledger.jsonl');
-  return { urls, budgetUsd: budget, ledgerPath, timeoutMs };
+  return { urls, budgetUsd: budget, ledgerPath, timeoutMs, ...(rebuild ? { rebuild } : {}) };
 }
 
 /** The slice of the capability registry the pre-freeze hook needs. */
@@ -115,21 +207,33 @@ export interface RealRunSession {
 export function prepareRealRun(o: {
   env: RealRunEnv;
   isPackaged: boolean;
+  /** A test build (__ELI5_TEST__): only there may a rebuild run as a rehearsal on the fake LLM. */
+  testBuild?: boolean;
   userData: string;
   registry: GuardableRegistry;
   base?: ProviderFactories;
 }): RealRunSession | undefined {
-  const config = realRunConfigFromEnv(o.env, { isPackaged: o.isPackaged, userData: o.userData });
+  const config = realRunConfigFromEnv(o.env, {
+    isPackaged: o.isPackaged,
+    userData: o.userData,
+    ...(o.testBuild !== undefined ? { testBuild: o.testBuild } : {}),
+  });
   if (!config) return undefined;
   // Locked for the session: a concurrent run on the same ledger is refused (released on finish).
   const ledger = new BudgetLedger({ path: config.ledgerPath, capUsd: config.budgetUsd, lock: true });
   try {
-    installBudgetGuard(o.registry, ledger, o.base);
+    // A rehearsal keeps the fake the test build registered: nothing is priced or spent.
+    if (!config.rebuild?.rehearsal) installBudgetGuard(o.registry, ledger, o.base);
   } catch (err) {
     ledger.release();
     throw err;
   }
-  log.info('realrun.armed', { count: config.urls.length });
+  log.info('realrun.armed', {
+    count: config.rebuild?.entries.length ?? config.urls.length,
+    ...(config.rebuild
+      ? { kind: config.rebuild.rehearsal ? 'rehearsal' : config.rebuild.dry ? 'dry' : 'rebuild' }
+      : {}),
+  });
   return { config, ledger };
 }
 

@@ -115,6 +115,11 @@ export function libraryPort(lib: FsLibrary, over: Partial<PipelineLibrary> = {})
     docPath: (s, f) => lib.docPath(s, f),
     getEntry: (id) => lib.getEntry(id),
     reconcile: () => lib.reconcile(),
+    hasSlug: (s) => lib.hasSlug(s),
+    getMeta: (s) => lib.getMeta(s),
+    updateDocument: (s, p) => lib.updateDocument(s, p),
+    versions: (s) => lib.versions(s),
+    readVersion: (s, id) => lib.readVersion(s, id),
     ...over,
   };
 }
