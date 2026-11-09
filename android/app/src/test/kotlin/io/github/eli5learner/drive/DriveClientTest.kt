@@ -421,6 +421,22 @@ class DriveClientTest {
         }
 
     @Test
+    fun aDisabledDriveApiIsE_SYNC_API_DISABLEDWithoutRetry() =
+        runBlocking {
+            server.enqueue(error(403, "accessNotConfigured"))
+            expect(SyncErrorCode.E_SYNC_API_DISABLED) { client().create("i", "n", emptyMap(), "application/json", byteArrayOf(1)) }
+            // The newer error shape names it only in details[].reason.
+            server.enqueue(
+                json(
+                    """{"error":{"code":403,"status":"PERMISSION_DENIED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"SERVICE_DISABLED"}]}}""",
+                    403,
+                ),
+            )
+            expect(SyncErrorCode.E_SYNC_API_DISABLED) { client().create("i", "n", emptyMap(), "application/json", byteArrayOf(1)) }
+            assertTrue(sleeps.isEmpty())
+        }
+
+    @Test
     fun aRefused403IsNotRetried() =
         runBlocking {
             server.enqueue(error(403, "insufficientPermissions"))

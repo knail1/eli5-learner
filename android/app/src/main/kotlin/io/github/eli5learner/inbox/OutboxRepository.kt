@@ -234,7 +234,7 @@ class OutboxRepository(
             } catch (e: SyncException) {
                 when (e.code) {
                     SyncErrorCode.E_SYNC_AUTH -> SyncOutcome.NeedsReconnect
-                    SyncErrorCode.E_SYNC_QUOTA -> SyncOutcome.Failed(e.code)
+                    SyncErrorCode.E_SYNC_QUOTA, SyncErrorCode.E_SYNC_API_DISABLED -> SyncOutcome.Failed(e.code)
                     else -> SyncOutcome.Transient(e.code)
                 }
             } catch (e: IOException) {

@@ -5,7 +5,7 @@ import { buildSections } from './build';
 import { DocumentBuildError, DocumentMutationError, TooManyTabsError } from './errors';
 import { reanchorSection } from './glossary';
 import { capText, collapseWs } from './html';
-import { mintQaId, qaIdsOf, sectionIdsOf } from './ids';
+import { mintDiagramPrefix, mintQaId, qaIdsOf, sectionIdsOf } from './ids';
 import { cryptoIdSource, isSectionEli5TabKey, mintSectionEli5TabKey, tabKeyOfSectionId } from './section-id';
 import type {
   DocBlock,
@@ -18,7 +18,14 @@ import type {
   Tab,
 } from './types';
 import { ANIMATION_KEEP } from './animation';
-import { animationBudget, convertBlocks, countAnimations, countDocAnimations, isUserQuestion } from './validate';
+import {
+  animationBudget,
+  convertBlocks,
+  countAnimations,
+  countDocAnimations,
+  isUserQuestion,
+  svgIdPrefix,
+} from './validate';
 
 /** 07 §5.4: up to 3 fixed tabs (indepth, eli5, ste) + 20 section ELI5 tabs. */
 export const MAX_SECTION_ELI5_TABS = 20;
@@ -108,10 +115,15 @@ function pruneAssets(model: DocumentModel): DocumentModel {
  * 07 §8 / 08 §6.4 step 4: writes `draft` back under the same SectionId, origin 'regenerated',
  * `updatedAt`/`lastAction` set, and re-anchors that section's glossary notes (08 §6.5).
  */
-const STE_FIXED_VISUALS: ReadonlySet<DocBlock['type']> = new Set<DocBlock['type']>(['chart', 'diagram', 'table']);
+const STE_FIXED_VISUALS: ReadonlySet<DocBlock['type']> = new Set<DocBlock['type']>([
+  'chart',
+  'diagram',
+  'table',
+  'figure', // uploaded images and stock photos (audit round 3)
+]);
 
 /**
- * 08 §6.3 for an ASD-STE100 section: each chart, diagram or table the model returns is replaced, in
+ * 08 §6.3 for an ASD-STE100 section: each chart, diagram, table or figure (image or photo) the model returns is replaced, in
  * order, by the section's own block of that type, unchanged; one beyond those is dropped
  * (`ste-visual-dropped`), and one the model left out is put back at the end (`ste-visual-restored`).
  */
@@ -160,7 +172,7 @@ export function replaceSection(
     secs.reduce((n, s) => n + (s.id === id ? 0 : countAnimations(s.blocks)), 0);
   const rawHeading = collapseWs(draft.heading) || hit.section.heading;
   const heading = rawHeading.length > 120 ? rawHeading.slice(0, 119) + '…' : rawHeading;
-  // 08 §6.3: the ASD-STE100 tab keeps its charts, diagrams, tables and animations and never adds
+  // 08 §6.3: the ASD-STE100 tab keeps its charts, diagrams, tables, figures and animations and never adds
   // or changes one; only keep markers bring an animation back.
   const ste = hit.tab.kind === 'ste';
   const converted = convertBlocks(draft.blocks, {
@@ -357,13 +369,33 @@ export function addSectionEli5Tab(
   const tabKey = mintSectionEli5TabKey(idSource, takenKeys);
   const taken = new Set<string>([...sectionIdsOf(model.tabs), ...retired]);
   const warnings: string[] = [];
+  // The prompt shows the source section's animation as a keep marker (08 §6.2), so a returned
+  // marker takes a copy of it, in order (audit round 3). The copy is a new animation in a new tab,
+  // so it counts against the tab and document caps like any other (never forced past them).
+  const sourceIds = new Set<string>(opts.selectionOf && opts.selectionOf.length > 0 ? opts.selectionOf : [from]);
+  const keepPool = model.tabs
+    .flatMap((t) => t.sections)
+    .filter((s) => sourceIds.has(s.id))
+    .flatMap((s) => s.blocks)
+    .filter((b): b is Extract<DocBlock, { type: 'animation' }> => b.type === 'animation');
+  const budget = animationBudget({ n: countDocAnimations(model.tabs) });
   const sections = buildSections(draft.sections, {
     tabKey,
     now,
     idSource,
     taken,
     resolveFigure: assetResolver(model, opts),
-    takeAnimation: animationBudget({ n: countDocAnimations(model.tabs) }),
+    takeAnimation: () => budget(false),
+    keepAnimation: () => {
+      const b = keepPool.shift();
+      const p = b && svgIdPrefix(b.poster);
+      if (!b || !p) return b;
+      // A copy: its poster ids get a fresh prefix so the document never holds an id twice (07 §7.3).
+      const all = JSON.stringify(model.tabs);
+      let next = mintDiagramPrefix(idSource);
+      while (all.includes(next)) next = mintDiagramPrefix(idSource);
+      return { ...b, poster: b.poster.split(p).join(next) };
+    },
     warn: (w) => {
       warnings.push(w);
     },

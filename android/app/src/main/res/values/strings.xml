@@ -147,6 +147,7 @@
     <string name="sync_problem_offline">Offline. Documents on this phone still open.</string>
     <string name="sync_problem_format">Update ELI5 Learner to keep syncing</string>
     <string name="sync_problem_quota">Your Google Drive is full</string>
+    <string name="sync_problem_api_disabled">Turn on the Google Drive API in your Google Cloud project, then Sync now</string>
     <string name="sync_problem_error">Couldn’t sync just now. It tries again by itself.</string>
     <string name="sync_last">Last synced %1$s</string>
     <string name="sync_never">Not synced yet</string>

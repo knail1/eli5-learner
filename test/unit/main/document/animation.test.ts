@@ -130,6 +130,10 @@ describe('lint (design addendum: static lint, drop on a hit)', () => {
       'var peak = { location: 3 }; ctx.fillRect(peak.location, 0, 2, 2);',
       'var jar = { cookie: 5 }; jar.cookie -= 1;',
       'class Worker { constructor(id) { this.id = id; } } var w = new Worker(1);',
+      // Labels and comments that only look like the audit round 3 rules.
+      "ELI5.button('Refresh', go); ELI5.readout('Rate: ' + r); var t = 'File: 3';",
+      "var s = document.createElementNS('http://www.w3.org/2000/svg', 'g'); go(1); //draw the axes",
+      "var x = 'a/b' + '/c'; label('ratio 1/2');",
     ];
     for (const js of benign) expect(lintAnimation({ js }), js).toEqual([]);
     expect(lintAnimation({ js: 'go()', css: 'div{background:url(data:image/png;base64,AAAA)}' })).toEqual([]);
@@ -175,6 +179,18 @@ describe('lint (design addendum: static lint, drop on a hit)', () => {
     "el.innerHTML = '<script src=x></script>'",
     "el.style.background = 'url(https://x.example/a.png)'",
     'var s = "</script><script>alert(1)</script>"',
+    // a cloned shell meta turned into a refresh, the Navigation API, URLs inside strings (audit round 3)
+    "var m = document.head.querySelector('meta').cloneNode(); m.setAttribute('http-equiv', 'refresh'); m.setAttribute('content', '0;url=http:' + '/' + '/127.0.0.1:47123/meta'); document.head.appendChild(m);",
+    'var m = ELI5.stage.firstChild.cloneNode(true); document.body.appendChild(m);',
+    'var n = document.importNode(x, true);',
+    'var d = document.implementation.createDocument(ns, q);',
+    "x.setAttribute('content', '0; URL=https://evil.example/')",
+    "m.httpEquiv = 'Refresh';",
+    "navigation.navigate('http:' + '/' + '/evil.example/x')",
+    "label('see https://evil.example/x')",
+    "go('0;url=//evil.example/')",
+    "var u = '/' + '/evil.example';",
+    "var u = 'https:' + host;",
     // obfuscation heuristics
     "[]['constructor']['constructor']('return fetch')()",
     "(function () {}).constructor('return 1')()",
@@ -423,6 +439,59 @@ describe('section regenerate keeps animations (08 §6.4, design addendum)', () =
       ...fixtureInput('full'),
       indepth: { kind: 'indepth', title: 'T', sections: [section('S', para('Text.'), A)] },
     });
+
+  it('a section ELI5 tab honours the keep marker its prompt offers, as a copy within the caps (audit round 3)', () => {
+    // A poster with ids, so the copy's id prefix can be checked.
+    const poster =
+      '<svg viewBox="0 0 100 40"><defs><marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" ' +
+      'markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>' +
+      '<path d="M5 20L90 20" stroke="currentColor" marker-end="url(#arrow)"/></svg>';
+    const { model } = buildDocumentModel({
+      ...fixtureInput('full'),
+      indepth: { kind: 'indepth', title: 'T', sections: [section('S', para('Text.'), { ...A, poster })] },
+    });
+    const sec = model.tabs[0]?.sections[0];
+    if (!sec) throw new Error('fixture');
+    const old = sec.blocks.find((b) => b.type === 'animation') as AnimationBlock;
+    const keep: DraftBlock = {
+      type: 'animation',
+      title: '',
+      caption: '',
+      alt: '',
+      poster: ANIMATION_KEEP,
+      js: ANIMATION_KEEP,
+    };
+    const draft: DocumentDraftTab = {
+      kind: 'section-eli5' as 'eli5',
+      title: 'Simple',
+      sections: [section('S', para('Easy.'), keep)],
+    };
+    const r = addSectionEli5Tab(model, sec.id, 'Text.', draft, NOW, { idSource: new SeededIdSource(9) });
+    expect(r.warnings).not.toContain('animation-dropped');
+    const copy = r.model.tabs.at(-1)?.sections[0]?.blocks.find((b) => b.type === 'animation') as AnimationBlock;
+    expect(copy.js).toBe(old.js);
+    expect(copy.title).toBe(old.title);
+    // The poster's ids get a fresh prefix, so the document never holds an svg id twice.
+    const prefix = (svg: string): string | undefined => /\bid="(d[0-9a-f]{8}-)/.exec(svg)?.[1];
+    expect(prefix(old.poster)).toBeDefined();
+    expect(prefix(copy.poster)).not.toBe(prefix(old.poster));
+    expect(
+      validateDocument(renderDocument(r.model, new Map(), { runtime: STUB_RUNTIME })).errors.filter(
+        (e) => e.rule !== 'references',
+      ),
+    ).toEqual([]);
+    // The copy counts against the document cap: with four already, the marker is dropped.
+    const full = buildDocumentModel({
+      ...fixtureInput('full'),
+      indepth: { kind: 'indepth', title: 'T', sections: [1, 2].map((i) => section(`S${i}`, para('Text.'), A)) },
+      eli5: { kind: 'eli5', title: 'E', sections: [1, 2].map((i) => section(`E${i}`, para('Text.'), A)) },
+    }).model;
+    const from = full.tabs[0]?.sections[0]?.id;
+    if (!from) throw new Error('fixture');
+    const capped = addSectionEli5Tab(full, from, 'Text.', draft, NOW, { idSource: new SeededIdSource(9) });
+    expect(animationsOf(capped.model)).toBe(4);
+    expect(capped.warnings).toContain('animation-dropped');
+  });
 
   it('the model sees the animation as a keep marker, never its code or poster', () => {
     const { model } = doc();
@@ -698,7 +767,7 @@ describe('the sandboxed frame (07 §6.2, §7.1)', () => {
 
   it('keeps the runtime 1.3.0 shell (version 1) byte for byte, so frames built with it still parse', () => {
     expect(ANIMATION_SHELLS[0]).toEqual({ js: ANIMATION_SHELL_JS, css: ANIMATION_SHELL_CSS });
-    const v1 = ANIMATION_SHELLS[2];
+    const v1 = ANIMATION_SHELLS[3];
     if (!v1) throw new Error('version 1 shell missing');
     // The hashes of the shell that commit A1 shipped (runtime 1.3.0).
     expect(sha(v1.js)).toBe("'sha256-e0IZQWdbe3ACvYq4uAxQ5qL1XqULufinduwV3RqYVMk='");
@@ -718,8 +787,30 @@ describe('the sandboxed frame (07 §6.2, §7.1)', () => {
     expect(animationSrcdoc(parts)).toBe(current);
   });
 
+  it('keeps the runtime 1.3.2 shell (version 3) byte for byte; version 4 only adds the copy and navigation guards', () => {
+    const v3 = ANIMATION_SHELLS[1];
+    if (!v3) throw new Error('version 3 shell missing');
+    expect(sha(v3.js)).toBe("'sha256-CuW7KActI4XR8Y5CzOBDl6275PF6kd1D5JI8jAW/EEA='");
+    expect(v3.css).toBe(ANIMATION_SHELL_CSS);
+    for (const piece of [
+      "copyGuard(W.Node.prototype, 'cloneNode');",
+      "copyGuard(DP, 'importNode');",
+      "kill(W, 'navigation');",
+    ]) {
+      expect(ANIMATION_SHELL_JS).toContain(piece);
+      expect(v3.js).not.toContain(piece);
+    }
+    const current = animationSrcdoc(b);
+    const old = current.replace(sha(ANIMATION_SHELL_JS), () => sha(v3.js)).replace(ANIMATION_SHELL_JS, () => v3.js);
+    expect(old).not.toBe(current);
+    expect(parseAnimationSrcdoc(old)?.hashes).toEqual([sha(v3.js), sha(PACKING_JS)]);
+    const parts = parseAnimationSrcdoc(old);
+    if (!parts) throw new Error('version 3 frame did not parse');
+    expect(animationSrcdoc(parts)).toBe(current);
+  });
+
   it('keeps the runtime 1.3.1 shell (version 2) byte for byte; version 3 only adds the custom-elements kill', () => {
-    const v2 = ANIMATION_SHELLS[1];
+    const v2 = ANIMATION_SHELLS[2];
     if (!v2) throw new Error('version 2 shell missing');
     expect(sha(v2.js)).toBe("'sha256-qapybaZtPi+c5Z1d6LGoe3kSdvMLnHX5sxin4stl5r0='");
     expect(sha(v2.css)).toBe("'sha256-5FeL6y3VrX++DJ9B2wc2DA6xLWo3NFwwCZOL9bd3eNk='");
@@ -789,6 +880,12 @@ describe('validity: the only allowed iframe shape (07 §6.2, 13 §7.1)', () => {
       (h) => h.replace('<iframe sandbox="allow-scripts"', '<iframe src="https://x.example/" sandbox="allow-scripts"'),
     ],
     ['an extra attribute', (h) => h.replace('loading="lazy"', 'loading="lazy" allow="camera"')],
+    // Same count, one allowed attribute swapped for another (audit round 3).
+    ['an allowed attribute swapped for another', (h) => h.replace('loading="lazy"', 'allow="camera; microphone"')],
+    [
+      'two allowed attributes in another order',
+      (h) => h.replace(/ referrerpolicy="no-referrer" loading="lazy"/, ' loading="lazy" referrerpolicy="no-referrer"'),
+    ],
     [
       'a looser inner CSP',
       (h) => {
@@ -816,13 +913,20 @@ describe('validity: the only allowed iframe shape (07 §6.2, 13 §7.1)', () => {
     expect(rules(bad).length).toBeGreaterThan(0);
   });
 
-  it('rejects linted code even with matching hashes', () => {
+  it('checks stored code for structure, not the current lint (audit round 3)', () => {
+    // Code the current lint flags stands for code a later, stricter lint would flag: it was linted
+    // when written, so validity does not judge it again; the frame skeleton, hashes and CSP still are.
     const show2 = fixtureDocument('showcase');
     const b = show2.model.tabs[0]?.sections.flatMap((s) => s.blocks).find((x) => x.type === 'animation');
     if (b?.type !== 'animation') throw new Error('fixture');
     b.js = `${b.js}\nfetch('https://x.example')`;
     const html = renderDocument(show2.model, show2.assets, { runtime: STUB_RUNTIME, theme: show2.theme });
-    expect(rules(html)).toContain('animation-frame');
+    expect(rules(html)).not.toContain('animation-frame');
+    expect(srcdocOf(html)).toContain("connect-src 'none'");
+    // Oversized code is still rejected.
+    b.js = `${b.js}\n${'x'.repeat(17 * 1024)}`;
+    const big = renderDocument(show2.model, show2.assets, { runtime: STUB_RUNTIME, theme: show2.theme });
+    expect(rules(big)).toContain('animation-frame');
   });
 });
 
@@ -834,12 +938,43 @@ describe('parse and round-trip (07 §5.5, §8)', () => {
     expect(validateDocument(golden).errors).toEqual([]);
   });
 
-  it('a hand-edited model with linted code or a bad poster loses that animation on parse', () => {
+  it('a stored animation survives parse and a keep even when the lint would now flag it (audit round 3)', () => {
+    const golden = readGolden('showcase');
+    const p = parseDocument(golden);
+    const n = animationsOf(p.model);
+    const model = structuredClone(p.model);
+    const flagged = 'ELI5.readout("x").set(1);\nfetch("https://x.example")';
+    for (const t of model.tabs)
+      for (const s of t.sections) s.blocks = s.blocks.map((x) => (x.type === 'animation' ? { ...x, js: flagged } : x));
+    const html = renderDocument(model, p.assets, { runtime: p.runtime, theme: p.theme });
+    const again = parseDocument(html).model;
+    expect(animationsOf(again)).toBe(n);
+    expect(validateDocument(html).errors).toEqual([]);
+    // A keep marker takes the stored block back unchanged.
+    const sec = again.tabs[0]?.sections.find((s) => s.blocks.some((x) => x.type === 'animation'));
+    if (!sec) throw new Error('fixture');
+    const keep: DraftBlock = {
+      type: 'animation',
+      title: '',
+      caption: '',
+      alt: '',
+      poster: ANIMATION_KEEP,
+      js: ANIMATION_KEEP,
+    } as DraftBlock;
+    const r = replaceSection(again, sec.id, section('Again', para('Short.'), keep), 'reexplain', NOW);
+    expect(r.warnings).not.toContain('animation-dropped');
+    const kept2 = r.model.tabs[0]?.sections.find((s) => s.id === sec.id)?.blocks.find((x) => x.type === 'animation');
+    expect(kept2?.type === 'animation' && kept2.js).toBe(flagged);
+    // New code from the model is still linted.
+    expect(convert([{ ...A, js: flagged }]).warnings).toContain('animation-dropped');
+  });
+
+  it('a hand-edited model with a bad poster or oversized code loses that animation on parse', () => {
     const golden = readGolden('showcase');
     const p = parseDocument(golden);
     const b = p.model.tabs[0]?.sections.flatMap((s) => s.blocks).find((x) => x.type === 'animation');
     if (b?.type !== 'animation') throw new Error('fixture');
-    for (const edit of [{ js: 'fetch("https://x.example")' }, { poster: '<p>no</p>' }]) {
+    for (const edit of [{ js: 'x'.repeat(17 * 1024) }, { poster: '<p>no</p>' }, { js: 'keep' }]) {
       const model = structuredClone(p.model);
       for (const t of model.tabs)
         for (const s of t.sections) s.blocks = s.blocks.map((x) => (x.type === 'animation' ? { ...x, ...edit } : x));

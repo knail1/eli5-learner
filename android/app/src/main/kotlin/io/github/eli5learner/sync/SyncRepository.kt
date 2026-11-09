@@ -89,7 +89,7 @@ fun interface SyncRunner {
 }
 
 /** What the sync icon and its status sheet show (16 §6.2). Offline is a state, not an error. */
-enum class SyncProblem { OFFLINE, NEEDS_RECONNECT, FORMAT_TOO_NEW, DRIVE_FULL, ERROR }
+enum class SyncProblem { OFFLINE, NEEDS_RECONNECT, FORMAT_TOO_NEW, DRIVE_FULL, DRIVE_API_DISABLED, ERROR }
 
 /** The primary Mac as this phone last saw it (16 §4.3). */
 data class MacInfo(
@@ -642,7 +642,7 @@ class SyncRepository(
     private fun outcomeOf(e: SyncException): SyncOutcome =
         when (e.code) {
             SyncErrorCode.E_SYNC_AUTH -> SyncOutcome.NeedsReconnect
-            SyncErrorCode.E_SYNC_QUOTA -> SyncOutcome.Failed(e.code)
+            SyncErrorCode.E_SYNC_QUOTA, SyncErrorCode.E_SYNC_API_DISABLED -> SyncOutcome.Failed(e.code)
             SyncErrorCode.E_SYNC_FORMAT -> SyncOutcome.FormatTooNew
             else -> SyncOutcome.Transient(e.code)
         }
@@ -652,7 +652,12 @@ class SyncRepository(
             SyncOutcome.Synced, SyncOutcome.NotConnected -> null
             SyncOutcome.NeedsReconnect -> SyncProblem.NEEDS_RECONNECT
             SyncOutcome.FormatTooNew -> SyncProblem.FORMAT_TOO_NEW
-            is SyncOutcome.Failed -> if (o.code == SyncErrorCode.E_SYNC_QUOTA) SyncProblem.DRIVE_FULL else SyncProblem.ERROR
+            is SyncOutcome.Failed ->
+                when (o.code) {
+                    SyncErrorCode.E_SYNC_QUOTA -> SyncProblem.DRIVE_FULL
+                    SyncErrorCode.E_SYNC_API_DISABLED -> SyncProblem.DRIVE_API_DISABLED
+                    else -> SyncProblem.ERROR
+                }
             is SyncOutcome.Transient -> if (o.code == SyncErrorCode.E_SYNC_HTTP) SyncProblem.OFFLINE else SyncProblem.ERROR
         }
 

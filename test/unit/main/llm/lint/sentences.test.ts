@@ -21,6 +21,16 @@ describe('sentence splitter (02 §12.2)', () => {
     expect(splitSentences('')).toEqual([]);
   });
 
+  it('ends a sentence at "No." and at a letter before a sentence opener (audit round 3)', () => {
+    expect(splitSentences('Is it hot? No. It is cold.')).toEqual(['Is it hot?', 'No.', 'It is cold.']);
+    expect(splitSentences('We chose plan A. Then we built it.')).toEqual(['We chose plan A.', 'Then we built it.']);
+    expect(splitSentences('See No. 5 on the list. It is red.')).toEqual(['See No. 5 on the list.', 'It is red.']);
+    expect(splitSentences('The book is by J. R. Tolkien. It is long.')).toEqual([
+      'The book is by J. R. Tolkien.',
+      'It is long.',
+    ]);
+  });
+
   it('counts words with letters or digits only', () => {
     expect(wordCount('The plan - in 2 steps - works.')).toBe(6);
   });

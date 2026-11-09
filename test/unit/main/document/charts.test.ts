@@ -239,6 +239,20 @@ describe('normalizeChart (07 §5.2)', () => {
     expect(stacked.chart?.footnote).toBeUndefined();
   });
 
+  it('grouped bars rank series by total, not by mean, when values are missing (07 §5.2; audit round 3)', () => {
+    const cats = '0123456789'.split('');
+    const filler = (n: string) => ({ name: n, values: cats.map(() => 47) }); // mean 47, total 470
+    // A: 50 in 8 categories plus 2 gaps (mean 50, total 400); B: 45 in all 10 (mean 45, total 450).
+    const a = { name: 'A', values: [50, 50, 50, 50, null, 50, 50, 50, null, 50] };
+    const b = { name: 'B', values: cats.map(() => 45) };
+    const all = [a, b, filler('f1'), filler('f2'), filler('f3')];
+    const grouped = run(base({ categories: cats, series: all }));
+    expect(grouped.chart?.series.map((x) => x.name)).toEqual(['B', 'f1', 'f2', 'f3']);
+    // Lines still rank by mean |value|.
+    const line = run(base({ kind: 'line', categories: cats, series: all }));
+    expect(line.chart?.series.map((x) => x.name)).toEqual(['A', 'f1', 'f2', 'f3']);
+  });
+
   it('drops a series missing more than 20 % of its values and says so', () => {
     const cats = '0123456789'.split('');
     const sparse = { name: 'Thin', values: [1, null, null, null, 5, 6, 7, 8, 9, 10] };

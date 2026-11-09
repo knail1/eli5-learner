@@ -185,6 +185,11 @@ export class FakeDrive {
     this.faults.push({ match: fn, status, reason, times });
   }
 
+  /** Removes every injected failure. */
+  clearFaults(): void {
+    this.faults.length = 0;
+  }
+
   /** Expire every change token issued so far (the next `changes` with one gets 410). */
   expireTokens(): void {
     this.minToken = this.log.length + 1;

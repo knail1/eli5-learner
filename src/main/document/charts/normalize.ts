@@ -305,7 +305,7 @@ function normalizePie(chart: ChartSpec, warn: (w: string) => void): ChartSpec {
 
 /**
  * Series caps: lines/areas/scatter keep the four largest by mean |value| (a highlight names a
- * category, so it never picks a series); grouped bars keep the four largest; stacked bars fold the
+ * category, so it never picks a series); grouped bars keep the four largest totals; stacked bars fold the
  * rest into an "Other" series. The number of dropped series is given in the footnote.
  */
 function capSeries(chart: ChartSpec, warn: (w: string) => void): ChartSpec {
@@ -326,8 +326,11 @@ function capSeries(chart: ChartSpec, warn: (w: string) => void): ChartSpec {
     };
     return { ...keepSeries(chart, keep), series: [...keepSeries(chart, keep).series, other] };
   }
+  // 07 §5.2: grouped bars rank by total (missing values count as nothing), lines by mean |value|.
+  const score = (values: readonly (number | null)[]): number =>
+    chart.kind === 'bar' ? (sumOf(values) ?? -Infinity) : meanAbs(values);
   const ranked = chart.series
-    .map((s, i) => ({ i, score: meanAbs(s.values) }))
+    .map((s, i) => ({ i, score: score(s.values) }))
     .sort((a, b) => b.score - a.score || a.i - b.i);
   const keep = new Set(ranked.slice(0, max).map((r) => r.i));
   const more = chart.series.length - keep.size;

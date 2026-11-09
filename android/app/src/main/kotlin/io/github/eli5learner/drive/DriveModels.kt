@@ -100,6 +100,12 @@ enum class SyncErrorCode {
     /** Drive storage full; "Your Google Drive is full". */
     E_SYNC_QUOTA,
 
+    /**
+     * The Drive API is not enabled in the Cloud project (403 `accessNotConfigured`, or
+     * `SERVICE_DISABLED` in `details`); never retried, "Turn on the Google Drive API ...".
+     */
+    E_SYNC_API_DISABLED,
+
     /** The remote format is newer than this app; read-only, "Update ELI5 Learner to keep syncing". */
     E_SYNC_FORMAT,
 

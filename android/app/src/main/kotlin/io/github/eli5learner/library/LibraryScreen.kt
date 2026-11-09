@@ -166,6 +166,7 @@ fun SyncStatusSheet(
                 status.problem == SyncProblem.OFFLINE -> R.string.sync_problem_offline
                 status.problem == SyncProblem.FORMAT_TOO_NEW -> R.string.sync_problem_format
                 status.problem == SyncProblem.DRIVE_FULL -> R.string.sync_problem_quota
+                status.problem == SyncProblem.DRIVE_API_DISABLED -> R.string.sync_problem_api_disabled
                 status.problem != null -> R.string.sync_problem_error
                 else -> R.string.sync_state_synced
             }

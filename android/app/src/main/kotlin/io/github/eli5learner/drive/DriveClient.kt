@@ -165,6 +165,7 @@ class DriveClient(
             }
             throw when {
                 reason in QUOTA_REASONS -> SyncException(SyncErrorCode.E_SYNC_QUOTA, status = status)
+                status == 403 && reason in API_DISABLED_REASONS -> SyncException(SyncErrorCode.E_SYNC_API_DISABLED, status = status)
                 status == 404 -> SyncException(SyncErrorCode.E_SYNC_NOT_FOUND, "Remote file not found", status)
                 status == 410 -> SyncException(SyncErrorCode.E_SYNC_TOKEN, "Change token expired", status)
                 else -> SyncException(SyncErrorCode.E_SYNC_HTTP, "Drive request failed ($status)", status)
@@ -192,21 +193,23 @@ class DriveClient(
             throw SyncException(SyncErrorCode.E_SYNC_HTTP, "Drive response could not be read")
         }
 
-    /** The first `error.errors[].reason`, or a string `error` (OAuth style), from an error body. */
+    /**
+     * The first `error.errors[].reason`, or a string `error` (OAuth style), from an error body; when
+     * only `error.details[]` names a reason the API is disabled (`SERVICE_DISABLED`), that one.
+     */
     private suspend fun errorReason(res: Response): String? {
         val bytes = runCatching { bytesOf(res) }.getOrNull() ?: return null
         return runCatching {
             val error = DriveJson.parseToJsonElement(bytes.decodeToString()).jsonObject["error"]
             when (error) {
                 is JsonPrimitive -> error.content
-                is JsonObject ->
-                    error["errors"]
-                        ?.jsonArray
-                        ?.firstOrNull()
-                        ?.jsonObject
-                        ?.get("reason")
-                        ?.jsonPrimitive
-                        ?.content
+                is JsonObject -> {
+                    fun reasons(key: String): List<String> =
+                        error[key]?.jsonArray?.mapNotNull { (it as? JsonObject)?.get("reason")?.jsonPrimitive?.content }
+                            ?: emptyList()
+                    val first = reasons("errors").firstOrNull()
+                    first ?: reasons("details").firstOrNull { it in API_DISABLED_REASONS }
+                }
                 else -> null
             }
         }.getOrNull()
@@ -571,6 +574,7 @@ class DriveClient(
         private const val MAX_PAGES = 10_000
 
         private val QUOTA_REASONS = setOf("storageQuotaExceeded", "quotaExceeded")
+        private val API_DISABLED_REASONS = setOf("accessNotConfigured", "SERVICE_DISABLED")
         private val BODY_METHODS = setOf("POST", "PUT", "PATCH")
         private val EMPTY_BODY = ByteArray(0).toRequestBody(null)
         private val JSON = "application/json; charset=UTF-8".toMediaType()

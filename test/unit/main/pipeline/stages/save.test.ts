@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { parseDocument } from '../../../../../src/main/document';
 import type { DocumentMeta, SectionId } from '../../../../../src/main/library';
 import { snapshotOf, type Job, type RebuildTarget } from '../../../../../src/main/pipeline';
+import { SeededIdSource } from '../../../../helpers/ids';
 import { fileInput, harness, type Harness } from '../harness';
 
 const opts = { clarifyingInput: '', glossary: true };
@@ -54,6 +55,17 @@ async function created(h: Harness): Promise<{ slug: string; meta: DocumentMeta; 
   );
   const meta = JSON.parse(await readFile(h.lib.docPath(slug, 'meta.json'), 'utf8')) as DocumentMeta;
   return { slug, meta, html: await readFile(h.lib.docPath(slug), 'utf8') };
+}
+
+/** Replays the same id stream after reset(), so only the reserved set can stop a collision. */
+class ReplayIdSource {
+  private src = new SeededIdSource(5);
+  reset(): void {
+    this.src = new SeededIdSource(5);
+  }
+  hex(chars: number): string {
+    return this.src.hex(chars);
+  }
 }
 
 async function target(h: Harness, slug: string, over: Partial<RebuildTarget> = {}): Promise<RebuildTarget> {
@@ -118,6 +130,61 @@ describe('saving a rebuild as a new version (design §5)', { timeout: 20_000 }, 
     // Rebuild report kept on the job for the driver's summary.
     expect(job.rebuild?.report).toMatchObject({ eli5Critique: expect.any(String) as string });
     expect(job.rebuild?.report?.steLint).toMatchObject({ sentences: expect.any(Number) as number });
+  });
+
+  it('never re-mints a live id or an id an older version retired, even from a replayed id stream (audit round 3)', async () => {
+    const ids = new ReplayIdSource();
+    let stripLiveRetired = false;
+    const h = await harness({
+      deps: { sectionIds: ids },
+      libraryOver: (lib) => ({
+        getMeta: async (slug) => {
+          const m = await lib.getMeta(slug);
+          return stripLiveRetired ? { ...m, retiredIds: [] } : m;
+        },
+      }),
+    });
+    const before = await created(h);
+    const createIds = sectionIds(before.html);
+
+    // Rebuild 1 replays the create's stream: the live ids are reserved, so none comes back.
+    ids.reset();
+    const first = await rebuild(h, await target(h, before.slug));
+    expect(first.status).toBe('done');
+    const firstIds = sectionIds(await readFile(h.lib.docPath(before.slug), 'utf8'));
+    expect(firstIds.filter((id) => createIds.includes(id))).toEqual([]);
+
+    // Rebuild 2 replays it again with the live retiredIds hidden: only the versions' own retiredIds
+    // (which name the create's ids) stop the create's ids from coming back.
+    ids.reset();
+    stripLiveRetired = true;
+    const second = await rebuild(h, await target(h, before.slug));
+    expect(second.status).toBe('done');
+    const secondIds = sectionIds(await readFile(h.lib.docPath(before.slug), 'utf8'));
+    expect(secondIds.filter((id) => createIds.includes(id) || firstIds.includes(id))).toEqual([]);
+  });
+
+  it('a rebuild whose STE draft builds to no tab reports no STE lint and no ste prompt (audit round 3)', async () => {
+    let emptySte = false;
+    const h = await harness({
+      tasks: (t) => ({
+        ...t,
+        generateSte: async (...a) => {
+          const r = await t.generateSte(...a);
+          if (!emptySte) return r;
+          const sections = [{ heading: 'Empty', blocks: [{ type: 'paragraph' as const, md: '   ' }] }];
+          return { ...r, draft: { ...r.draft, tab: { ...r.draft.tab, sections }, origins: [[null]] } };
+        },
+      }),
+    });
+    const before = await created(h);
+    emptySte = true;
+    const job = await rebuild(h, await target(h, before.slug));
+    expect(job.status).toBe('done');
+    expect(job.rebuild?.report?.steLint).toBeNull();
+    const after = JSON.parse(await readFile(h.lib.docPath(before.slug, 'meta.json'), 'utf8')) as DocumentMeta;
+    expect(after.tabs.map((x) => x.key)).toEqual(['indepth', 'eli5']);
+    expect(after.generation.prompts.some((p) => p.startsWith('ste@'))).toBe(false);
   });
 
   it('seeds the initial node for an unversioned document and makes the rebuild its child (kind outside, Rebuilt label)', async () => {

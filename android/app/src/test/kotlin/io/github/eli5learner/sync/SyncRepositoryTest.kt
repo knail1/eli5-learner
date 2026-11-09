@@ -374,6 +374,10 @@ class SyncRepositoryTest {
             drive.failNext = SyncException(SyncErrorCode.E_SYNC_HTTP, "Network error")
             assertEquals(SyncOutcome.Transient(SyncErrorCode.E_SYNC_HTTP), r.sync())
             assertEquals(SyncProblem.OFFLINE, r.status.value.problem)
+            // audit round 3: a disabled Drive API is a hard failure (no worker retry) with its own text
+            drive.failNext = SyncException(SyncErrorCode.E_SYNC_API_DISABLED, status = 403)
+            assertEquals(SyncOutcome.Failed(SyncErrorCode.E_SYNC_API_DISABLED), r.sync())
+            assertEquals(SyncProblem.DRIVE_API_DISABLED, r.status.value.problem)
             drive.failNext = SyncException(SyncErrorCode.E_SYNC_AUTH, status = 401)
             assertEquals(SyncOutcome.NeedsReconnect, r.sync())
             assertEquals(SyncOutcome.Synced, r.sync())

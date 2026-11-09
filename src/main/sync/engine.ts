@@ -423,7 +423,10 @@ export class SyncEngine {
       } finally {
         this.running = undefined;
         this.emit();
-        if (!this.stopped) this.schedulePoll(this.d.pollSeconds() * 1000);
+        // A disabled Drive API never fixes itself: no polling until the user turns it on and
+        // presses Sync now (or another trigger runs a pass).
+        if (!this.stopped && codeOf(this.lastError) !== 'E_SYNC_API_DISABLED')
+          this.schedulePoll(this.d.pollSeconds() * 1000);
       }
     })();
     this.emit();

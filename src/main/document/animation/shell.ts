@@ -12,9 +12,11 @@
 // String.raw keeps the source text exactly.
 
 /**
- * Version 3 of the shell script: version 2 (version 1 with the shared chart palette, 07 §11.1) that
- * also removes custom elements, since a customized built-in (`new F()` for a class extending
- * HTMLAnchorElement) creates a banned element without createElement.
+ * Version 4 of the shell script: version 3 (version 2 that also removes custom elements, since a
+ * customized built-in creates a banned element without createElement; version 2 is version 1 with
+ * the shared chart palette, 07 §11.1) that also removes every banned element already in the frame
+ * (its own metas too), denies cloneNode, importNode and createDocument results that are or hold a
+ * banned element, and removes the Navigation API (audit round 3: a cloned meta refresh).
  */
 export const ANIMATION_SHELL_JS = String.raw`(function () {
   'use strict';
@@ -76,6 +78,31 @@ export const ANIMATION_SHELL_JS = String.raw`(function () {
       return mkNS.call(this, ns, n, o);
     } });
   } catch (e) {}
+  // Version 4: no element that can navigate, refresh or preload stays in the frame (the shell's own
+  // metas included: their policies stay in force once parsed), and none can be copied in.
+  var sel = banned.join(',');
+  try {
+    Array.prototype.forEach.call(D.querySelectorAll(sel), function (e) { if (e.localName !== 'script') e.remove(); });
+  } catch (e) {}
+  function copyGuard(o, k) {
+    var f = o && o[k];
+    if (typeof f !== 'function') return;
+    try {
+      Object.defineProperty(o, k, { writable: false, configurable: false, value: function () {
+        var n = f.apply(this, arguments);
+        if (n && ((n.nodeType === 1 && bannedTag(n.localName)) || (n.querySelector && n.querySelector(sel)))) deny();
+        return n;
+      } });
+    } catch (e) {}
+  }
+  copyGuard(W.Node.prototype, 'cloneNode');
+  copyGuard(DP, 'importNode');
+  try {
+    var mkDoc = W.DOMImplementation.prototype.createDocument;
+    Object.defineProperty(W.DOMImplementation.prototype, 'createDocument', { writable: false, configurable: false,
+      value: function (ns, n, t) { if (n && bannedTag(n)) deny(); return mkDoc.call(this, ns, n, t); } });
+  } catch (e) {}
+  kill(W, 'navigation');
   var themes = {
     light: { paper: '#fbfaf7', ink: '#1b1b1b', muted: '#5a5a5a', grid: '#e4e0d7', accent: '#0f5fa8',
       series: ['#0067a5', '#b84c00', '#a12a7e', '#4a4a4a', '#047c74', '#2e7514', '#5a32e0', '#7e6600'] },
@@ -249,7 +276,7 @@ export const ANIMATION_SHELL_JS = String.raw`(function () {
   if (W.ResizeObserver) new W.ResizeObserver(function () { height(false); }).observe(D.body);
 })();`;
 
-/** Version 2 of the shell stylesheet (also used by version 3): theme tokens, layout at 320 px and up, accessible controls. */
+/** Version 2 of the shell stylesheet (also used by versions 3 and 4): theme tokens, layout at 320 px and up, accessible controls. */
 export const ANIMATION_SHELL_CSS =
   ':root{color-scheme:light dark;--paper:#fbfaf7;--ink:#1b1b1b;--muted:#5a5a5a;--grid:#e4e0d7;--accent:#0f5fa8;' +
   '--s1:#0067a5;--s2:#b84c00;--s3:#a12a7e;--s4:#4a4a4a;--s5:#047c74;--s6:#2e7514;--s7:#5a32e0;--s8:#7e6600}' +
@@ -273,11 +300,18 @@ export const ANIMATION_SHELL_CSS =
   'button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}' +
   '.eli5-readout{margin:8px 0 0;font-variant-numeric:tabular-nums}';
 
+// Version 3 (runtime 1.3.2) is version 4 without the lines between its "Version 4" comment and
+// the theme table; its stylesheet is the current one. A test pins its exact hashes.
+const V4_START = '  // Version 4: ';
+const SHELL_V3_JS =
+  ANIMATION_SHELL_JS.slice(0, ANIMATION_SHELL_JS.indexOf(V4_START)) +
+  ANIMATION_SHELL_JS.slice(ANIMATION_SHELL_JS.indexOf('  var themes = {'));
+
 // Version 2 (runtime 1.3.1) is version 3 without the custom-elements lines; its stylesheet is the
 // current one. A test pins its exact hashes.
 const CUSTOM_ELEMENTS_V3 =
   "  try { guard(W.CustomElementRegistry.prototype, 'define'); } catch (e) {}\n  kill(W, 'customElements');\n";
-const SHELL_V2_JS = ANIMATION_SHELL_JS.replace(CUSTOM_ELEMENTS_V3, '');
+const SHELL_V2_JS = SHELL_V3_JS.replace(CUSTOM_ELEMENTS_V3, '');
 
 // Version 1 (runtime 1.3.0) differs from version 2 only in its series colours, so it is derived
 // from version 2 by swapping them back; a test pins its exact hashes.
@@ -303,6 +337,7 @@ const SHELL_V1_CSS = shellV1(ANIMATION_SHELL_CSS, seriesCss);
 /** Every shell version a valid document may contain, newest first (07 §6.2 validity). */
 export const ANIMATION_SHELLS: readonly { js: string; css: string }[] = [
   { js: ANIMATION_SHELL_JS, css: ANIMATION_SHELL_CSS },
+  { js: SHELL_V3_JS, css: ANIMATION_SHELL_CSS },
   { js: SHELL_V2_JS, css: ANIMATION_SHELL_CSS },
   { js: shellV1(SHELL_V2_JS, seriesJs), css: SHELL_V1_CSS },
 ];

@@ -75,6 +75,8 @@ interface Req {
 
 const RETRY_403_REASONS = new Set(['userRateLimitExceeded', 'rateLimitExceeded']);
 const QUOTA_REASONS = new Set(['storageQuotaExceeded', 'quotaExceeded']);
+/** The Drive API is not enabled in the Cloud project: `errors[].reason` or `details[].reason`. */
+const API_DISABLED_REASONS = new Set(['accessNotConfigured', 'SERVICE_DISABLED']);
 
 function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -144,11 +146,18 @@ export function nextOffsetFromRange(range: string | null): number {
   return m ? Number(m[1]) + 1 : 0;
 }
 
-async function errorReason(res: Response): Promise<{ reason?: string; message?: string }> {
+async function errorReason(res: Response): Promise<{ reason?: string; message?: string; apiDisabled?: boolean }> {
   try {
-    const j = (await res.json()) as { error?: { errors?: Array<{ reason?: string }>; message?: string } | string };
+    const j = (await res.json()) as {
+      error?: { errors?: Array<{ reason?: string }>; details?: Array<{ reason?: string }>; message?: string } | string;
+    };
     if (typeof j.error === 'string') return { reason: j.error };
-    return { reason: j.error?.errors?.[0]?.reason, message: j.error?.message };
+    const reasons = [...(j.error?.errors ?? []), ...(j.error?.details ?? [])].map((e) => e?.reason);
+    return {
+      reason: j.error?.errors?.[0]?.reason,
+      message: j.error?.message,
+      apiDisabled: reasons.some((r) => typeof r === 'string' && API_DISABLED_REASONS.has(r)),
+    };
   } catch {
     return {};
   }
@@ -222,7 +231,7 @@ export class DriveClient {
         attempt--; // a token refresh is not a backoff attempt
         continue;
       }
-      const { reason } = await errorReason(res);
+      const { reason, apiDisabled } = await errorReason(res);
       const retryable =
         status === 429 || status >= 500 || (status === 403 && reason !== undefined && RETRY_403_REASONS.has(reason));
       if (retryable && attempt + 1 < this.maxAttempts) {
@@ -231,6 +240,8 @@ export class DriveClient {
         continue;
       }
       if (reason !== undefined && QUOTA_REASONS.has(reason)) throw new SyncError('E_SYNC_QUOTA', undefined, status);
+      // Never retried: nothing changes until the user enables the API (then "Sync now").
+      if (status === 403 && apiDisabled) throw new SyncError('E_SYNC_API_DISABLED', undefined, status);
       if (status === 404) throw new SyncError('E_SYNC_NOT_FOUND', 'Remote file not found', status);
       if (status === 410) throw new SyncError('E_SYNC_TOKEN', 'Change token expired', status);
       log.warn('sync.drive.failed', { status, code: reason ?? 'unknown' });

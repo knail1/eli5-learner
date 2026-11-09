@@ -8,7 +8,7 @@ import { defaultReferenceFormatter } from './references';
 import { DOC_RUNTIME_VERSION } from './runtime-assets';
 import { cryptoIdSource, ELI5_TAB_KEY, INDEPTH_TAB_KEY, mintSectionId, STE_TAB_KEY, type IdSource } from './section-id';
 import { docThemeRef } from './theme';
-import type { AssetCredit, AssetRef, BuildInput, BuildResult, DocumentModel, Section, Tab } from './types';
+import type { AssetCredit, AssetRef, BuildInput, BuildResult, DocBlock, DocumentModel, Section, Tab } from './types';
 import { convertBlocks, countAnimations, animationBudget } from './validate';
 
 export const MAX_TITLE = 120;
@@ -74,6 +74,8 @@ export interface SectionBuildContext {
   warn(w: string): void;
   /** Tab and document animation caps (validate.ts animationBudget); absent: per section only. */
   takeAnimation?(force?: boolean): boolean;
+  /** A keep marker's animation (validate.ts ConvertContext.keepAnimation); absent: markers drop. */
+  keepAnimation?(): Extract<DocBlock, { type: 'animation' }> | undefined;
   /** When given, receives the draft index of each kept section (07 §9.1 step 2 indexes drafts). */
   draftIndices?: number[];
 }
@@ -93,6 +95,7 @@ export function buildSections(drafts: DocumentDraftTab['sections'], ctx: Section
       resolveFigure: ctx.resolveFigure,
       ...(resolvePhoto ? { resolvePhoto: (bi: number) => resolvePhoto(di, bi) } : {}),
       ...(ctx.takeAnimation ? { takeAnimation: ctx.takeAnimation } : {}),
+      ...(ctx.keepAnimation ? { keepAnimation: ctx.keepAnimation } : {}),
       heading,
       warn: ctx.warn,
     });

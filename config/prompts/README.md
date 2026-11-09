@@ -111,7 +111,8 @@ must resolve (after symlinks) inside this folder. A set folder may contain only 
 app uses `default`. A broken `default` stops the app at startup.
 
 `wsj-v1` is the frozen baseline: `in-depth.md` (v3) and `eli5.md` (v4) exactly as they shipped before
-prompt sets, so the earlier behaviour is one setting away.
+prompt sets, so their earlier wording is one setting away. It swaps only those two prompts: the
+ASD-STE100 and ELI5 critique steps (and their model calls) still run, as in `default`.
 
 ## Provenance
 

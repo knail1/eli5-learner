@@ -123,6 +123,11 @@ try { document.createElement('div').innerHTML = '<iframe></iframe>'; r.html = 's
 try { ELI5.el('div', { onclick: 'x()' }); r.attr = 'set'; } catch (e) { r.attr = 'threw'; }
 r.ces = typeof customElements;
 try { CustomElementRegistry.prototype.define.call(null, 'x-a', class extends HTMLElement {}); r.define = 'ran'; } catch (e) { r.define = e instanceof TypeError && /ELI5/.test(e.message) ? 'denied' : 'threw'; }
+r.metas = String(document.querySelectorAll('meta').length);
+try { document.body.cloneNode(true); r.clone = 'made'; } catch (e) { r.clone = 'threw'; }
+try { document.importNode(document.createElement('div'), true); r.importDiv = 'ok'; } catch (e) { r.importDiv = 'threw'; }
+try { document.implementation.createDocument('http://www.w3.org/1999/xhtml', 'meta'); r.createDoc = 'made'; } catch (e) { r.createDoc = 'threw'; }
+r.navigation = typeof navigation;
 r.fetch = typeof fetch; r.xhr = typeof XMLHttpRequest; r.ws = typeof WebSocket;
 r.rtc = typeof RTCPeerConnection; r.worker = typeof Worker; r.open = typeof open;
 try { r.storage = typeof localStorage; } catch (e) { r.storage = 'threw'; }
@@ -159,6 +164,12 @@ test('a hostile frame cannot read the parent, reach the network or navigate', as
     // audit round 2: no customized built-in (new F() for a class extending HTMLAnchorElement)
     ces: 'undefined',
     define: 'denied',
+    // audit round 3: no meta to copy into a refresh, no copy of a banned element, no Navigation API
+    metas: '0',
+    clone: 'threw',
+    importDiv: 'ok',
+    createDoc: 'threw',
+    navigation: 'undefined',
     fetch: 'undefined',
     xhr: 'undefined',
     ws: 'undefined',

@@ -49,10 +49,12 @@ function resanitizeDiagrams(model: DocumentModel): void {
   const clean = (sec: Section): void => {
     sec.blocks = sec.blocks.flatMap((b): DocBlock[] => {
       if (b.type === 'animation') {
-        // 07 §8: the same checks as at build (poster sanitizer, caps, lint); a fixed point for
-        // builder output, so round-trips stay byte-exact. A hand-edited one that fails is dropped.
+        // 07 §8: the build checks (poster sanitizer, caps, frame structure) except the code lint,
+        // which ran when the code was written, so a later, stricter lint never deletes a saved
+        // animation (audit round 3). A fixed point for builder output, so round-trips stay
+        // byte-exact. A hand-edited one that fails is dropped.
         const prefix = svgIdPrefix(b.poster) ?? `d${sha256Hex(new TextEncoder().encode(b.poster)).slice(0, 8)}-`;
-        const kept = checkAnimation(b, prefix);
+        const kept = checkAnimation(b, prefix, { stored: true });
         return kept ? [kept] : [];
       }
       if (b.type !== 'diagram') return [b];

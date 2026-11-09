@@ -166,6 +166,26 @@ describe('generating step 1b (06 §5.4)', () => {
     }
   });
 
+  it('an STE draft that builds to no tab is not listed in generation.prompts (audit round 3)', async () => {
+    const h = await harness({
+      tasks: (t) => ({
+        ...t,
+        generateSte: async (...a) => {
+          const r = await t.generateSte(...a);
+          const sections = [{ heading: 'Empty', blocks: [{ type: 'paragraph' as const, md: '   ' }] }];
+          return { ...r, draft: { ...r.draft, tab: { ...r.draft.tab, sections }, origins: [[null]] } };
+        },
+      }),
+    });
+    const { jobId } = await h.queue.start({ inputs: [fileInput('sources/text/notes.md')], options: opts });
+    const job = await h.finished(jobId);
+    expect(job.status).toBe('done');
+    expect(job.warnings.map((w) => w.kind)).toEqual(['ste-omitted']);
+    const meta = await h.lib.getMeta(job.result?.topicSlug ?? '');
+    expect(meta.tabs.map((t) => t.key)).toEqual(['indepth', 'eli5']);
+    expect(meta.generation.prompts.some((p) => p.startsWith('ste@'))).toBe(false);
+  });
+
   it('logs the tokens of a failed step that already got a response (D25)', async () => {
     const log = recordingLog();
     // Every STE call overflows: the retry runs, then the step fails and the tab is omitted.

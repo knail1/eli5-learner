@@ -44,11 +44,16 @@ afterEach(async () => {
 });
 
 /** Timers that never fire on their own; tests run passes with `syncNow()` / `cycle()`. */
-function inertTimers(): EngineTimers & { intervals: Array<() => void> } {
+function inertTimers(): EngineTimers & { intervals: Array<() => void>; timeouts: number[] } {
   const intervals: Array<() => void> = [];
+  const timeouts: number[] = [];
   return {
     intervals,
-    setTimeout: () => ({}),
+    timeouts,
+    setTimeout: (_fn, ms) => {
+      timeouts.push(ms);
+      return {};
+    },
     clearTimeout: () => {},
     setInterval: (fn) => {
       intervals.push(fn);
@@ -659,6 +664,24 @@ describe('lifecycle', () => {
     ]);
     expect(device.appProperties.seen).toBe(String(Math.floor(clock.t / 1000)));
     expect(device.revisions).toBe(revisions);
+  });
+
+  it('a disabled Drive API says how to fix it and stops polling until Sync now (audit round 3)', async () => {
+    const { engine, drive, timers } = await harness();
+    drive.fail(() => true, 403, 'accessNotConfigured', 1_000);
+    await engine.syncNow();
+    expect(engine.status()).toMatchObject({
+      state: 'error',
+      message: 'Turn on the Google Drive API in your Google Cloud project, then Sync now',
+    });
+    const polls = timers.timeouts.filter((ms) => ms === 60_000).length;
+    await engine.syncNow();
+    expect(timers.timeouts.filter((ms) => ms === 60_000).length).toBe(polls);
+    // Once the API is on, Sync now works and polling resumes.
+    drive.clearFaults();
+    await engine.syncNow();
+    expect(engine.status().state).toBe('idle');
+    expect(timers.timeouts.filter((ms) => ms === 60_000).length).toBe(polls + 1);
   });
 
   it('notifies status listeners and lists the devices it knows', async () => {

@@ -338,7 +338,7 @@ the runtime changed) the runtime blocks.
 
 **Runtime upgrades.** A document keeps its embedded runtime (`generator.runtimeVersion`, the
 `eli5-css` and `eli5-runtime` blocks) until one of these explicit exceptions re-renders the same
-model with the bundled runtime (`bundledDocRuntime()`, `DOC_RUNTIME_VERSION`, currently `1.3.2`, the 3:1 `--viz-muted` of 11.1 and animation shell version 3; `1.3.1` was the shared chart palette of 11.1; `1.3.0` was the first runtime with animation frames, 7.1; `1.2.0` was an unreleased runtime whose fixed, built-in animation kinds were removed before release):
+model with the bundled runtime (`bundledDocRuntime()`, `DOC_RUNTIME_VERSION`, currently `1.3.3`, animation shell version 4; `1.3.2` was the 3:1 `--viz-muted` of 11.1 and animation shell version 3; `1.3.1` was the shared chart palette of 11.1; `1.3.0` was the first runtime with animation frames, 7.1; `1.2.0` was an unreleased runtime whose fixed, built-in animation kinds were removed before release):
 
 1. **On open** ([08](08-interactive-reading.md) §5.1): when a document with an older runtime is
    opened in the app's viewer, the library is writable, the document parses and nothing in it is
@@ -647,8 +647,8 @@ SHELL CSS</style><style>MODEL CSS</style></head><body><main id="eli5-anim">MODEL
 
 **Shell** (`animation/shell.ts`, frozen; a change adds a version next to it so older documents
 still parse and validate, and bumps `DOC_RUNTIME_VERSION`; rendering always writes the current
-shell, so an older document's frames change when it is re-rendered, like its runtime; `ANIMATION_SHELLS` holds version 3,
-runtime 1.3.2; version 2, runtime 1.3.1, which lacks only the custom-elements lines; and version 1, runtime 1.3.0, which differs from version 2 only in its series colours). Before the model's code runs it
+shell, so an older document's frames change when it is re-rendered, like its runtime; `ANIMATION_SHELLS` holds version 4,
+runtime 1.3.3; version 3, runtime 1.3.2, which lacks only the copy and navigation guards; version 2, runtime 1.3.1, which lacks only the custom-elements lines; and version 1, runtime 1.3.0, which differs from version 2 only in its series colours). Before the model's code runs it
 captures the parent window, then makes `fetch`, `XMLHttpRequest`, `WebSocket`, `WebTransport`,
 `EventSource`, `RTCPeerConnection` (and the `webkit` form and data channels), `Worker`,
 `SharedWorker`, `BroadcastChannel`, `MessageChannel`, `importScripts`, `open`, `opener`, `parent`,
@@ -659,7 +659,11 @@ elements return null, `createElement`/`createElementNS` throw for `iframe`, `fra
 `object`, `embed`, `portal`, `fencedframe`, `link`, `meta`, `base`, `form`, `a`, `area` and
 `script`, `customElements` is undefined and `CustomElementRegistry.prototype.define` throws (a
 customized built-in, `new F()` for a class extending `HTMLAnchorElement`, would otherwise create a
-banned element without `createElement`), and the HTML-string sinks (`innerHTML`/`outerHTML` setters, `insertAdjacentHTML`,
+banned element without `createElement`), every banned element already in the frame except its two
+scripts is removed before the model's code runs (the four shell metas too: their policies stay in
+force once parsed, and a meta copied and turned into a refresh would navigate the frame),
+`cloneNode`, `importNode` and `DOMImplementation.createDocument` throw when the result is or holds a
+banned element, `navigation` (the Navigation API) is undefined, and the HTML-string sinks (`innerHTML`/`outerHTML` setters, `insertAdjacentHTML`,
 `setHTMLUnsafe`, `document.write`, `execCommand`, `createContextualFragment`, `DOMParser`,
 `XSLTProcessor`) throw or are undefined. It sets theme tokens as CSS variables (light,
 dark by `prefers-color-scheme`, overridden by `data-theme` from the parent), measures the body and
@@ -680,8 +684,10 @@ the animation matches its caption), `palette` (the chart palette, 7.2 rule 11, f
 theme), `onTheme(fn)`, `reducedMotion`, `theme`, `stage`. Controls go in a row under the stage and
 work at 320 px wide.
 
-**Lint** (`animation/lint.ts`, at build, at parse and in validity; defense in depth, a hit drops the
-block). Word rules run on the code with strings, template text, regular expression literals and
+**Lint** (`animation/lint.ts`, on new code only: at build, on a regenerate, merge or Ask; defense in
+depth, a hit drops the block). Stored code (parse, a kept animation, validity) was linted when it was
+written and is not linted again, so a later, stricter lint never deletes an animation from a saved
+document; the sandbox and the frame CSP are the boundary for it. Word rules run on the code with strings, template text, regular expression literals and
 comments removed, so label text ("Cookies left", "cost of import") and ordinary variable names never
 hit; a quote or `/` that does not close on its line is kept as code, so a confused scanner never hides
 the rest of a line. On that code: `fetch`, `import`, `eval`, `Function(`, `customElements`,
@@ -699,12 +705,15 @@ as an argument (except as the receiver of `.bind`, `.call` or `.apply`), `conten
 (`top.document`, `parent.postMessage`), bare `top`/`parent`/`self`/`frames` unless the code
 declares a binding of that name (a margin variable, a frame counter or a parameter; object keys are
 not references), and `Worker` unless the code declares its own (`class Worker`), with `.Worker`
-always a hit. On the raw `js`: `XMLHttpRequest`, `WebSocket`,
+always a hit; `cloneNode`, `importNode`, `adoptNode`, `.implementation` and `navigation`. On the raw `js`: `XMLHttpRequest`, `WebSocket`,
 `WebTransport`, `EventSource`, `sendBeacon`, `RTC…`/`PeerConnection`, `SharedWorker`/`serviceWorker`,
 `importScripts`, `postMessage`, `setTimeout`/`setInterval` with a string, `['constructor`,
 computed member keys built by string concatenation (`x['fe' + 'tch']`; array literals such as `[['Rate', r + '%']]` are data), creating a banned element by name
 (`createElement`, `createElementNS`, `ELI5.el`), a string holding an external URL (`//host`, any
-scheme; the SVG namespace is allowed), `</script` and `<!--`. In `js`, `html` and `css`: `<iframe`,
+scheme; the SVG namespace is allowed), a URL split to dodge that rule (`'http:' + …`, `'/' + '/host'`),
+`http-equiv`, the string `'refresh'` and refresh content (`0;url=`), `</script` and `<!--`. In the
+text of every string and template literal, anywhere in it: `//host` and a network scheme (`https:`,
+`wss:`, `ftp:`, `file:`, `blob:`) followed by more text. In `js`, `html` and `css`: `<iframe`,
 `<frame`, `<form`, `<a href`, `<meta`, `<base`, `<script src`, `<link`, `<object`/`<embed`/`<portal`,
 `javascript:` and `url(` with anything but `data:`; in `html` also `<script`, inline `on…=` handlers and
 any `src`/`href`/`action` … that is not `data:` or a fragment; in `css` also `@import`, `</style` and
@@ -730,11 +739,12 @@ above with the hashes of its two scripts, that parses (as a browser does) into e
 skeleton — four metas and the two styles in `<head>`, then `main#eli5-anim` and the two scripts
 in `<body>`, no other script anywhere — so the model's html or css can never swallow the shell's
 `<script>` tag (an unclosed quote, comment or raw-text element is the problem `markup:structure`,
-also checked at build), and whose code passes the lint; the document's own CSP
+also checked at build), and whose code is within the size caps (the lint ran when it was written); the document's own CSP
 must admit both hashes. Anything else is an `animation-frame` error.
 
 **Model, regenerate, merge.** The model JSON stores the block as canonical JSON (5.5) and parse
-re-runs every check (poster sanitizer with its existing id prefix, caps, lint), so
+re-runs every check except the code lint (poster sanitizer with its existing id prefix, caps,
+frame structure), so
 render(parse(html)) is byte-identical and a hand-edited block that fails is dropped. When a section is
 sent back to the model (08 §6.2) its animation is shown with `poster` and `js` equal to `"keep"`;
 returning that marker keeps the animation (new text allowed), leaving it out removes it. Merges keep

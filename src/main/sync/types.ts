@@ -163,7 +163,9 @@ export type SyncErrorCode =
   /** A request failed after retries, or was refused (other HTTP status, network error). */
   | 'E_SYNC_HTTP'
   /** The caller aborted. */
-  | 'E_SYNC_ABORTED';
+  | 'E_SYNC_ABORTED'
+  /** The Drive API is not enabled in the user's Google Cloud project (403 accessNotConfigured). */
+  | 'E_SYNC_API_DISABLED';
 
 /** User-facing text for the codes that have one (16 §10). */
 export const SYNC_ERROR_TEXT: Partial<Record<SyncErrorCode, string>> = {
@@ -171,6 +173,7 @@ export const SYNC_ERROR_TEXT: Partial<Record<SyncErrorCode, string>> = {
   E_SYNC_QUOTA: 'Your Google Drive is full',
   E_SYNC_FORMAT: 'Update ELI5 Learner to keep syncing',
   E_SYNC_NOT_CONFIGURED: 'Add your Google client in Settings > Sync',
+  E_SYNC_API_DISABLED: 'Turn on the Google Drive API in your Google Cloud project, then Sync now',
 };
 
 export class SyncError extends Error {

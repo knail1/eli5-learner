@@ -187,6 +187,61 @@ describe('figure assets across regenerations (07 §8)', () => {
   });
 });
 
+describe('figures in an ASD-STE100 section (08 §6.3; audit round 3)', () => {
+  const src = doc.model.tabs[0]?.sections.find((s) => s.blocks.some((b) => b.type === 'figure'));
+  if (!src) throw new Error('fixture');
+  const ownFig = src.blocks.find((b) => b.type === 'figure');
+  const steId = 'sec-ste-0000aaaa' as SectionId;
+  const model: DocumentModel = {
+    ...doc.model,
+    tabs: [
+      ...doc.model.tabs,
+      {
+        key: 'ste',
+        kind: 'ste',
+        label: 'ASD-STE100',
+        createdAt: LATER,
+        sections: [{ ...src, id: steId, blocks: [{ type: 'paragraph', md: 'Text.' }, ...src.blocks] }],
+      },
+    ],
+  };
+  const label = doc.model.assets[0]?.label ?? '';
+  const steFigs = (m: DocumentModel): DocBlock[] =>
+    m.tabs.find((t) => t.kind === 'ste')?.sections[0]?.blocks.filter((b) => b.type === 'figure') ?? [];
+
+  it('puts back a figure the model left out', () => {
+    const r = replaceSection(
+      model,
+      steId,
+      { heading: 'Again', blocks: [{ type: 'paragraph', md: 'Only text.' }] },
+      'reexplain',
+      LATER,
+    );
+    expect(steFigs(r.model)).toEqual([ownFig]);
+    expect(r.warnings).toContain('ste-visual-restored');
+    expect(r.model.assets).toEqual(doc.model.assets);
+  });
+
+  it('keeps the own caption and drops an added figure', () => {
+    const r = replaceSection(
+      model,
+      steId,
+      {
+        heading: 'Again',
+        blocks: [
+          { type: 'paragraph', md: 'Text.' },
+          { type: 'figure', imageLabel: label, caption: 'A changed caption' },
+          { type: 'figure', imageLabel: label, caption: 'One more' },
+        ],
+      },
+      'reexplain',
+      LATER,
+    );
+    expect(steFigs(r.model)).toEqual([ownFig]);
+    expect(r.warnings).toContain('ste-visual-dropped');
+  });
+});
+
 describe('getSectionContext (07 §8)', () => {
   it('returns the draft form with figure labels, neighbours and outline', () => {
     const id = secAt(doc.model, 0, 2);

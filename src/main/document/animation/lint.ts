@@ -33,7 +33,7 @@ const REGEX_AFTER_WORD = new Set([
  * prose or labels. A quote that does not close on its line cannot start a valid string, so it is
  * kept as code: a scanner confused by unusual code never hides the rest of a line.
  */
-export function codeOnly(js: string): string {
+export function codeOnly(js: string, literals?: string[]): string {
   let out = '';
   let i = 0;
   const depth: number[] = []; // brace depth per open template expression
@@ -43,6 +43,7 @@ export function codeOnly(js: string): string {
     let j = i + 1;
     while (j < n && js[j] !== q && js[j] !== '\n') j += js[j] === '\\' ? 2 : 1;
     if (j < n && js[j] === q) {
+      literals?.push(js.slice(i + 1, j));
       i = j + 1;
       out += ' ';
     } else {
@@ -83,6 +84,7 @@ export function codeOnly(js: string): string {
   };
   const skipTemplate = (): void => {
     // From just after a backtick or a closing `}` of an expression to the next `${` or backtick.
+    const start = i;
     while (i < n) {
       const c = js[i];
       if (c === '\\') {
@@ -90,10 +92,12 @@ export function codeOnly(js: string): string {
         continue;
       }
       if (c === '`') {
+        literals?.push(js.slice(start, i));
         i++;
         return;
       }
       if (c === '$' && js[i + 1] === '{') {
+        literals?.push(js.slice(start, i));
         i += 2;
         depth.push(braces);
         braces = 0;
@@ -174,6 +178,18 @@ const JS_RAW: readonly [string, RegExp][] = [
   ['ice-url', /['"`]\s*(stuns?|turns?):(?!\s)/i],
   ['ice', /iceServers|createDataChannel|createOffer|setLocalDescription/],
   ['script-close', /<\/script|<!--/i],
+  // a meta refresh (audit round 3): the pragma, its content syntax ("0;url=…") or the bare name
+  ['http-equiv', /http-?equiv/i],
+  ['refresh', /(['"`])\s*refresh\s*\1/],
+  ['refresh', /\d\s*;\s*url\s*=/i],
+  // a URL split to dodge the url-string rule: 'http:' + …, '/' + '/host'
+  ['url-split', /(['"`])[^'"`\n]*\b(https?|wss?|ftp|file|blob):\1\s*\+|(['"`])\/\3\s*\+\s*['"`]\/|(['"`])\/\/\4\s*\+/i],
+];
+
+/** Rules for the text of each string and template literal (anywhere in it, not only at its start). */
+const JS_LITERAL: readonly [string, RegExp][] = [
+  ['url-string', /\/\/(?!www\.w3\.org\/)[a-z0-9]/i],
+  ['url-string', /\b(https?|wss?|ftp|file|blob):(?=\S)(?!\/\/www\.w3\.org\/)/i],
 ];
 
 /** Word rules for js identifiers, applied to codeOnly() text (strings, regexes and comments gone). */
@@ -205,6 +221,10 @@ const JS_CODE: readonly [string, RegExp][] = [
     /(?<![.\w$])this\s*(\?\.|\.)\s*(frames|window|self|top|parent|globalThis|document|opener)\b|(?<!\b(bind|call|apply)\s*)\(\s*this\s*[,)]|,\s*this\s*[,)]|\bin\s+this\b/,
   ],
   ['Reflect', /\bReflect\b/],
+  // copying an element that is already in the frame (a shell meta) creates a banned element without
+  // createElement; the Navigation API navigates the frame (audit round 3)
+  ['clone', /\b(cloneNode|importNode|adoptNode)\b|(\?\.|\.)\s*implementation\b/],
+  ['navigation', /\bnavigation\b/],
   ['atob', /\batob\b/],
   ['second-realm', /\b(contentWindow|contentDocument|getSVGDocument|defaultView)\b/],
   [
@@ -347,8 +367,10 @@ export function lintAnimation(code: AnimationCode): string[] {
   };
   const js = code.js;
   run('js', js, JS_RAW);
-  const stripped = codeOnly(js);
+  const literals: string[] = [];
+  const stripped = codeOnly(js, literals);
   run('js', stripped, JS_CODE);
+  for (const [name, re] of JS_LITERAL) if (literals.some((l) => re.test(l))) hits.push(`js:${name}`);
   for (const h of [...bareGlobalHits(stripped), ...documentAliasHits(stripped)]) hits.push(`js:${h}`);
   run('js', js, MARKUP);
   const html = code.html ?? '';

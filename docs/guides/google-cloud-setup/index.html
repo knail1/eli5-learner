@@ -124,6 +124,7 @@ offline reader: import any exported <code>index.html</code> and read it. This se
     <li class="step" data-step="2"><div>
       <h3>Enable the Google Drive API <label><input type="checkbox"> done</label></h3>
       <p>APIs &amp; Services → Library → search <strong>Google Drive API</strong> → <strong>Enable</strong>.</p>
+      <div class="callout"><strong>Don't skip this step.</strong> Without it, sign-in works but every sync fails, and the app says <em>"Turn on the Google Drive API in your Google Cloud project, then Sync now"</em>. Check that the page shows <strong>API enabled</strong> (or a <strong>Manage</strong> button) for the same project as your clients.</div>
       <a class="path" href="https://console.cloud.google.com/apis/library/drive.googleapis.com">Google Drive API in the library ↗</a>
     </div></li>
 
@@ -235,6 +236,7 @@ offline reader: import any exported <code>index.html</code> and read it. This se
   <div class="table-wrap"><table>
     <thead><tr><th>Symptom</th><th>Fix</th></tr></thead>
     <tbody>
+      <tr><td>"Turn on the Google Drive API in your Google Cloud project, then Sync now"</td><td>The Drive API isn't enabled in the project your clients are in (Drive answers 403 <code>accessNotConfigured</code>). Enable it (step 2), wait a minute, then press <strong>Sync now</strong>. Sync doesn't retry this on its own.</td></tr>
       <tr><td>Phone: "Developer error (10)"</td><td>Package or SHA-1 doesn't match an Android client. Re-check against <code>printOAuthFingerprints</code> (release vs debug).</td></tr>
       <tr><td>Phone sees no Mac</td><td>Clients are in different projects, or you used different Google accounts. Keep one project, one account.</td></tr>
       <tr><td>"access_denied" in the browser</td><td>Add your Gmail under Audience → Test users.</td></tr>

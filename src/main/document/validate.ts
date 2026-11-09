@@ -106,10 +106,15 @@ export function countDocAnimations(
 
 /**
  * The checks an animation must pass to be kept (07 §5.2): a title, an alt text, a poster that
- * survives the diagram sanitizer, and code within the caps that passes the lint. Returns the
+ * survives the diagram sanitizer, and code within the caps that passes the lint (`stored`: code
+ * already saved skips the lint, see animationCodeProblems). Returns the
  * stored block, or null. `posterPrefix` keeps an already sanitized poster byte-identical (parse).
  */
-export function checkAnimation(b: Omit<AnimationDocBlock, 'type'>, posterPrefix: string): AnimationDocBlock | null {
+export function checkAnimation(
+  b: Omit<AnimationDocBlock, 'type'>,
+  posterPrefix: string,
+  opts: { stored?: boolean } = {},
+): AnimationDocBlock | null {
   const title = capText(collapseWs(b.title), MAX_ANIMATION_TITLE);
   const alt = capText(collapseWs(b.alt), MAX_ANIMATION_ALT);
   const caption = capText(collapseWs(b.caption), MAX_ANIMATION_CAPTION);
@@ -130,7 +135,7 @@ export function checkAnimation(b: Omit<AnimationDocBlock, 'type'>, posterPrefix:
   const js = code(b.js) ?? '';
   const html = code(b.html);
   const css = code(b.css);
-  if (animationCodeProblems({ js, html, css }).length > 0) return null;
+  if (animationCodeProblems({ js, html, css }, { lint: opts.stored !== true }).length > 0) return null;
   return {
     type: 'animation',
     title,
@@ -247,9 +252,11 @@ export function convertBlock(b: DraftBlock, ctx: ConvertContext, blockIndex = -1
         const title = capText(collapseWs(b.title), MAX_ANIMATION_TITLE) || old.title;
         const caption = capText(collapseWs(b.caption), MAX_ANIMATION_CAPTION) || old.caption;
         const alt = capText(collapseWs(b.alt), MAX_ANIMATION_ALT) || old.alt;
+        // The kept code was linted when it was written (stored: no re-lint, audit round 3).
         const again = checkAnimation(
           { ...old, title, caption, alt },
           svgIdPrefix(old.poster) ?? mintDiagramPrefix(ctx.idSource),
+          { stored: true },
         );
         if (!again) ctx.warn('animation-dropped');
         return again;

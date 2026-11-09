@@ -64,8 +64,13 @@ export interface AnimationFigure extends AnimationParts {
 
 const bytes = (s: string | undefined): number => Buffer.byteLength(s ?? '', 'utf8');
 
-/** Code problems that drop the block (07 §5.2): over a size cap, empty, or a lint hit. */
-export function animationCodeProblems(b: AnimationParts): string[] {
+/**
+ * Code problems that drop the block (07 §5.2): over a size cap, empty, malformed markup, or a lint
+ * hit. `lint: false` is for code that is already stored (parse, a kept animation, validity): it was
+ * linted when the model wrote it, so a later, stricter lint never deletes an animation from a saved
+ * document; only the checks that do not change between versions run (audit round 3).
+ */
+export function animationCodeProblems(b: AnimationParts, opts: { lint?: boolean } = {}): string[] {
   const out: string[] = [];
   if (b.js.trim() === '') out.push('js:empty');
   // The keep marker is not code: outside the keep path (a regenerated section's own animation) it
@@ -74,7 +79,7 @@ export function animationCodeProblems(b: AnimationParts): string[] {
   if (bytes(b.js) > MAX_ANIMATION_JS) out.push('js:size');
   if (bytes(b.html) > MAX_ANIMATION_HTML) out.push('html:size');
   if (bytes(b.css) > MAX_ANIMATION_CSS) out.push('css:size');
-  const lint = lintAnimation(b);
+  const lint = opts.lint === false ? [] : lintAnimation(b);
   // Only well-formed code is worth parsing; malformed markup that would swallow the shell is a hit.
   if (out.length === 0 && lint.length === 0 && !frameParsesAsBuilt(b)) out.push('markup:structure');
   return [...out, ...lint];
@@ -113,7 +118,8 @@ export function animationScriptHashes(blocks: Iterable<AnimationParts>): string[
 /**
  * Validity of one `<iframe>` (07 §6.2, 13 §7.1): its attributes are exactly ANIMATION_FRAME_ATTRS
  * with the exact sandbox, it sits in a `figure.animation`, and its srcdoc is the exact skeleton
- * whose CSP hashes match its scripts and whose code passes the lint. Returns the frame's script
+ * whose CSP hashes match its scripts and whose code is within the caps and parses as built (the
+ * lint ran when the code was written; see animationCodeProblems). Returns the frame's script
  * hashes, or the problems found.
  */
 export function checkAnimationFrame(
@@ -130,7 +136,7 @@ export function checkAnimationFrame(
   if (get('referrerpolicy') !== undefined && get('referrerpolicy') !== 'no-referrer') problems.push('referrerpolicy');
   const parsed = parseAnimationSrcdoc(get('srcdoc') ?? '');
   if (!parsed) problems.push('srcdoc is not the animation frame skeleton with a matching CSP');
-  else for (const p of animationCodeProblems(parsed)) problems.push(`code ${p}`);
+  else for (const p of animationCodeProblems(parsed, { lint: false })) problems.push(`code ${p}`);
   if (problems.length > 0 || !parsed) return { problems };
   return { hashes: parsed.hashes };
 }

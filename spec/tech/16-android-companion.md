@@ -704,6 +704,7 @@ tokens.
 | `E_SYNC_AUTH` | both | grant lost; "Sign in again to keep syncing" |
 | `E_SYNC_TOKEN` | both | change token expired; full rescan, no user text |
 | `E_SYNC_QUOTA` | both | Drive storage full; "Your Google Drive is full" |
+| `E_SYNC_API_DISABLED` | both | 403 `accessNotConfigured` (or `SERVICE_DISABLED` in `details`): the Drive API is not enabled in the Cloud project; never retried (the desktop also stops polling until the user presses Sync now; the phone does not retry the failed run); "Turn on the Google Drive API in your Google Cloud project, then Sync now" |
 | `E_SYNC_FORMAT` | both | remote format newer; read-only, "Update ELI5 Learner to keep syncing" |
 | `E_SYNC_OWNERSHIP` | desktop | refused write to a file owned by another device (bug) |
 | `E_RATE` | desktop inbox | over the inbox limit |

@@ -160,7 +160,9 @@ each other's data.
 
 1. **Create a project** at <https://console.cloud.google.com/projectcreate>. Any name, for example
    "ELI5 Learner personal".
-2. **Enable the Drive API:** APIs & Services > Library > "Google Drive API" > Enable.
+2. **Enable the Drive API (don't skip this):** APIs & Services > Library > "Google Drive API" >
+   Enable, in the same project as your clients. Without it, sign-in works but every sync fails with
+   "Turn on the Google Drive API in your Google Cloud project, then Sync now".
 3. **Google Auth Platform > Branding:** app name "ELI5 Learner", your email as support and developer
    contact. Do **not** upload a logo (it triggers a brand review). To publish the app later (see
    "Testing vs In production"), also fill in, with pages you control:
@@ -298,6 +300,7 @@ Manage apps > ELI5 Learner > Options > **Delete hidden app data**. To revoke acc
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
+| "Turn on the Google Drive API in your Google Cloud project, then Sync now" (desktop or phone) | The Drive API isn't enabled in the project your clients are in (Drive answers 403 `accessNotConfigured`) | Enable it (Stage B step 2), wait a minute, then press **Sync now**. Sync doesn't retry this on its own. |
 | Phone: "Developer error" or error code 10 when connecting | Package name or SHA-1 doesn't match an Android client | Re-run `printOAuthFingerprints`; the APK you installed must match one Android client exactly (debug vs release). |
 | Phone sees no Mac and no documents | Desktop and Android clients are in different Cloud projects, or different Google accounts | Put all clients in one project; use the same account on both. |
 | Sync stops every 7 days | Project still in Testing, or the apps were connected before you published | Publish the app, then disconnect and reconnect on both (Stage B, "Testing vs In production"). |

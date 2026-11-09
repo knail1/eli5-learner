@@ -1,6 +1,7 @@
 /**
  * Sentence tools for the deterministic writing lints (02 §12.2): Markdown is stripped, then the text
- * is split at sentence ends. Abbreviations ("e.g.", "Dr.") and decimals ("3.5") do not end a sentence.
+ * is split at sentence ends. Abbreviations ("e.g.", "Dr.", "No. 5"), initials ("J. Smith") and
+ * decimals ("3.5") do not end a sentence; a short answer "No." does.
  */
 
 /** Lower-case abbreviations (without the final dot) that never end a sentence. */
@@ -16,7 +17,6 @@ const ABBREVIATIONS: ReadonlySet<string> = new Set([
   'dr',
   'prof',
   'st',
-  'no',
   'fig',
   'approx',
   'inc',
@@ -42,12 +42,56 @@ export function stripMarkdown(md: string): string {
     .trim();
 }
 
-function endsWithAbbreviation(piece: string): boolean {
+/** Words that usually open a sentence: after "plan A." they mean the letter ended the sentence. */
+const SENTENCE_STARTERS: ReadonlySet<string> = new Set([
+  'a',
+  'an',
+  'and',
+  'as',
+  'at',
+  'but',
+  'for',
+  'he',
+  'i',
+  'if',
+  'in',
+  'it',
+  'its',
+  'no',
+  'now',
+  'on',
+  'our',
+  'she',
+  'so',
+  'that',
+  'the',
+  'then',
+  'there',
+  'these',
+  'they',
+  'this',
+  'those',
+  'we',
+  'when',
+  'yes',
+  'you',
+]);
+
+/**
+ * The piece ends with an abbreviation or an initial, so it runs on into `next`. "No." is the
+ * number abbreviation only before a digit ("No. 5"); a single letter is an initial ("J. Smith")
+ * unless the next word usually opens a sentence ("plan A. Then ...").
+ */
+function endsWithAbbreviation(piece: string, next: string): boolean {
   const m = /([A-Za-z.]+)\.$/.exec(piece);
   if (!m) return false;
   const word = (m[1] ?? '').toLowerCase();
-  // A single capital letter ("J. Smith") is an initial, not a sentence end.
-  return ABBREVIATIONS.has(word) || /^[a-z]$/.test(word);
+  if (word === 'no') return /^\d/.test(next);
+  if (/^[a-z]$/.test(word)) {
+    const first = /^["'“‘([]*([A-Za-z]+)/.exec(next)?.[1]?.toLowerCase();
+    return first !== undefined && !SENTENCE_STARTERS.has(first);
+  }
+  return ABBREVIATIONS.has(word);
 }
 
 /** Splits plain or inline-Markdown text into sentences (trimmed, non-empty). */
@@ -59,7 +103,7 @@ export function splitSentences(text: string): string[] {
   const out: string[] = [];
   for (const piece of pieces) {
     const prev = out[out.length - 1];
-    if (prev !== undefined && endsWithAbbreviation(prev)) out[out.length - 1] = `${prev} ${piece}`;
+    if (prev !== undefined && endsWithAbbreviation(prev, piece)) out[out.length - 1] = `${prev} ${piece}`;
     else out.push(piece);
   }
   return out.map((s) => s.trim()).filter((s) => s !== '');

@@ -321,6 +321,32 @@ describe('DriveClient errors and backoff (16 §4.5 step 5)', () => {
     expect(sleeps).toEqual([]);
   });
 
+  it('maps a disabled Drive API to E_SYNC_API_DISABLED without retrying (audit round 3)', async () => {
+    const { drive, client, sleeps } = setup();
+    drive.fail({ path: '/drive/v3/files' }, 403, 'accessNotConfigured', 5);
+    await expect(client.list()).rejects.toMatchObject({
+      code: 'E_SYNC_API_DISABLED',
+      status: 403,
+      message: 'Turn on the Google Drive API in your Google Cloud project, then Sync now',
+    });
+    expect(sleeps).toEqual([]);
+    // The newer error shape names it only in details[].reason.
+    const body = {
+      error: {
+        code: 403,
+        message: 'Google Drive API has not been used in this project before or it is disabled.',
+        status: 'PERMISSION_DENIED',
+        details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'SERVICE_DISABLED' }],
+      },
+    };
+    const only = new DriveClient({
+      auth: fakeAuth(),
+      fetch: async () => new Response(JSON.stringify(body), { status: 403 }),
+      sleep: async () => {},
+    });
+    await expect(only.list()).rejects.toMatchObject({ code: 'E_SYNC_API_DISABLED' });
+  });
+
   it('on 401 drops the access token and retries once, then fails with E_SYNC_AUTH', async () => {
     const { drive, client, auth } = setup();
     drive.validTokens.clear();

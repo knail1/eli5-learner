@@ -316,7 +316,9 @@ Every prompt the app sends to a model is a plain Markdown file in
 `Resources/prompts`. `config/prompts/default/` holds every prompt and the shared fragments (chart
 rules, diagram rules, animation rules and more). A **prompt set** is a sibling folder that holds only
 the files it overrides; everything else comes from `default`. The repo ships `wsj-v1`, the frozen
-earlier In depth and ELI5 prompts, so you can compare old and new output.
+earlier In depth and ELI5 prompts, so you can compare their old and new wording. It swaps only those
+two prompts: the ASD-STE100 tab, the ELI5 critique (and their model calls) and chart normalization
+still run as in `default`.
 
 To try a set:
 

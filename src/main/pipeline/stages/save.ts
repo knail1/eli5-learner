@@ -137,22 +137,24 @@ export async function saveStage(ctx: StageContext): Promise<CatalogEntry> {
 
   const ste = steOut?.ste ?? null;
   const eli5 = finalEli5(doc, critique);
-  // Tags of the prompts whose output the document uses (a rejected critique is not one).
-  const prompts = uniq([
-    ...prep.prompts,
-    ...doc.prompts,
-    ste ? steOut?.prompt : undefined,
-    critique?.eli5 ? critique.prompt : undefined,
-    glossary?.prompt,
-    summary.prompt,
-    photosOut?.prompt,
-  ]);
+  // Tags of the prompts whose output the document uses (a rejected critique is not one, and the
+  // STE prompt only when the built document has an ASD-STE100 tab).
+  const promptsFor = (hasSte: boolean): string[] =>
+    uniq([
+      ...prep.prompts,
+      ...doc.prompts,
+      hasSte ? steOut?.prompt : undefined,
+      critique?.eli5 ? critique.prompt : undefined,
+      glossary?.prompt,
+      summary.prompt,
+      photosOut?.prompt,
+    ]);
   const build = (o: {
     docId: string;
     slug: string;
     createdAt?: string;
     reservedIds?: Iterable<string>;
-  }): { html: string; tabs: TabRecord[]; title: string } => {
+  }): { html: string; tabs: TabRecord[]; title: string; hasSte: boolean } => {
     const built = buildDocumentModel({
       docId: o.docId,
       slug: o.slug,
@@ -174,16 +176,20 @@ export async function saveStage(ctx: StageContext): Promise<CatalogEntry> {
       ...(deps.referenceFormatter ? { referenceFormatter: deps.referenceFormatter } : {}),
     });
     // An STE draft that converted to no sections leaves no tab (07 §5): say so like a failed step.
-    if (ste && !built.model.tabs.some((t) => t.kind === 'ste')) addWarning(job, stepWarning('ste-omitted'));
+    const hasSte = built.model.tabs.some((t) => t.kind === 'ste');
+    if (ste && !hasSte) addWarning(job, stepWarning('ste-omitted'));
     const html = renderDocument(built.model, built.assets, { runtime, theme });
-    return { html, tabs: tabRecords(built.model, now), title: built.model.title };
+    return { html, tabs: tabRecords(built.model, now), title: built.model.title, hasSte };
   };
-  const generation = (): DocumentMeta['generation'] => ({
-    provider: doc.provider.id,
-    model: doc.provider.model,
-    prompts,
-    ...(deps.promptProvenance ? deps.promptProvenance(prompts) : {}),
-  });
+  const generation = (hasSte: boolean): DocumentMeta['generation'] => {
+    const prompts = promptsFor(hasSte);
+    return {
+      provider: doc.provider.id,
+      model: doc.provider.model,
+      prompts,
+      ...(deps.promptProvenance ? deps.promptProvenance(prompts) : {}),
+    };
+  };
   /** Writers run the validity checks before every save (13 §7); a failure is a programming error. */
   const assertValid = (html: string, meta: DocumentMeta): void => {
     const report = checkDocumentHtml(html, meta);
@@ -193,11 +199,15 @@ export async function saveStage(ctx: StageContext): Promise<CatalogEntry> {
   };
 
   if (job.rebuild) {
-    job.rebuild.report = {
-      steLint: ste ? { ...ste.lint.final } : null,
-      eli5Critique: critique?.outcome ?? null,
+    const target = job.rebuild;
+    // The STE lint is reported only for a tab the rebuild actually saves.
+    const report = (hasSte: boolean): void => {
+      target.report = {
+        steLint: ste && hasSte ? { ...ste.lint.final } : null,
+        eli5Critique: critique?.outcome ?? null,
+      };
     };
-    return saveRebuild(ctx, job.rebuild, { build, generation, assertValid, summary });
+    return saveRebuild(ctx, target, { build, generation, report, assertValid, summary });
   }
 
   const render = (slug: string): { html: string; meta: DocumentMeta } => {
@@ -219,7 +229,7 @@ export async function saveStage(ctx: StageContext): Promise<CatalogEntry> {
       sourcesSkipped: job.skipped,
       tabs: built.tabs,
       retiredIds: [],
-      generation: generation(),
+      generation: generation(built.hasSte),
       warnings: job.warnings,
       merges: [],
       publications: [],
@@ -316,8 +326,10 @@ interface RebuildParts {
     html: string;
     tabs: TabRecord[];
     title: string;
+    hasSte: boolean;
   };
-  generation(): DocumentMeta['generation'];
+  generation(hasSte: boolean): DocumentMeta['generation'];
+  report(hasSte: boolean): void;
   assertValid(html: string, meta: DocumentMeta): void;
   summary: SummaryStepOutput;
 }
@@ -348,7 +360,8 @@ async function saveRebuild(ctx: StageContext, r: RebuildTarget, parts: RebuildPa
   }
 
   const built = parts.build({ docId: live.id, slug: r.slug, createdAt: live.createdAt, reservedIds: reserved });
-  const generation = parts.generation();
+  const generation = parts.generation(built.hasSte);
+  parts.report(built.hasSte);
   const label = rebuildLabel(generation.promptSet ?? r.promptSet, generation.promptDigest);
   const patchMeta = (m: DocumentMeta): DocumentMeta => {
     const { asks: _asks, actions: _actions, ...rest } = m;
