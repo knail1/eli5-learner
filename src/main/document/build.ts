@@ -73,7 +73,7 @@ export interface SectionBuildContext {
   ): { assetId: string; alt: string; caption: string } | undefined;
   warn(w: string): void;
   /** Tab and document animation caps (validate.ts animationBudget); absent: per section only. */
-  takeAnimation?(): boolean;
+  takeAnimation?(force?: boolean): boolean;
   /** When given, receives the draft index of each kept section (07 §9.1 step 2 indexes drafts). */
   draftIndices?: number[];
 }
@@ -237,19 +237,19 @@ export function buildDocumentModel(input: BuildInput): BuildResult {
 
   // ASD-STE100 tab (07 §5, D14): optional, never a placeholder. Kept visuals carry the in-depth
   // origin of their draft block, so a photo slot resolves to the same asset as in In depth. Kept
-  // animations mirror In depth ones that already passed the caps, so they are counted but not
-  // dropped by the tab and document caps (a mirror must stay identical to its original); the tab
-  // never holds more animations than In depth does, whatever the draft says.
+  // animations mirror In depth ones that already passed the caps, so the tab and document caps
+  // neither drop nor count them (a mirror must stay identical to its original; a later
+  // regenerate must not lose an animation to its mirror); the tab never holds more animations
+  // than In depth does, whatever the draft says.
   let ste: Tab | null = null;
   if (input.ste) {
     const origins = input.ste.origins;
     const fromIndepth = resolvePhotoIn('indepth');
-    const countKept = animationBudget(animations);
     let steLeft = indepthSections.reduce((n, s) => n + countAnimations(s.blocks), 0);
     const steAnimations = (): boolean => {
       if (steLeft <= 0) return false;
       steLeft--;
-      return countKept(true);
+      return true;
     };
     const steSections = buildSections(input.ste.tab.sections, {
       ...sctx,

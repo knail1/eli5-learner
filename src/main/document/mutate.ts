@@ -18,7 +18,7 @@ import type {
   Tab,
 } from './types';
 import { ANIMATION_KEEP } from './animation';
-import { animationBudget, convertBlocks, countAnimations, isUserQuestion } from './validate';
+import { animationBudget, convertBlocks, countAnimations, countDocAnimations, isUserQuestion } from './validate';
 
 /** 07 §5.4: up to 3 fixed tabs (indepth, eli5, ste) + 20 section ELI5 tabs. */
 export const MAX_SECTION_ELI5_TABS = 20;
@@ -123,8 +123,9 @@ export function replaceSection(
   const warn = (w: string): void => {
     warnings.push(w);
   };
-  // 07 §5.2 animation caps, counting every other section of the tab and the document. A keep
-  // marker in the draft takes the section's own animations back in order (08 §6.2).
+  // 07 §5.2 animation caps, counting every other section of the tab and the document (the STE
+  // tab's mirrors excepted). A keep marker in the draft takes the section's own animations back
+  // in order (08 §6.2); kept blocks always stay, they are only counted.
   const ownAnimations = hit.section.blocks.filter(
     (b): b is Extract<DocBlock, { type: 'animation' }> => b.type === 'animation',
   );
@@ -136,7 +137,9 @@ export function replaceSection(
     idSource: opts.idSource ?? cryptoIdSource,
     resolveFigure: assetResolver(model, opts),
     takeAnimation: animationBudget(
-      { n: model.tabs.reduce((n, t) => n + others(t.sections), 0) },
+      {
+        n: countDocAnimations(model.tabs) - (hit.tab.kind === 'ste' ? 0 : countAnimations(hit.section.blocks)),
+      },
       others(hit.tab.sections),
     ),
     keepAnimation: () => ownAnimations.shift(),
@@ -329,9 +332,7 @@ export function addSectionEli5Tab(
     idSource,
     taken,
     resolveFigure: assetResolver(model, opts),
-    takeAnimation: animationBudget({
-      n: model.tabs.reduce((n, t) => n + t.sections.reduce((k, s) => k + countAnimations(s.blocks), 0), 0),
-    }),
+    takeAnimation: animationBudget({ n: countDocAnimations(model.tabs) }),
     warn: (w) => {
       warnings.push(w);
     },

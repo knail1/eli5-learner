@@ -29,7 +29,10 @@ only works in unpackaged builds. Packaged builds ignore every variable below.
      is taken over.
 4. Once the job queue is up, `startRealRun` starts one create job per URL. It waits for every job
    to finish, prints a JSON summary to stdout and calls the required `quit` option. The bootstrap
-   must pass `quit: (code) => app.exit(code)`. The exit code is 0 only if every job ends `done`.
+   passes a `quit` that sets the exit code and calls `app.quit()`, so the ordered quit steps run.
+   The exit code is 0 only if every job ends `done`. If startup fails (for example a relative
+   `ELI5_LIBRARY_DIR` or a refused config) or a driver throws, no dialog is shown: a JSON
+   `{ "ok": false, "error": ... }` goes to stdout, the ledger lock is released and the exit code is 1.
 
 Models without a price in `src/main/devtools/rates.ts` are refused.
 

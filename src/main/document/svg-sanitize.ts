@@ -269,6 +269,8 @@ const LEGACY_SLOT: Readonly<Record<string, string>> = {
   '8': '2',
 };
 
+const SLOT_CLASS_RE = /(^|\s)(viz-(?:fill|stroke|stop)-)([1-8])(?=\s|$)/g;
+
 interface ClassEl {
   nodeType: number;
   childNodes: ArrayLike<ClassEl>;
@@ -276,22 +278,38 @@ interface ClassEl {
   setAttribute(name: string, value: string): void;
 }
 
+/**
+ * The renumbering for one SVG: the nearest-hue map, except that old orange (2) and red (8), which
+ * share the nearest current hue, stay apart when one SVG uses both: red then takes purple (3) if
+ * old magenta (4) is unused, else the one slot nothing maps to, neutral (4). Two old colours that
+ * told elements apart never become the same colour.
+ */
+function legacySlotsFor(used: ReadonlySet<string>): Readonly<Record<string, string>> {
+  if (!(used.has('2') && used.has('8'))) return LEGACY_SLOT;
+  return { ...LEGACY_SLOT, '8': used.has('4') ? '4' : '3' };
+}
+
 /** Renumbers old-palette theme classes (viz-fill-N, viz-stroke-N, viz-stop-N) in place. */
 function remapLegacyPalette(root: ClassEl): void {
   if ((root.getAttribute('class') ?? '').split(/\s+/).includes(PALETTE_MARK)) return;
-  const walk = (el: ClassEl): void => {
+  const each = (el: ClassEl, f: (el: ClassEl, cls: string) => void): void => {
     if (el.nodeType !== 1) return;
     const cls = el.getAttribute('class');
-    if (cls) {
-      const next = cls.replace(
-        /(^|\s)(viz-(?:fill|stroke|stop)-)([1-8])(?=\s|$)/g,
-        (_m, pre: string, kind: string, n: string) => `${pre}${kind}${LEGACY_SLOT[n] ?? n}`,
-      );
-      if (next !== cls) el.setAttribute('class', next);
-    }
-    for (const c of Array.from(el.childNodes)) walk(c);
+    if (cls) f(el, cls);
+    for (const c of Array.from(el.childNodes)) each(c, f);
   };
-  walk(root);
+  const used = new Set<string>();
+  each(root, (_el, cls) => {
+    for (const m of cls.matchAll(SLOT_CLASS_RE)) used.add(m[3] as string);
+  });
+  const slots = legacySlotsFor(used);
+  each(root, (el, cls) => {
+    const next = cls.replace(
+      SLOT_CLASS_RE,
+      (_m, pre: string, kind: string, n: string) => `${pre}${kind}${slots[n] ?? n}`,
+    );
+    if (next !== cls) el.setAttribute('class', next);
+  });
 }
 
 interface El {

@@ -44,9 +44,11 @@ export interface ConvertContext {
   heading?: string;
   /**
    * Animation caps beyond one section (07 §5.2: two per tab, four per document). Called once per
-   * animation that passed every other check; false drops it. Absent: only the per-section cap.
+   * animation that passed every other check; false drops it. `force` is true for a block that
+   * resolved through the keep marker: kept blocks always stay (07 §5.2) and are only counted.
+   * Absent: only the per-section cap.
    */
-  takeAnimation?(): boolean;
+  takeAnimation?(force?: boolean): boolean;
   /**
    * A regenerated section's own animation, for a draft block whose `poster` and `js` are the keep
    * marker (08 §6.2, ANIMATION_KEEP). Each call returns the next one not yet taken. Absent: the
@@ -87,6 +89,19 @@ export function animationBudget(
 /** Number of animation blocks in `blocks`. */
 export function countAnimations(blocks: readonly { type: string }[]): number {
   return blocks.filter((b) => b.type === 'animation').length;
+}
+
+/**
+ * Animations counted against the document cap (07 §5.2): every tab except the ASD-STE100 tab,
+ * whose animations only mirror in-depth ones that already count.
+ */
+export function countDocAnimations(
+  tabs: readonly { kind: string; sections: readonly { blocks: readonly { type: string }[] }[] }[],
+): number {
+  return tabs.reduce(
+    (n, t) => (t.kind === 'ste' ? n : n + t.sections.reduce((k, s) => k + countAnimations(s.blocks), 0)),
+    0,
+  );
 }
 
 /**
@@ -267,7 +282,8 @@ export function convertBlocks(blocks: readonly DraftBlock[], ctx: ConvertContext
     const c = convertBlock(b, ctx, i);
     if (!c) continue;
     if (c.type === 'animation') {
-      if (animations >= MAX_ANIMATIONS_PER_SECTION || (ctx.takeAnimation && !ctx.takeAnimation())) {
+      const kept = b.type === 'animation' && b.js === ANIMATION_KEEP && b.poster === ANIMATION_KEEP;
+      if (animations >= MAX_ANIMATIONS_PER_SECTION || (ctx.takeAnimation && !ctx.takeAnimation(kept))) {
         ctx.warn('animation-dropped');
         continue;
       }

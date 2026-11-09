@@ -237,6 +237,31 @@ describe('old-palette diagrams (07 §7.3, §11.1)', () => {
     expect(sanitizeSvg(once, opts)).toBe(once);
   });
 
+  it('keeps old orange and red apart when one SVG uses both (audit round 1)', () => {
+    const both = wrap('<rect width="5" height="5" class="viz-fill-2"/><rect width="6" height="6" class="viz-fill-8"/>');
+    const out = sanitizeSvg(both, { ...opts, legacyPalette: true }) ?? '';
+    // Orange -> vermillion 2, red -> purple 3 (old magenta unused).
+    expect(out).toContain('<rect width="5" height="5" class="viz-fill-2"></rect>');
+    expect(out).toContain('<rect width="6" height="6" class="viz-fill-3"></rect>');
+    const withMagenta = wrap(
+      '<rect width="5" height="5" class="viz-fill-2"/><rect width="6" height="6" class="viz-stroke-8"/>' +
+        '<rect width="7" height="7" class="viz-fill-4"/>',
+    );
+    const out2 = sanitizeSvg(withMagenta, { ...opts, legacyPalette: true }) ?? '';
+    // Magenta takes purple 3, so red takes the neutral slot 4 nothing else maps to.
+    expect(out2).toContain('class="viz-fill-2"');
+    expect(out2).toContain('class="viz-stroke-4"');
+    expect(out2).toContain('class="viz-fill-3"');
+    // Every distinct old slot stays a distinct new slot.
+    const all = wrap(
+      Array.from({ length: 8 }, (_, i) => `<rect width="${i + 1}" height="1" class="viz-fill-${i + 1}"/>`).join(''),
+    );
+    const slots = [...(sanitizeSvg(all, { ...opts, legacyPalette: true }) ?? '').matchAll(/viz-fill-(\d)/g)].map(
+      (m) => m[1],
+    );
+    expect(new Set(slots).size).toBe(8);
+  });
+
   it('leaves class numbers alone without the legacy flag', () => {
     const out = sanitizeSvg(old, opts) ?? '';
     expect(out).toContain('class="viz-fill-3 viz-stroke-8"');

@@ -6,9 +6,11 @@ import { DEFAULTS, type Settings } from '../../../../src/main/config/schema';
 import {
   BudgetGuardProvider,
   BudgetLedger,
+  failHeadlessRun,
   installBudgetGuard,
   prepareRealRun,
   realRunConfigFromEnv,
+  realRunRequested,
   startRealRun,
   type RealRunQueue,
   type RealRunSession,
@@ -184,6 +186,62 @@ describe('prepareRealRun ledger lock', () => {
       ...harness(),
     });
     // Released when the run finishes.
+    prepareRealRun({ env: e, isPackaged: false, userData: dir, registry: spy })?.ledger.release();
+  });
+});
+
+describe('headless failure (audit round 1: no modal, no stale lock)', () => {
+  const spy = { frozen: false, registerLLMProvider: () => {} };
+  const e = env({ ELI5_REAL_RUN_URLS: 'https://example.com/a' });
+
+  it('knows when a headless run was requested, never in a packaged build', () => {
+    expect(realRunRequested({}, false)).toBe(false);
+    expect(realRunRequested({ ELI5_REAL_RUN_URLS: 'https://example.com/a' }, false)).toBe(true);
+    expect(realRunRequested({ ELI5_REAL_RUN_REBUILD: 'a=/x' }, false)).toBe(true);
+    expect(realRunRequested({ ELI5_REAL_RUN_REBUILD: 'a=/x' }, true)).toBe(false);
+  });
+
+  it('a bootstrap failure after arming prints a JSON error, releases the lock and exits 1', () => {
+    const session = prepareRealRun({ env: e, isPackaged: false, userData: dir, registry: spy });
+    if (!session) throw new Error('not armed');
+    const out: string[] = [];
+    const codes: number[] = [];
+    failHeadlessRun({
+      err: new Error('ELI5_LIBRARY_DIR must be absolute'),
+      session,
+      write: (t) => void out.push(t),
+      exit: (c) => void codes.push(c),
+    });
+    expect(codes).toEqual([1]);
+    expect(JSON.parse(out.join(''))).toEqual({ ok: false, error: 'ELI5_LIBRARY_DIR must be absolute' });
+    // The lock is gone: the next run is not refused as 'in use'.
+    prepareRealRun({ env: e, isPackaged: false, userData: dir, registry: spy })?.ledger.release();
+  });
+
+  it('a failure before arming (no session) still prints and exits 1', () => {
+    const out: string[] = [];
+    const codes: number[] = [];
+    failHeadlessRun({ err: 'refused', write: (t) => void out.push(t), exit: (c) => void codes.push(c) });
+    expect(codes).toEqual([1]);
+    expect(JSON.parse(out.join(''))).toEqual({ ok: false, error: 'refused' });
+  });
+
+  it('a driver that throws before its summary is caught the way the bootstrap wires it', async () => {
+    const session = prepareRealRun({ env: e, isPackaged: false, userData: dir, registry: spy });
+    if (!session) throw new Error('not armed');
+    const codes: number[] = [];
+    const quit = (c: number): void => void codes.push(c);
+    await startRealRun({
+      session,
+      jobs: new ScriptedQueue([]),
+      library,
+      provider: () => {
+        throw new Error('NotAvailableInEdition');
+      },
+      write: () => {},
+      quit,
+    }).catch((err: unknown) => failHeadlessRun({ err, session, write: () => {}, exit: quit }));
+    expect(codes).toEqual([1]);
     prepareRealRun({ env: e, isPackaged: false, userData: dir, registry: spy })?.ledger.release();
   });
 });

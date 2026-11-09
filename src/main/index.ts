@@ -34,7 +34,15 @@ import { Registry } from './editions/registry';
 import { registerPublicCapabilities } from './editions/public';
 import { loadOverlay } from './editions/load-overlay';
 import { edition } from './editions/types';
-import { prepareRealRun, rebuildPlanInputs, startRealRun, startRebuildRun } from './devtools';
+import {
+  failHeadlessRun,
+  prepareRealRun,
+  realRunRequested,
+  rebuildPlanInputs,
+  startRealRun,
+  startRebuildRun,
+  type RealRunSession,
+} from './devtools';
 import { createElectronViewerPort, createInteractiveReading, parseDocument } from './document';
 import { PDF_RENDER_SCHEME_PRIVILEGES } from './extract';
 import { configureFetch } from './fetch';
@@ -173,6 +181,9 @@ function deviceName(): string {
 }
 
 /** Bootstrap order (01 §6.3). */
+/** The armed headless run, so a bootstrap failure after prepareRealRun can release its ledger lock. */
+let headlessSession: RealRunSession | undefined;
+
 async function bootstrap(): Promise<void> {
   const userData = app.getPath('userData');
   installLogger(
@@ -251,6 +262,7 @@ async function bootstrap(): Promise<void> {
   const realRun = app.isPackaged
     ? undefined
     : prepareRealRun({ env: process.env, isPackaged: app.isPackaged, testBuild: __ELI5_TEST__, userData, registry });
+  headlessSession = realRun;
   // 5. freeze
   registry.freeze();
 
@@ -423,7 +435,7 @@ async function bootstrap(): Promise<void> {
   };
   if (realRun?.config.rebuild) {
     // Design §5: rebuild existing documents as new versions; the key is read in-process (D23).
-    void startRebuildRun({
+    startRebuildRun({
       session: realRun,
       jobs,
       library,
@@ -438,18 +450,18 @@ async function bootstrap(): Promise<void> {
       }),
       stockPhotos: settings.get().images.stockPhotos,
       quit: quitRealRun,
-    });
+    }).catch((err: unknown) => failHeadlessRun({ err, session: realRun, exit: quitRealRun }));
     return;
   }
   if (realRun) {
-    void startRealRun({
+    startRealRun({
       session: realRun,
       jobs,
       library,
       provider: () => registry.llm(),
       glossary: settings.get().glossary.defaultOn,
       quit: quitRealRun,
-    });
+    }).catch((err: unknown) => failHeadlessRun({ err, session: realRun, exit: quitRealRun }));
     return;
   }
 
@@ -698,6 +710,11 @@ if (!app.requestSingleInstanceLock()) {
     .then(bootstrap)
     .catch((err: unknown) => {
       log.error('app.bootstrap-failed', {}, err);
+      // A headless real run or rebuild has no one to dismiss a modal: print, release, exit.
+      if (realRunRequested(process.env, app.isPackaged)) {
+        failHeadlessRun({ err, session: headlessSession, exit: (code) => app.exit(code) });
+        return;
+      }
       // 01 §6.3: an enterprise overlay failure never starts with a partial capability set.
       dialog.showErrorBox('ELI5 Learner could not start', err instanceof Error ? err.message : String(err));
       app.exit(1);

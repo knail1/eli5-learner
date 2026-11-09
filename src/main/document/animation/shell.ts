@@ -5,8 +5,10 @@
 // motion and gives the model a small accessible helper API (`window.ELI5`).
 //
 // Frozen: documents pin this exact text by hash (the frame CSP and the parent CSP). A change is a
-// new shell version, with older ones kept in ANIMATION_SHELLS so older documents still round-trip
-// byte for byte, and a DOC_RUNTIME_VERSION bump. Written without backticks, `${` or backslashes so
+// new shell version and a DOC_RUNTIME_VERSION bump. Older versions stay in ANIMATION_SHELLS so
+// older documents still parse and pass validity; rendering always writes the current shell, so an
+// older document's frames (and both CSPs) change when it is re-rendered, exactly as the runtime
+// refresh on open replaces its runtime. Byte-identical round-trips hold for the current shell only. Written without backticks, `${` or backslashes so
 // String.raw keeps the source text exactly.
 
 /** Version 2 of the shell script (version 1 with the shared chart palette, 07 §11.1). */

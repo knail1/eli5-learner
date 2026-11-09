@@ -297,7 +297,7 @@ export interface StartRebuildRunOptions {
   /** Default verifyRebuild; injected in tests. */
   verify?: (lib: RebuildLibrary, x: VerifyExpect) => Promise<RebuildVerify>;
   write?: (text: string) => void;
-  /** Required: ends the process after the summary (the Electron bootstrap passes `app.exit`). */
+  /** Required: ends the process after the summary (the bootstrap sets the exit code, then `app.quit`). */
   quit: (exitCode: number) => void;
 }
 

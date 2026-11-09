@@ -267,8 +267,9 @@ export function buildDocumentModel(input: BuildInput): { model: DocumentModel; w
    `SectionDraft` mint an ID (never one in `reservedIds`) and convert blocks (5.2). Drop sections
    left with zero blocks after validation. A kept visual in the `ste` tab resolves its stock photo
    slot through its origin, `photoSlotKey('indepth', section, block)`, so it shows the in-depth
-   asset; its kept animations mirror in-depth ones and are counted but not dropped by the tab and
-   document caps, and the tab never holds more animations than the in-depth tab.
+   asset; its kept animations mirror in-depth ones, so the tab and document caps neither drop nor
+   count them (a later regenerate or merge counts every tab but `ste` against the document cap),
+   and the tab never holds more animations than the in-depth tab.
    An `ste` tab left with zero sections is omitted with warning `ste-omitted` (no placeholder).
 3. If `indepth` has zero sections after step 2, throw `DocumentBuildError('empty_indepth')`
    ([06](06-generation-pipeline.md) counts it as a retryable invalid output).
@@ -308,7 +309,7 @@ export function buildDocumentModel(input: BuildInput): { model: DocumentModel; w
 | Animation without a title or alt, with a poster that does not survive the diagram sanitizer (7.3, ≤ 64 KB after it), with empty `js`, with `js` > 16 KiB, `html` > 4 KiB or `css` > 4 KiB (UTF-8), or with a lint hit (7.1 animation lint) | Drop block, warning `animation-dropped`; never a repair request (02 §10.1) |
 | Animation text and code | Title ≤ 90, caption ≤ 300, alt ≤ 400 characters (word-boundary cut); control characters stripped and CR normalized in `html`, `css` and `js` (attribute escaping would otherwise change the code its hash pins); empty `html`/`css` omitted |
 | Animation keep marker (`poster` and `js` both `"keep"`, 8) | In a regenerated section: the section's own animation in order, with the new title, caption and alt when given; anywhere else, or with none left: drop, warning `animation-dropped` |
-| More than 1 animation per section, 2 per tab or 4 per document | Keep the first ones in build order (a regenerated section counts the tab's other sections; a merge counts what the target holds, minus the animations of each section it revises, and kept blocks always stay), drop the rest, warning `animation-dropped` |
+| More than 1 animation per section, 2 per tab or 4 per document | Keep the first ones in build order (a regenerated section counts the tab's other sections and a keep marker always stays; a merge counts what the target holds, minus the animations of each section it revises, and kept blocks always stay), drop the rest, warning `animation-dropped` |
 | Duplicate heading in the same tab | Allowed; `aria-labelledby` uses the ID, not text |
 
 ### 5.3 Heading levels
@@ -645,7 +646,8 @@ SHELL CSS</style><style>MODEL CSS</style></head><body><main id="eli5-anim">MODEL
 ```
 
 **Shell** (`animation/shell.ts`, frozen; a change adds a version next to it so older documents
-still validate and round-trip, and bumps `DOC_RUNTIME_VERSION`; `ANIMATION_SHELLS` holds version 2,
+still parse and validate, and bumps `DOC_RUNTIME_VERSION`; rendering always writes the current
+shell, so an older document's frames change when it is re-rendered, like its runtime; `ANIMATION_SHELLS` holds version 2,
 runtime 1.3.1, and version 1, runtime 1.3.0, which differs only in its series colours). Before the model's code runs it
 captures the parent window, then makes `fetch`, `XMLHttpRequest`, `WebSocket`, `WebTransport`,
 `EventSource`, `RTCPeerConnection` (and the `webkit` form and data channels), `Worker`,
@@ -715,7 +717,11 @@ and 2.5 KiB CSS (golden test).
 **Validity** (13 §7.1, `checkAnimationFrame`): the only allowed `<iframe>` is inside
 `figure.animation`, has exactly the attributes above in that order with the exact sandbox, and a
 srcdoc that is exactly the skeleton around a known shell version, whose CSP is exactly the policy
-above with the hashes of its two scripts, and whose code passes the lint; the document's own CSP
+above with the hashes of its two scripts, that parses (as a browser does) into exactly that
+skeleton — four metas and the two styles in `<head>`, then `main#eli5-anim` and the two scripts
+in `<body>`, no other script anywhere — so the model's html or css can never swallow the shell's
+`<script>` tag (an unclosed quote, comment or raw-text element is the problem `markup:structure`,
+also checked at build), and whose code passes the lint; the document's own CSP
 must admit both hashes. Anything else is an `animation-frame` error.
 
 **Model, regenerate, merge.** The model JSON stores the block as canonical JSON (5.5) and parse
@@ -877,7 +883,9 @@ opened and saved. For diagrams already built by this sanitizer the pass is a fix
 document whose `generator.runtimeVersion` is older than `PALETTE_RUNTIME_VERSION` (`1.1.1`, the
 first runtime with the §11.1 palette) has its diagram and logo theme classes renumbered first, so
 each keeps its hue under the new palette: old slots 1 to 8 (blue, orange, green, magenta, violet,
-gold, teal, red) become 1, 2, 6, 3, 7, 8, 5, 2. SVG that already carries `viz-pal-2` is never
+gold, teal, red) become 1, 2, 6, 3, 7, 8, 5, 2, except that an SVG using both old orange and old
+red keeps them apart: red becomes 3 when old magenta is unused, else 4 (two colours that told
+elements apart never merge). SVG that already carries `viz-pal-2` is never
 renumbered again, and a document saved by a newer runtime is never renumbered (an older app that
 re-sanitizes drops the mark but keeps the newer `runtimeVersion`). Stored
 charts are not re-normalized: they re-render from their `ChartSpec` with the current renderer

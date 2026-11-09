@@ -31,7 +31,7 @@ import type {
   TabKind,
 } from './types';
 import { MAX_ANIMATIONS_PER_SECTION } from './animation';
-import { animationBudget, convertBlocks, countAnimations } from './validate';
+import { animationBudget, convertBlocks, countAnimations, countDocAnimations } from './validate';
 
 /** The sanitized SVG a block carries (diagram, animation poster), whose ids need a unique prefix. */
 function svgOfBlock(b: DocBlock): string | undefined {
@@ -405,10 +405,9 @@ export function applyMergePlan(
     return hit.from === 'target' ? hit.assetId : importAsset(hit.assetId);
   };
 
-  // Animation caps (07 §5.2): what the target already holds counts; weaveTab sets the tab budget.
-  const animationsUsed = {
-    n: t.tabs.reduce((n, tab) => n + tab.sections.reduce((k, x) => k + countAnimations(x.blocks), 0), 0),
-  };
+  // Animation caps (07 §5.2): what the target already holds counts, except the STE tab, which
+  // the merge drops (and whose animations only mirror in-depth ones); weaveTab sets the tab budget.
+  const animationsUsed = { n: countDocAnimations(t.tabs) };
   const tabAnimations = { n: 0 };
   let takeAnimation: (force?: boolean) => boolean = () => false;
 

@@ -18,9 +18,11 @@ export {
   DEFAULT_REAL_RUN_TIMEOUT_MS,
   MAX_REAL_RUN_BUDGET_USD,
   MAX_REBUILD_DOCS,
+  failHeadlessRun,
   installBudgetGuard,
   prepareRealRun,
   realRunConfigFromEnv,
+  realRunRequested,
   startRealRun,
 } from './real-run';
 export type {

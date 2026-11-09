@@ -237,6 +237,34 @@ export function prepareRealRun(o: {
   return { config, ledger };
 }
 
+/** Whether the environment asks for a headless real run or rebuild (packaged builds never do). */
+export function realRunRequested(env: RealRunEnv, isPackaged: boolean): boolean {
+  return !isPackaged && (env.ELI5_REAL_RUN_URLS !== undefined || env.ELI5_REAL_RUN_REBUILD !== undefined);
+}
+
+/**
+ * A headless run that failed before (or outside) its driver's own summary: bootstrap threw (a
+ * relative ELI5_LIBRARY_DIR, a refused config) or the driver promise rejected. Nobody is watching
+ * a window, so never a modal: the error goes to stdout as a JSON summary, the ledger lock is
+ * released (a held lock would refuse the next run) and the process ends with code 1.
+ */
+export function failHeadlessRun(o: {
+  err: unknown;
+  session?: RealRunSession | undefined;
+  write?: (text: string) => void;
+  exit: (exitCode: number) => void;
+}): void {
+  const error = o.err instanceof Error ? o.err.message : String(o.err);
+  try {
+    o.session?.ledger.release();
+  } finally {
+    const write = o.write ?? ((t: string) => void process.stdout.write(t));
+    write(JSON.stringify({ ok: false, error }, null, 2) + '\n');
+    log.error('realrun.failed', {}, o.err);
+    o.exit(1);
+  }
+}
+
 /** The JobQueue surface the driver uses. */
 export interface RealRunQueue {
   start(req: StartJobRequest): Promise<{ jobId: string }>;
@@ -279,7 +307,7 @@ export interface StartRealRunOptions {
   provider: () => LLMProvider;
   glossary?: boolean;
   write?: (text: string) => void;
-  /** Required: ends the process after the summary (the Electron bootstrap passes `app.exit`). */
+  /** Required: ends the process after the summary (the bootstrap sets the exit code, then `app.quit`). */
   quit: (exitCode: number) => void;
 }
 

@@ -168,6 +168,9 @@ const JS_RAW: readonly [string, RegExp][] = [
     ),
   ],
   ['url-string', /['"`]\s*([a-z][a-z0-9+.-]*:)?\/\/(?!www\.w3\.org\/)[a-z0-9]/i],
+  // WebRTC ICE servers: a STUN/TURN request is not covered by any CSP directive
+  ['ice-url', /['"`]\s*(stuns?|turns?):(?!\s)/i],
+  ['ice', /iceServers|createDataChannel|createOffer|setLocalDescription/],
   ['script-close', /<\/script|<!--/i],
 ];
 
@@ -185,6 +188,11 @@ const JS_CODE: readonly [string, RegExp][] = [
   ['constructor-access', /\.\s*constructor\b/],
   ['computed-global', /(?<![.\w$])(window|globalThis|self|frames|top|parent|document|this)\s*(\?\.\s*)?\[/],
   ['global-alias', /(?<![.\w$])(window|globalThis|frames)\b(?!\s*(\?\.|\.))/],
+  // top-level `this` is the window: reflection over it reaches any global by a runtime string
+  [
+    'this-global',
+    /(?<![.\w$])this\s*(\?\.|\.)\s*(frames|window|self|top|parent|globalThis|document|opener)\b|[(,]\s*this\s*[,)]|\bin\s+this\b/,
+  ],
   ['Reflect', /\bReflect\b/],
   ['atob', /\batob\b/],
   ['second-realm', /\b(contentWindow|contentDocument|getSVGDocument|defaultView)\b/],

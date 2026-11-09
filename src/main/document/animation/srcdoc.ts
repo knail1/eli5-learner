@@ -1,8 +1,9 @@
 // The animation frame document (07 §6.2, §7.1 animation): trusted shell + model code in one exact
 // srcdoc skeleton, its own CSP whose script hashes match the two scripts, and the strict reverse
-// (parseAnimationSrcdoc) the validity check uses. Pure; node:crypto only, so validity.ts can run in
-// plain Node (Playwright helpers).
+// (parseAnimationSrcdoc) the validity check uses. Pure; node:crypto and parse5 only, so validity.ts
+// can run in plain Node (Playwright helpers).
 import { createHash } from 'node:crypto';
+import { parse, type DefaultTreeAdapterMap } from 'parse5';
 import { ANIMATION_SHELLS, ANIMATION_SHELL_CSS, ANIMATION_SHELL_JS } from './shell';
 
 /** The model's code as stored in an animation DocBlock. */
@@ -78,6 +79,53 @@ export function animationSrcdoc(b: AnimationParts): string {
   return build({ js: ANIMATION_SHELL_JS, css: ANIMATION_SHELL_CSS }, b);
 }
 
+type Node = DefaultTreeAdapterMap['node'];
+type Element = DefaultTreeAdapterMap['element'];
+
+const isElement = (n: Node): n is Element => 'tagName' in n;
+const textOf = (el: Element): string =>
+  el.childNodes.map((c) => ('value' in c && c.nodeName === '#text' ? c.value : '\u0000')).join('');
+
+/**
+ * Whether the frame parses the way it was built (audit round 1): the model's html and css are
+ * spliced into the skeleton as text, so an unclosed quote, comment or raw-text element (`<p class='`,
+ * `<textarea`, `<template`, `<noscript`) could swallow the trusted shell's <script> tag and leave the
+ * model's script running without it. Parsed as a browser does (parse5), the frame must be exactly
+ * head [meta x4, style(shell css), style(model css)] and body [main#eli5-anim, script(shell),
+ * script(model)], with no other script anywhere (template contents included).
+ */
+export function frameParsesAsBuilt(
+  b: AnimationParts,
+  shell = { js: ANIMATION_SHELL_JS, css: ANIMATION_SHELL_CSS },
+): boolean {
+  const doc = parse(build(shell, b));
+  const html = doc.childNodes.find(isElement);
+  if (!html || html.tagName !== 'html') return false;
+  const [head, body, ...more] = html.childNodes.filter(isElement);
+  if (!head || head.tagName !== 'head' || !body || body.tagName !== 'body' || more.length > 0) return false;
+  if (html.childNodes.length !== 2) return false;
+  const tags = (el: Element): string => el.childNodes.map((c) => (isElement(c) ? c.tagName : c.nodeName)).join(' ');
+  if (tags(head) !== 'meta meta meta meta style style' || tags(body) !== 'main script script') return false;
+  const [, , , , shellStyle, modelStyle] = head.childNodes.filter(isElement);
+  if (!shellStyle || textOf(shellStyle) !== shell.css || !modelStyle || textOf(modelStyle) !== (b.css ?? ''))
+    return false;
+  const [main, shellScript, modelScript] = body.childNodes.filter(isElement);
+  if (!main || main.attrs.length !== 1 || main.attrs[0]?.name !== 'id' || main.attrs[0].value !== 'eli5-anim')
+    return false;
+  if (!shellScript || textOf(shellScript) !== shell.js || !modelScript || textOf(modelScript) !== b.js) return false;
+  let scripts = 0;
+  const walk = (n: Node): void => {
+    if (isElement(n)) {
+      if (n.tagName === 'script') scripts++;
+      if (n.tagName === 'template')
+        for (const c of (n as DefaultTreeAdapterMap['template']).content.childNodes) walk(c);
+    }
+    if ('childNodes' in n) for (const c of n.childNodes) walk(c);
+  };
+  walk(doc);
+  return scripts === 2;
+}
+
 /**
  * Strict reverse of animationSrcdoc for validity (07 §6.2, 13 §7.1): the srcdoc must be exactly the
  * skeleton around a known shell version, with the CSP the code's hashes give. Null otherwise.
@@ -98,7 +146,7 @@ export function parseAnimationSrcdoc(srcdoc: string): (AnimationParts & { hashes
       srcdoc.length - DOC_CLOSE.length,
     );
     const parts: AnimationParts = { js, ...(html ? { html } : {}), ...(css ? { css } : {}) };
-    if (build(shell, parts) !== srcdoc) return null;
+    if (build(shell, parts) !== srcdoc || !frameParsesAsBuilt(parts, shell)) return null;
     return { ...parts, hashes: [sha256Source(shell.js), sha256Source(js)] };
   }
   return null;

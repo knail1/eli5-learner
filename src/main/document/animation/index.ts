@@ -8,6 +8,7 @@ import {
   ANIMATION_SANDBOX,
   animationHashes,
   animationSrcdoc,
+  frameParsesAsBuilt,
   parseAnimationSrcdoc,
   type AnimationParts,
 } from './srcdoc';
@@ -19,6 +20,7 @@ export {
   animationCsp,
   animationHashes,
   animationSrcdoc,
+  frameParsesAsBuilt,
   parseAnimationSrcdoc,
   sha256Source,
   type AnimationParts,
@@ -72,7 +74,10 @@ export function animationCodeProblems(b: AnimationParts): string[] {
   if (bytes(b.js) > MAX_ANIMATION_JS) out.push('js:size');
   if (bytes(b.html) > MAX_ANIMATION_HTML) out.push('html:size');
   if (bytes(b.css) > MAX_ANIMATION_CSS) out.push('css:size');
-  return [...out, ...lintAnimation(b)];
+  const lint = lintAnimation(b);
+  // Only well-formed code is worth parsing; malformed markup that would swallow the shell is a hit.
+  if (out.length === 0 && lint.length === 0 && !frameParsesAsBuilt(b)) out.push('markup:structure');
+  return [...out, ...lint];
 }
 
 /**
