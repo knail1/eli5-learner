@@ -101,6 +101,19 @@ describe('animation guidance (07 §7.1 animation, owner correction 2026-11-08)',
     expect(rules).toMatch(/If none of the examples fits, design a new one that fits/);
   });
 
+  it('palette and lint advice match the shell and the lint (audit round 2)', () => {
+    const rules = PromptCatalogue.load({ root: PROMPTS_ROOT }).fragment('animation-rules').text;
+    // grid is ~1.3:1 on the paper: never for data marks; other marks use muted or ink (>= 3:1).
+    expect(rules).not.toMatch(/everything else around it in `muted` or `grid`/);
+    expect(rules).toMatch(/`grid` is only for gridlines and background shapes, never for data/);
+    expect(rules).toMatch(/in `muted` or `ink`/);
+    // The idioms the lint allows are named as allowed; the ones it drops are named as banned.
+    for (const ok of ['`peak.location`', '`let frames = 0`', '`class Worker`', '`.bind(this)`'])
+      expect(rules).toContain(ok);
+    for (const bad of ['customElements', "`x['a' + b]`", '`globalThis`']) expect(rules).toContain(bad);
+    expect(rules).not.toMatch(/never name your own variables `location`, `window` or `self`/);
+  });
+
   it('the examples span several topics, each tied to its own topic', () => {
     const rules = PromptCatalogue.load({ root: PROMPTS_ROOT }).fragment('animation-rules').text;
     const list = rules.slice(rules.indexOf('Examples of the style, each right only for its own topic:'));

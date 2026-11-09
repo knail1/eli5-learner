@@ -338,7 +338,7 @@ the runtime changed) the runtime blocks.
 
 **Runtime upgrades.** A document keeps its embedded runtime (`generator.runtimeVersion`, the
 `eli5-css` and `eli5-runtime` blocks) until one of these explicit exceptions re-renders the same
-model with the bundled runtime (`bundledDocRuntime()`, `DOC_RUNTIME_VERSION`, currently `1.3.1`, the shared chart palette of 11.1; `1.3.0` was the first runtime with animation frames, 7.1; `1.2.0` was an unreleased runtime whose fixed, built-in animation kinds were removed before release):
+model with the bundled runtime (`bundledDocRuntime()`, `DOC_RUNTIME_VERSION`, currently `1.3.2`, the 3:1 `--viz-muted` of 11.1 and animation shell version 3; `1.3.1` was the shared chart palette of 11.1; `1.3.0` was the first runtime with animation frames, 7.1; `1.2.0` was an unreleased runtime whose fixed, built-in animation kinds were removed before release):
 
 1. **On open** ([08](08-interactive-reading.md) §5.1): when a document with an older runtime is
    opened in the app's viewer, the library is writable, the document parses and nothing in it is
@@ -647,8 +647,8 @@ SHELL CSS</style><style>MODEL CSS</style></head><body><main id="eli5-anim">MODEL
 
 **Shell** (`animation/shell.ts`, frozen; a change adds a version next to it so older documents
 still parse and validate, and bumps `DOC_RUNTIME_VERSION`; rendering always writes the current
-shell, so an older document's frames change when it is re-rendered, like its runtime; `ANIMATION_SHELLS` holds version 2,
-runtime 1.3.1, and version 1, runtime 1.3.0, which differs only in its series colours). Before the model's code runs it
+shell, so an older document's frames change when it is re-rendered, like its runtime; `ANIMATION_SHELLS` holds version 3,
+runtime 1.3.2; version 2, runtime 1.3.1, which lacks only the custom-elements lines; and version 1, runtime 1.3.0, which differs from version 2 only in its series colours). Before the model's code runs it
 captures the parent window, then makes `fetch`, `XMLHttpRequest`, `WebSocket`, `WebTransport`,
 `EventSource`, `RTCPeerConnection` (and the `webkit` form and data channels), `Worker`,
 `SharedWorker`, `BroadcastChannel`, `MessageChannel`, `importScripts`, `open`, `opener`, `parent`,
@@ -657,7 +657,9 @@ undefined (defense in depth; the CSP is the boundary). It also closes the ways t
 to markup the lint cannot see: `contentWindow`/`contentDocument`/`getSVGDocument` of frame-like
 elements return null, `createElement`/`createElementNS` throw for `iframe`, `frame`, `frameset`,
 `object`, `embed`, `portal`, `fencedframe`, `link`, `meta`, `base`, `form`, `a`, `area` and
-`script`, and the HTML-string sinks (`innerHTML`/`outerHTML` setters, `insertAdjacentHTML`,
+`script`, `customElements` is undefined and `CustomElementRegistry.prototype.define` throws (a
+customized built-in, `new F()` for a class extending `HTMLAnchorElement`, would otherwise create a
+banned element without `createElement`), and the HTML-string sinks (`innerHTML`/`outerHTML` setters, `insertAdjacentHTML`,
 `setHTMLUnsafe`, `document.write`, `execCommand`, `createContextualFragment`, `DOMParser`,
 `XSLTProcessor`) throw or are undefined. It sets theme tokens as CSS variables (light,
 dark by `prefers-color-scheme`, overridden by `data-theme` from the parent), measures the body and
@@ -682,18 +684,25 @@ work at 320 px wide.
 block). Word rules run on the code with strings, template text, regular expression literals and
 comments removed, so label text ("Cookies left", "cost of import") and ordinary variable names never
 hit; a quote or `/` that does not close on its line is kept as code, so a confused scanner never hides
-the rest of a line. On that code: `fetch`, `Worker`, `import`, `eval`, `Function(`, `.cookie`,
+the rest of a line. On that code: `fetch`, `import`, `eval`, `Function(`, `customElements`,
+`CustomElementRegistry` and `extends …HTML…Element` (a customized built-in), `cookieStore`,
 storage, `BroadcastChannel`/`MessageChannel`, `navigator`, `.constructor`, `Reflect`, `atob`,
-computed access on `window`/`globalThis`/`self`/`frames`/`top`/`parent`/`document`/`this`, bare
-`window`/`globalThis`/`frames` not followed by a member (aliasing), `contentWindow`,
-`contentDocument`, `getSVGDocument`, `defaultView`, the HTML-string sinks, `location` (after any
-receiver too), `open(`, `opener`, `frameElement`, `top`/`parent` through a global (`window.top`,
-`self.parent`) or followed by a window-only member (`top.document`, `parent.postMessage`), and bare
-`top`/`parent`/`self` unless the code declares a binding of that name (a margin variable or a
-parameter; object keys are not references). On the raw `js`: `XMLHttpRequest`, `WebSocket`,
+computed access on `window`/`globalThis`/`self`/`top`/`parent`/`document`/`this`, bare
+`window`/`globalThis` not followed by a member (aliasing), `.window` and `.globalThis` after any
+receiver and `.self`/`.frames` after a global (`globalThis.window`, `self.frames`), `this` passed
+as an argument (except as the receiver of `.bind`, `.call` or `.apply`), `contentWindow`,
+`contentDocument`, `getSVGDocument`, `defaultView`, the HTML-string sinks, bare `location`,
+`location` and `cookie` after a global, a document, `this` or a call result (`document.cookie`,
+`getRootNode().location`; any `.location` or `.cookie` once the code aliases the document, so
+`peak.location` and `jar.cookie` are fine otherwise), `open(`, `opener`, `frameElement`,
+`top`/`parent` through a global (`window.top`, `self.parent`) or followed by a window-only member
+(`top.document`, `parent.postMessage`), bare `top`/`parent`/`self`/`frames` unless the code
+declares a binding of that name (a margin variable, a frame counter or a parameter; object keys are
+not references), and `Worker` unless the code declares its own (`class Worker`), with `.Worker`
+always a hit. On the raw `js`: `XMLHttpRequest`, `WebSocket`,
 `WebTransport`, `EventSource`, `sendBeacon`, `RTC…`/`PeerConnection`, `SharedWorker`/`serviceWorker`,
-`importScripts`, `postMessage`, `setTimeout`/`setInterval` with a string, `['constructor`, computed
-keys built by string concatenation (`x['fe' + 'tch']`), creating a banned element by name
+`importScripts`, `postMessage`, `setTimeout`/`setInterval` with a string, `['constructor`,
+computed member keys built by string concatenation (`x['fe' + 'tch']`; array literals such as `[['Rate', r + '%']]` are data), creating a banned element by name
 (`createElement`, `createElementNS`, `ELI5.el`), a string holding an external URL (`//host`, any
 scheme; the SVG namespace is allowed), `</script` and `<!--`. In `js`, `html` and `css`: `<iframe`,
 `<frame`, `<form`, `<a href`, `<meta`, `<base`, `<script src`, `<link`, `<object`/`<embed`/`<portal`,
@@ -1197,7 +1206,9 @@ and again under `:root[data-theme="dark"]`. The body always has an explicit back
 No web fonts are embedded by default (system fonts only; keeps files small and offline).
 
 **Chart palette.** One shared, high-contrast palette for every theme: a theme (skill or overlay,
-§11.3) cannot set `--viz-1 … --viz-8`, so a themed document never swaps in a low-contrast set.
+§11.3) cannot set `--viz-1 … --viz-8` or `--viz-muted`, so a themed document never swaps in a
+low-contrast set. `--viz-muted` (`#8c877d` light, `#6f737a` dark) paints every de-emphasized mark
+next to a highlight; those marks are still data, so it is at least 3:1 on the paper in both themes.
 Comprehension comes first; colour-vision simulation is not a requirement. Slots keep their hue
 identity across palette revisions (in runtime 1.3.1, 5 moved from sky to teal and 7 from grey to
 violet, so all eight slots stay apart), so stored diagrams keep their meaning without renumbering.
@@ -1217,7 +1228,9 @@ Hard rules, in both themes and for every theme file (the runtime and the bundled
 theme), held by `test/unit/main/document/palette.test.ts`:
 
 - Every slot is at least 4.5:1 on the paper, so marks are clearly visible and series-coloured
-  text (line direct labels, diagram labels) is readable; the highlight accent is at least 3:1.
+  text (line direct labels, diagram labels) is readable; the highlight accent and `--viz-muted`
+  are at least 3:1. `--viz-grid` is for gridlines only, never for data (the animation prompt says
+  the same of the shell's `grid`).
 - Text on any fill reaches 4.5:1: paper-coloured text on a slot fill, or ink with the 3 px paper
   outline (§7.3).
 - Never same-hue text on a fill: a label in a slot's colour on that slot's shape becomes outlined
@@ -1232,7 +1245,8 @@ theme), held by `test/unit/main/document/palette.test.ts`:
 The runtime CSS, its print block, `color.ts` (`RUNTIME_LIGHT`, `RUNTIME_DARK`) and the animation
 shell's `palette` carry the same values (tested). The runtime palette applies to every document
 whose CSS is re-rendered (§5.5); this palette bumped `DOC_RUNTIME_VERSION` to `1.3.1`, so a
-1.3.0 document takes it on open. An earlier palette change bumped `DOC_RUNTIME_VERSION` to `1.1.1`
+1.3.0 document takes it on open, and the 3:1 `--viz-muted` (with animation shell version 3) bumped
+it to `1.3.2`. An earlier palette change bumped `DOC_RUNTIME_VERSION` to `1.1.1`
 and renumbered stored diagrams at parse (§7.3) so a diagram painted with the old green slot 3 stays
 green.
 
@@ -1253,7 +1267,7 @@ green.
 `DocTheme = { id; version; tokens: Record<TokenName, string>; footer?: string; logoSvg?: string }`.
 Precedence: default theme < skill theme input (CSS custom properties supplied by the beautiful-doc
 skill, [02](02-llm-provider.md) §11) < overlay theme (HOOK-DOC-01). The chart slots `--viz-1 …
---viz-8` are fixed (§11.1): any layer that sets one, light or dark, has it dropped with warning
+--viz-8` and `--viz-muted` are fixed (§11.1): any layer that sets one, light or dark, has it dropped with warning
 `theme-token-chart-fixed:<token>`, and `themeCss` never writes one, so a stored theme that set one
 gets the shared palette on its next re-render. Only known token names are accepted and values must
 match `^(#[0-9a-f]{3,8}|rgb\(…\)|hsl\(…\)|oklch\(…\)|[a-z-]+|[0-9.]+(px|rem|em)?|"[^"<>]*"( ?, ?[a-zA-Z "-]+)*)$`;

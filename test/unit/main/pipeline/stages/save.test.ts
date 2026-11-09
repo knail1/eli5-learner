@@ -9,7 +9,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseDocument } from '../../../../../src/main/document';
 import type { DocumentMeta, SectionId } from '../../../../../src/main/library';
-import type { Job, RebuildTarget } from '../../../../../src/main/pipeline';
+import { snapshotOf, type Job, type RebuildTarget } from '../../../../../src/main/pipeline';
 import { fileInput, harness, type Harness } from '../harness';
 
 const opts = { clarifyingInput: '', glossary: true };
@@ -73,7 +73,8 @@ async function rebuild(h: Harness, t: RebuildTarget): Promise<Job> {
   return h.finished(jobId);
 }
 
-describe('saving a rebuild as a new version (design §5)', () => {
+// Real queue, stages and library per test: allow for a loaded machine (the full suite runs in parallel).
+describe('saving a rebuild as a new version (design §5)', { timeout: 20_000 }, () => {
   it('keeps id, slug, createdAt, merges and publications; drops asks and actions; no merge check', async () => {
     const h = await harness();
     const before = await created(h);
@@ -248,4 +249,47 @@ describe('saving a rebuild as a new version (design §5)', () => {
       expect(await readFile(b.lib.docPath(before.slug))).toEqual(html);
     },
   );
+
+  it('never retries a failed rebuild from the queue: no Retry button, E_CONFLICT, no call', async () => {
+    const a = await harness();
+    const before = await created(a);
+    const job = await rebuild(a, await target(a, before.slug));
+    const rec = { ...job, id: `${job.id.slice(0, -1)}Y`, status: 'generating', resuming: true };
+    delete (rec as Partial<Job>).result;
+    delete (rec as Partial<Job>).finishedAt;
+    await writeFile(path.join(a.userData, 'jobs', `${rec.id}.json`), JSON.stringify(rec));
+    const b = await harness({ from: a });
+    const out = await b.finished(rec.id);
+    expect(out.failure?.code).toBe('INTERRUPTED');
+    expect(snapshotOf(out, {}).canRetry).toBe(false);
+    const calls = b.fake.calls.length;
+    await expect(b.queue.retry(rec.id as Job['id'])).rejects.toMatchObject({ code: 'E_CONFLICT' });
+    await b.queue.idle();
+    expect(b.queue.get(rec.id as Job['id'])?.status).toBe('failed');
+    expect(b.fake.calls).toHaveLength(calls);
+  });
+
+  it('a headless session holds leftover normal jobs: no recovery, no call, record untouched', async () => {
+    const a = await harness();
+    const { jobId } = await a.queue.start({ inputs: [fileInput('sources/text/notes.md')], options: opts });
+    const done = await a.finished(jobId);
+    const rec = { ...done, id: `${done.id.slice(0, -1)}X`, status: 'queued' };
+    delete (rec as Partial<Job>).result;
+    delete (rec as Partial<Job>).finishedAt;
+    const file = path.join(a.userData, 'jobs', `${rec.id}.json`);
+    await writeFile(file, JSON.stringify(rec));
+    const raw = await readFile(file, 'utf8');
+    const b = await harness({ from: a, init: false });
+    await b.queue.init({ holdLeftovers: true });
+    await b.queue.idle();
+    expect(b.fake.calls).toEqual([]);
+    expect(b.queue.get(rec.id as Job['id'])?.status).toBe('queued');
+    await b.queue.close();
+    expect(await readFile(file, 'utf8')).toBe(raw);
+    // The next normal launch recovers and runs it (its copied record has no snapshots left, so it
+    // ends at reading; what matters is that it is no longer held).
+    const c = await harness({ from: a });
+    const out = await c.finished(rec.id);
+    expect(out.failure?.code).toBe('NO_USABLE_CONTENT');
+  });
 });

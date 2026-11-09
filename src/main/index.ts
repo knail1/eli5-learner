@@ -417,7 +417,10 @@ async function bootstrap(): Promise<void> {
   );
   // Crash recovery (06 §9.4) finishes before IPC exists, so the renderer's first eli5:jobs:list
   // already sees resumed jobs. A failure here must not stop the app from opening the Library.
-  await jobs.init().catch((err: unknown) => log.error('pipeline.init-failed', {}, err));
+  // A headless real run or rebuild holds leftover jobs, so only the driver's own jobs spend (design §5).
+  await jobs
+    .init({ holdLeftovers: realRun !== undefined })
+    .catch((err: unknown) => log.error('pipeline.init-failed', {}, err));
   interactive.attachJobs(jobs);
   // Running and queued jobs are persisted and resume on the next launch (06 §4.3, 11 §3.2): the
   // queue flushes before the Library lock is released and the process exits.

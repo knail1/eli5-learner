@@ -134,7 +134,12 @@ to stop, and the run ends with `stopped: "timeout"`; no further document starts.
 
 Rebuild jobs are never resumed. If the run is interrupted (Ctrl-C, crash), the next launch with the
 same userData finishes the job as done when its version had committed, and otherwise fails it with
-`INTERRUPTED`; rerun the driver to retry (the preflight captures the base again).
+`INTERRUPTED`; rerun the driver to retry (the preflight captures the base again). The app's job
+list offers no Retry for a failed rebuild, so it never spends outside the driver's guards.
+
+A driver session (real run or rebuild, dry runs included) holds leftover jobs from the normal app:
+queued or interrupted jobs that are not rebuilds are neither resumed nor run, and their records stay
+as they are, so only the driver's own jobs call the provider. The next normal launch resumes them.
 
 Preflight (all documents, before any call; any problem aborts the whole run): the Library is
 writable (quit the app first: a locked Library is read-only), each slug exists, the sha256 of each

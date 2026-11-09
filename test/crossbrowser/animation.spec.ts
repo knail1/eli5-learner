@@ -121,6 +121,8 @@ try { document.createElement('iframe'); r.ce = 'made'; } catch (e) { r.ce = 'thr
 try { document.createElementNS('http://www.w3.org/1999/xhtml', 'link'); r.ceNS = 'made'; } catch (e) { r.ceNS = 'threw'; }
 try { document.createElement('div').innerHTML = '<iframe></iframe>'; r.html = 'set'; } catch (e) { r.html = 'threw'; }
 try { ELI5.el('div', { onclick: 'x()' }); r.attr = 'set'; } catch (e) { r.attr = 'threw'; }
+r.ces = typeof customElements;
+try { CustomElementRegistry.prototype.define.call(null, 'x-a', class extends HTMLElement {}); r.define = 'ran'; } catch (e) { r.define = e instanceof TypeError && /ELI5/.test(e.message) ? 'denied' : 'threw'; }
 r.fetch = typeof fetch; r.xhr = typeof XMLHttpRequest; r.ws = typeof WebSocket;
 r.rtc = typeof RTCPeerConnection; r.worker = typeof Worker; r.open = typeof open;
 try { r.storage = typeof localStorage; } catch (e) { r.storage = 'threw'; }
@@ -154,6 +156,9 @@ test('a hostile frame cannot read the parent, reach the network or navigate', as
     ceNS: 'threw',
     html: 'threw',
     attr: 'threw',
+    // audit round 2: no customized built-in (new F() for a class extending HTMLAnchorElement)
+    ces: 'undefined',
+    define: 'denied',
     fetch: 'undefined',
     xhr: 'undefined',
     ws: 'undefined',

@@ -108,6 +108,33 @@ function pruneAssets(model: DocumentModel): DocumentModel {
  * 07 §8 / 08 §6.4 step 4: writes `draft` back under the same SectionId, origin 'regenerated',
  * `updatedAt`/`lastAction` set, and re-anchors that section's glossary notes (08 §6.5).
  */
+const STE_FIXED_VISUALS: ReadonlySet<DocBlock['type']> = new Set<DocBlock['type']>(['chart', 'diagram', 'table']);
+
+/**
+ * 08 §6.3 for an ASD-STE100 section: each chart, diagram or table the model returns is replaced, in
+ * order, by the section's own block of that type, unchanged; one beyond those is dropped
+ * (`ste-visual-dropped`), and one the model left out is put back at the end (`ste-visual-restored`).
+ */
+function keepSteVisuals(old: readonly DocBlock[], next: readonly DocBlock[], warn: (w: string) => void): DocBlock[] {
+  const pool = new Map<DocBlock['type'], DocBlock[]>();
+  for (const b of old) if (STE_FIXED_VISUALS.has(b.type)) pool.set(b.type, [...(pool.get(b.type) ?? []), b]);
+  const out: DocBlock[] = [];
+  for (const b of next) {
+    if (!STE_FIXED_VISUALS.has(b.type)) out.push(b);
+    else {
+      const own = pool.get(b.type)?.shift();
+      if (own) out.push(own);
+      else warn('ste-visual-dropped');
+    }
+  }
+  for (const rest of pool.values())
+    for (const b of rest) {
+      out.push(b);
+      warn('ste-visual-restored');
+    }
+  return out;
+}
+
 export function replaceSection(
   model: DocumentModel,
   id: SectionId,
@@ -133,19 +160,23 @@ export function replaceSection(
     secs.reduce((n, s) => n + (s.id === id ? 0 : countAnimations(s.blocks)), 0);
   const rawHeading = collapseWs(draft.heading) || hit.section.heading;
   const heading = rawHeading.length > 120 ? rawHeading.slice(0, 119) + '…' : rawHeading;
-  const blocks = convertBlocks(draft.blocks, {
+  // 08 §6.3: the ASD-STE100 tab keeps its charts, diagrams, tables and animations and never adds
+  // or changes one; only keep markers bring an animation back.
+  const ste = hit.tab.kind === 'ste';
+  const converted = convertBlocks(draft.blocks, {
     idSource: opts.idSource ?? cryptoIdSource,
     resolveFigure: assetResolver(model, opts),
-    takeAnimation: animationBudget(
-      {
-        n: countDocAnimations(model.tabs) - (hit.tab.kind === 'ste' ? 0 : countAnimations(hit.section.blocks)),
-      },
-      others(hit.tab.sections),
-    ),
+    takeAnimation: ste
+      ? (kept) => kept === true
+      : animationBudget(
+          { n: countDocAnimations(model.tabs) - countAnimations(hit.section.blocks) },
+          others(hit.tab.sections),
+        ),
     keepAnimation: () => ownAnimations.shift(),
     heading,
     warn,
   });
+  const blocks = ste ? keepSteVisuals(hit.section.blocks, converted, warn) : converted;
   if (blocks.length === 0) throw new DocumentBuildError('empty_section');
   const { merge, mergeMarker } = hit.section;
   const section: Section = {

@@ -158,8 +158,10 @@ const JS_RAW: readonly [string, RegExp][] = [
   ['string-timer', /\bset(Timeout|Interval)\s*\(\s*['"`]/],
   ['postMessage', /postMessage/],
   ['constructor-key', /\[\s*['"`]constructor/],
-  // a computed key built by concatenating strings: x['fe' + 'tch'], x[k + 'al']
-  ['concat-key', /\[\s*(['"`])[^'"`\]\n]*\1\s*\+|\+\s*(['"`])[^'"`\]\n]*\2\s*\]/],
+  // a computed member key built by concatenating strings: x['fe' + 'tch'], x[k + 'al'], f()?.['a' + b].
+  // Only member access (an identifier, string, `)`, `]`, `}` or `.` before the `[`): an array
+  // literal such as [['Rate', r + '%']] or ['Day ' + d, 'x'] is data, not a key.
+  ['concat-key', /(?<=[\w$)\]}'"`.]\s*)\[[^\]\n]*?(?:(['"`])[^'"`\]\n]*\1\s*\+|\+\s*(['"`])[^'"`\]\n]*\2\s*\])/],
   [
     'banned-element',
     new RegExp(
@@ -177,21 +179,30 @@ const JS_RAW: readonly [string, RegExp][] = [
 /** Word rules for js identifiers, applied to codeOnly() text (strings, regexes and comments gone). */
 const JS_CODE: readonly [string, RegExp][] = [
   ['fetch', /\bfetch\b/],
-  ['Worker', /\bWorker\b/],
+  // a customized built-in (`class F extends HTMLAnchorElement`, `customElements.define`) creates a
+  // banned element without createElement (audit round 2); the shell also removes customElements
+  ['customElements', /\b(customElements|CustomElementRegistry)\b|\bextends\s+[\w$.]*(HTML|SVG)\w*Element\b/],
   ['import', /\bimport\b/],
   ['eval', /\beval\b/],
   ['Function', /\bFunction\s*\(/],
-  ['cookie', /\.\s*cookie\b|\bcookieStore\b/],
+  ['cookie', /\bcookieStore\b/],
   ['storage', /\b(localStorage|sessionStorage|indexedDB)\b|\bcaches\s*(\?\.|\.)\s*(open|match|keys|has|delete)\b/],
   ['channel', /\b(BroadcastChannel|MessageChannel)\b/],
   ['navigator', /\bnavigator\b/],
   ['constructor-access', /\.\s*constructor\b/],
-  ['computed-global', /(?<![.\w$])(window|globalThis|self|frames|top|parent|document|this)\s*(\?\.\s*)?\[/],
-  ['global-alias', /(?<![.\w$])(window|globalThis|frames)\b(?!\s*(\?\.|\.))/],
-  // top-level `this` is the window: reflection over it reaches any global by a runtime string
+  ['computed-global', /(?<![.\w$])(window|globalThis|self|top|parent|document|this)\s*(\?\.\s*)?\[/],
+  ['global-alias', /(?<![.\w$])(window|globalThis)\b(?!\s*(\?\.|\.))/],
+  // the window through a member: globalThis.window, x.globalThis, self.frames, document.self
+  [
+    'global-alias',
+    /(\?\.|\.)\s*(window|globalThis)\b|\b(window|self|globalThis|frames|top|parent|document|this)\s*(\?\.|\.)\s*(self|frames)\b/,
+  ],
+  // top-level `this` is the window: reflection over it reaches any global by a runtime string.
+  // `.bind(this)`, `.call(this, …)` and `.apply(this, …)` only pass `this` on as a receiver, where
+  // any use of it is linted again.
   [
     'this-global',
-    /(?<![.\w$])this\s*(\?\.|\.)\s*(frames|window|self|top|parent|globalThis|document|opener)\b|[(,]\s*this\s*[,)]|\bin\s+this\b/,
+    /(?<![.\w$])this\s*(\?\.|\.)\s*(frames|window|self|top|parent|globalThis|document|opener)\b|(?<!\b(bind|call|apply)\s*)\(\s*this\s*[,)]|,\s*this\s*[,)]|\bin\s+this\b/,
   ],
   ['Reflect', /\bReflect\b/],
   ['atob', /\batob\b/],
@@ -200,10 +211,15 @@ const JS_CODE: readonly [string, RegExp][] = [
     'html-sink',
     /\b(innerHTML|outerHTML|insertAdjacentHTML|DOMParser|createContextualFragment|srcdoc|setHTMLUnsafe|parseHTMLUnsafe|XSLTProcessor|execCommand)\b|\.\s*write(ln)?\s*\(/,
   ],
-  ['location', /(?<![\w$])location\b/],
+  // bare `location`, or the real one through a global or a document; `peak.location` is a property
+  [
+    'location',
+    /(?<![.\w$])(?<![{,]\s*)location\b|(?<![.\w$])location\b(?!\s*:)|(\b(window|self|globalThis|frames|top|parent|document|ownerDocument|this)|\))\s*(\?\.|\.)\s*location\b/,
+  ],
   ['open', /(?<![.\w$])open\s*\(|\b(window|self|globalThis|document)\s*(\?\.|\.)\s*open\b/],
   ['opener', /\bopener\b/],
   ['frameElement', /\bframeElement\b/],
+  ['cookie', /(\b(document|ownerDocument|this)|\))\s*(\?\.|\.)\s*cookie\b/],
   // top and parent through a global, or used for what only the real ones offer
   ['top', /\b(window|self|globalThis|document|frames)\s*(\?\.|\.)\s*(top|parent)\b/],
   [
@@ -217,7 +233,7 @@ const JS_CODE: readonly [string, RegExp][] = [
  * that name (a margin variable, a helper's parameter), so a reference to the real window cannot be
  * taken without a rule seeing it. Object keys (`{ top: 1 }`) are not references.
  */
-const BARE_GLOBALS = ['top', 'parent', 'self'] as const;
+const BARE_GLOBALS = ['top', 'parent', 'self', 'frames'] as const;
 
 /** The binding parts (before each top-level `=`) of every var/let/const declaration list. */
 function declaredBindings(code: string): string[] {
@@ -259,6 +275,7 @@ function declares(code: string, name: string): boolean {
     new RegExp(`\\(([^()]*[,\\s(])?${name}\\s*(,[^()]*)?\\)\\s*=>`),
     new RegExp(`(?<![.\\w$])${name}\\s*=>`),
     new RegExp(`\\bcatch\\s*\\(\\s*${name}\\s*\\)`),
+    new RegExp(`\\b(class|function)\\s+${name}\\b`),
   ].some((re) => re.test(code));
 }
 
@@ -267,8 +284,24 @@ function bareGlobalHits(code: string): string[] {
   for (const name of BARE_GLOBALS) {
     if (declares(code, name)) continue;
     const ref = new RegExp(`(?<![.\\w$])(?<![{,]\\s*)${name}\\b|(?<![.\\w$])${name}\\b(?!\\s*:)`);
-    if (ref.test(code)) hits.push(name === 'self' ? 'global-alias' : name);
+    if (ref.test(code)) hits.push(name === 'self' || name === 'frames' ? 'global-alias' : name);
   }
+  // Worker: the real one (also removed by the shell) unless the code declares its own class or
+  // binding of that name; a member `x.Worker` is always the global's.
+  if (/(?<![.\w$])Worker\b/.test(code) && !declares(code, 'Worker')) hits.push('Worker');
+  if (/(\?\.|\.)\s*Worker\b/.test(code)) hits.push('Worker');
+  return hits;
+}
+
+/**
+ * When the code aliases the document (`const d = document`, `el.ownerDocument`, `getRootNode()`),
+ * any `.location` or `.cookie` may be the real one, so the narrow member rules above do not apply.
+ */
+function documentAliasHits(code: string): string[] {
+  if (!/(?<![.\w$])document\b(?!\s*(\?\.|\.))|\b(ownerDocument|getRootNode)\b/.test(code)) return [];
+  const hits: string[] = [];
+  if (/(\?\.|\.)\s*location\b/.test(code)) hits.push('location');
+  if (/(\?\.|\.)\s*cookie\b/.test(code)) hits.push('cookie');
   return hits;
 }
 
@@ -316,7 +349,7 @@ export function lintAnimation(code: AnimationCode): string[] {
   run('js', js, JS_RAW);
   const stripped = codeOnly(js);
   run('js', stripped, JS_CODE);
-  for (const h of bareGlobalHits(stripped)) hits.push(`js:${h}`);
+  for (const h of [...bareGlobalHits(stripped), ...documentAliasHits(stripped)]) hits.push(`js:${h}`);
   run('js', js, MARKUP);
   const html = code.html ?? '';
   if (html) {

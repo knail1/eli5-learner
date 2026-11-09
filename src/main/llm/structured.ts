@@ -373,7 +373,15 @@ export async function generateStructured<N extends DraftSchemaName>(
     ],
   };
   log.info('llm.repair', { taskId: req.taskId, count: outcome.errors.length });
-  const second = await send(call.provider, call.filter ? await call.filter(repairReq) : repairReq);
+  let second: GenerationResult;
+  try {
+    second = await send(call.provider, call.filter ? await call.filter(repairReq) : repairReq);
+  } catch (e) {
+    // The repair send failed (network, rate limit, truncation...): the first, billed call is still
+    // logged (D25), plus whatever the failed send reported.
+    if (e instanceof LLMError) e.usage = addUsage(usage, e.usage ?? ZERO_USAGE);
+    throw e;
+  }
   usage = addUsage(usage, second.usage);
   const spent = usage;
   const again = withUsage(spent, () => check(second, call.schema, ctx));

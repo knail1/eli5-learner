@@ -4,7 +4,8 @@
  * the renderer validates every value. Callout and glossary tokens are backgrounds for --ink text, so
  * they are light tints of sky, rust and olive (contrast is tested). The accent is a deeper rust than
  * the gallery's #d97757 so highlighted chart marks and the kicker reach contrast on the paper. Chart
- * series colours (--viz-1..8) are not set here: every theme uses the shared chart palette (07 §11.1).
+ * series colours (--viz-1..8) and --viz-muted are not set here: every theme uses the shared chart
+ * palette (07 §11.1).
  */
 :root {
   --paper: #faf9f5;
@@ -17,7 +18,6 @@
   --accent: #b5532f;
   --accent-ink: #faf9f5;
   --highlight: #e3dacc;
-  --viz-muted: #d1cfc5;
   --viz-grid: #e8e6dc;
   --callout-note: #e7edf4;
   --callout-warning: #f6e4e1;

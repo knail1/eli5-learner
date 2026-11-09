@@ -911,7 +911,9 @@ export function createTasks(deps: TaskDeps): LlmTasks {
         note: input.note ?? '',
         sourceExcerpt: input.sourceExcerpt ? wrapSource('original source excerpt', input.sourceExcerpt) : '',
         context: input.context ? wrapSource('surrounding context', input.context) : '',
-        animationRules: frag('animation-rules'),
+        // The ASD-STE100 tab never adds or changes visuals (08 §6.3): no invitation to write an
+        // animation; register-ste says how to keep the ones the section has.
+        animationRules: input.tabKind === 'ste' ? '' : frag('animation-rules'),
       };
       if (input.action === 'eli5-tab' || input.action === 'eli5-selection') {
         const r = await run<DocumentDraftTab>(id, vars, { signal: input.signal });

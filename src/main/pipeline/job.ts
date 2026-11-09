@@ -103,7 +103,7 @@ export function snapshotOf(job: Job, ctx: SnapshotContext = {}): JobSnapshot {
     ...(job.failure ? { failureCode: job.failure.code } : {}),
     skippedCount: job.skipped.length,
     canCancel: !terminal && !ctx.commitStarted,
-    canRetry: job.status === 'failed' && isRetryable(job.failure?.code),
+    canRetry: job.status === 'failed' && !job.rebuild && isRetryable(job.failure?.code),
     canDismiss: terminal,
     ...(job.origin ? { origin: job.origin.kind } : {}),
   };

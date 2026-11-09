@@ -212,12 +212,22 @@ export class JobQueue {
 
   // ---- lifecycle ----
 
-  /** Load records, recover interrupted jobs (06 §9.4), apply retention (06 §9.5), start scheduling. */
-  async init(): Promise<void> {
+  /**
+   * Load records, recover interrupted jobs (06 §9.4), apply retention (06 §9.5), start scheduling.
+   *
+   * `holdLeftovers` (the headless dev driver, design §5): leftover non-terminal jobs other than
+   * rebuilds are loaded but neither recovered nor scheduled, and their records stay as they are, so
+   * nothing spends outside the driver's own plan (a dry run makes no provider call at all). The next
+   * normal launch recovers them as usual.
+   */
+  async init(opts: { holdLeftovers?: boolean } = {}): Promise<void> {
     await this.store.init();
     const all = await this.store.loadAll();
     for (const j of all) this.jobs.set(j.id, j);
-    await this.recover(all);
+    const held = opts.holdLeftovers ? all.filter((j) => !isTerminal(j.status) && !j.rebuild) : [];
+    if (held.length) this.d.log.info('pipeline.leftovers-held', { count: held.length });
+    const heldIds = new Set(held.map((j) => j.id));
+    await this.recover(all.filter((j) => !heldIds.has(j.id)));
     await this.sweepRetention();
     this.updatePower();
     this.pump();
@@ -403,7 +413,8 @@ export class JobQueue {
   /** `eli5:jobs:retry` (06 §7.3). */
   async retry(id: JobId): Promise<void> {
     const job = this.must(id);
-    if (job.status !== 'failed' || !isRetryable(job.failure?.code)) {
+    // Design §5: a rebuild spends only inside the dev driver's guarded session; rerun the driver.
+    if (job.status !== 'failed' || job.rebuild || !isRetryable(job.failure?.code)) {
       throw new PipelineRequestError('E_CONFLICT', 'This job cannot be retried');
     }
     job.attempt += 1;

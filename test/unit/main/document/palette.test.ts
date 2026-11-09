@@ -122,6 +122,12 @@ describe('chart palette (07 §11.1)', () => {
     expect(ratio(palette['--accent'], palette['--paper'])).toBeGreaterThanOrEqual(3);
   });
 
+  it.each(THEMES)('%s: de-emphasized marks (--viz-muted) are >= 3:1 on the paper and fixed', (_, palette, runtime) => {
+    // Every non-highlighted bar, point or slice is still data the reader compares (S8: marks >= 3:1).
+    expect(palette['--viz-muted']).toBe(runtime['--viz-muted']);
+    expect(ratio(palette['--viz-muted'], palette['--paper'])).toBeGreaterThanOrEqual(3);
+  });
+
   it.each(THEMES)('%s: paper-coloured text on any slot or accent fill reaches 4.5:1', (_, palette) => {
     for (const t of [...VIZ, '--accent'] as const) {
       expect(ratio(palette['--paper'], palette[t]), `paper on ${t}`).toBeGreaterThanOrEqual(4.5);
@@ -162,7 +168,7 @@ describe('chart palette (07 §11.1)', () => {
 
 describe('themes never override the chart palette (07 §11.1, §11.3)', () => {
   it('the bundled beautiful-doc theme declares no chart slot', () => {
-    for (const t of VIZ) expect(SKILL_CSS).not.toContain(`${t}:`);
+    for (const t of [...VIZ, '--viz-muted']) expect(SKILL_CSS).not.toContain(`${t}:`);
   });
 
   it('skill and overlay chart slots are dropped with a warning; other tokens stay', () => {
@@ -176,9 +182,10 @@ describe('themes never override the chart palette (07 §11.1, §11.3)', () => {
       expect(r.theme.darkTokens?.[t], t).toBeUndefined();
     }
     expect(r.theme.tokens['--accent']).toBe('#a8512f');
-    expect(r.theme.tokens['--viz-muted']).toBe('#d1cfc5');
+    expect(r.theme.tokens['--viz-muted']).toBeUndefined();
     expect(r.warnings).toEqual([
       'theme-token-chart-fixed:--viz-1',
+      'theme-token-chart-fixed:--viz-muted',
       'theme-token-chart-fixed:--viz-2',
       'theme-token-chart-fixed:--viz-8',
       'theme-token-chart-fixed:--viz-3',

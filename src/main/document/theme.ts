@@ -66,9 +66,13 @@ export const CHART_SLOTS = [
   '--viz-7',
   '--viz-8',
 ] as const satisfies readonly TokenName[];
-const CHART_SLOT_SET = new Set<string>(CHART_SLOTS);
+/**
+ * Tokens no theme may set (07 §11.1): the chart slots, plus `--viz-muted`, the colour of every
+ * de-emphasized data mark, which must stay >= 3:1 on the paper in both themes.
+ */
+const CHART_SLOT_SET = new Set<string>([...CHART_SLOTS, '--viz-muted']);
 
-/** The tokens without the chart slots; each dropped slot is reported. */
+/** The tokens without the fixed chart tokens; each dropped one is reported. */
 function withoutChartSlots(
   tokens: Partial<Record<TokenName, string>>,
   warn: (w: string) => void,

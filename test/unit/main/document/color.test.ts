@@ -90,8 +90,8 @@ describe('deriveDarkTokens (07 §11.4)', () => {
     const css = readFileSync(path.join(REPO, 'resources/skills/beautiful-doc/theme.css'), 'utf8');
     const light = parseThemeTokens(css);
     const d = deriveDarkTokens(light) as Record<ColorToken, string>;
-    // Every colour token except the chart slots, which no theme sets (07 §11.1).
-    expect(Object.keys(d).sort()).toEqual(COLOR_TOKENS.filter((t) => !/^--viz-[1-8]$/.test(t)).sort());
+    // Every colour token except the chart slots and --viz-muted, which no theme sets (07 §11.1).
+    expect(Object.keys(d).sort()).toEqual(COLOR_TOKENS.filter((t) => !/^--viz-([1-8]|muted)$/.test(t)).sort());
     const paper = d['--paper'];
     // Surfaces are dark, near the runtime's lightness, and keep their light hue.
     expect(ratio(paper, '#000')).toBeLessThan(1.4);

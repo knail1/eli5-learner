@@ -6,7 +6,7 @@ import { DocRuntimeMissingError } from './errors';
 import type { DocRuntime } from './types';
 
 /** Recorded in DocumentModel.generator.runtimeVersion; bump when the runtime contract changes. */
-export const DOC_RUNTIME_VERSION = '1.3.1';
+export const DOC_RUNTIME_VERSION = '1.3.2';
 
 /**
  * The first runtime with the current chart slot order (07 §11.1). Diagram SVG stored by an

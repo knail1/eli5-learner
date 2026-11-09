@@ -315,7 +315,7 @@ The model gets the section plus its surroundings, not the whole document ([02](0
 | --- | --- |
 | `indepth` | WSJ register (clear, declarative sentences, takeaway headings, numbers with context, the chart rules); visuals allowed; glossary re-anchoring applies (§6.5) |
 | `eli5`, `section-eli5` | Plain words, no jargon, no glossary. "Go deeper" adds depth but stays at ELI5 reading level. "Create a separate ELI5" from an ELI5 tab makes an even more focused explainer of the selected passage |
-| `ste` | ASD-STE100 register: short sentences, one instruction each, one meaning per word, active voice; no glossary. Charts, diagrams, tables and animations are kept, never added or changed |
+| `ste` | ASD-STE100 register: short sentences, one instruction each, one meaning per word, active voice; no glossary. Charts, diagrams, tables and animations are kept, never added or changed: the section prompts get no `{{animationRules}}`, only keep markers bring an animation back, and `replaceSection` swaps each returned chart, diagram or table for the section's own one of that type in order, drops extras (`ste-visual-dropped`) and puts back any left out (`ste-visual-restored`) |
 
 ### 6.3 Section hash (staleness precondition)
 

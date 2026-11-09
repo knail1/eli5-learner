@@ -272,7 +272,7 @@ A rebuild regenerates an existing document from its sources with the current pro
 4. Under `withDocLock(slug)`: if the live version id or the live html's sha256 differs from the captured base, fail `SAVE_FAILED` (detail `REBUILD_BASE_MOVED`) without writing; else `library.updateDocument(slug, …)` with the rebuild patch. `setCommitStarted` is on from just before the lock, so cancel is refused from there. No slug is allocated and nothing is committed through `commitDocument`.
 5. Done as in §5.7 steps 5 and 6, but with no merge check (§10): the document already exists.
 
-Crash recovery (§9.4 step 2) applies step 1 to a rebuild job found in `saving`. A rebuild job is never resumed: it spends only inside the driver's session (budget guard, per-document gate, hard stop), so any other non-terminal rebuild job found at launch fails with `INTERRUPTED` (detail `rebuild-not-resumed`), and the owner reruns the driver.
+Crash recovery (§9.4 step 2) applies step 1 to a rebuild job found in `saving`. A rebuild job is never resumed: it spends only inside the driver's session (budget guard, per-document gate, hard stop), so any other non-terminal rebuild job found at launch fails with `INTERRUPTED` (detail `rebuild-not-resumed`), and the owner reruns the driver. For the same reason a failed rebuild job is never retried from the queue: its `canRetry` is false and `eli5:jobs:retry` refuses it with `E_CONFLICT`. The other way round, a headless driver session (a real run or rebuild, dry runs included) starts the queue with `init({ holdLeftovers: true })`: leftover non-terminal jobs that are not rebuilds are loaded but neither recovered nor scheduled, and their records stay unchanged, so only the driver's own jobs call a provider; the next normal launch recovers them (§9.4).
 
 ## 6. Status line strings
 
@@ -324,7 +324,7 @@ The PRD strings ("Reading sources, Extracting content, Generating document, Savi
 Behavior:
 
 - A `done` line is clickable and opens the document in the viewer. It stays until the user dismisses it or 10 minutes pass, whichever comes first.
-- A `failed` line stays until the user dismisses it. It offers **Retry** (except `CANCELLED`) and **Dismiss**. Neither is a modal.
+- A `failed` line stays until the user dismisses it. It offers **Retry** (except `CANCELLED` and the other non-retryable codes, and never for a rebuild, §5.7.1) and **Dismiss**. Neither is a modal.
 - Hovering a line with skipped sources shows a tooltip listing `ref: reason`. The full list is also in the document's references section.
 - Titles longer than 60 characters are truncated with an ellipsis.
 

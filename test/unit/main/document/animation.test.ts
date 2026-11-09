@@ -123,6 +123,13 @@ describe('lint (design addendum: static lint, drop on a hit)', () => {
       "if (/'/.test(s)) n++; var top = 3;",
       'var r = a / b / 2; var q = (x) / 3;',
       "var t = 'a' + 'b'; var arr = [1, 2]; arr[i + 1] = 3;",
+      // Common idioms the prompt never warned about (audit round 2): not API uses.
+      'let frames = 0; function tick() { frames++; return frames < 60; }',
+      'ELI5.raf(this.step.bind(this)); f.call(this, 1); g.apply(this, [1]);',
+      "const rows = [['Rate', r.toFixed(2) + '%']]; rows.push(['Day ' + d, 'x']);",
+      'var peak = { location: 3 }; ctx.fillRect(peak.location, 0, 2, 2);',
+      'var jar = { cookie: 5 }; jar.cookie -= 1;',
+      'class Worker { constructor(id) { this.id = id; } } var w = new Worker(1);',
     ];
     for (const js of benign) expect(lintAnimation({ js }), js).toEqual([]);
     expect(lintAnimation({ js: 'go()', css: 'div{background:url(data:image/png;base64,AAAA)}' })).toEqual([]);
@@ -205,6 +212,27 @@ describe('lint (design addendum: static lint, drop on a hit)', () => {
     "document.write('x')",
     "range.createContextualFragment('x')",
     "var i = new Image(); i.src = 'https://leak.example/p.png';",
+    // audit round 2: customized built-ins, the window through a member, narrowed rules' edges
+    "class A extends HTMLAnchorElement {}; customElements.define('x-a', A, { extends: 'a' }); new A();",
+    'class F extends window.HTMLIFrameElement {}',
+    "window.customElements.define('x-f', F)",
+    "const g = globalThis.window; g[0]; Object.getOwnPropertyNames(g).find((n) => n.endsWith('erConnection'));",
+    'var w = self.window;',
+    'var f = globalThis.frames;',
+    'var w = document.self;',
+    'frames[0].postMe = 1;',
+    'var n = frames.length;',
+    'go(1, this);',
+    'f.call(x, this);',
+    "const d = document; d.location = 'x';",
+    'el.ownerDocument.location.reload();',
+    'var c = el.getRootNode().cookie;',
+    'var w = window.location;',
+    "self.location.assign('x')",
+    'var W = globalThis.Worker; new W();',
+    "class Worker {} new window.Worker('w.js');",
+    "var k = x['ev' + 'al'];",
+    "f()?.['ev' + 'al']",
   ];
   it.each(js)('drops js: %s', (code) => {
     expect(lintAnimation({ js: code }).length).toBeGreaterThan(0);
@@ -541,6 +569,39 @@ describe('ASD-STE100 mirrors and the caps (07 §5.1 step 2, §5.2; audit round 1
     expect(perTab(back.model)).toEqual([2, 2, 2]);
   });
 
+  it('regenerating an STE section never adds or changes a visual (08 §6.3; audit round 2)', () => {
+    const table: DraftBlock = { type: 'table', header: ['Step', 'Rate'], rows: [['1', '2%']] };
+    const { model } = buildDocumentModel({
+      ...fixtureInput('full'),
+      indepth: { kind: 'indepth', title: 'T', sections: [section('One', para('Text 1.'), A)] },
+      ste: { tab: { kind: 'ste', title: 'S', sections: [section('One', para('Text.'), A, table)] }, origins: [] },
+    });
+    const steTab = model.tabs.find((t) => t.kind === 'ste');
+    const sec = steTab?.sections[0];
+    if (!sec) throw new Error('fixture');
+    const ownTable = sec.blocks.find((b) => b.type === 'table');
+    const chart: DraftBlock = {
+      type: 'chart',
+      chart: { kind: 'bar', title: 'New', categories: ['a', 'b'], series: [{ name: 's', values: [1, 2] }] },
+    } as DraftBlock;
+    const changedTable: DraftBlock = { type: 'table', header: ['Step', 'Rate'], rows: [['9', '99%']] };
+    // A new animation, a new chart and a changed table: only the kept animation and the own table stay.
+    const r = replaceSection(model, sec.id, section('Again', para('Short.'), A, changedTable, chart), 'reexplain', NOW);
+    const out = r.model.tabs.find((t) => t.kind === 'ste')?.sections[0]?.blocks ?? [];
+    expect(out.filter((b) => b.type === 'animation')).toHaveLength(0);
+    expect(r.warnings).toContain('animation-dropped');
+    expect(r.warnings).toContain('ste-visual-dropped');
+    expect(out.filter((b) => b.type === 'chart')).toHaveLength(0);
+    expect(out.filter((b) => b.type === 'table')).toEqual([ownTable]);
+    // The keep marker keeps the animation; a table the model left out comes back unchanged.
+    const k = replaceSection(model, sec.id, section('Again', para('Short.'), marker), 'reexplain', NOW);
+    const kept2 = k.model.tabs.find((t) => t.kind === 'ste')?.sections[0]?.blocks ?? [];
+    expect(kept2.filter((b) => b.type === 'animation')).toHaveLength(1);
+    expect(kept2.filter((b) => b.type === 'table')).toEqual([ownTable]);
+    expect(k.warnings).toContain('ste-visual-restored');
+    expect(perTab(k.model)).toEqual(perTab(model));
+  });
+
   it('a merge does not count the STE tab it drops', () => {
     const { prep } = wovenFixture();
     const model = structuredClone(prep.target.model);
@@ -637,7 +698,7 @@ describe('the sandboxed frame (07 §6.2, §7.1)', () => {
 
   it('keeps the runtime 1.3.0 shell (version 1) byte for byte, so frames built with it still parse', () => {
     expect(ANIMATION_SHELLS[0]).toEqual({ js: ANIMATION_SHELL_JS, css: ANIMATION_SHELL_CSS });
-    const v1 = ANIMATION_SHELLS[1];
+    const v1 = ANIMATION_SHELLS[2];
     if (!v1) throw new Error('version 1 shell missing');
     // The hashes of the shell that commit A1 shipped (runtime 1.3.0).
     expect(sha(v1.js)).toBe("'sha256-e0IZQWdbe3ACvYq4uAxQ5qL1XqULufinduwV3RqYVMk='");
@@ -654,6 +715,22 @@ describe('the sandboxed frame (07 §6.2, §7.1)', () => {
     // current shell (as the runtime refresh on open does), so it does not round-trip byte for byte.
     const parts = parseAnimationSrcdoc(old);
     if (!parts) throw new Error('old frame did not parse');
+    expect(animationSrcdoc(parts)).toBe(current);
+  });
+
+  it('keeps the runtime 1.3.1 shell (version 2) byte for byte; version 3 only adds the custom-elements kill', () => {
+    const v2 = ANIMATION_SHELLS[1];
+    if (!v2) throw new Error('version 2 shell missing');
+    expect(sha(v2.js)).toBe("'sha256-qapybaZtPi+c5Z1d6LGoe3kSdvMLnHX5sxin4stl5r0='");
+    expect(sha(v2.css)).toBe("'sha256-5FeL6y3VrX++DJ9B2wc2DA6xLWo3NFwwCZOL9bd3eNk='");
+    expect(ANIMATION_SHELL_JS).toContain("kill(W, 'customElements');");
+    expect(ANIMATION_SHELL_JS).toContain("guard(W.CustomElementRegistry.prototype, 'define')");
+    const current = animationSrcdoc(b);
+    const old = current.replace(sha(ANIMATION_SHELL_JS), () => sha(v2.js)).replace(ANIMATION_SHELL_JS, () => v2.js);
+    expect(old).not.toBe(current);
+    expect(parseAnimationSrcdoc(old)?.hashes).toEqual([sha(v2.js), sha(PACKING_JS)]);
+    const parts = parseAnimationSrcdoc(old);
+    if (!parts) throw new Error('version 2 frame did not parse');
     expect(animationSrcdoc(parts)).toBe(current);
   });
 

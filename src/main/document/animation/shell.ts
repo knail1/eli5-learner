@@ -11,7 +11,11 @@
 // refresh on open replaces its runtime. Byte-identical round-trips hold for the current shell only. Written without backticks, `${` or backslashes so
 // String.raw keeps the source text exactly.
 
-/** Version 2 of the shell script (version 1 with the shared chart palette, 07 §11.1). */
+/**
+ * Version 3 of the shell script: version 2 (version 1 with the shared chart palette, 07 §11.1) that
+ * also removes custom elements, since a customized built-in (`new F()` for a class extending
+ * HTMLAnchorElement) creates a banned element without createElement.
+ */
 export const ANIMATION_SHELL_JS = String.raw`(function () {
   'use strict';
   var W = window, D = document, P = W.parent;
@@ -53,6 +57,8 @@ export const ANIMATION_SHELL_JS = String.raw`(function () {
   try { guard(W.Range.prototype, 'createContextualFragment'); } catch (e) {}
   ['DOMParser', 'XSLTProcessor'].forEach(function (k) { kill(W, k); });
   kill(W.Document, 'parseHTMLUnsafe');
+  try { guard(W.CustomElementRegistry.prototype, 'define'); } catch (e) {}
+  kill(W, 'customElements');
   var banned = ['iframe', 'frame', 'frameset', 'object', 'embed', 'portal', 'fencedframe', 'link', 'meta',
     'base', 'form', 'a', 'area', 'script'];
   function bannedTag(n) {
@@ -243,7 +249,7 @@ export const ANIMATION_SHELL_JS = String.raw`(function () {
   if (W.ResizeObserver) new W.ResizeObserver(function () { height(false); }).observe(D.body);
 })();`;
 
-/** Version 2 of the shell stylesheet: theme tokens, layout at 320 px and up, accessible controls. */
+/** Version 2 of the shell stylesheet (also used by version 3): theme tokens, layout at 320 px and up, accessible controls. */
 export const ANIMATION_SHELL_CSS =
   ':root{color-scheme:light dark;--paper:#fbfaf7;--ink:#1b1b1b;--muted:#5a5a5a;--grid:#e4e0d7;--accent:#0f5fa8;' +
   '--s1:#0067a5;--s2:#b84c00;--s3:#a12a7e;--s4:#4a4a4a;--s5:#047c74;--s6:#2e7514;--s7:#5a32e0;--s8:#7e6600}' +
@@ -266,6 +272,12 @@ export const ANIMATION_SHELL_CSS =
   'button:hover{border-color:var(--accent)}' +
   'button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}' +
   '.eli5-readout{margin:8px 0 0;font-variant-numeric:tabular-nums}';
+
+// Version 2 (runtime 1.3.1) is version 3 without the custom-elements lines; its stylesheet is the
+// current one. A test pins its exact hashes.
+const CUSTOM_ELEMENTS_V3 =
+  "  try { guard(W.CustomElementRegistry.prototype, 'define'); } catch (e) {}\n  kill(W, 'customElements');\n";
+const SHELL_V2_JS = ANIMATION_SHELL_JS.replace(CUSTOM_ELEMENTS_V3, '');
 
 // Version 1 (runtime 1.3.0) differs from version 2 only in its series colours, so it is derived
 // from version 2 by swapping them back; a test pins its exact hashes.
@@ -291,5 +303,6 @@ const SHELL_V1_CSS = shellV1(ANIMATION_SHELL_CSS, seriesCss);
 /** Every shell version a valid document may contain, newest first (07 §6.2 validity). */
 export const ANIMATION_SHELLS: readonly { js: string; css: string }[] = [
   { js: ANIMATION_SHELL_JS, css: ANIMATION_SHELL_CSS },
-  { js: shellV1(ANIMATION_SHELL_JS, seriesJs), css: SHELL_V1_CSS },
+  { js: SHELL_V2_JS, css: ANIMATION_SHELL_CSS },
+  { js: shellV1(SHELL_V2_JS, seriesJs), css: SHELL_V1_CSS },
 ];

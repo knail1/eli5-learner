@@ -11,7 +11,7 @@ describe('parseThemeTokens (07 §11.3 skill theme input)', () => {
     const t = parseThemeTokens(css);
     expect(t['--accent']).toBe('#b5532f');
     expect(t['--font-serif']).toBe('"Iowan Old Style", ui-serif, Georgia, "Times New Roman", serif');
-    expect(Object.keys(t)).toHaveLength(20);
+    expect(Object.keys(t)).toHaveLength(19);
   });
 
   it('keeps known tokens outside @media blocks, first declaration wins, comments ignored', () => {

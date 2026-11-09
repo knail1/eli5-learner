@@ -283,6 +283,10 @@ describe('task functions (02 §12) with FakeProvider and the default script', ()
         (x) => c.system.includes(x),
       );
       expect(others, c.taskId).toHaveLength(1);
+      // 08 §6.3: the ASD-STE100 tab is never invited to write an animation (audit round 2).
+      const invites = c.system.includes('small interactive you design and write yourself');
+      if (c.taskId !== 'section-ask') expect(invites, c.taskId).toBe(tabKind !== 'ste');
+      else expect(invites).toBe(false);
     }
     expect(fake.calls.find((c) => c.taskId === 'section-deeper')?.system).toContain(
       'stay at the reading level of the tab',

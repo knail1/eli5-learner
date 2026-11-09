@@ -10,7 +10,13 @@ import {
   usesPromptedJson,
   type DraftSchemaName,
 } from '../../../../src/main/llm/schemas/draft';
-import { generateStructured, listErrors, OutputTruncated, validateDraft } from '../../../../src/main/llm/structured';
+import {
+  generateStructured,
+  listErrors,
+  OutputTruncated,
+  usageOf,
+  validateDraft,
+} from '../../../../src/main/llm/structured';
 import { FakeProvider } from '../../../../src/main/llm/testing/fake';
 import type { PromptId } from '../../../../src/main/llm/types';
 import { REPO } from './helpers';
@@ -245,6 +251,22 @@ describe('generateStructured (02 §10.1)', () => {
     expect((e as LLMError).kind).toBe('invalid_output');
     expect(fake.calls).toHaveLength(2);
     expect(fake.calls[1]?.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+  });
+
+  it("a repair send that throws still carries the first call's billed tokens (D25)", async () => {
+    // Call 0 returns invalid JSON (billed); call 1, the repair, fails with a network error.
+    const errors = { summary: [undefined, 'network'] as unknown as 'network'[] };
+    const fake = new FakeProvider({ responses: { summary: '{"title":1}' }, errors });
+    const e = (await generateStructured({
+      ...structuredTexts(),
+      provider: fake,
+      schema: 'SummaryDraft',
+      request: req('summary'),
+    }).catch((x: unknown) => x)) as LLMError;
+    expect(e.kind).toBe('network');
+    expect(fake.calls).toHaveLength(2);
+    expect(usageOf(e)?.outputTokens).toBeGreaterThan(0);
+    expect(usageOf(e)?.inputTokens).toBeGreaterThan(0);
   });
 
   it('non-JSON text goes to repair; refusal and max_tokens do not', async () => {
