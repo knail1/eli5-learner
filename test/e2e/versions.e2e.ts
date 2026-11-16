@@ -306,7 +306,17 @@ test.describe('Ask and the version tree on one document', () => {
     await h.close(l.app);
     const script = await writeScript(dirs, 'slow', { latencyMs: 4_000 });
     l = await h.launch(dirs, { script });
-    await openFromLibrary(l.win, TITLE);
+    // Startup reopens the last document shown (11 §6), which is this one. Clicking it in the Library
+    // as well would load it a second time while the test reads the page (the context is destroyed),
+    // so click only when it was not restored.
+    const restored = await expect
+      .poll(() => viewerUrl(l.app), { timeout: 15_000 })
+      .toBe(`eli5doc://doc/${slug}/index.html`)
+      .then(
+        () => true,
+        () => false,
+      );
+    if (!restored) await openFromLibrary(l.win, TITLE);
     viewer = await viewerPage(l.app, slug);
     await openPanel(l.win);
     const watch = await sectionId(viewer, 'What to watch next');

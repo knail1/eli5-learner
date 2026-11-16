@@ -103,7 +103,9 @@ export function FindBar(p: {
         return;
       }
       if (e.reason === 'tab' && session.current !== null) {
-        search(session.current);
+        // The field's current text, not the session's: a tab switch inside the debounce must not
+        // cancel the newer search and re-run the stale one.
+        search(textRef.current);
       } else {
         // Reload: the page was replaced (a section update, undo or merge); the next Enter starts over.
         session.current = null;

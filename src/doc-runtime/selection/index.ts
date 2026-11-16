@@ -206,6 +206,7 @@ input.q{flex:1 1 120px}
 .askb{display:flex;gap:4px;flex:1 0 auto}
 .askb button{flex:1 1 auto;display:inline-flex;align-items:center;justify-content:center}
 .askb button:disabled{pointer-events:none}
+.askb button[hidden]{display:none}
 .info{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:12px;height:12px;margin-left:5px;
 border:1px solid currentColor;border-radius:50%;font:italic 700 8px/1 Georgia,'Times New Roman',serif;opacity:.8}
 .tip{position:absolute;z-index:1;box-sizing:border-box;max-width:260px;padding:6px 8px;border-radius:6px;background:#f3f1ec;color:#1f2125;
@@ -742,15 +743,15 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
    * the live selection is still exactly this range.
    */
   let dismissed: Range | null = null;
+  const sameRange = (a: Range, b: Range): boolean =>
+    a.startContainer === b.startContainer &&
+    a.startOffset === b.startOffset &&
+    a.endContainer === b.endContainer &&
+    a.endOffset === b.endOffset;
   const isDismissed = (sel: Selection): boolean => {
     const d = dismissed;
     if (!d || sel.rangeCount === 0) return false;
-    const r = sel.getRangeAt(0);
-    const same =
-      r.startContainer === d.startContainer &&
-      r.startOffset === d.startOffset &&
-      r.endContainer === d.endContainer &&
-      r.endOffset === d.endOffset;
+    const same = sameRange(sel.getRangeAt(0), d);
     if (!same) dismissed = null;
     return same;
   };
@@ -779,24 +780,71 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
     }
   });
 
+  /**
+   * The primary mouse button is down: a drag selection is still growing, so the menu waits for the
+   * release (08 §5.2, Mouse drags). Keyboard and touch selections never set it.
+   */
+  let pressed = false;
+  /** Focus is inside the menu: the document's active element is then the shadow host. */
+  const focusIn = (): boolean => doc.activeElement === host || host.matches(':focus-within');
   let timer: ReturnType<typeof setTimeout> | undefined;
   const check = (): void => {
     if (timer !== undefined) clearTimeout(timer);
     timer = setTimeout(() => {
+      if (pressed) return;
       const sel = doc.getSelection();
       const s = snapshotSelection(sel);
       if (s && sel) {
         if (isDismissed(sel)) return;
         const hit = enclosing(sel.getRangeAt(0));
+        // The same passage again (a late selectionchange or mouseup): keep the open menu and its popup.
+        if (!menu.hidden && hit && snapRange && sameRange(hit.range, snapRange)) return;
         ctl.open(s, hit ? hit.range.cloneRange() : undefined);
-      } else if (!host.matches(':focus-within')) ctl.close();
+      } else if (!focusIn()) ctl.close();
     }, DEBOUNCE_MS);
   };
+  /** The release was lost (outside the window, a drag and drop, a cancelled pointer): check now. */
+  const release = (): void => {
+    if (!pressed) return;
+    pressed = false;
+    check();
+  };
+  // Window capture phase: the flag is cleared before the document's mouseup handler checks.
+  win.addEventListener(
+    'mousedown',
+    (e) => {
+      if (e.button === 0) pressed = true;
+    },
+    true,
+  );
+  win.addEventListener(
+    'mouseup',
+    (e) => {
+      if (e.button === 0) pressed = false;
+    },
+    true,
+  );
+  win.addEventListener(
+    'mousemove',
+    (e) => {
+      if ((e.buttons & 1) === 0) release();
+    },
+    true,
+  );
+  win.addEventListener('blur', release);
+  win.addEventListener('pointercancel', release, true);
+  win.addEventListener('dragend', release, true);
+  // macOS Ctrl+click reports button 0 and its context menu swallows the mouseup.
+  win.addEventListener('contextmenu', release, true);
   doc.addEventListener('mouseup', (e) => {
     if (e.target !== host) check();
   });
   doc.addEventListener('keyup', (e) => {
-    if (e.shiftKey || e.key === 'Home' || e.key === 'End') check();
+    // A keyboard selection means no drag is in progress, whatever a lost mouseup left behind.
+    if (e.shiftKey || e.key === 'Home' || e.key === 'End') {
+      pressed = false;
+      check();
+    }
   });
   doc.addEventListener('selectionchange', check);
   doc.addEventListener('mousedown', (e) => {
@@ -810,15 +858,26 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
       note.focus();
     }
   });
-  // Reposition on scroll and resize; close once the anchor leaves the viewport (08 §5.4).
+  // Reposition on scroll and resize; close once the anchor leaves the viewport (08 §5.4). With focus
+  // in the menu, moving focus there can itself scroll the page, so the menu stays open as long as it
+  // is still on screen; scrolling the menu itself out of view closes it.
   const follow = (): void => {
     if (menu.hidden) return;
     const r = lastRect(snapRange);
-    if (r && (r.bottom < 0 || r.top > win.innerHeight)) ctl.close();
-    else {
-      place();
-      if (!tip.hidden) updateTip();
+    const anchorOff = !!r && (r.bottom < 0 || r.top > win.innerHeight);
+    if (anchorOff && !focusIn()) {
+      ctl.close();
+      return;
     }
+    place();
+    if (anchorOff) {
+      const m = menu.getBoundingClientRect();
+      if (m.bottom < 0 || m.top > win.innerHeight) {
+        ctl.close();
+        return;
+      }
+    }
+    if (!tip.hidden) updateTip();
   };
   win.addEventListener('scroll', follow, { passive: true });
   win.addEventListener('resize', () => {

@@ -360,7 +360,9 @@ so renderer DOM can never draw over the viewer rectangle. Therefore:
     `{kind: 'reset', reason: 'reload'}`: the bar clears its count and the next `Enter` starts a new
     search, so the post-update scroll to the changed section is not overridden. A switch between
     the document's tabs (the runtime's `#tab=<key>` in-page navigation) sends `{kind: 'reset',
-    reason: 'tab'}` and the bar searches again, so the count covers the tab now shown.
+    reason: 'tab'}` and the bar searches again for the text now in the field (not the last
+    submitted text, so typing still waiting on the debounce is not lost), so the count covers the
+    tab now shown.
   - Opening another document, or any other route, closes the bar. With no document shown (welcome,
     not found, Trash, Settings), `Cmd+F` focuses the Library filter instead.
   - The field is a text field, so `Cmd+Z` in it undoes typing, not the document (§9).

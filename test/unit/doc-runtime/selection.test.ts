@@ -572,6 +572,10 @@ describe('Ask deep (08 §6.9)', () => {
     expect(m.question?.parentElement?.hidden).toBe(false);
     expect(m.button('Ask')?.hidden).toBe(false);
     expect(m.button('Ask deep')?.hidden).toBe(true);
+    // The Ask row's `display: inline-flex` must not override [hidden].
+    const css = h.selection?.root.querySelector('style')?.textContent ?? '';
+    expect(css).toContain('.askb button[hidden]{display:none}');
+    expect(css.indexOf('.askb button[hidden]{display:none}')).toBeGreaterThan(css.indexOf('.askb button{'));
     type(win, m.question, 'Why every channel?');
     enter(win, m.question, { metaKey: true });
     enter(win, m.question, { ctrlKey: true });

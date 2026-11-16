@@ -1,6 +1,6 @@
 /**
  * Shared screenshot helpers for the visual suite (13 §7.4). Not a spec file itself. Region shots
- * clip the union of a few elements (plus a margin) out of a full-page capture, so one image can
+ * clip the union of a few elements (plus a margin) out of the page, so one image can
  * hold a paragraph and its margin note, or a quote and the callout beside it, without the rest of
  * the page.
  */
@@ -35,7 +35,9 @@ export async function unionBox(page: Page, locators: Locator[], pad = 16): Promi
   return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
 }
 
-/** A full-page capture clipped to the union of `locators` (document coordinates). */
+/**
+ * A capture clipped to the union of `locators` (document coordinates). See `expectClip`.
+ */
 export async function expectRegion(
   page: Page,
   name: string,
@@ -43,7 +45,31 @@ export async function expectRegion(
   opts: { pad?: number; mask?: Locator[] } = {},
 ): Promise<void> {
   const clip = await unionBox(page, locators, opts.pad);
-  await expect(page).toHaveScreenshot(name, { fullPage: true, clip, mask: opts.mask ?? [] });
+  await expectClip(page, name, clip, opts);
+}
+
+/**
+ * A capture of `clip` (document coordinates). When the clip lies inside the viewport it is taken
+ * from the viewport as it stands: a `fullPage` capture of a page taller than the viewport makes
+ * Chromium resize the view to the clip for the capture (captureBeyondViewport), and the resize and
+ * scroll events that fire then can close a selection menu whose anchor no longer fits. Only a
+ * region that does not fit the viewport is taken from a full-page capture, after scrolling it into
+ * view.
+ */
+export async function expectClip(page: Page, name: string, clip: Box, opts: { mask?: Locator[] } = {}): Promise<void> {
+  const mask = opts.mask ?? [];
+  const vp = await page.evaluate(() => ({ x: scrollX, y: scrollY, w: innerWidth, h: innerHeight }));
+  const fits =
+    clip.x >= vp.x && clip.y >= vp.y && clip.x + clip.width <= vp.x + vp.w && clip.y + clip.height <= vp.y + vp.h;
+  if (fits) {
+    await expect(page).toHaveScreenshot(name, { clip: { ...clip, x: clip.x - vp.x, y: clip.y - vp.y }, mask });
+    return;
+  }
+  await page.evaluate((c) => {
+    window.scrollTo({ left: scrollX, top: Math.max(0, c.y + c.height / 2 - innerHeight / 2), behavior: 'instant' });
+  }, clip);
+  await settle(page);
+  await expect(page).toHaveScreenshot(name, { fullPage: true, clip, mask });
 }
 
 /** Every web font (and the system fonts it falls back to) has loaded; layout has settled. */

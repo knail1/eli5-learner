@@ -370,6 +370,8 @@ for (const theme of ['light', 'dark'] as const) {
       await page.mouse.move(0, 0);
       await settle(page);
       await expectRegion(page, shot('menu-ask-tooltip'), [para, menu, tip]);
+      // The capture itself must not close the menu (a scroll or resize while its anchor is out of view).
+      await expect(menu).toBeVisible();
       // Esc hides the tooltip first; the menu stays open.
       await page.keyboard.press('Escape');
       await expect(tip).toBeHidden();
