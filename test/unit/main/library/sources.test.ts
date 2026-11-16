@@ -211,12 +211,14 @@ describe('the staging write and commitDocument (09 §4.4, §8.2)', () => {
 
   it('stores refs as basenames, URLs per policy, and no absolute path anywhere', async () => {
     const { lib } = await setup({ policy: { ...defaultLibraryPolicy, sourceUrls: 'redacted' } });
+    // Credential-shaped URL assembled at runtime so the repo never holds a literal one (13 §11).
+    const credUrl = ['https://user', 'pw@www.example.com/widgets?q=secret#frag'].join(':');
     const { dir } = await commitWith(lib, 'Widget refs', [
       input(),
       input({
         kind: 'url',
-        ref: 'https://user:pw@www.example.com/widgets?q=secret#frag',
-        label: 'https://user:pw@www.example.com/widgets?q=secret#frag',
+        ref: credUrl,
+        label: credUrl,
         text: 'Widget page',
       }),
       input({ ref: '/private/tmp/clip.txt', label: 'Widget notes', kind: 'clipboard', text: 'Clip' }),

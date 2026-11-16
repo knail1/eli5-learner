@@ -162,7 +162,7 @@ describe('deep answer boxes (08 §6.9)', () => {
       new RegExp(`\\n${sel.replace('.', '\\.')} \\{([^}]*)\\}`).exec(CSS)?.[1] ?? '';
     expect(rule('.qa-deep')).toContain('var(--accent)');
     const badge = rule('.qa-badge');
-    expect(badge).toContain('color: var(--muted)');
+    expect(badge).toContain('color: var(--ink-2)');
     expect(badge).not.toMatch(/#[0-9a-f]{3,6}/i);
   });
 });
@@ -201,7 +201,7 @@ describe('deeper answer boxes (08 §6.10)', () => {
     const rule = (sel: string): string =>
       new RegExp(`\\n${sel.replace('.', '\\.')} \\{([^}]*)\\}`).exec(CSS)?.[1] ?? '';
     expect(rule('.qa-deeper')).toContain('var(--viz-5)');
-    expect(rule('.qa-web')).toContain('color: var(--muted)');
+    expect(rule('.qa-web')).toContain('color: var(--ink-2)');
     expect(rule('.qa-web')).not.toMatch(/#[0-9a-f]{3,6}/i);
   });
 });

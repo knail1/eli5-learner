@@ -155,7 +155,7 @@ The ELI5 tab rebuilds the same material in plain words, with analogies, simple d
   *Expand this*. The four Explain actions, and *Edit with my note*, regenerate only that section, in place. Selecting body text never picks up the
   glossary notes in the margin, and a selection inside a note stays inside it.
 
-  <img src="images/highlight_expander.png" alt="Selecting a passage opens a small menu: an Ask a question field with an Ask button, an optional note, and Explain, ELI5 and Edit with my note; the Explain popup is open with Expand this, This isn't clear, re-explain it, Give me an analogy and Go deeper" width="560">
+  <img src="images/highlight_expander.png" alt="Selecting a passage opens a small menu: an Ask a question field, the Ask, Ask deep and Ask deeper buttons each with a small i marker, an optional note, and Explain, ELI5 and Edit with my note; the Explain popup is open with Expand this, This isn't clear, re-explain it, Give me an analogy and Go deeper" width="560">
 
   While it works, the section is marked "Updating…" and the status line shows the job, which you can cancel:
 
@@ -180,7 +180,10 @@ The ELI5 tab rebuilds the same material in plain words, with analogies, simple d
   reads the same material first; only when that does not answer the question does it let your AI
   provider search the web, and then fall back to the AI's general knowledge. Anything from outside
   the document is marked in the answer, the box says how far it had to go, and the web pages it used
-  are listed as plain text (titles and addresses, no links).
+  are listed as plain text (titles and addresses, no links). Hover or tab to a button to see what it
+  reads:
+
+  <img src="images/ask_deeper_tooltip.png" alt="The selection menu with the question 'How long does it take to catch up?' typed and the Ask deeper button focused; its tooltip reads: Searches every tab and the original sources first, then the web, then the AI's general knowledge. Anything from outside the document is marked. (⌘ ⇧ Enter or Ctrl+Shift+Enter)" width="560">
 - **Version tree.** Every change (a section action, an answer, a closed tab, a merge) is a version,
   and nothing is thrown away when you go back and change something else: that starts a branch.
   Undo / Redo (Cmd+Z / Shift+Cmd+Z) step back and forward, and Forward retraces the branch you last
