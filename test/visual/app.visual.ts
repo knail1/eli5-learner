@@ -236,6 +236,12 @@ test.beforeAll(async () => {
 });
 
 test('main window: sidebar and document', async () => {
+  // The whole-window shot needs the size beforeAll asks for (setContentSize 1280x800 gives a 790 px
+  // tall page, as in the baseline). A display whose work area is shorter (the hosted CI Macs give
+  // 677 px) clamps the window, which moves every row below the header; the element shots in this
+  // file still run there.
+  const innerHeight = await l.win.evaluate(() => window.innerHeight);
+  test.skip(innerHeight < 790, `display too short for the full-window shot (page is ${String(innerHeight)} px tall)`);
   await expect(l.win.getByRole('region', { name: /Suggestions/ })).toBeVisible();
   expect(await windowImage(l)).toMatchSnapshot('main-window-light.png');
   await setTheme(l, 'dark');
