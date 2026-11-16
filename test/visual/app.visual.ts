@@ -258,8 +258,11 @@ test('sidebar: folder, Archive expanded, Trash count', async () => {
   await expect(nav.locator('.trash-row')).toHaveText('Trash1');
   await expect(nav).toHaveScreenshot('sidebar-light.png', { mask: volatile(l.win) });
   // Hovered folder: Rename and Delete appear over the count, which otherwise lines up with Archive's.
+  // The same rule shows them on :focus-within, which is what is pictured: in Electron a synthetic
+  // hover does not survive the screenshot (Chromium re-checks :hover against the window's native
+  // cursor after layout), so a hover shot showed the bare count on some runs.
   const head = nav.locator('.folder-head').first();
-  await head.hover();
+  await head.getByRole('button', { name: /^Budgets/ }).focus();
   await expect(head.locator('.folder-actions')).toHaveCSS('opacity', '1');
   await expect(head).toHaveScreenshot('sidebar-folder-hover-light.png');
   await l.win.mouse.move(1, 1);
