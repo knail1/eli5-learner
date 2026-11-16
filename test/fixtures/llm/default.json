@@ -219,6 +219,25 @@
         "The section does not say how many weeks of lag the team accepts, only that safety stock covers the gap while the forecast catches up."
       ]
     },
+    "section-ask-deep": {
+      "topic": "how the forecast handles promotions",
+      "paragraphs": [
+        "**Yes**: the planning notes say promotions already on the calendar are added on top of the moving average, so the forecast does not wait for them to show up in past orders.",
+        "The explanation simplifies this to a plain average; the source adds that unplanned promotions are not covered, which likely explains the weeks of lag."
+      ]
+    },
+    "section-ask-deeper": {
+      "topic": "how moving averages lag",
+      "paragraphs": [
+        "**Partly**: the planning notes say the forecast uses a moving average, but they do not say how long it takes to catch up with a change in demand.",
+        "From the web, a guide on Example.org explains that a moving average over *n* weeks reacts to a step change gradually and only fully reflects it after about *n* weeks."
+      ],
+      "reach": "web",
+      "web": [
+        { "title": "Moving averages explained", "url": "https://example.org/forecasting/moving-averages#lag" },
+        { "title": "A page the search never returned", "url": "https://example.com/not-reported" }
+      ]
+    },
     "section-eli5-tab": {
       "kind": "section-eli5",
       "title": "Forecasts, simply",
@@ -490,5 +509,6 @@
         }
       ]
     }
-  }
+  },
+  "webSources": [{ "url": "https://example.org/forecasting/moving-averages", "title": "Moving averages explained" }]
 }

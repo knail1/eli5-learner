@@ -2,6 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ExtractedContent } from '../../../../src/main/extract';
+import { estimateTokens, inputBudget } from '../../../../src/main/llm/budget';
+import {
+  DEEP_ASK_INPUT_CAP_TOKENS,
+  DeepContextTooLargeError,
+  type DeepAskSource,
+  type DeepAskTab,
+} from '../../../../src/main/llm/deep-ask';
 import { LLMError } from '../../../../src/main/llm/errors';
 import { fallbackLimits } from '../../../../src/main/llm/models';
 import { PromptCatalogue } from '../../../../src/main/llm/prompts';
@@ -735,5 +742,158 @@ describe('ASD-STE100 step (02 §12, D15, D16)', () => {
     // The plain fixture revision leaves the animation out: the gate keeps the first draft.
     const dropped = await createTasks(deps(new FakeProvider(s))).critiqueEli5(eli5, indepth(), ctx);
     expect(dropped.gate).toMatchObject({ ok: false, reason: 'media' });
+  });
+});
+
+describe('answerDeepQuestion (08 §6.9)', () => {
+  const section = { heading: 'Widgets', blocks: [{ type: 'paragraph' as const, md: 'Widgets are sold.' }] };
+  const prev = { heading: 'Intro', blocks: [{ type: 'paragraph' as const, md: 'Before.' }] };
+  const tabs: DeepAskTab[] = [
+    { key: 'indepth', kind: 'indepth', label: 'In depth', sections: [prev, section] },
+    {
+      key: 'eli5',
+      kind: 'eli5',
+      label: 'ELI5',
+      sections: [{ heading: 'Simply', blocks: [{ type: 'paragraph', md: 'Shops sell widgets.' }] }],
+    },
+  ];
+  const local = {
+    tabKind: 'eli5' as const,
+    section,
+    outline: ['Intro', 'Widgets'],
+    prev,
+    selection: 'sold',
+    question: 'Who buys them?',
+    signal: ctx.signal,
+  };
+  const report: DeepAskSource = {
+    id: 'src-01',
+    ref: 'report.md',
+    label: 'Widget report',
+    format: 'markdown',
+    text: 'Garden shops buy most widgets in spring.',
+    truncated: false,
+  };
+  const words = ['widget', 'garden', 'shop', 'pallet', 'forecast', 'spring', 'order', 'crate', 'margin', 'buyer'];
+  const bigText = (chars: number): string => {
+    const out: string[] = [];
+    let n = 0;
+    for (let i = 0; n < chars; i++) {
+      const l =
+        `Line ${i}: ` + Array.from({ length: 10 }, (_, j) => words[(i * 7 + j * 3) % words.length]).join(' ') + '.';
+      out.push(l);
+      n += l.length + 1;
+    }
+    return out.join('\n');
+  };
+  const big: DeepAskSource = { ...report, id: 'src-02', label: 'Logistics', text: bigText(400_000), truncated: true };
+  const lastUser = (fake: FakeProvider): string => fake.calls.at(-1)?.messages[0]?.text ?? '';
+
+  it.each([
+    ['all', [report], /The original sources are given in full/],
+    ['excerpts', [big], /You get the excerpts that best match the question/],
+    ['none', null, /did not keep its original sources/],
+  ] as const)('mode %s: renders section-ask-deep with its source-status fragment', async (mode, sources, status) => {
+    const fake = new FakeProvider(defaultScript());
+    const r = await createTasks(deps(fake)).answerDeepQuestion({
+      ...local,
+      tabs,
+      sources: sources ? [...sources] : null,
+    });
+    expect(r.plan.sourceMode).toBe(mode);
+    expect(r.draft.topic).toBe('how the forecast handles promotions');
+    const call = fake.calls.at(-1);
+    expect(call?.taskId).toBe('section-ask-deep');
+    expect(call?.system).toMatch(status);
+    const STATUS = { all: /given in full/, excerpts: /best match the question/, none: /did not keep its original/ };
+    for (const [m, other] of Object.entries(STATUS)) if (m !== mode) expect(call?.system).not.toMatch(other);
+    expect(call?.system).toMatch(/Answer first/); // askRules
+    expect(call?.system).toContain('belongs to the ELI5 tab'); // register
+    expect(call?.system).toContain('## Style guide: eli5');
+    expect(call?.system).not.toMatch(UNRENDERED);
+    const user = lastUser(fake);
+    expect(user).not.toMatch(UNRENDERED);
+    expect(user).toContain('<source ref="tab: In depth (indepth)">');
+    expect(user).toContain('<source ref="reader question">\nWho buys them?');
+    expect(user.indexOf('Original sources:')).toBeLessThan(user.indexOf('Explanation tabs:'));
+    expect(user.indexOf('Explanation tabs:')).toBeLessThan(user.indexOf("Reader's question"));
+    if (mode === 'all')
+      expect(user).toContain('<source ref="original source: Widget report" format="markdown" truncated="false">');
+    if (mode === 'excerpts') expect(user).toMatch(/\[excerpt \d+ of \d+, characters/);
+    if (mode === 'none') expect(user).toContain('Original sources:\n(none)');
+    expect(call?.jsonSchema).toBeDefined();
+  });
+
+  it('takes the budget from the provider limits with the system prompt counted once, capped at 60k', async () => {
+    const small: ModelLimits = { ...fallbackLimits('claude'), contextTokens: 40_000, maxOutputTokens: 4_000 };
+    const fake = new FakeProvider(defaultScript(), { limits: small });
+    const r = await createTasks(deps(fake)).answerDeepQuestion({ ...local, tabs, sources: [big] });
+    const budget = inputBudget(small, 0, settingsFor('claude').llm.maxOutputTokens);
+    expect(budget).toBeLessThan(DEEP_ASK_INPUT_CAP_TOKENS);
+    expect(r.plan.sourceMode).toBe('excerpts');
+    expect(r.plan.inputTokens).toBeLessThanOrEqual(budget);
+    // Counting the system prompt twice would leave ~3k tokens unused.
+    expect(r.plan.inputTokens).toBeGreaterThan(budget - 1_000);
+    const sent = estimateTokens((fake.calls[0]?.system ?? '') + '\n' + lastUser(fake));
+    expect(sent).toBeLessThanOrEqual(budget + 10);
+
+    const wide = new FakeProvider(defaultScript());
+    const w = await createTasks(deps(wide)).answerDeepQuestion({ ...local, tabs, sources: [big] });
+    expect(w.plan.inputTokens).toBeLessThanOrEqual(DEEP_ASK_INPUT_CAP_TOKENS);
+    expect(w.plan.inputTokens).toBeGreaterThan(DEEP_ASK_INPUT_CAP_TOKENS - 1_000);
+  });
+
+  it('respects the budgetTokens seam and throws DeepContextTooLargeError when too small', async () => {
+    const fake = new FakeProvider(defaultScript());
+    const t = createTasks(deps(fake));
+    const r = await t.answerDeepQuestion({ ...local, tabs, sources: [big], budgetTokens: 12_000 });
+    expect(r.plan.inputTokens).toBeLessThanOrEqual(12_000);
+    await expect(t.answerDeepQuestion({ ...local, tabs, sources: [big], budgetTokens: 3_000 })).rejects.toBeInstanceOf(
+      DeepContextTooLargeError,
+    );
+    const tiny = new FakeProvider(defaultScript(), { limits: { ...fallbackLimits('claude'), contextTokens: 12_000 } });
+    await expect(createTasks(deps(tiny)).answerDeepQuestion({ ...local, tabs, sources: null })).rejects.toBeInstanceOf(
+      DeepContextTooLargeError,
+    );
+    expect(tiny.calls).toHaveLength(0);
+  });
+
+  it('re-plans once at half the budget on context_overflow; a second overflow propagates', async () => {
+    const once = new FakeProvider({ ...defaultScript(), errors: { 'section-ask-deep': ['context_overflow'] } });
+    const r = await createTasks(deps(once)).answerDeepQuestion({
+      ...local,
+      tabs,
+      sources: [big],
+      budgetTokens: 30_000,
+    });
+    expect(once.calls.map((c) => c.taskId)).toEqual(['section-ask-deep', 'section-ask-deep']);
+    expect(r.plan.inputTokens).toBeLessThanOrEqual(15_000);
+    expect(once.calls[1]?.messages[0]?.text.length).toBeLessThan(once.calls[0]?.messages[0]?.text.length ?? 0);
+
+    const twice = new FakeProvider({
+      ...defaultScript(),
+      errors: { 'section-ask-deep': ['context_overflow', 'context_overflow'] },
+    });
+    const err = await createTasks(deps(twice))
+      .answerDeepQuestion({ ...local, tabs, sources: [big], budgetTokens: 30_000 })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(LLMError);
+    expect((err as LLMError).kind).toBe('context_overflow');
+    expect(twice.calls).toHaveLength(2);
+
+    const other = new FakeProvider({ ...defaultScript(), errors: { 'section-ask-deep': ['refusal'] } });
+    await expect(createTasks(deps(other)).answerDeepQuestion({ ...local, tabs, sources: null })).rejects.toMatchObject({
+      kind: 'refusal',
+    });
+    expect(other.calls).toHaveLength(1);
+  });
+
+  it('quick ask now renders the shared answer rules', async () => {
+    const fake = new FakeProvider(defaultScript());
+    await createTasks(deps(fake)).answerSectionQuestion(local);
+    const call = fake.calls.find((c) => c.taskId === 'section-ask');
+    expect(call?.system).toMatch(/Answer first\. The first sentence gives the direct answer/);
+    expect(call?.system).toMatch(/Never invent figures, names, dates or quotes/);
+    expect(call?.system).not.toMatch(/original sources/);
   });
 });

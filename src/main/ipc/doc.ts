@@ -35,7 +35,7 @@ export interface SectionActions {
   createSectionEli5(r: CreateSectionEli5Request): Promise<{ jobId: string }>;
   /** `eli5:doc:close-tab`: deletes a Section ELI5 tab (08 §7.2). */
   closeTab(r: CloseTabRequest): Promise<void>;
-  /** `eli5:doc:ask-section`: enqueues a job that inserts an answer box (08 §6.8). */
+  /** `eli5:doc:ask-section`: enqueues a job that inserts an answer box (08 §6.8; `depth` §6.9, §6.10). */
   askSection(r: AskSectionRequest): Promise<{ jobId: string }>;
   /** Pushed to the app renderer as `eli5:doc:updated`. */
   onUpdated(cb: (e: DocUpdatedEvent) => void): Unsub;
@@ -148,6 +148,8 @@ export const AskSectionPayload = z
     sectionId: SectionIdSchema,
     selectionText: SelectionText,
     question: Question,
+    /** 08 §6.9, §6.10: absent = quick. */
+    depth: z.enum(['quick', 'deep', 'deeper']).optional(),
   })
   .refine(sectionInTab, 'Section is not in that tab');
 /** Any tab key; the service answers E_FORBIDDEN for the in-depth and ELI5 tabs (08 §7.2). */

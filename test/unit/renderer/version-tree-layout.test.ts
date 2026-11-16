@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DocVersionNode, DocVersionTree } from '../../../src/preload/contract';
+import type { DocVersionNode, DocVersionPending, DocVersionTree } from '../../../src/preload/contract';
 import { loadRenderer, versionNode } from './harness';
 
 interface Row {
@@ -17,10 +17,11 @@ interface Row {
   setsize: number;
   posinset: number;
 }
-const { layoutVersionTree, VERSION_VERBS, versionVerb } = await loadRenderer<{
+const { layoutVersionTree, VERSION_VERBS, versionVerb, pendingVerb } = await loadRenderer<{
   layoutVersionTree(t: Pick<DocVersionTree, 'nodes' | 'currentId' | 'redoId'>, c?: ReadonlySet<string>): Row[];
   VERSION_VERBS: Record<string, string>;
-  versionVerb(n: Pick<DocVersionNode, 'kind' | 'label'>): string;
+  versionVerb(n: Pick<DocVersionNode, 'kind' | 'label' | 'depth'>): string;
+  pendingVerb(pd: Pick<DocVersionPending, 'action' | 'depth'>): string;
 }>('viewer/version-tree-layout.ts');
 
 const at = (min: number) => `2026-01-01T00:${String(min).padStart(2, '0')}:00.000Z`;
@@ -97,6 +98,28 @@ describe('layoutVersionTree (11 §5.7)', () => {
     // Only kind 'outside' is special-cased: a section label that happens to start with "Rebuilt" is not.
     expect(versionVerb({ kind: 'expand', label: "Rebuilt 'Pricing'" })).toBe('Expanded');
     expect(versionVerb({ kind: 'merge', label: 'Rebuilt' })).toBe('Merged');
+  });
+
+  it("shows a Deep Ask (kind 'ask' + depth 'deep') as 'Asked (deep)' (08 §6.9, 11 §5.7)", () => {
+    expect(versionVerb({ kind: 'ask', label: "asked (deep) about 'Pricing'", depth: 'deep' })).toBe('Asked (deep)');
+    expect(versionVerb({ kind: 'ask', label: "asked about 'Pricing'" })).toBe('Asked');
+    // depth only means something on an ask.
+    expect(versionVerb({ kind: 'expand', label: "expanded 'Pricing'", depth: 'deep' })).toBe('Expanded');
+  });
+
+  it("shows Ask deeper (kind 'ask' + depth 'deeper') as 'Asked (deeper)' (08 §6.10, 11 §5.7)", () => {
+    expect(versionVerb({ kind: 'ask', label: "asked (deeper) about 'Pricing'", depth: 'deeper' })).toBe(
+      'Asked (deeper)',
+    );
+    expect(versionVerb({ kind: 'expand', label: "expanded 'Pricing'", depth: 'deeper' })).toBe('Expanded');
+    expect(pendingVerb({ action: 'ask', depth: 'deeper' })).toBe('Searching further…');
+  });
+
+  it('pending rows: a deep ask reads "Answering in depth…"; others keep their verb', () => {
+    expect(pendingVerb({ action: 'ask', depth: 'deep' })).toBe('Answering in depth…');
+    expect(pendingVerb({ action: 'ask' })).toBe('Answering…');
+    expect(pendingVerb({ action: 'expand', depth: 'deep' })).toBe('Expanding…');
+    expect(pendingVerb({ action: 'unknown' as DocVersionPending['action'] })).toBe('Updating…');
   });
 
   it('a damaged tree with a parent cycle still shows every version exactly once', () => {

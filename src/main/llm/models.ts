@@ -23,6 +23,8 @@ const claudeCurrent = (contextTokens: number, maxOutputTokens: number): ModelLim
   thinkingReserveTokens: 16_000,
   systemRole: 'system',
   structuredMode: 'output_config',
+  // web_search_20260209 needs Opus/Sonnet 4.6 or later (02 §5); older rows turn it off.
+  supportsWebSearch: true,
 });
 
 /** OpenAI reasoning rows: developer role, no temperature, reasoning_effort. */
@@ -37,6 +39,8 @@ const openaiReasoning = (contextTokens: number, maxOutputTokens: number): ModelL
   thinkingReserveTokens: 16_000,
   systemRole: 'developer',
   structuredMode: 'json_schema_strict',
+  // The Responses API `web_search` tool (02 §6).
+  supportsWebSearch: true,
 });
 
 const openaiChat = (contextTokens: number, maxOutputTokens: number): ModelLimits => ({
@@ -63,6 +67,8 @@ export const MODEL_LIMITS: Readonly<Record<Exclude<ProviderId, 'bedrock'>, Reado
       supportsTemperature: true,
       supportsEffort: false,
       thinkingReserveTokens: 0,
+      // Only the basic web_search_20250305 variant exists for this model; the app sends 20260209.
+      supportsWebSearch: false,
     },
   },
   openai: {
@@ -94,6 +100,7 @@ export function fallbackLimits(provider: ProviderId, model = ''): ModelLimits {
     thinkingReserveTokens: 0,
     systemRole: reasoning ? 'developer' : 'system',
     structuredMode: provider === 'openai' ? 'json_schema_strict' : 'output_config',
+    supportsWebSearch: false,
   };
 }
 

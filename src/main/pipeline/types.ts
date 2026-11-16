@@ -23,7 +23,14 @@ import type {
 } from '../document';
 import type { Edition } from '../editions';
 import type { ExtractLimits, ExtractResult, JobImageBudget } from '../extract';
-import type { CatalogEntry, DocumentMeta, DocumentPatch, SlugReservation, VersionTreeView } from '../library';
+import type {
+  CatalogEntry,
+  DocumentMeta,
+  DocumentPatch,
+  SlugReservation,
+  SourceSidecarInput,
+  VersionTreeView,
+} from '../library';
 import type { DocumentDraftTab, LLMErrorKind, LlmTasks } from '../llm';
 import type { Logger } from '../security';
 import type {
@@ -249,6 +256,16 @@ export interface PipelineLibrary {
   versions(slug: string): Promise<VersionTreeView>;
   /** One version's exact index.html and meta snapshot; lock-free. */
   readVersion(slug: string, id: string): Promise<{ html: Buffer; meta: DocumentMeta }>;
+  // Retained source text (09 §4.4). Optional: a library without them keeps no sidecar.
+  /** HOOK-LIB-01; false: no sidecar is written. */
+  readonly retainsSourceText?: boolean;
+  /** Writes `<stagingDir>/.sources/` before commitDocument; null when the policy is off. */
+  writeSourcesToStaging?(
+    stagingDir: string,
+    inputs: SourceSidecarInput[],
+  ): Promise<{ count: number; bytes: number } | null>;
+  /** Caller holds withDocLock(slug). Adds new texts to a live document's sidecar. */
+  upsertSources?(slug: string, inputs: SourceSidecarInput[]): Promise<void>;
 }
 
 /** Electron powerSaveBlocker, injected (06 §4.3). */

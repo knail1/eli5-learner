@@ -198,7 +198,7 @@ Any document in the Library, new or months old, can be refined in place from the
 
 - Selecting text in the viewer shows a small inline action menu anchored to the selection. Not a modal, not a new window. It never covers the selection.
 - The menu is grouped so it stays short:
-  - **Ask a question about this:** a one line question field with an Ask button, always visible at the top of the menu.
+  - **Ask a question about this:** a one line question field with three buttons, Ask, Ask deep and Ask deeper, always visible at the top of the menu. Each button shows a small ⓘ mark and explains on hover or keyboard focus what it searches and its shortcut.
   - **Explain:** Expand this; This isn't clear, re explain it; Give me an analogy; Go deeper.
   - **ELI5:** Create a separate ELI5 for this section; ELI5 this selection.
   - **Edit with my note:** rewrites the section following the note (enabled once a note is typed).
@@ -208,8 +208,11 @@ Any document in the Library, new or months old, can be refined in place from the
 
 **Ask a question**
 
-- The reader types a question about the selected passage and presses Enter or Ask. The question is fire-and-forget like every other action: no dialog, and the reader can keep reading.
-- The answer is grounded in the section and its neighbours, written in the tab's register (plain words in an ELI5 tab), and says plainly when the document does not cover something.
+- The reader types a question about the selected passage and presses Enter or Ask (a quick answer), Cmd+Enter or Ask deep (a deep answer), or Cmd+Shift+Enter or Ask deeper (a deeper answer). The question is fire-and-forget like every other action: no dialog, and the reader can keep reading.
+- **Ask (quick):** the answer is grounded in the section and its neighbours, written in the tab's register (plain words in an ELI5 tab), and says plainly when the document does not cover something.
+- **Ask deep:** the answer also reads every tab of the document and the original source text it was written from, and treats the original source as the authority for facts. When the sources are too long for one request, the app sends the excerpts that best match the question. A deep answer box is marked "Deep answer" and says what it was checked against: the original sources, excerpts of them, or, for a document whose source text is not available (for example one made before this feature), the tabs only. A deep answer contains no links. Ask deep is not offered on the phone.
+- **Ask deeper:** the answer reads everything Ask deep reads first. Only if that does not answer the question does it search the web, and only if the web does not answer it either does it use the AI's general knowledge. Anything from outside the document is marked in the answer in plain words ("From the web, …" naming the site, "In general, …"), and never presented as what the document says. The box is marked "Deeper answer" and says whether the answer was found in the document and its sources, includes information from the web, or includes the AI's general knowledge; when it used web pages, it lists them by title and address as plain text (never clickable links). Web search is done by the chosen AI provider with its own search tool, only when the model supports it; otherwise Ask deeper goes straight from the document to general knowledge. Ask deeper is not offered on the phone.
+- Every answer starts with the direct answer, correct a question that rests on a wrong premise, keep what the material states apart from what is inferred, and never invent figures, names or quotes.
 - The answer is added to the document as an **answer box** right after the selected passage, in the same `index.html`. Nothing else in the document changes.
 - The box shows the answer. A small "?" chip on its border reveals the question that was asked and a short quote of the passage it was about. Landing on a new answer opens the question.
 - Several questions about the same passage stack in the order they were asked. A follow-up can be asked by selecting text inside an answer.
@@ -249,10 +252,12 @@ All documents live inside the Electron app's own project directory, one folder p
       index.html
       meta.json
       .versions/      (the document's version history; never published)
+      .sources/       (a private copy of the text extracted from the document's sources, for Ask deep)
 ```
 
 - `catalog.json` holds one entry per document: id, title, topic slug, created and updated timestamps, and a one or two sentence summary generated at creation.
 - `meta.json` records the sources used, sources skipped, the clarifying input, the tab list, the actions taken and the questions asked.
+- Each document keeps a hidden, private copy of the text extracted from its sources in its own folder, so Ask deep can check answers against the original. It is never shown, published or synced, it moves with the document to the Trash and back, and it is removed with the document (a merge copies it into the merged document, where it stays until that document is deleted). Like the document itself, it sits wherever the library folder is. The enterprise edition can turn this off (HOOK-LIB-01).
 - The catalog powers the Library sidebar, the menu bar list, and merge matching, so no document is re read to list or compare.
 
 **Organizing the Library**

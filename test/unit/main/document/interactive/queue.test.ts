@@ -38,7 +38,7 @@ async function wired() {
   );
   const ir = createInteractiveReading({
     library: h.lib,
-    tasks: { runSectionAction, answerSectionQuestion: vi.fn() },
+    tasks: { runSectionAction, answerSectionQuestion: vi.fn(), answerDeepQuestion: vi.fn() },
     viewer,
     clock: h.clock,
     sectionIds: h.deps.sectionIds,

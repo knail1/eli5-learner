@@ -14,6 +14,7 @@ const read = (rel: string): string => readFileSync(join(repoRoot, rel), 'utf8');
 const RELEASED: ReadonlyArray<readonly [string, number]> = [
   ['0.3.0', 2],
   ['0.4.0', 3],
+  ['0.5.0', 4],
 ];
 
 function gradleField(name: string): string {

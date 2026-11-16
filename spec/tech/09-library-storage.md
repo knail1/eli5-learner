@@ -1,6 +1,6 @@
 # Library, storage, and merge suggestions
 
-This file specifies how finished learnings are stored on disk and how the app lists, updates and merges them. It covers where the library root lives in development and in a packaged app, the directory layout (`catalog.json`, `<topic-slug>/index.html` and `meta.json`, plus hidden housekeeping folders), the per-document version tree (§4.1), the JSON schemas for `CatalogEntry` and `DocumentMeta` with versioning and migrations, slug rules and collisions, atomic writes and locking, rebuilding the catalog from folders, the menu bar recents list, and the post-generation merge suggestion feature (matching algorithm, threshold, `MergeSuggestion` lifecycle and persistence, accept and dismiss). It implements PRD "Library, storage, and merge suggestions" and the Library-related parts of PRD "App shell and layout" (Library sidebar, menu bar list, suggestions area) and "Build editions and swap seams" (Document location row). Code lives in `src/main/library/`. HTML mechanics (rendering, section IDs, splicing) belong to [07](07-output-document.md) and [08](08-interactive-reading.md); this module owns the files, the catalog and the merge flow.
+This file specifies how finished learnings are stored on disk and how the app lists, updates and merges them. It covers where the library root lives in development and in a packaged app, the directory layout (`catalog.json`, `<topic-slug>/index.html` and `meta.json`, plus hidden housekeeping folders), the per-document version tree (§4.1), the retained source text sidecar `.sources/` that Ask deep reads (§4.4), the JSON schemas for `CatalogEntry` and `DocumentMeta` with versioning and migrations, slug rules and collisions, atomic writes and locking, rebuilding the catalog from folders, the menu bar recents list, and the post-generation merge suggestion feature (matching algorithm, threshold, `MergeSuggestion` lifecycle and persistence, accept and dismiss). It implements PRD "Library, storage, and merge suggestions" and the Library-related parts of PRD "App shell and layout" (Library sidebar, menu bar list, suggestions area) and "Build editions and swap seams" (Document location row). Code lives in `src/main/library/`. HTML mechanics (rendering, section IDs, splicing) belong to [07](07-output-document.md) and [08](08-interactive-reading.md); this module owns the files, the catalog and the merge flow.
 
 Related: [01-architecture.md](01-architecture.md) · [02-llm-provider.md](02-llm-provider.md) · [03-source-resolvers.md](03-source-resolvers.md) · [04-extraction.md](04-extraction.md) · [05-url-fetching.md](05-url-fetching.md) · [06-generation-pipeline.md](06-generation-pipeline.md) · [07-output-document.md](07-output-document.md) · [08-interactive-reading.md](08-interactive-reading.md) · [10-publishing.md](10-publishing.md) · [11-app-shell-ui.md](11-app-shell-ui.md) · [12-configuration-security.md](12-configuration-security.md) · [13-testing-quality.md](13-testing-quality.md)
 
@@ -25,6 +25,7 @@ Related: [01-architecture.md](01-architecture.md) · [02-llm-provider.md](02-llm
 | `src/main/library/catalog.ts` | Load, validate, upsert, remove, rebuild and reconcile |
 | `src/main/library/library.ts` | `Library` facade used by the pipeline, document, publish and tray modules |
 | `src/main/library/versions.ts` | The version tree per document: constants, pure tree functions, blob and node I/O, pruning (§4.1) |
+| `src/main/library/sources.ts` | The retained source text sidecar: constants, manifest schema, caps, the pure `sourcesForMeta` rule; `FsLibrary` does the I/O (§4.4) |
 | `src/main/library/prior.ts` | Change labels (`cleanChangeLabel`, `quoteLabel`) and read-only access to a legacy `.prev/` slot for migration (§4.1) |
 | `src/main/library/organization.ts` | Folders, Archive and Trash: `organization.json` schema, name rules, trash ids (§4.2); `FsLibrary` does the I/O |
 | `src/main/library/merge/similarity.ts` | Lexical prefilter (`SimilarityScorer`) |
@@ -48,7 +49,7 @@ The PRD puts documents in "the app's own project directory" in both editions (PR
 The resolved root is shown read-only in Settings with a "Reveal in Finder" button ([11](11-app-shell-ui.md), channel `eli5:library:info`). Choosing a different destination per document (monorepo projects) is PRD future work and not in v1.
 
 <!-- hook:HOOK-LIB-01 -->
-> **Private hook · HOOK-LIB-01 · Enterprise library storage policy.** Public behavior: the library root is resolved as in §3.1; documents are plain files protected only by the user account and the operating system's disk encryption; trash and resolved suggestions are kept 30 days (§9); each document keeps its version history in `<slug>/.versions/` under the same protection, capped at 60 snapshots, 48 MiB of compressed snapshots and 300 version records per document, with side-branch snapshots pruned first (§4.1). Private binding supplies: whether the enterprise build pins or restricts the library root, required at-rest protection for documents built from organization sources, retention periods for `.trash/`, staging and version snapshots, and whether `meta.json` may record source URLs or only redacted forms. Binding lives in the private spec under "HOOK-LIB-01".
+> **Private hook · HOOK-LIB-01 · Enterprise library storage policy.** Public behavior: the library root is resolved as in §3.1; documents are plain files protected only by the user account and the operating system's disk encryption; trash and resolved suggestions are kept 30 days (§9); each document keeps its version history in `<slug>/.versions/` under the same protection, capped at 60 snapshots, 48 MiB of compressed snapshots and 300 version records per document, with side-branch snapshots pruned first (§4.1); each document keeps the extracted text of its sources in `<slug>/.sources/` (capped at 2 MiB) for Ask deep (§4.4). Private binding supplies: whether the enterprise build pins or restricts the library root, required at-rest protection for documents built from organization sources, retention periods for `.trash/`, staging and version snapshots, whether `meta.json` may record source URLs or only redacted forms, and whether extracted source text is retained. Binding lives in the private spec under "HOOK-LIB-01".
 
 ### 3.2 Opt-in: library inside the repo's `docs/`
 
@@ -59,7 +60,7 @@ A developer may point the library at the repo's Pages folder explicitly with `EL
 - treats `index.html` at the root as foreign and never touches it;
 - reserves the slugs in §6.3 so a generated document can never shadow a Pages file (the reservation applies in every mode).
 
-Everything the library writes there is covered by the existing `docs/*` rule in `.gitignore`. The housekeeping folders (`.staging/`, `.trash/`, `.eli5/`) are also covered, but they then live inside the Pages source tree, which is one more reason this mode is opt-in only. Startup logs a warning when the resolved root is inside a git work tree and is not ignored.
+Everything the library writes there is covered by the existing `docs/*` rule in `.gitignore`. The housekeeping folders (`.staging/`, `.trash/`, `.eli5/`) and every document's `.sources/` (§4.4: a private copy of the extracted source text) are also covered, but they then live inside the Pages source tree, which is one more reason this mode is opt-in only. Startup logs a warning when the resolved root is inside a git work tree and is not ignored.
 
 ## 4. Directory layout
 
@@ -70,6 +71,7 @@ Everything the library writes there is covered by the existing `docs/*` rule in 
     index.html                      # self-contained document (07)
     meta.json                       # DocumentMeta (§5.2)
     .versions/                      # the version tree: tree.json, nodes/<versionId>.json, blobs/<sha256>.html.gz (§4.1)
+    .sources/                       # retained source text for Ask deep: manifest.json, src-NN.md (§4.4); optional
   .staging/<jobId>/                 # save staging, owned by the pipeline (06 §5.7)
   .trash/<slug>--<yyyymmddThhmmss>/ # the Trash: trashed documents and merged-away sources (§4.2)
   .trash/<slug>--<ts>-premerge/     # pre-merge backups (§10.6); housekeeping, never listed
@@ -102,7 +104,7 @@ Every change to a document's html is kept as a **version**, and the versions of 
   *.tmp-<pid>-<8 hex>       staging, housekept after 1 hour
 ```
 
-`VersionNodeRecord` (zod in `schema.ts`): `id` (`/^v-[0-9a-f]{12}$/`), `parentId` (`null` for the root), `createdAt`, `kind` (`VersionChangeKind = MenuAction | 'close-tab' | 'merge' | 'outside' | 'initial' | 'sync'`; `'sync'` is reserved for a later desktop pull (16 §8) and never written in this version), `label` (≤ 200, from `cleanChangeLabel`, e.g. `expanded 'Why the plan matters'`), `topic` (≤ 48, a short branch title), `heading?` (≤ 80), `question?` (≤ 500), `target?` and `undoTarget?` (`{tabKey?, sectionId?, anchorId?}`, where to land when the version is opened or undone, 08 §6.7), `sha256` (`null` when the snapshot was pruned: the version is a *stub*), `bytes` (compressed size), `forwardId?` (the child Redo follows) and `jobId?`.
+`VersionNodeRecord` (zod in `schema.ts`): `id` (`/^v-[0-9a-f]{12}$/`), `parentId` (`null` for the root), `createdAt`, `kind` (`VersionChangeKind = MenuAction | 'close-tab' | 'merge' | 'outside' | 'initial' | 'sync'`; `'sync'` is reserved for a later desktop pull (16 §8) and never written in this version), `label` (≤ 200, from `cleanChangeLabel`, e.g. `expanded 'Why the plan matters'`), `topic` (≤ 48, a short branch title), `heading?` (≤ 80), `question?` (≤ 500), `depth?` (`'deep'` or `'deeper'`, only with kind `ask`: Ask deep, 08 §6.9, or Ask deeper, 08 §6.10; copied from `change.depth` and passed to the wire `DocVersionNode`; an unknown value from a newer app is dropped when the tree is read, not a parse failure), `target?` and `undoTarget?` (`{tabKey?, sectionId?, anchorId?}`, where to land when the version is opened or undone, 08 §6.7), `sha256` (`null` when the snapshot was pruned: the version is a *stub*), `bytes` (compressed size), `forwardId?` (the child Redo follows) and `jobId?`.
 
 - Like every dot-name, `.versions/` is never listed, served by `eli5doc://`, published (10 §3.3 takes only `index.html` and `assets/`) or read by reconcile. Trash, Put Back, Delete Permanently and a merge moving a source away move or remove the whole folder, so history travels with the document. The tree is keyed by neither slug nor document id.
 - `tree.json` is read with `readVersioned` (§5.3) and its own empty migration chain; a newer tree schema makes only that document's history read-only.
@@ -175,6 +177,66 @@ layout:
   deletes anything remotely.
 - **The `'sync'` version kind is reserved** for a later version in which a second desktop pulls
   documents. Nothing writes it now.
+
+### 4.4 Retained source text (`.sources/`)
+
+Each document may keep the text extracted from its sources, so Ask deep ([08](08-interactive-reading.md) §6.9) can check an answer against the original. Only Ask deep reads it. It is a sidecar of the document folder, not part of any version.
+
+**Layout.**
+
+```
+<slug>/.sources/            directory mode 0700
+  manifest.json             SourceSidecarManifest, file mode 0600; the commit point
+  src-01.md                 toPromptText(ExtractedContent) of one source (04 §11), image markers only, mode 0600
+  src-02.md
+```
+
+```ts
+// src/main/library/sources.ts (exported through library/index.ts)
+export const SOURCES_DIR = '.sources';
+export const SOURCES_MANIFEST = 'manifest.json';
+export const SOURCE_FILE_RE = /^src-\d{2,6}\.md$/;   // ids are never reused, so they outgrow 3 digits
+export const SIDECAR_VERSION = 1;
+export const MAX_SOURCE_CHARS = 400_000;          // = extraction's maxCharsPerSource (04 §10)
+export const MAX_SIDECAR_BYTES = 2 * 1024 * 1024; // UTF-8 bytes of all .md files of one document
+export const MAX_SIDECAR_SOURCES = 100;
+
+export interface SourceSidecarEntry {
+  id: string;                 // 'src-01'...; unique in this sidecar, never reused after removal
+  file?: string;              // 'src-01.md' when stored === 'text'
+  ref: string;                // sanitized like meta.sourcesUsed: basename, or URL per policy (§5.2)
+  label: string;              // source title or ref, ≤ 200 chars
+  kind: 'file' | 'url' | 'clipboard' | 'mcp';
+  mime: string;
+  format: string;             // ExtractedFormat (04)
+  stored: 'text' | 'image' | 'omitted'; // image: vision input only; omitted: over the cap, or empty
+  sha256?: string;            // of the stored .md bytes (dedup key); only with 'text'
+  sourceSha256?: string;      // sha256 of the source payload bytes
+  chars: number;              // extracted characters
+  storedChars: number;
+  truncated: boolean;
+  truncatedBy?: ('extract' | 'sidecar')[];
+  origin?: string;            // 'merge:<docId>' | 'rebuild:<jobId>'
+  addedAt: string;            // ISO
+}
+export interface SourceSidecarManifest { v: 1; updatedAt: string; totalBytes: number; sources: SourceSidecarEntry[] }
+```
+
+- **Content.** Each `.md` file holds `toPromptText(content)`, the one extraction serializer ([04](04-extraction.md) §11): blocks joined by a single newline, pages as `--- Page N ---`, slides as `## Slide N[: title]`, speaker notes as `> ` lines, code in fences. Image sources get `stored: 'image'` and no file; image bytes are never stored here. No absolute path is stored anywhere: refs go through the same sanitizer as `meta.sourcesUsed` with the policy's `sourceUrls`, so file refs are basenames and the `redacted` policy strips URLs.
+- **Caps.** Per source `MAX_SOURCE_CHARS` (cut on a line boundary); a cut made by extraction sets `truncated` with `truncatedBy: ['extract']`. Per document `MAX_SIDECAR_BYTES` (2 MiB of `.md` bytes) and `MAX_SIDECAR_SOURCES` (100). Sources are added in job order: the one that crosses the byte cap is cut to fit (`truncatedBy` gains `'sidecar'`), later ones in the same write get `stored: 'omitted'` (a manifest entry only). A later write (an upsert or a merge union) gets whatever room `totalBytes` leaves, so a source that replaces the cut one gets the bytes its old text freed. An empty extracted text is `'omitted'` too.
+- **Writes.** The sidecar is append-only and its manifest is the commit point, so a lock-free reader never sees half a sidecar.
+  - *New document:* plain writes into `<staging>/.sources/` before `commitDocument` (§8.2, [06](06-generation-pipeline.md) §5.7), so the sidecar arrives with the folder rename.
+  - *Live document* (upsert, union): each new `src-NN.md` with `writeFileAtomic`, then the manifest. Files the new manifest no longer references are deleted after the manifest write. New ids continue from the largest `src-NN` ever used (from the manifest plus any orphan file names).
+- **Reads** (`readSources`, lock-free): the manifest is validated with zod (strict on `file` names). A referenced file is read only when `lstat` shows a regular file (no symlink) inside `.sources/` no larger than `MAX_SIDECAR_BYTES`. An entry whose file is missing or whose sha256 does not match is left out of the texts and logged as `library.sources-entry-unreadable {slug, count}`; a missing file is retried once after re-reading the manifest (a concurrent upsert may have just replaced it). An invalid manifest gives `null`.
+- **Which texts a reader may use** (`sourcesForMeta`, pure). The sidecar belongs to the folder, but the version being read may not include every source in it (an undone merge, a checkout to a version before a rebuild). Ask deep therefore sends only entries that match a record of the **live** `meta.sourcesUsed`: same `kind`, the same ref after re-sanitizing both sides with the `redacted` policy (so a policy change between write and read still matches) and, when both carry one, the same sha256 (`sourceSha256` against `SourceRecord.sha256`). Records of `sourcesUsed` with no matching text come back as `missing`; a `null` sidecar makes every record missing.
+- **Lifecycle.**
+  - Trash, Put Back and duplicate-folder reconcile move the whole folder, so the sidecar goes with it.
+  - Version checkout, undo, redo, runtime refresh and section actions write only `index.html`, `meta.json` and `.versions/`: the sidecar is untouched. Sources belong to the document, not to a version.
+  - Merge accept copies the merged-away document's kept text into the target (§10.6 step 7b, §10.8). It is never undone: after the merge is undone, `sourcesForMeta` keeps that text out of Ask deep, and putting the merged-away document back brings back its own `.sources/`. The copy outlives a later Delete Permanently of the merged-away document.
+  - Rebuild as a new version (dev driver, [06](06-generation-pipeline.md) §5.7.1) upserts the rebuilt sources with `origin: 'rebuild:<jobId>'`. This is also how a document saved before source retention gets a sidecar. Existing documents are never re-fetched.
+- **Where it lives.** `.sources/` sits wherever the library root is (§3). If the user put the library in a cloud-synced folder or a git work tree, the extracted text goes there too, exactly like `index.html`. The privacy page says so.
+- **Never exposed.** Like every dot-name it is never listed, served by `eli5doc://` (which serves only `/<slug>/` and `/<slug>/index.html` and refuses dot segments), published ([10](10-publishing.md) §3.3), read by reconcile or `list()`, or uploaded by sync (§4.3). `meta.json`, `catalog.json` and logs carry counts only. `npm run check:hygiene` fails on any tracked path containing `/.sources/`.
+- **Policy off** (`LibraryPolicy.retainSourceText === false`, HOOK-LIB-01; absent means true): no staging write, no upsert, no union, and `readSources` returns `null`. Housekeeping (§7 step 8) then deletes every `<slug>/.sources/` of catalogued documents and of `.trash/` entries, and logs `library.sources-removed {count}`.
 
 ## 5. Schemas
 
@@ -262,6 +324,7 @@ export interface AskRecord {       // shape owned by 08 §6.8
   question: string;                // ≤ 500, user text like ActionRecord.note
   qaId: string;                    // id of the answer box (07 §4.2)
   jobId: string;
+  depth?: 'deep' | 'deeper';       // Ask deep (08 §6.9) or Ask deeper (08 §6.10); absent = quick. Optional, no schema bump
 }
 
 export interface SourceRecord {
@@ -309,7 +372,7 @@ Privacy rules for `meta.json`:
 
 - Local file paths are stored as **basename only**. An absolute path would leak the user's home folder name if the folder is ever shared or published ([10](10-publishing.md)).
 - URLs are stored without fragment. Query strings are kept only for the public lane. Anything the MCP lane resolved is recorded as its display reference ([03](03-source-resolvers.md)), subject to HOOK-LIB-01 and HOOK-SRC-03.
-- No source text, extracted content or credentials are ever written to `meta.json`. A reader's question (`asks[].question`) is user text like `note` and may be stored; the answer text is not.
+- No source text, extracted content or credentials are ever written to `meta.json`; retained source text lives only in `.sources/` (§4.4). A reader's question (`asks[].question`) is user text like `note` and may be stored; the answer text is not.
 
 `meta.json` is written by the library only. The pipeline, section jobs and merge flow pass a `DocumentMeta` or a patch function. Every write updates `updatedAt` in both `meta.json` and the catalog entry.
 
@@ -379,7 +442,7 @@ Reservations are in memory only. After a crash, pipeline recovery re-derives the
    - A folder with no entry is added. This covers the crash window between the folder rename and the catalog upsert ([06](06-generation-pipeline.md) §5.7 step 4).
    - Where both exist, meta wins for every field.
 7. If anything changed, write `catalog.json` atomically, then emit `changed`.
-8. Delete `.tmp-*` files, `.prev.tmp-*` folders inside document folders, and `.versions/**/*.tmp-*` files (§4.1), older than 1 hour (by age, without a lock). Purge `.trash/` entries older than the retention period (§9) and drop the Trash records of entries that no longer exist (§4.2). Run suggestion validation (§9.4). `organization.json` is not read here and is never rebuilt from folders.
+8. Delete `.tmp-*` files, `.prev.tmp-*` folders inside document folders, and `.versions/**/*.tmp-*` and `.sources/*.tmp-*` files (§4.1, §4.4), older than 1 hour (by age, without a lock). Also delete `src-NN.md` files that their manifest does not reference and that are older than 1 hour. With source retention off (HOOK-LIB-01), delete every `<slug>/.sources/` and every `.trash/<name>/.sources/` and log `library.sources-removed {count}`. Purge `.trash/` entries older than the retention period (§9) and drop the Trash records of entries that no longer exist (§4.2). Run suggestion validation (§9.4). `organization.json` is not read here and is never rebuilt from folders.
 
 Complexity is O(n) small JSON reads. It runs in under 200 ms for 1,000 documents on a local SSD, which is acceptable at startup. v1 has no file watcher. External edits are picked up on the next launch.
 
@@ -399,7 +462,7 @@ Document folders are created with mode `0o700` and files `0o600`. JSON is writte
 
 The pipeline renders `index.html` and `meta.json` into `.staging/<jobId>/` and then calls `library.commitDocument(reservation, stagingDir, meta)` ([06](06-generation-pipeline.md) §5.7 steps 2–4):
 
-1. Inside `withDocLock(slug)`: validate `meta` with zod, and check that the staging dir contains exactly `index.html` and `meta.json`.
+1. Inside `withDocLock(slug)`: validate `meta` with zod, and check that the staging dir contains exactly `index.html`, `meta.json` and an optional `.sources/` (§4.4). That directory must be a real directory (not a symlink) holding only `manifest.json` and files matching `SOURCE_FILE_RE`. Anything else fails with `WRITE_FAILED` (detail `staging-contents`).
 2. Inside `withCatalogLock`: `lstat(root/slug)`. If anything exists at that path (directory, empty directory, file or symlink; it should not, given the reservation), fail with `SLUG_TAKEN` and the pipeline re-allocates once. Do not rely on `rename` to fail: POSIX `rename(2)` of a directory silently replaces an existing **empty** directory. Still under the same catalog lock, `rename(stagingDir, root/slug)`, so no other allocation or commit can create the path between the check and the rename.
 3. `fsyncDir(root)`.
 4. Still inside `withCatalogLock`: upsert the entry, then write `catalog.json` atomically.
@@ -490,6 +553,14 @@ export interface Library {
   acceptSuggestion(id: string): Promise<{ targetSlug: string }>;
   dismissSuggestion(id: string): Promise<void>;
 
+  // retained source text (§4.4); FsLibrary implements these
+  readonly retainsSourceText: boolean;                     // policy.retainSourceText !== false
+  readSources(slug: string): Promise<SourceSidecar | null>; // lock-free; null: none, invalid, or policy off
+  writeSourcesToStaging(stagingDir: string, inputs: SourceSidecarInput[]):
+    Promise<{ count: number; bytes: number } | null>;      // pipeline save, before commitDocument; policy off -> null
+  upsertSources(slug: string, inputs: SourceSidecarInput[]): Promise<void>;          // caller holds withDocLock(slug)
+  unionSourceSidecars(targetSlug: string, fromSlug: string, origin: string): Promise<void>; // caller holds both locks
+
   on(event: 'changed', cb: (e: { reason: LibraryChangeReason; slugs: string[] }) => void): () => void;
   on(event: 'suggestions', cb: (s: MergeSuggestion[]) => void): () => void;
   on(event: 'organization', cb: () => void): () => void;   // folders, placement or Trash changed
@@ -513,10 +584,32 @@ export interface DocumentPatch {
   label?: string;                                          // Undo label of this change (§4.1)
   change?: {                                               // fork metadata (08 §6.7); absent = kind 'outside'
     kind: VersionChangeKind; topic: string; heading?: string; question?: string;
+    depth?: 'deep' | 'deeper';                             // kind 'ask' only: Ask deep (08 §6.9) or Ask deeper (§6.10)
     target?: VersionTarget; undoTarget?: VersionTarget; jobId?: string;
   };
 }
 ```
+
+```ts
+// retained source text (§4.4)
+export interface SourceSidecarInput {
+  ref: string; label: string; kind: SourceSidecarEntry['kind']; mime: string; format: string;
+  text: string | null;        // null for an image source
+  chars: number; sourceSha256?: string; extractTruncated: boolean; origin?: string;
+}
+export interface SourceSidecar {
+  manifest: SourceSidecarManifest;
+  texts: Record<string, string>;  // entry id -> text, only entries stored as text whose file read and verified
+}
+/** Pure (§4.4 "Which texts a reader may use"). */
+export function sourcesForMeta(sc: SourceSidecar | null, used: readonly SourceRecord[]):
+  { entries: SourceSidecarEntry[]; texts: Record<string, string>; missing: SourceRecord[] };
+```
+
+- `upsertSources` adds new texts and replaces the entry with the same key whose text changed: the key is `sourceSha256` when present, else `kind` + ref (a re-fetched URL). Same text: no-op. Read-only library or policy off: no-op.
+- `unionSourceSidecars` appends `fromSlug`'s entries not already present (by sha256), renumbered, each with `origin` set to the outermost merge (replacing any origin it had). A missing source folder, a read-only library or the policy off makes it a no-op. It is idempotent. (Named so it does not collide with the meta-level `unionSources` helper of the merge engine.)
+- The pipeline's `PipelineLibrary` and the interactive runner's `InteractiveLibrary` carry these as **optional** members (`retainsSourceText?`, `writeSourcesToStaging?`, `upsertSources?`, `readSources?`); absent means "no sidecar", so test fakes need no change.
+- No sidecar code throws or logs an error whose message holds file content: zod issues on the manifest carry refs and labels only, and a sha256 mismatch reports the entry id.
 
 `VersionTreeView` is the tree with each node's availability, the current id, the redo id, `detached`, `readOnly` and `degraded`; 08 turns it into the wire `DocVersionTree` (01 §5.3). A node is `published` when its `sha256` equals the `contentSha256` of the live meta's last `PublicationRecord` ([10](10-publishing.md) §3.2). `VERSION_NOT_FOUND` maps to `E_NOT_FOUND` "That version is no longer available" and `VERSION_CORRUPT` to `E_IO` "That version can't be read" in `ipc/handle.ts`.
 
@@ -672,6 +765,7 @@ export interface SuggestionsFile {
 5. `weaveMergedDocument(...)` (§10.3): one `merge-weave` call, then the plan is applied and rendered. Any error (LLM failure, budget exhausted, invalid output after the repair pass, unreadable document) → `MERGE_FAILED`, go to step 11. There is no fallback to appending. Quitting aborts the call.
 6. **Backup:** copy the target's `index.html` and `meta.json` to `.trash/<target.slug>--<ts>-premerge/`. This makes a bad merge recoverable by hand. The step 7 write also records the merge as a version (§4.1, `change.kind: 'merge'`, topic the source title, target and undo target the first anchor section, label `merged '<source title>' in`), so one Undo restores the pre-merge document.
 7. Write the target `index.html` atomically, then the target `meta.json` atomically, with `tabs` from the result, `sourcesUsed` / `sourcesSkipped` unioned (source items tagged `origin: 'merge:<sourceId>'`, dedup by `ref` + `sha256`), and a new `MergeRecord` appended. **This `meta.json` write is the commit point.**
+7b. **Union the source text** (§4.4): `unionSourceSidecars(target.slug, source.slug, 'merge:' + sourceMeta.id)`, still under both locks, after the step 7 commit and before step 8 moves the source folder away. It is best effort: a failure logs `merge.sources-union-failed {code}` and the merge continues. It never runs before the commit, so a failed accept never copies another document's text. The pre-merge backup (step 6) stays `index.html` + `meta.json` only.
 8. `rename(root/source.slug, .trash/<source.slug>--<ts>)`, then record it in `organization.json` as merged into the target (§4.2), so it is listed in the Trash and can be put back.
 9. `withCatalogLock`: remove the source entry. Update the target entry (`updatedAt`, `tabCount`, `mergedFromCount`). Write atomically.
 10. `withSuggestionsLock`: set this suggestion `accepted` with `resolvedAt`. Any other `pending` suggestion that references the source becomes `stale`. Persist.
@@ -687,7 +781,7 @@ export interface SuggestionsFile {
 At startup, after reconcile:
 
 1. A `pending` suggestion whose source or target is missing from the catalog becomes `stale`.
-2. For an `accepting` suggestion, if `targetMeta.merges` contains its `suggestionId`, the commit happened: finish steps 8–10 idempotently (skip a rename whose source folder is already gone). Otherwise the merge did not commit: set it back to `pending` (the premerge backup, if any, stays in `.trash/`).
+2. For an `accepting` suggestion, if `targetMeta.merges` contains its `suggestionId`, the commit happened: run step 7b under the same two locks before moving the source folder (a no-op when the source folder is already gone, after a crash past step 8: the text stays restorable through Put Back; idempotent by sha256), then finish steps 8–10 idempotently (skip a rename whose source folder is already gone). Otherwise the merge did not commit: set it back to `pending` (the premerge backup, if any, stays in `.trash/`).
 3. Emit `suggestions` once.
 
 ## 11. IPC surface
@@ -752,14 +846,19 @@ The renderer never sends file paths. It only sends slugs and IDs, and main resol
 | Document edited by hand in a text editor | Detached; saved as a `changed outside the app` version before the next change or checkout (§4.1) |
 | A version's snapshot was pruned, or its blob fails the sha check | Its row stays (marked "snapshot removed"); opening it fails with `VERSION_NOT_FOUND` / `VERSION_CORRUPT`, shown inline (11 §5.7) |
 | Node or blob write fails before an update | The change still commits; history is marked degraded and the panel says so (§4.1 step 3) |
-| Document trashed and put back | `.versions/` travels with the folder; history is intact |
+| Document trashed and put back | `.versions/` and `.sources/` travel with the folder; history and retained source text are intact |
+| Document saved before source text was retained | No `.sources/`; Ask deep works over the tabs only and its box says the original source text is not available (08 §6.9). A rebuild gives it a sidecar |
+| Merge undone by checking out the pre-merge version | The target's `.sources/` keeps the union, but `sourcesForMeta` matches only the live `sourcesUsed`, so Ask deep no longer sends the merged-away text |
+| `.sources/manifest.json` corrupt, or a text file missing, replaced by a symlink or failing its sha256 | `readSources` returns `null` (manifest) or leaves the entry out of the texts (file); Ask deep degrades to fewer sources, never fails for this |
+| Sidecar write fails while saving a new document | The document is saved without `.sources/`; `pipeline.sources-not-kept` is logged ([06](06-generation-pipeline.md) §5.7) |
+| Source retention turned off by policy | Nothing new is written, `readSources` returns `null`, and housekeeping removes existing `.sources/` folders, including those in `.trash/` |
 | Second process on the same root | Read-only mode (§8.4) |
 | Empty library | Merge check stops at step 2. Recents is empty and the tray shows only Open and Quit |
 | Very large library (5,000 docs) | Catalog about 2 MB, loaded into memory once. Prefilter under 50 ms. Reconcile under 1 s at startup |
 
 ## 13. Testing notes
 
-Unit (Vitest, temp dir via `ELI5_LIBRARY_DIR`): the version tree (§4.1): the pure functions (`resolveCurrent`, `historyFromTree`, redo child, scroll targets, `planPrune` protected set and caps), blob round-trip and dedupe, a corrupt blob stubbing its node, a node per html write with the parent resolved at commit time and none for meta-only writes, branching after undo and `forwardId` retrace, checkout pinning and `retiredIds`, fault injection at each write step (adoption after a crash, rebuild of a corrupt `tree.json`, degraded history), detached hand edits, legacy `.prev/` seeding for each slot, `versions()` performing no writes, housekeeping; slugify table tests; allocate under concurrency (100 parallel allocations, all distinct); `writeFileAtomic` crash simulation (kill between write and rename leaves the old file); migrations per fixture; reconcile scenarios from §12; prefilter ranking on a fixed corpus; accept/dismiss state machine with a fake `weaveMergedDocument` and a fake `matchMerge` (including a failing and a budget-exhausted weave that leave both documents untouched); accept end to end with the real weave and a mocked planner, then one Undo; recovery of `accepting` at each step boundary. E2E (Playwright `_electron`): generate two related documents with a stubbed provider, see the suggestion, accept, and verify one Library entry, highlights and the legend in both tabs, Undo, and the tray recents; a first failing weave shows Try again. Details are in [13](13-testing-quality.md).
+Unit (Vitest, temp dir via `ELI5_LIBRARY_DIR`): the version tree (§4.1): the pure functions (`resolveCurrent`, `historyFromTree`, redo child, scroll targets, `planPrune` protected set and caps), blob round-trip and dedupe, a corrupt blob stubbing its node, a node per html write with the parent resolved at commit time and none for meta-only writes, branching after undo and `forwardId` retrace, checkout pinning and `retiredIds`, fault injection at each write step (adoption after a crash, rebuild of a corrupt `tree.json`, degraded history), detached hand edits, legacy `.prev/` seeding for each slot, `versions()` performing no writes, housekeeping; slugify table tests; allocate under concurrency (100 parallel allocations, all distinct); `writeFileAtomic` crash simulation (kill between write and rename leaves the old file); migrations per fixture; reconcile scenarios from §12; prefilter ranking on a fixed corpus; accept/dismiss state machine with a fake `weaveMergedDocument` and a fake `matchMerge` (including a failing and a budget-exhausted weave that leave both documents untouched); accept end to end with the real weave and a mocked planner, then one Undo; recovery of `accepting` at each step boundary; the source text sidecar (§4.4: manifest schema, ids past `src-999`, per-source and per-document caps, `image` and `omitted` entries, no absolute path anywhere, symlink and traversal refusal, missing and sha-mismatched entries, the retry during a concurrent upsert, append-only upsert keyed by sha or by `kind` + ref, union dedup with renumbering and the outermost `origin`, orphan cleanup, `sourcesForMeta` matching across a `sourceUrls` policy change, read-only and policy-off no-ops, `commitDocument` accepting a staging `.sources/` and refusing other extras, Trash and Put Back byte-identical, checkout, undo, redo and runtime refresh leaving it untouched, merge step 7b and its recovery, no canary from a source file in any error or log). E2E (Playwright `_electron`): generate two related documents with a stubbed provider, see the suggestion, accept, and verify one Library entry, highlights and the legend in both tabs, Undo, and the tray recents; a first failing weave shows Try again. Details are in [13](13-testing-quality.md).
 
 ## Acceptance criteria
 
@@ -767,6 +866,7 @@ Unit (Vitest, temp dir via `ELI5_LIBRARY_DIR`): the version tree (§4.1): the pu
 - [ ] Each finished learning is `<root>/<topic-slug>/index.html` + `meta.json`, and `<root>/catalog.json` has one entry per document with id, title, topic slug, created/updated timestamps and a 1–2 sentence summary.
 - [ ] `meta.json` records sources used, sources skipped with reason and code, clarifying input, tab list, retired IDs, `JobWarning`s, generation info, action log, ask log, current version id, publications and merge history, validated by a non-strict v1 schema that preserves unknown fields; it never contains absolute local paths, source text or credentials.
 - [ ] Library sidebar, menu bar recents and merge matching never read `index.html`.
+- [ ] Each new document keeps the extracted text of its sources in `<slug>/.sources/` (§4.4) within 400,000 characters per source, 2 MiB and 100 sources per document; the manifest is the commit point; no absolute path is stored; the folder is never served, listed, published or synced; Trash and Put Back carry it; a merge copies the merged-away text into the target after the commit; Ask deep uses only texts that match the live `meta.sourcesUsed`; with retention off by policy nothing is kept and housekeeping removes what was.
 - [ ] Slugs follow §6: ASCII, at most 60 chars, case-insensitive collision suffixes, reserved names avoided; concurrent saves never collide.
 - [ ] Every file write is temp + fsync + rename; killing the app at any point never leaves a truncated `index.html`, `meta.json`, `catalog.json` or `suggestions.json`.
 - [ ] Every html change of an existing document is recorded as a version in `<slug>/.versions/` (§4.1), with its node record and snapshot durable before the commit point; a change after an undo starts a branch and keeps the old one; checkout, undo and redo run under `withDocLock`, keep `id`, `createdAt`, `topicSlug` and `publications` from the live meta, and update the catalog; reads of the tree never write; a legacy `.prev/` is migrated without loss; retention stays within 60 snapshots, 48 MiB and 300 records per document. `.versions/` is never served, listed, published or read by reconcile, and travels with the document to the Trash and back.

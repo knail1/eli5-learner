@@ -1,13 +1,19 @@
 // Pure model mutators (07 §8): section context, replace in place, add/remove section ELI5 tabs.
 // Every function returns a new model; the caller renders and writes under the document lock.
+import { DEEPER_WEB_MAX, DEEPER_WEB_TITLE_MAX, normalizeWebUrl } from '../llm';
 import type { DocumentDraftTab, DraftBlock, SectionDraft } from '../llm';
 import { buildSections } from './build';
 import { DocumentBuildError, DocumentMutationError, TooManyTabsError } from './errors';
 import { reanchorSection } from './glossary';
 import { capText, collapseWs } from './html';
+import { linksToText } from './inline-md';
 import { mintDiagramPrefix, mintQaId, qaIdsOf, sectionIdsOf } from './ids';
 import { cryptoIdSource, isSectionEli5TabKey, mintSectionEli5TabKey, tabKeyOfSectionId } from './section-id';
 import type {
+  AnswerReach,
+  AnswerSourceMode,
+  AnswerWebPage,
+  DeepAskDepth,
   DocBlock,
   DocumentModel,
   MutationOptions,
@@ -16,6 +22,7 @@ import type {
   SectionContext,
   SectionId,
   Tab,
+  TabKind,
 } from './types';
 import { ANIMATION_KEEP } from './animation';
 import {
@@ -75,6 +82,30 @@ export function sectionToDraft(model: DocumentModel, s: Section): SectionDraft {
     if (d) blocks.push(d);
   }
   return { heading: s.heading, blocks };
+}
+
+/** One tab as Deep Ask material (08 §6.9); the same shape as the llm module's DeepAskTab. */
+export interface DeepAskTabDraft {
+  key: string;
+  kind: TabKind;
+  label: string;
+  sections: SectionDraft[];
+}
+
+/**
+ * 08 §6.9: every tab in document order, content sections only (references and ELI5 placeholder
+ * sections excluded); answer boxes are dropped by sectionToDraft. A tab left with no section is
+ * left out.
+ */
+export function tabsForDeepAsk(model: DocumentModel): DeepAskTabDraft[] {
+  const out: DeepAskTabDraft[] = [];
+  for (const t of model.tabs) {
+    const sections = t.sections
+      .filter((s) => s.kind === 'content' && s.origin !== 'placeholder')
+      .map((s) => sectionToDraft(model, s));
+    if (sections.length) out.push({ key: t.key, kind: t.kind, label: t.label, sections });
+  }
+  return out;
 }
 
 export function getSectionContext(model: DocumentModel, id: SectionId): SectionContext {
@@ -238,6 +269,46 @@ export interface AnswerInput {
   /** The selection the question was asked about; cut to MAX_QA_QUOTE for the box. */
   quote: string;
   paragraphs: readonly string[];
+  /** 08 §6.9 Ask deep or §6.10 Ask deeper; its inline links are stored as their text. */
+  depth?: DeepAskDepth;
+  /** Only with depth: the source mode the badge shows. */
+  sources?: AnswerSourceMode;
+  /** Only with depth 'deeper': how far the answer went (its badge). */
+  reach?: AnswerReach;
+  /** Only with depth 'deeper': the web pages it used (already checked against the provider's list). */
+  web?: readonly AnswerWebPage[];
+}
+
+/**
+ * 08 §6.10: the stored page list of a deeper box: http(s) URLs only, normalised (no fragment), once
+ * each, at most DEEPER_WEB_MAX, titles on one line and capped; a blank title becomes the host.
+ */
+export function cleanAnswerWeb(web: readonly AnswerWebPage[]): AnswerWebPage[] {
+  const out: AnswerWebPage[] = [];
+  const seen = new Set<string>();
+  for (const w of web) {
+    if (out.length >= DEEPER_WEB_MAX) break;
+    const url = normalizeWebUrl(w.url);
+    if (url === null || seen.has(url)) continue;
+    seen.add(url);
+    out.push({ title: capText(collapseWs(w.title), DEEPER_WEB_TITLE_MAX) || new URL(url).host, url });
+  }
+  return out;
+}
+
+/** Re-exported for callers that import it from here (08 §6.9 decision 10). */
+export { linksToText };
+
+/**
+ * A deep answer paragraph: links stripped, then cut to MAX_QA_PARAGRAPH and stripped again, since a
+ * cut can drop the closing backtick of a code span that hid one (08 §6.9 decision 10). The renderer
+ * strips links from deep boxes too, so a paragraph that still exceeds the cap after the retries is
+ * cut once more and stays safe to show.
+ */
+function deepParagraph(p: string): string {
+  let cur = linksToText(p);
+  for (let i = 0; i < 3 && cur.length > MAX_QA_PARAGRAPH; i++) cur = linksToText(capText(cur, MAX_QA_PARAGRAPH));
+  return cur.length > MAX_QA_PARAGRAPH ? capText(cur, MAX_QA_PARAGRAPH) : cur;
 }
 
 /**
@@ -258,11 +329,15 @@ export function insertAnswer(
   const hit = findSection(model, sectionId);
   if (!hit) throw new DocumentMutationError('unknown_section', sectionId);
   if (hit.section.kind === 'references') throw new DocumentMutationError('references_section', sectionId);
+  // Ask deep and Ask deeper both read attacker-controllable text: links are stored as text.
+  const deep = answer.depth === 'deep' || answer.depth === 'deeper';
+  const deeper = answer.depth === 'deeper';
+  const web = deeper && answer.web ? cleanAnswerWeb(answer.web) : [];
   const paragraphs = answer.paragraphs
-    .map((p) => p.trim())
+    .map((p) => (deep ? linksToText(p) : p).trim())
     .filter((p) => collapseWs(p) !== '' && !isUserQuestion(p))
     .slice(0, MAX_QA_PARAGRAPHS)
-    .map((p) => (p.length > MAX_QA_PARAGRAPH ? capText(p, MAX_QA_PARAGRAPH) : p));
+    .map((p) => (deep ? deepParagraph(p) : p.length > MAX_QA_PARAGRAPH ? capText(p, MAX_QA_PARAGRAPH) : p));
   if (paragraphs.length === 0) throw new DocumentBuildError('empty_section');
   const question = capText(collapseWs(answer.question), MAX_QA_QUESTION);
   if (question === '') throw new DocumentBuildError('empty_section');
@@ -283,6 +358,9 @@ export function insertAnswer(
     quote: capText(collapseWs(answer.quote), MAX_QA_QUOTE),
     paragraphs,
     askedAt: now,
+    ...(deep && answer.depth ? { depth: answer.depth, ...(answer.sources ? { sources: answer.sources } : {}) } : {}),
+    ...(deeper && answer.reach ? { reach: answer.reach } : {}),
+    ...(web.length > 0 ? { web } : {}),
   };
 
   const old = hit.section.blocks;

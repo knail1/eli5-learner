@@ -1,7 +1,7 @@
 {
   "name": "eli5-learner",
   "productName": "ELI5 Learner",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Turns decks, docs, PDFs, screenshots and URLs into interactive HTML explainers with an in-depth view and an ELI5 view.",
   "author": "Omer Ansari",
@@ -58,7 +58,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.2.0",
     "@vitest/coverage-v8": "^5.0.2",
-    "electron": "^44.4.5",
+    "electron": "^44.11.3",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "eslint": "^9.39.5",
@@ -79,7 +79,7 @@
     "d3-format": "^3.1.2",
     "d3-scale": "^4.0.2",
     "d3-shape": "^3.2.0",
-    "fast-xml-parser": "^5.11.1",
+    "fast-xml-parser": "^5.12.1",
     "jsdom": "^30.1.1",
     "jszip": "^3.10.2",
     "linkedom": "^0.18.13",
@@ -93,7 +93,7 @@
     "tldts": "^7.4.16",
     "ulid": "^3.0.2",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "prettier": "./config/prettier.json"
 }

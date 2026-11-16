@@ -85,6 +85,33 @@ describe('placeMenu (08 §5.2 step 6)', () => {
     expect(p).toMatchObject({ left: 8, width: 344 });
   });
 
+  it('at 320 px the Ask row (question, Ask, Ask deep, Ask deeper) wraps only as a group (08 §5.1)', () => {
+    const p = menu.placeMenu({
+      ...base,
+      viewport: { width: 320, height: 640 },
+      anchor: { left: 100, top: 300, bottom: 320, width: 50 },
+    });
+    expect(p).toMatchObject({ left: 8, width: 304 });
+    // jsdom has no layout, so the wrapping contract is pinned on the menu stylesheet (the real
+    // geometry is in the narrow-selection-menu visual test): the row may wrap, but the three buttons
+    // sit in one non-wrapping group that moves under the field as a whole; the field keeps 120 px.
+    const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
+    const h = rt.boot(win, doc);
+    const css = h.selection?.root.querySelector('style')?.textContent ?? '';
+    expect(css).toMatch(/\.ask\{display:flex;flex-wrap:wrap;gap:4px\}/);
+    expect(css).toMatch(/input\{font:inherit;min-width:0;/);
+    expect(css).toMatch(/input\.q\{flex:1 1 120px\}/);
+    expect(css).toMatch(/\.askb\{display:flex;gap:4px;flex:1 0 auto\}/);
+    expect(css).not.toMatch(/\.askb\{[^}]*flex-wrap/);
+    expect(css).toMatch(/\.go\{flex:none;white-space:nowrap\}/);
+    // 304 - 16 padding leaves room for the three short labels and their markers on one line.
+    const m = menuParts(h.selection?.root);
+    const group = m.button('Ask')?.parentElement;
+    expect(group?.classList.contains('askb')).toBe(true);
+    const labels = Array.from(group?.querySelectorAll('button') ?? []).map((b) => b.querySelector('.lbl')?.textContent);
+    expect(labels).toEqual(['Ask', 'Ask deep', 'Ask deeper']);
+  });
+
   it('prefer: above stays above and grows upward; it flips only off the viewport top', () => {
     // 260 tall at anchor top 300: above would reach 32, under the 44 px tab bar.
     const tall = {
@@ -266,6 +293,26 @@ describe('menu interaction (08 §5.2, §5.4)', () => {
     expect(m.active()).toBe(m.question);
   });
 
+  it('Tab order in the Ask row: question -> Ask -> Ask deep -> Ask deeper -> note; Shift+Tab from the note still lands on the question', () => {
+    const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
+    const h = rt.boot(win, doc);
+    open(win, doc);
+    const m = menuParts(h.selection?.root);
+    const focusables = Array.from(
+      h.selection?.root.querySelectorAll<HTMLElement>('input, button:not([role="menuitem"])') ?? [],
+    ).filter((e) => e.tabIndex >= 0 && !e.closest('[hidden]'));
+    expect(focusables.slice(0, 5)).toEqual([
+      m.question,
+      m.button('Ask'),
+      m.button('Ask deep'),
+      m.button('Ask deeper'),
+      m.note,
+    ]);
+    m.note?.focus();
+    expect(key(win, m.note, 'Tab', { shiftKey: true })).toBe(false);
+    expect(m.active()).toBe(m.question);
+  });
+
   it('places the menu again when a popup opens or closes, growing away from the selection', () => {
     const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
     Object.defineProperty(win.Range.prototype, 'getClientRects', {
@@ -390,6 +437,193 @@ describe('menu interaction (08 §5.2, §5.4)', () => {
     top = -100;
     win.dispatchEvent(new win.Event('scroll'));
     expect(h.selection?.current()).toBeNull();
+  });
+
+  it('stays open on scroll while focus is in the menu, even with the anchor off-screen', () => {
+    const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
+    let top = 300;
+    Object.defineProperty(win.Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => [{ left: 100, top, bottom: top + 20, width: 50, height: 20, right: 150 }],
+    });
+    const h = rt.boot(win, doc);
+    open(win, doc);
+    const m = menuParts(h.selection?.root);
+    // Enter in the note opens Explain and focuses its first item, which can scroll the page.
+    m.note?.focus();
+    key(win, m.note, 'Enter');
+    const item = m.active();
+    expect(item).toBe(m.button('Expand this'));
+    top = -100;
+    win.dispatchEvent(new win.Event('scroll'));
+    expect(h.selection?.current()).toMatchObject({ text: 'judges every channel' });
+    expect(m.menu?.hidden).toBe(false);
+    expect(m.pops()[0]?.hidden).toBe(false);
+    expect(m.active()).toBe(item);
+    // Once focus leaves the menu, the next scroll closes it.
+    (item as HTMLElement | null)?.blur();
+    win.dispatchEvent(new win.Event('scroll'));
+    expect(h.selection?.current()).toBeNull();
+  });
+
+  it('closes a focused menu once the menu itself is scrolled out of view', () => {
+    const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
+    let top = 300;
+    Object.defineProperty(win.Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => [{ left: 100, top, bottom: top + 20, width: 50, height: 20, right: 150 }],
+    });
+    const h = rt.boot(win, doc);
+    open(win, doc);
+    const m = menuParts(h.selection?.root);
+    m.note?.focus();
+    key(win, m.note, 'Enter');
+    top = -100;
+    // Still on screen: stays open (the focus move scrolled the page).
+    win.dispatchEvent(new win.Event('scroll'));
+    expect(h.selection?.current()).not.toBeNull();
+    // The user keeps scrolling until the menu itself is above the viewport.
+    const menuEl = m.menu as HTMLElement;
+    menuEl.getBoundingClientRect = () =>
+      ({
+        top: -400,
+        bottom: -200,
+        left: 100,
+        right: 400,
+        width: 300,
+        height: 200,
+        x: 100,
+        y: -400,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    win.dispatchEvent(new win.Event('scroll'));
+    expect(h.selection?.current()).toBeNull();
+  });
+});
+
+describe('mouse drag selection (08 §5.2, Mouse drags)', () => {
+  const down = (win: TestWindow, el: Element | null): void => {
+    el?.dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true, button: 0, buttons: 1 }));
+  };
+  const move = (win: TestWindow, el: Element | null, buttons: number): void => {
+    el?.dispatchEvent(new win.MouseEvent('mousemove', { bubbles: true, buttons }));
+  };
+  const up = (win: TestWindow, el: Element | null): void => {
+    el?.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true, button: 0 }));
+  };
+  const P = '#tab-indepth > section p';
+
+  it('opens nothing while the button is down, then once on release for the final range', () => {
+    const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
+    const h = rt.boot(win, doc);
+    const p = doc.querySelector(P);
+    down(win, p);
+    // A slow drag: the debounce runs out twice before the release.
+    selectText(doc, P, 'judges');
+    doc.dispatchEvent(new win.Event('selectionchange'));
+    vi.advanceTimersByTime(200);
+    expect(menuEl(h.selection?.root)?.hidden).toBe(true);
+    expect(h.selection?.current()).toBeNull();
+    move(win, p, 1);
+    selectText(doc, P, 'judges every channel');
+    doc.dispatchEvent(new win.Event('selectionchange'));
+    vi.advanceTimersByTime(200);
+    expect(menuEl(h.selection?.root)?.hidden).toBe(true);
+    up(win, p);
+    vi.advanceTimersByTime(200);
+    expect(menuEl(h.selection?.root)?.hidden).toBe(false);
+    expect(h.selection?.current()).toMatchObject({ text: 'judges every channel' });
+  });
+
+  it('a late check on the same range keeps the open menu and its popup', () => {
+    const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
+    const h = rt.boot(win, doc);
+    const p = doc.querySelector(P);
+    down(win, p);
+    selectText(doc, P, 'judges every channel');
+    up(win, p);
+    vi.advanceTimersByTime(200);
+    const m = menuParts(h.selection?.root);
+    const before = h.selection?.current();
+    expect(before).toMatchObject({ text: 'judges every channel' });
+    const explain = m.tools()[0];
+    explain?.focus();
+    explain?.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+    expect(m.pops()[0]?.hidden).toBe(false);
+    const item = m.active();
+    // The selection is unchanged: a late selectionchange and mouseup must not reopen the menu.
+    doc.dispatchEvent(new win.Event('selectionchange'));
+    up(win, p);
+    vi.advanceTimersByTime(200);
+    expect(m.pops()[0]?.hidden).toBe(false);
+    expect(m.active()).toBe(item);
+    expect(h.selection?.current()).toBe(before);
+    // A different range still reopens it, with the popup closed.
+    explain?.blur();
+    selectText(doc, P, 'every channel');
+    doc.dispatchEvent(new win.Event('selectionchange'));
+    vi.advanceTimersByTime(200);
+    expect(h.selection?.current()).toMatchObject({ text: 'every channel' });
+    expect(m.pops()[0]?.hidden).toBe(true);
+  });
+
+  it('keyboard selection opens the menu, also after a completed click', () => {
+    const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
+    const h = rt.boot(win, doc);
+    const p = doc.querySelector(P);
+    down(win, p);
+    up(win, p);
+    vi.advanceTimersByTime(200);
+    selectText(doc, P, 'judges every channel');
+    doc.dispatchEvent(new win.KeyboardEvent('keyup', { key: 'ArrowRight', shiftKey: true, bubbles: true }));
+    vi.advanceTimersByTime(200);
+    expect(h.selection?.current()).toMatchObject({ text: 'judges every channel' });
+  });
+
+  it('a secondary button press does not hold the menu back', () => {
+    const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
+    const h = rt.boot(win, doc);
+    doc.querySelector(P)?.dispatchEvent(new win.MouseEvent('mousedown', { bubbles: true, button: 2, buttons: 2 }));
+    selectText(doc, P, 'judges every channel');
+    doc.dispatchEvent(new win.Event('selectionchange'));
+    vi.advanceTimersByTime(200);
+    expect(h.selection?.current()).toMatchObject({ text: 'judges every channel' });
+  });
+
+  it.each([
+    ['window blur', (win: TestWindow) => win.dispatchEvent(new win.Event('blur'))],
+    ['pointercancel', (win: TestWindow) => win.dispatchEvent(new win.Event('pointercancel'))],
+    ['dragend', (win: TestWindow) => win.dispatchEvent(new win.Event('dragend'))],
+    // macOS Ctrl+click: button 0 down, then a context menu that swallows the mouseup.
+    ['contextmenu', (win: TestWindow) => win.dispatchEvent(new win.Event('contextmenu'))],
+    [
+      'a keyboard selection (Shift+arrow keyup)',
+      (win: TestWindow) =>
+        win.document.dispatchEvent(
+          new win.KeyboardEvent('keyup', { bubbles: true, key: 'ArrowRight', shiftKey: true }),
+        ),
+    ],
+    [
+      'a move with no button down',
+      (win: TestWindow) =>
+        win.document.body.dispatchEvent(new win.MouseEvent('mousemove', { bubbles: true, buttons: 0 })),
+    ],
+  ])('a release lost outside the document cannot leave the menu stuck: %s', (_name, lose) => {
+    const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
+    const h = rt.boot(win, doc);
+    down(win, doc.querySelector(P));
+    selectText(doc, P, 'judges every channel');
+    doc.dispatchEvent(new win.Event('selectionchange'));
+    vi.advanceTimersByTime(200);
+    expect(h.selection?.current()).toBeNull();
+    lose(win);
+    vi.advanceTimersByTime(200);
+    expect(h.selection?.current()).toMatchObject({ text: 'judges every channel' });
+    // And the flag is clear: the next selection opens without any mouseup.
+    selectText(doc, P, 'every channel');
+    doc.dispatchEvent(new win.Event('selectionchange'));
+    vi.advanceTimersByTime(200);
+    expect(h.selection?.current()).toMatchObject({ text: 'every channel' });
   });
 });
 

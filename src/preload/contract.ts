@@ -519,6 +519,16 @@ export type CreateSectionEli5Request = Omit<SectionActionRequest, 'action'> & {
   sectionIds?: SectionId[];
 };
 
+/**
+ * 08 §6.8-§6.10: 'quick' (default) = section + neighbours; 'deep' = also every tab and the kept
+ * sources; 'deeper' = the same material, then web search, then the model's general knowledge.
+ */
+export type AskDepth = 'quick' | 'deep' | 'deeper';
+/** The depth stored on payloads, busy items, answer boxes, asks and version nodes; absent = quick. */
+export type DeepAskDepth = Exclude<AskDepth, 'quick'>;
+/** Every stored depth, for zod enums and checks. */
+export const DEEP_ASK_DEPTHS: readonly DeepAskDepth[] = ['deep', 'deeper'];
+
 /** `eli5:doc:ask-section` (08 §6.8): `selectionText` is 3..4000 chars, `question` 3..500 chars on one line. */
 export interface AskSectionRequest {
   /** Filled by the doc preload from the loaded URL, never by the page. */
@@ -527,6 +537,8 @@ export interface AskSectionRequest {
   sectionId: SectionId;
   selectionText: string;
   question: string;
+  /** Absent = 'quick'. */
+  depth?: AskDepth;
 }
 
 /** `eli5:doc:close-tab` (08 §3): Section ELI5 tabs only. */
@@ -545,7 +557,8 @@ export interface ScrollToEvent {
 }
 
 export interface SectionBusyEvent {
-  busy: { sectionId: SectionId; action: MenuAction }[];
+  /** `depth` only on Ask deep (08 §6.9) or Ask deeper (08 §6.10). */
+  busy: { sectionId: SectionId; action: MenuAction; depth?: DeepAskDepth }[];
   /** Inline notices for section jobs that just failed (08 §9); shown once under the section heading. */
   notices?: { sectionId: SectionId; message: string }[];
 }
@@ -608,6 +621,8 @@ export interface DocVersionNode {
   target?: VersionTarget;
   available: boolean;
   published: boolean;
+  /** Only with kind 'ask': the version came from Ask deep (08 §6.9) or Ask deeper (08 §6.10). */
+  depth?: DeepAskDepth;
 }
 
 /** A section job that will add a version when it finishes. */
@@ -615,6 +630,8 @@ export interface DocVersionPending {
   sectionId: SectionId;
   action: MenuAction;
   heading: string;
+  /** Only with action 'ask': Ask deep or Ask deeper. */
+  depth?: DeepAskDepth;
 }
 
 /**

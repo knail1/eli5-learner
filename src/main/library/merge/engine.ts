@@ -384,6 +384,7 @@ class MergeEngine implements MergeDelegate {
     const target = committed;
     try {
       await this.lib.withDocLocks([s.target.slug, s.source.slug], async () => {
+        await this.unionSourceText(s);
         await this.trashSourceFolder(s);
         await this.lib.applyMergeToCatalog(target, s.source.id);
       });
@@ -412,6 +413,21 @@ class MergeEngine implements MergeDelegate {
       if (!meta?.equals(liveMeta)) continue;
       await this.restoreIndex(path.join(trash, name), slug);
       return;
+    }
+  }
+
+  /**
+   * Step 7b of accept (09 §4.4, §10.6), only after the step-7 commit and before step 8 trashes the
+   * source: best effort and idempotent (dedup by sha256). Skips a source folder that is gone or no
+   * longer the source document (recovery after step 8). Both doc locks are held.
+   */
+  private async unionSourceText(s: MergeSuggestion): Promise<void> {
+    try {
+      const meta = await this.lib.getMeta(s.source.slug).catch(() => undefined);
+      if (!meta || meta.id !== s.source.id) return;
+      await this.lib.unionSourceSidecars(s.target.slug, s.source.slug, `merge:${s.source.id}`);
+    } catch (err) {
+      this.log.warn('merge.sources-union-failed', { code: err instanceof LibraryError ? err.code : errnoOf(err) });
     }
   }
 
@@ -784,6 +800,8 @@ class MergeEngine implements MergeDelegate {
       await this.restoreIndex(backup, s.target.slug);
       throw new AcceptOutcome('failed', MERGE_FAILED_MESSAGE, err);
     }
+    // Step 7b (09 §4.4): the merged-away document's kept source text joins the target's.
+    await this.unionSourceText(s);
     // Steps 8-9.
     const markerId = merged.markerSectionIds[0];
     try {

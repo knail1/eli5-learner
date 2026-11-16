@@ -17,11 +17,22 @@
     <string name="label_foreign">Foreign file · scripts off</string>
     <string name="label_imported">Imported %1$s</string>
     <string name="row_more">More options for %1$s</string>
+    <!-- Announced as an action: "Double-tap and hold to show options for …". -->
+    <string name="row_show_menu">show options for %1$s</string>
 
     <string name="import_done">Imported: %1$d</string>
     <string name="import_done_skipped">Imported: %1$d · Skipped: %2$d</string>
     <string name="import_none">Nothing to import</string>
     <string name="removed">Removed “%1$s”</string>
+
+    <!-- Share (16 §6.5) -->
+    <string name="action_share">Share</string>
+    <string name="action_share_document">Share document</string>
+    <string name="share_chooser_title">Share “%1$s”</string>
+    <!-- Sent as EXTRA_TEXT to the recipient alongside the attached file. -->
+    <string name="share_message">Open the attached HTML file in a web browser to read it.</string>
+    <string name="share_missing">This document isn’t on this phone.</string>
+    <string name="share_failed">Couldn’t share this document. Try again.</string>
 
     <string name="inbox_title">Inbox</string>
     <string name="inbox_empty">Share a link, photo or file to ELI5 Learner and tap Send to my Mac. It shows up here while your Mac builds it.</string>

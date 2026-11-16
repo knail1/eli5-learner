@@ -11,11 +11,12 @@ export {
   NEIGHBOUR_CHARS,
   compareRuntimeVersions,
   createSectionRunner,
+  deepAskSources,
   runtimeFor,
 } from './regenerate';
 export type { RunnerEnv } from './regenerate';
 export { SELECTION_CONTEXT_CHARS, blockIndexOfSelection, selectionContext } from './selection-context';
-export { NOTICES, createInteractiveReading } from './service';
+export { DEEP_ASK_RATE, NOTICES, createInteractiveReading } from './service';
 export type { InteractiveReading } from './service';
 export { SectionActionError, mirrorTabs, failureNotice } from './types';
 export type { InteractiveDeps, InteractiveJobs, InteractiveLibrary, ViewerPort } from './types';

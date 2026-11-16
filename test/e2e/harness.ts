@@ -210,10 +210,16 @@ export async function startDraft(win: Page): Promise<void> {
     if ((await jobCount(win)) === before) await win.getByRole('button', { name: 'Start', exact: true }).click();
     await expect.poll(() => jobCount(win), { timeout: 1_000 }).toBeGreaterThan(before);
   }).toPass();
-  const clear = win.getByRole('button', { name: 'Clear', exact: true });
-  if (await clear.isEnabled()) await clear.click();
+  // Wait for the start reply to land (sent inputs leave the chips) before reading Clear: read
+  // earlier, it can be the render from before the start and then be disabled by the reply.
   await expect(win.getByRole('list', { name: 'Added sources' })).toHaveCount(0);
-  await expect(win.getByRole('group', { name: 'Last run' })).toHaveCount(0);
+  const clear = win.getByRole('button', { name: 'Clear', exact: true });
+  const lastRun = win.getByRole('group', { name: 'Last run' });
+  await expect(async () => {
+    if (await clear.isEnabled()) await clear.click({ timeout: 1_000 });
+    await expect(lastRun).toHaveCount(0, { timeout: 1_000 });
+  }).toPass();
+  await expect(win.getByRole('list', { name: 'Added sources' })).toHaveCount(0);
 }
 
 /** The saved `index.html` of a Library document, under the resolved library root (09 §3). */
@@ -248,18 +254,26 @@ export interface RecordedCall {
   imageCount: number;
   /** All message text of the request, joined. */
   text: string;
+  /** Provider web search, when the request asked for it (Ask deeper, 08 §6.10). */
+  webSearch?: { maxUses: number };
 }
 
 /** Every request the test build's FakeProvider(s) recorded, in order (13 §8.2 E2). */
 export async function fakeCalls(app: ElectronApplication): Promise<RecordedCall[]> {
   return app.evaluate(() => {
-    type Call = { taskId: string; imageCount: number; messages: { text: string }[] };
+    type Call = {
+      taskId: string;
+      imageCount: number;
+      messages: { text: string }[];
+      webSearch?: { maxUses: number };
+    };
     const providers = (globalThis as { __eli5FakeProviders?: { calls: Call[] }[] }).__eli5FakeProviders ?? [];
     return providers.flatMap((p) =>
       p.calls.map((c) => ({
         taskId: c.taskId,
         imageCount: c.imageCount,
         text: c.messages.map((m) => m.text).join('\n'),
+        ...(c.webSearch ? { webSearch: c.webSearch } : {}),
       })),
     );
   });

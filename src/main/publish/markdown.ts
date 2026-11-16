@@ -4,7 +4,17 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Settings } from '../config';
-import { parseDocument, TAB_HINTS, type DocBlock, type DocumentModel, type ReferenceEntry } from '../document';
+import {
+  deepAnswerBadge,
+  deeperAnswerBadge,
+  linksToText,
+  parseDocument,
+  TAB_HINTS,
+  webPageText,
+  type DocBlock,
+  type DocumentModel,
+  type ReferenceEntry,
+} from '../document';
 import { abbreviateHome, cancelled, expandHome, prepareExportDir, writeExportFile } from './local';
 import { PublishError } from './types';
 import type { PublishContext, Publisher, PublishResult, PublishTarget } from './types';
@@ -22,6 +32,8 @@ const oneLine = (s: string): string =>
     .trim();
 /** Text inside `*...*`: its own asterisks are escaped so the italics stay balanced. */
 const italic = (s: string): string => `*${oneLine(s).replace(/\*/g, '\\*')}*`;
+/** Plain text with its Markdown characters escaped, so it renders as typed (questions, page titles). */
+const plainMd = (s: string): string => s.replace(/[\\*_`[\]]/g, '\\$&');
 /** A pipe-table cell: pipes escaped, line breaks flattened. */
 const cell = (s: string): string => oneLine(s).replace(/\|/g, '\\|');
 /** Each line of `s` as a blockquote line. */
@@ -79,12 +91,22 @@ export function blockToMarkdown(b: DocBlock): string {
       return italic(sentences(b.title, b.alt));
     case 'figure':
       return italic(sentences(b.caption, b.alt));
-    case 'qa':
+    case 'qa': {
+      const deep = b.depth === 'deep';
+      const deeper = b.depth === 'deeper';
+      const pages = deeper ? (b.web ?? []) : [];
       // The question is plain text in the document, so its own Markdown characters are escaped.
       return [
-        `> **You asked:** ${oneLine(b.question).replace(/[\\*_`[\]]/g, '\\$&')}`,
-        ...b.paragraphs.map(quote),
+        `> **You asked:** ${plainMd(oneLine(b.question))}`,
+        // 10 §5.2: a deep or deeper box carries its badge line in italics (07 §6.5).
+        ...(deep ? [`> ${italic(deepAnswerBadge(b.sources))}`] : []),
+        ...(deeper ? [`> ${italic(deeperAnswerBadge(b.reach, pages.length > 0))}`] : []),
+        // 08 §6.9 decision 10: a deep or deeper box never carries a link, in the export too.
+        ...(deep || deeper ? b.paragraphs.map(linksToText) : b.paragraphs).map(quote),
+        // 08 §6.10: the pages a deeper answer used, as plain text (never a link).
+        ...(pages.length ? [pages.map((w) => `> - ${plainMd(oneLine(webPageText(w)))}`).join('\n')] : []),
       ].join('\n>\n');
+    }
     case 'animation':
       // 10 §5.2: no code in Markdown; the title (one level under the section's ### heading), the
       // poster's description and the caption stand in.

@@ -155,6 +155,14 @@ export interface InlineMarks {
 interface Cursor {
   pos: number;
   marks?: InlineMarks | undefined;
+  /** false: link nodes render as their text (08 §6.9 decision 10, deep answers). */
+  links?: boolean | undefined;
+}
+
+/** Render options. */
+export interface InlineRenderOptions {
+  /** Default true. false renders every link as its plain text, whatever the stored string says. */
+  links?: boolean;
 }
 
 /** `text` (at plain-text offset `at`) with the marked parts wrapped in `<ins>`. */
@@ -221,7 +229,7 @@ function renderNodes(nodes: InlineNode[], splits: Split[], cur: Cursor = { pos: 
         out += atomic(`<code>${esc(n.s)}</code>`, n.s.length, cur);
         break;
       case 'link': {
-        const href = safeHref(n.href);
+        const href = cur.links === false ? undefined : safeHref(n.href);
         out += atomic(
           href
             ? `<a${attrs([
@@ -248,6 +256,7 @@ export function renderInlineMany(
   mds: readonly string[],
   anchors: readonly DfnAnchor[] = [],
   marks: readonly (InlineMarks | undefined)[] = [],
+  opts: InlineRenderOptions = {},
 ): { html: string[]; missing: DfnAnchor[] } {
   const parsed = mds.map((md) => parseInline(md));
   const splits: Split[] = [];
@@ -256,10 +265,104 @@ export function renderInlineMany(
     if (pending.length === 0) break;
     pending = placeAnchors(textRuns(nodes), pending, splits);
   }
-  return { html: parsed.map((nodes, i) => renderNodes(nodes, splits, { pos: 0, marks: marks[i] })), missing: pending };
+  return {
+    html: parsed.map((nodes, i) => renderNodes(nodes, splits, { pos: 0, marks: marks[i], links: opts.links })),
+    missing: pending,
+  };
 }
 
 /** Renders one inline string. */
-export function renderInline(md: string, anchors: readonly DfnAnchor[] = [], marks?: InlineMarks): string {
-  return renderInlineMany([md], anchors, [marks]).html[0] ?? '';
+export function renderInline(
+  md: string,
+  anchors: readonly DfnAnchor[] = [],
+  marks?: InlineMarks,
+  opts: InlineRenderOptions = {},
+): string {
+  return renderInlineMany([md], anchors, [marks], opts).html[0] ?? '';
+}
+
+/** True when parseInline finds a link node anywhere in the string. */
+export function hasInlineLink(md: string): boolean {
+  const walk = (ns: InlineNode[]): boolean =>
+    ns.some((n) => n.t === 'link' || ((n.t === 'strong' || n.t === 'em') && walk(n.c)));
+  return walk(parseInline(md));
+}
+
+/** Escapes every character parseInline treats as markup, so the string parses as one text run. */
+function escapeInline(s: string): string {
+  return s.replace(/[\\`*[\]()_]/g, '\\$&');
+}
+
+/** Re-serializes a parse tree with each link written as its escaped text. */
+function serializeLinkFree(ns: InlineNode[]): string {
+  return ns
+    .map((n) => {
+      switch (n.t) {
+        case 'text':
+        case 'link':
+          return escapeInline(n.s);
+        case 'code':
+          return `\`${n.s}\``;
+        case 'strong':
+          return `**${serializeLinkFree(n.c)}**`;
+        case 'em':
+          return `*${serializeLinkFree(n.c)}*`;
+      }
+    })
+    .join('');
+}
+
+/**
+ * Flat scan that turns `[text](url)` into its text, keeping backslash escapes and code spans as
+ * they are; repeats until nothing changes, so a nested `[[a](b)](c)` cannot leave one behind.
+ */
+function scanLinksToText(md: string): string {
+  let cur = md;
+  for (;;) {
+    let out = '';
+    let i = 0;
+    while (i < cur.length) {
+      const ch = cur[i];
+      if (ch === '\\' && i + 1 < cur.length) {
+        out += cur.slice(i, i + 2);
+        i += 2;
+        continue;
+      }
+      if (ch === '`') {
+        const end = cur.indexOf('`', i + 1);
+        if (end > i + 1) {
+          out += cur.slice(i, end + 1);
+          i = end + 1;
+          continue;
+        }
+      }
+      if (ch === '[') {
+        const m = LINK_RE.exec(cur.slice(i));
+        if (m) {
+          out += m[1] ?? '';
+          i += m[0].length;
+          continue;
+        }
+      }
+      out += ch ?? '';
+      i++;
+    }
+    if (out === cur) return out;
+    cur = out;
+  }
+}
+
+/**
+ * 08 §6.9 decision 10: a Deep Ask answer read attacker-controllable source text, so every inline
+ * link `[text](url)` becomes its text. The result is checked with parseInline itself (the parser
+ * the renderer uses): when the readable flat scan still leaves a link that parseInline sees (a
+ * backtick inside bold or italic, say), the parse tree is re-serialized with links as escaped text,
+ * and as a last resort the whole string becomes escaped plain text.
+ */
+export function linksToText(md: string): string {
+  const scanned = scanLinksToText(md);
+  if (!hasInlineLink(scanned)) return scanned;
+  const tree = serializeLinkFree(parseInline(scanned));
+  if (!hasInlineLink(tree)) return tree;
+  return escapeInline(inlineText(scanned));
 }

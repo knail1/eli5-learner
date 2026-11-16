@@ -9,7 +9,7 @@ import { cp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test';
 import { Harness, dropFiles, openFromLibrary, viewerUrl, type Dirs, type Launched } from '../e2e/harness';
-import { expectRegion, settle } from './shots';
+import { expectClip, expectRegion, settle, type Box } from './shots';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -132,9 +132,48 @@ const volatile = (win: Page): Locator[] => [
   win.locator('.trash-detail'),
 ];
 
+/**
+ * The box of `outer` from its top edge down to the bottom of the last element matched by `last`
+ * (plus `padBottom`), across its full width, in page coordinates (the app window never scrolls).
+ * For a column that stretches with the window (the Library nav, the Versions panel) this is the
+ * part whose size does not depend on the window's height, so the shot is the same on a 790 px page
+ * and on the 677 px page of a hosted CI Mac; where the stretched part ends is asserted as geometry
+ * instead (13 §7.4).
+ */
+async function topClip(outer: Locator, last: Locator, padBottom = 0): Promise<Box> {
+  const o = await outer.boundingBox();
+  const ends: number[] = [];
+  for (const el of await last.all()) {
+    const b = await el.boundingBox();
+    if (b) ends.push(b.y + b.height);
+  }
+  if (!o || ends.length === 0) throw new Error('topClip: nothing to measure');
+  const x = Math.floor(o.x);
+  const y = Math.floor(o.y);
+  return { x, y, width: Math.ceil(o.x + o.width) - x, height: Math.ceil(Math.max(...ends) + padBottom) - y };
+}
+
+/** Bottom edges of two boxes, `a` and `b`, line up within `tol` px. */
+async function expectBottomsAligned(a: Locator, b: Locator, tol: number): Promise<void> {
+  const [x, y] = await Promise.all([a.boundingBox(), b.boundingBox()]);
+  if (!x || !y) throw new Error('expectBottomsAligned: not visible');
+  expect(Math.abs(x.y + x.height - (y.y + y.height))).toBeLessThanOrEqual(tol);
+}
+
+/** The scroller shows all its content: nothing in the shot is clipped by a short window. */
+async function expectNoOverflow(scroller: Locator): Promise<void> {
+  const { scrollHeight, clientHeight } = await scroller.evaluate((el) => ({
+    scrollHeight: el.scrollHeight,
+    clientHeight: el.clientHeight,
+  }));
+  expect(scrollHeight).toBeLessThanOrEqual(clientHeight + 1);
+}
+
 async function viewerPage(app: ElectronApplication, slug: string): Promise<Page> {
   const url = `eli5doc://doc/${slug}/index.html`;
   await expect.poll(() => viewerUrl(app)).toBe(url);
+  // Main reports the URL before Playwright sees the page; wait for it as the e2e helpers do.
+  await expect.poll(() => app.windows().some((p) => p.url().startsWith(url))).toBe(true);
   const page = app.windows().find((p) => p.url().startsWith(url));
   if (!page) throw new Error('viewer page not found');
   await expect(page.locator('html')).toHaveClass(/\bjs\b/);
@@ -236,6 +275,12 @@ test.beforeAll(async () => {
 });
 
 test('main window: sidebar and document', async () => {
+  // The whole-window shot needs the size beforeAll asks for (setContentSize 1280x800 gives a 790 px
+  // tall page, as in the baseline). A display whose work area is shorter (the hosted CI Macs give
+  // 677 px) clamps the window, which moves every row below the header; the element shots in this
+  // file still run there.
+  const innerHeight = await l.win.evaluate(() => window.innerHeight);
+  test.skip(innerHeight < 790, `display too short for the full-window shot (page is ${String(innerHeight)} px tall)`);
   await expect(l.win.getByRole('region', { name: /Suggestions/ })).toBeVisible();
   expect(await windowImage(l)).toMatchSnapshot('main-window-light.png');
   await setTheme(l, 'dark');
@@ -247,11 +292,31 @@ test('sidebar: folder, Archive expanded, Trash count', async () => {
   const nav = library(l.win);
   await expect(nav.getByRole('button', { name: /^Budgets/ })).toHaveAttribute('aria-expanded', 'true');
   await expect(nav.getByRole('list', { name: 'Archive' }).locator('.item-title')).toHaveText(['Stock levels']);
-  await expect(nav.locator('.trash-row')).toHaveText('Trash1');
-  await expect(nav).toHaveScreenshot('sidebar-light.png', { mask: volatile(l.win) });
+  const trash = nav.locator('.trash-row');
+  await expect(trash).toHaveText('Trash1');
+  // The nav stretches with the window (flex: 1), so its height is not pictured. Geometry instead:
+  // Trash sits at the nav's bottom at any window height (8 px covers its 4 px margin and rounding),
+  // the folder list shows all its rows, and the Archive list ends above Trash.
+  await expectBottomsAligned(nav, trash, 8);
+  const scroll = nav.locator('.library-scroll');
+  await expectNoOverflow(scroll);
+  const [archive, trashBox] = await Promise.all([
+    nav.getByRole('list', { name: 'Archive' }).boundingBox(),
+    trash.boundingBox(),
+  ]);
+  if (!archive || !trashBox) throw new Error('Archive or Trash not visible');
+  expect(archive.y + archive.height).toBeLessThanOrEqual(trashBox.y);
+  // Pictured at a fixed height: the header, filter, documents and folders, then the Trash row.
+  await expectClip(l.win, 'sidebar-light.png', await topClip(nav, scroll.locator(':scope > *'), 8), {
+    mask: volatile(l.win),
+  });
+  await expect(trash).toHaveScreenshot('sidebar-trash-light.png');
   // Hovered folder: Rename and Delete appear over the count, which otherwise lines up with Archive's.
+  // The same rule shows them on :focus-within, which is what is pictured: in Electron a synthetic
+  // hover does not survive the screenshot (Chromium re-checks :hover against the window's native
+  // cursor after layout), so a hover shot showed the bare count on some runs.
   const head = nav.locator('.folder-head').first();
-  await head.hover();
+  await head.getByRole('button', { name: /^Budgets/ }).focus();
   await expect(head.locator('.folder-actions')).toHaveCSS('opacity', '1');
   await expect(head).toHaveScreenshot('sidebar-folder-hover-light.png');
   await l.win.mouse.move(1, 1);
@@ -392,10 +457,18 @@ test('Versions panel: a branch, an asked version and the current one', async () 
   await expect(panel.locator('.version-question')).toHaveText('“Why does the forecast lag behind demand?”');
   await expect(panel.locator('.version-meta').first()).toHaveText('Original · 5h ago');
   await l.win.mouse.move(1, 1);
+  // The panel stretches to the viewer's height, so its height is not pictured. Geometry instead:
+  // the footer sits at the panel's bottom and the tree shows every version without scrolling.
+  const tree = panel.getByRole('tree', { name: 'Document versions' });
+  const footer = panel.locator('.version-footer');
+  await expectBottomsAligned(panel, footer, 1);
+  await expectNoOverflow(tree);
   for (const theme of ['light', 'dark'] as const) {
     await setTheme(l, theme);
     await settle(l.win);
-    await expect(panel).toHaveScreenshot(`version-panel-${theme}.png`);
+    // Pictured at a fixed height: the header and the tree down to its last row, then the footer.
+    await expectClip(l.win, `version-panel-${theme}.png`, await topClip(panel, items, 8));
+    await expect(footer).toHaveScreenshot(`version-panel-footer-${theme}.png`);
   }
   await setTheme(l, 'light');
 });

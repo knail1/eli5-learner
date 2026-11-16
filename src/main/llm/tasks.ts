@@ -10,9 +10,22 @@ import {
   inputBudget,
   planChunks,
   renderChunk,
+  sectionText,
   visibleOutput,
   wrapSource,
 } from './budget';
+import {
+  DEEP_ASK_INPUT_CAP_TOKENS,
+  DEEP_ASK_MIN_TOKENS,
+  DeepContextTooLargeError,
+  planDeepContext,
+  type DeepAskPlan,
+  type DeepAskResult,
+  type DeepAskSource,
+  type DeepAskSourceMode,
+  type DeepAskTab,
+} from './deep-ask';
+import { DEEPER_ASK_MAX_SEARCHES, finalizeDeeperAnswer, type DeeperAskResult } from './deeper-ask';
 import { LLMError } from './errors';
 import { prepareImages, toImageInput, type ImageReencoder } from './images';
 import { critiqueGate, eli5FindingsText, lintEli5, type CritiqueGateResult } from './lint/eli5-lint';
@@ -35,6 +48,7 @@ import type {
   PhotoPickDraft,
   MergePlanDraft,
   SectionAnswerDraft,
+  SectionDeeperAnswerDraft,
   SectionDraft,
   SteDraft,
   SummaryDraft,
@@ -59,7 +73,13 @@ import type {
   PromptId,
   PromptPolicy,
   TokenUsage,
+  WebSource,
 } from './types';
+
+export { sectionText } from './budget';
+export { DeepContextTooLargeError } from './deep-ask';
+export type { DeepAskPlan, DeepAskResult, DeepAskSource, DeepAskSourceMode, DeepAskTab } from './deep-ask';
+export type { DeeperAskResult } from './deeper-ask';
 
 /**
  * Task functions (02 §12): the only surface other main-process modules call. Each step makes one
@@ -154,6 +174,16 @@ export interface SectionAskInput {
   signal: AbortSignal;
 }
 
+/** Deep Ask (08 §6.9): the quick-ask material plus every tab and the document's kept source text. */
+export interface DeepAskInput extends SectionAskInput {
+  /** Every tab, in document order, without answer boxes or the references section. */
+  tabs: DeepAskTab[];
+  /** null: the document has no sidecar at all (an older document, or retention off). */
+  sources: DeepAskSource[] | null;
+  /** Test seam; default min(inputBudget(provider limits, 0, maxOutput), DEEP_ASK_INPUT_CAP_TOKENS). */
+  budgetTokens?: number;
+}
+
 /** One stock-photo slot shown to the photo-pick call (07 §7.4); candidate labels match the images. */
 export interface PhotoPickSlot {
   id: string; // "s1"
@@ -227,6 +257,13 @@ const REGISTER_FRAGMENT: Record<TabKind, FragmentId> = {
   ste: 'register-ste',
 };
 
+/** `{{sourceStatus}}` of section-ask-deep: what the model is told about the source text it got. */
+const SOURCE_STATUS_FRAGMENT: Record<DeepAskSourceMode, FragmentId> = {
+  all: 'deep-ask-sources-all',
+  excerpts: 'deep-ask-sources-excerpts',
+  none: 'deep-ask-sources-none',
+};
+
 const SKILL_FALLBACK: Record<SkillSlot, FragmentId> = {
   'beautiful-doc': 'skill-fallback-beautiful-doc',
   eli5: 'skill-fallback-eli5',
@@ -240,49 +277,6 @@ function skillTask(id: PromptId): SkillTask | undefined {
 }
 
 // ---- text helpers ----
-
-export function sectionText(s: SectionDraft): string {
-  const lines = [s.heading];
-  for (const b of s.blocks) {
-    switch (b.type) {
-      case 'paragraph':
-      case 'analogy':
-      case 'callout':
-        lines.push(b.md);
-        break;
-      case 'list':
-        lines.push(...b.items.map((i) => `- ${i}`));
-        break;
-      case 'pullquote':
-        lines.push(`"${b.text}"${b.attribution ? ` (${b.attribution})` : ''}`);
-        break;
-      case 'table':
-        lines.push(
-          [b.caption ?? '', b.header.join(' | '), ...b.rows.map((r) => r.join(' | '))].filter(Boolean).join('\n'),
-        );
-        break;
-      case 'chart':
-        lines.push(`Chart: ${b.chart.title}${b.chart.subtitle ? ` (${b.chart.subtitle})` : ''}`);
-        break;
-      case 'diagram':
-        lines.push(`Diagram: ${b.title}. ${b.alt}`);
-        break;
-      case 'animation':
-        lines.push(`Animation: ${b.title}. ${b.alt}`);
-        break;
-      case 'figure':
-        lines.push(`Figure: ${b.caption}`);
-        break;
-      case 'photo':
-        lines.push(`Photo: ${b.alt}`);
-        break;
-      case 'stepper':
-        lines.push(b.title, ...b.steps.map((st, i) => `${i + 1}. ${st.label}: ${st.md}`));
-        break;
-    }
-  }
-  return lines.join('\n');
-}
 
 function sourceListText(list: readonly { ref: string; label: string }[]): string {
   return list.length
@@ -340,6 +334,18 @@ export interface LlmTasks {
   runSectionAction(input: SectionActionInput): Promise<SectionDraft | DocumentDraftTab>;
   /** 08 Ask: one call with the section-ask prompt; 06 checks the shape and inserts the answer box. */
   answerSectionQuestion(input: SectionAskInput): Promise<SectionAnswerDraft>;
+  /**
+   * 08 §6.9 Deep Ask: one section-ask-deep call over the local context, every tab that fits and the
+   * kept sources (whole or as BM25 excerpts). On context_overflow it re-plans once at half the
+   * budget. Throws DeepContextTooLargeError when even the minimum context does not fit.
+   */
+  answerDeepQuestion(input: DeepAskInput): Promise<DeepAskResult>;
+  /**
+   * 08 §6.10 Ask deeper: the same material and budget as Ask deep, one section-ask-deeper call with
+   * provider web search when the model supports it (else knowledge-only), then
+   * finalizeDeeperAnswer (web pages kept only when the provider reported them, reach corrected).
+   */
+  answerDeeperQuestion(input: DeepAskInput): Promise<DeeperAskResult>;
   matchMerge(summary: string, candidates: MergeCandidate[], signal?: AbortSignal): Promise<MergeMatchDraft>;
   /**
    * 07 §7.4: one low-effort vision call (more only when the model takes fewer images per request)
@@ -365,6 +371,17 @@ interface RunOpts {
   /** SteDraft: the section count the draft must have (02 §10.1). */
   steSectionCount?: number;
   steKeepable?: number[][];
+  /** Provider web search for this call (Ask deeper, 08 §6.10). */
+  webSearch?: GenerationRequest['webSearch'];
+}
+
+/** What `run` returns: the validated draft, usage, the prompt tag and any web search results. */
+interface RunResult<T> {
+  data: T;
+  usage: TokenUsage;
+  tag: string;
+  webSources?: WebSource[];
+  webSearches?: number;
 }
 
 export function createTasks(deps: TaskDeps): LlmTasks {
@@ -410,6 +427,7 @@ export function createTasks(deps: TaskDeps): LlmTasks {
       cacheSystemPrompt: true,
       ...(opts.signal ? { signal: opts.signal } : {}),
       ...(opts.onRetry ? { onRetry: opts.onRetry } : {}),
+      ...(opts.webSearch ? { webSearch: opts.webSearch } : {}),
     };
     return { req, tag: def.tag, schema: def.output };
   }
@@ -418,7 +436,7 @@ export function createTasks(deps: TaskDeps): LlmTasks {
     id: PromptId,
     vars: Record<string, string | undefined>,
     opts: RunOpts = {},
-  ): Promise<{ data: T; usage: TokenUsage; tag: string }> {
+  ): Promise<RunResult<T>> {
     const provider = deps.provider();
     const built = buildRequest(id, vars, provider, opts);
     const filtered = (await policy().preSendFilter(built.req as GenerationRequest)) as Omit<
@@ -440,7 +458,13 @@ export function createTasks(deps: TaskDeps): LlmTasks {
       noOutputText: () => frag('json-no-output'),
       contractText: (schemaName, schema) => frag('json-contract', { schemaName, schema }),
     });
-    return { data: r.data as DraftOf<DraftSchemaName> as T, usage: r.usage, tag: built.tag };
+    return {
+      data: r.data as DraftOf<DraftSchemaName> as T,
+      usage: r.usage,
+      tag: built.tag,
+      ...(r.webSources ? { webSources: r.webSources } : {}),
+      ...(r.webSearches !== undefined ? { webSearches: r.webSearches } : {}),
+    };
   }
 
   /** Shared rule fragments of the writing prompts (02 §9): charts, diagrams, animations. */
@@ -856,6 +880,96 @@ export function createTasks(deps: TaskDeps): LlmTasks {
     return { draft: revised, usage: r.usage, prompt: r.tag, gate: critiqueGate(eli5, revised, indepth) };
   }
 
+  /** The local context of both asks (08 §6.8): section, neighbours, outline, selection, question. */
+  function askVars(input: SectionAskInput): Record<string, string> {
+    return {
+      register: frag(REGISTER_FRAGMENT[input.tabKind]),
+      askRules: frag('ask-answer-rules'),
+      outline: input.outline.map((t, i) => `${i + 1}. ${t}`).join('\n'),
+      section: wrapSource('current section', JSON.stringify(input.section)),
+      prevText: input.prev ? wrapSource('previous section', sectionText(input.prev)) : '',
+      nextText: input.next ? wrapSource('next section', sectionText(input.next)) : '',
+      selection: input.selection ? wrapSource('selected text', input.selection) : '',
+      question: wrapSource('reader question', input.question),
+    };
+  }
+
+  /**
+   * 08 §6.9 / §6.10: plans the deep material for `id` and makes one call with it. The system prompt
+   * is counted once, in `fixed`, with the longest source-status fragment; on context_overflow it
+   * re-plans once at half the budget.
+   */
+  async function answerFromMaterial<T>(
+    id: 'section-ask-deep' | 'section-ask-deeper',
+    input: DeepAskInput,
+    extra: Record<string, string>,
+    opts: Pick<RunOpts, 'webSearch'> = {},
+  ): Promise<{ r: RunResult<T>; plan: DeepAskPlan }> {
+    const provider = deps.provider();
+    const local = { ...askVars(input), ...extra };
+    // The system prompt is counted once, in `fixed`, so inputBudget gets 0 for it.
+    let budget =
+      input.budgetTokens ??
+      Math.min(inputBudget(provider.limits, 0, deps.settings().llm.maxOutputTokens), DEEP_ASK_INPUT_CAP_TOKENS);
+    // Everything but the tabs and sources, with the longest source-status fragment.
+    const longest = (Object.values(SOURCE_STATUS_FRAGMENT) as FragmentId[])
+      .map((f) => frag(f))
+      .reduce((a, b) => (b.length > a.length ? b : a));
+    const shell = buildRequest(id, { ...local, sourceStatus: longest, explanation: '', sources: '' }, provider, {});
+    const fixed = estimateTokens(shell.req.system + '\n' + shell.req.messages.map((x) => x.text).join('\n'));
+    for (let attempt = 0; ; attempt++) {
+      const avail = budget - fixed;
+      if (avail < DEEP_ASK_MIN_TOKENS) throw new DeepContextTooLargeError();
+      const ctx = planDeepContext(
+        { tabs: input.tabs, sources: input.sources, selection: input.selection, question: input.question },
+        avail,
+      );
+      try {
+        const r = await run<T>(
+          id,
+          {
+            ...local,
+            sourceStatus: frag(SOURCE_STATUS_FRAGMENT[ctx.plan.sourceMode]),
+            explanation: ctx.explanation,
+            sources: ctx.sources,
+          },
+          { signal: input.signal, ...opts },
+        );
+        const inputTokens = fixed + estimateTokens(ctx.explanation) + estimateTokens(ctx.sources);
+        return { r, plan: { ...ctx.plan, inputTokens } };
+      } catch (e) {
+        // 02 types: context_overflow means the caller re-budgets. Once, at half the budget.
+        if (attempt > 0 || !(e instanceof LLMError) || e.kind !== 'context_overflow') throw e;
+        log.warn('llm.deep-ask-overflow', { inputTokens: budget });
+        budget = Math.floor(budget / 2);
+      }
+    }
+  }
+
+  async function answerDeepQuestion(input: DeepAskInput): Promise<DeepAskResult> {
+    const { r, plan } = await answerFromMaterial<SectionAnswerDraft>('section-ask-deep', input, {});
+    return { draft: r.data, plan };
+  }
+
+  async function answerDeeperQuestion(input: DeepAskInput): Promise<DeeperAskResult> {
+    // 08 §6.10 step 3: web search only when the model supports the provider's tool.
+    const web = deps.provider().limits.supportsWebSearch;
+    const { r, plan } = await answerFromMaterial<SectionDeeperAnswerDraft>(
+      'section-ask-deeper',
+      input,
+      { webStatus: frag(web ? 'deeper-ask-web-on' : 'deeper-ask-web-off') },
+      web ? { webSearch: { maxUses: DEEPER_ASK_MAX_SEARCHES } } : {},
+    );
+    const sources = r.webSources ?? [];
+    const searches = r.webSearches ?? 0;
+    return {
+      draft: finalizeDeeperAnswer(r.data, sources, searches),
+      plan,
+      webSearches: searches,
+      webSourceCount: sources.length,
+    };
+  }
+
   return {
     prepareContent,
     pickPhotos,
@@ -923,17 +1037,11 @@ export function createTasks(deps: TaskDeps): LlmTasks {
     },
 
     async answerSectionQuestion(input) {
-      const vars: Record<string, string> = {
-        register: frag(REGISTER_FRAGMENT[input.tabKind]),
-        outline: input.outline.map((t, i) => `${i + 1}. ${t}`).join('\n'),
-        section: wrapSource('current section', JSON.stringify(input.section)),
-        prevText: input.prev ? wrapSource('previous section', sectionText(input.prev)) : '',
-        nextText: input.next ? wrapSource('next section', sectionText(input.next)) : '',
-        selection: input.selection ? wrapSource('selected text', input.selection) : '',
-        question: wrapSource('reader question', input.question),
-      };
-      return (await run<SectionAnswerDraft>('section-ask', vars, { signal: input.signal })).data;
+      return (await run<SectionAnswerDraft>('section-ask', askVars(input), { signal: input.signal })).data;
     },
+
+    answerDeepQuestion,
+    answerDeeperQuestion,
 
     async matchMerge(summary, candidates, signal) {
       const top = candidates.slice(0, MERGE_MAX_CANDIDATES);

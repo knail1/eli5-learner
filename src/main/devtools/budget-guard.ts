@@ -10,7 +10,7 @@ import type {
   RetryPolicy,
 } from '../llm';
 import type { BudgetLedger, Charge } from './ledger';
-import { CACHE_WRITE_MULTIPLIER, costOf, ratesFor, type ModelRates } from './rates';
+import { CACHE_WRITE_MULTIPLIER, costOf, ratesFor, WEB_SEARCH_USD, type ModelRates } from './rates';
 
 /**
  * Dev-only LLMProvider wrapper that enforces a hard USD cap for real-run tooling. Before each call it
@@ -119,7 +119,9 @@ export class BudgetGuardProvider implements LLMProvider {
     const input = await this.inputTokens(req);
     const attempts = maxAttempts(this.retry());
 
-    const inputCost = input * inRate * (req.cacheSystemPrompt ? CACHE_WRITE_MULTIPLIER : 1);
+    // Web searches (Ask deeper) are billed per search: reserve every allowed one.
+    const searchCost = req.webSearch && this.limits.supportsWebSearch ? req.webSearch.maxUses * WEB_SEARCH_USD : 0;
+    const inputCost = input * inRate * (req.cacheSystemPrompt ? CACHE_WRITE_MULTIPLIER : 1) + searchCost;
     // While other calls are in flight, wait for them to settle rather than clamping or refusing:
     // their reservations are worst cases and settle far lower, so a concurrent step (in-depth and
     // ELI5 run together) is not starved by its sibling's reservation. Clamp only when alone.
@@ -180,7 +182,8 @@ export class BudgetGuardProvider implements LLMProvider {
     };
     // A failed attempt retried inside the provider may have been billed up to its worst case.
     const retries = Math.max(0, result.attempts - 1) * perAttempt;
-    return { ...tokens, costUsd: costOf(rates, tokens) + retries, outcome: 'ok' };
+    const searches = (result.webSearches ?? 0) * WEB_SEARCH_USD;
+    return { ...tokens, costUsd: costOf(rates, tokens) + searches + retries, outcome: 'ok' };
   }
 }
 

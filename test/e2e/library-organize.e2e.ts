@@ -67,11 +67,16 @@ async function center(l: Locator): Promise<{ x: number; y: number }> {
   return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
 }
 
-/** A two-finger trackpad swipe over a row: wheel events with deltaX (positive = fingers move left). */
+/**
+ * A two-finger trackpad swipe over a row: wheel deltaX (positive = fingers move left). One trusted
+ * wheel event: separately awaited events can arrive further apart than the gesture's settle time
+ * (`SWIPE.wheelSettleMs`) on a slow runner, so the gesture would end short of the commit distance.
+ * A single 240 px event already moves the row past the commit distance (`swipe.ts`).
+ */
 async function swipe(win: Page, l: Locator, deltaX: number): Promise<void> {
   const c = await center(l);
   await win.mouse.move(c.x, c.y);
-  for (let i = 0; i < 4; i++) await win.mouse.wheel(deltaX / 4, 0);
+  await win.mouse.wheel(deltaX, 0);
 }
 
 const trashNames = async (dirs: Dirs) =>

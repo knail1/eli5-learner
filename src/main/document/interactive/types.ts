@@ -1,5 +1,6 @@
 // Interactive reading (08 §3): collaborator interfaces, the request error, and meta.json mirroring.
 import type {
+  DeepAskDepth,
   DocHistoryState,
   IpcErrorCode,
   JobFailureCode,
@@ -12,6 +13,7 @@ import {
   type DocumentMeta,
   type DocumentPatch,
   type LibraryChangeReason,
+  type SourceSidecar,
   type TabRecord,
   type VersionNodeRecord,
   type VersionTreeView,
@@ -64,6 +66,11 @@ export interface InteractiveLibrary {
   /** Rewrites the current version's index.html in place (a runtime upgrade); caller holds the lock. */
   refreshRuntime(slug: string, html: string | Uint8Array): Promise<void>;
   on(event: 'changed', cb: (e: { reason: LibraryChangeReason; slugs: string[] }) => void): () => void;
+  /**
+   * 09 §4.4: the document's kept source text (lock-free); null when there is none. Optional: a
+   * library without it gives Deep Ask no sources (08 §6.9).
+   */
+  readSources?(slug: string): Promise<SourceSidecar | null>;
 }
 
 /** The queue calls 08 makes (06 §8.2). JobQueue satisfies it. */
@@ -90,7 +97,8 @@ export interface ViewerPort {
 
 export interface InteractiveDeps {
   library: InteractiveLibrary;
-  tasks: Pick<LlmTasks, 'runSectionAction' | 'answerSectionQuestion'>;
+  tasks: Pick<LlmTasks, 'runSectionAction' | 'answerSectionQuestion' | 'answerDeepQuestion'> &
+    Partial<Pick<LlmTasks, 'answerDeeperQuestion'>>;
   viewer: ViewerPort;
   /** 08 §6.1 step 5: key present for the selected provider (no network). Default: true. */
   hasApiKey?: () => Promise<boolean>;
@@ -103,6 +111,8 @@ export interface InteractiveDeps {
   inputBudgetTokens?: () => number;
   /** 08 §6.1 step 1a. Default: 10 per 60 s. */
   rateLimit?: { max: number; windowMs: number };
+  /** 08 §6.1 step 1a: Ask deep and Ask deeper's shared limit per document, on top of rateLimit. Default: DEEP_ASK_RATE. */
+  deepAskRate?: { max: number; windowMs: number };
   /** The runtime an older document is re-rendered with (07 §5.5). Default: bundledDocRuntime. */
   bundledRuntime?: () => DocRuntime;
   log?: Logger;
@@ -129,10 +139,20 @@ const ACTION_VERBS: Record<MenuAction, string> = {
 /**
  * 08 §6.7: the Undo/Redo label of a change, e.g. "re-explained 'The particular…'" for a section
  * action on that heading, "added ELI5 tab 'ELI5: Pricing'", "added ELI5 tab 'ELI5: Churn' for a
- * selection", "closed tab 'ELI5: Pricing'".
+ * selection", "closed tab 'ELI5: Pricing'", "asked (deep) about 'Churn'" for Ask deep and "asked (deeper)
+ * about 'Churn'" for Ask deeper.
  */
-export function changeLabel(kind: MenuAction | 'close-tab', name: string): string {
-  const verb = kind === 'close-tab' ? 'closed tab' : ACTION_VERBS[kind];
+export function changeLabel(
+  kind: MenuAction | 'close-tab',
+  name: string,
+  opts: { depth?: DeepAskDepth | undefined } = {},
+): string {
+  const verb =
+    kind === 'close-tab'
+      ? 'closed tab'
+      : kind === 'ask' && opts.depth
+        ? `asked (${opts.depth}) about`
+        : ACTION_VERBS[kind];
   const label = `${verb} '${quoteLabel(name)}'`;
   return kind === 'eli5-selection' ? `${label} for a selection` : label;
 }
@@ -149,14 +169,22 @@ export function mirrorTabs(tabs: readonly Tab[]): TabRecord[] {
   }));
 }
 
-/** 08 §9: the inline notice for a failed section job, or undefined when none is shown. */
-export function failureNotice(code: JobFailureCode): string | undefined {
+/**
+ * 08 §9: the inline notice for a failed section job, or undefined when none is shown. An Ask deep or deeper's
+ * SECTION_TOO_LARGE has its own text (the rewrite wording does not fit an ask).
+ */
+export function failureNotice(
+  code: JobFailureCode,
+  p?: Pick<SectionJobPayload, 'action' | 'depth'>,
+): string | undefined {
   switch (code) {
     case 'LLM_AUTH':
     case 'LLM_UNAVAILABLE':
     case 'INTERNAL':
       return "Couldn't update this section. Try again";
     case 'SECTION_TOO_LARGE':
+      if (p?.action === 'ask' && (p.depth === 'deep' || p.depth === 'deeper'))
+        return 'This question needs more context than the model allows; try Ask';
       return 'This section is too long to rewrite in one step';
     case 'SECTION_CHANGED':
       return 'This section changed. Try again';

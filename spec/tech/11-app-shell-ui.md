@@ -360,7 +360,9 @@ so renderer DOM can never draw over the viewer rectangle. Therefore:
     `{kind: 'reset', reason: 'reload'}`: the bar clears its count and the next `Enter` starts a new
     search, so the post-update scroll to the changed section is not overridden. A switch between
     the document's tabs (the runtime's `#tab=<key>` in-page navigation) sends `{kind: 'reset',
-    reason: 'tab'}` and the bar searches again, so the count covers the tab now shown.
+    reason: 'tab'}` and the bar searches again for the text now in the field (not the last
+    submitted text, so typing still waiting on the debounce is not lost), so the count covers the
+    tab now shown.
   - Opening another document, or any other route, closes the bar. With no document shown (welcome,
     not found, Trash, Settings), `Cmd+F` focuses the Library filter instead.
   - The field is a text field, so `Cmd+Z` in it undoes typing, not the document (§9).
@@ -513,11 +515,16 @@ column of `div.viewer-body` (§5.1).
   added, Went deeper, Edited with note, Asked, ELI5 tab, ELI5 of a selection, Closed tab, Merged,
   Changed outside the app, Original (`VERSION_VERBS`). A rebuild (kind `outside` with a label that
   starts with `Rebuilt`, 09 §4.1) shows **Rebuilt with new prompts** (`versionVerb()` in
-  `viewer/version-tree-layout.ts`). Line 3, for Ask: the question in quotes (1-line clamp). Chips:
+  `viewer/version-tree-layout.ts`). An Ask deep (kind `ask` with `depth: 'deep'`, 08 §6.9) shows
+  **Asked (deep)** (`versionVerb()` takes `depth`), and its Undo and Redo tooltips use the main-side
+  label `asked (deep) about '…'`; an Ask deeper (`depth: 'deeper'`, 08 §6.10) shows **Asked
+  (deeper)** with the label `asked (deeper) about '…'`; an unknown `depth` shows plain **Asked**.
+  Line 3, for every Ask: the question in quotes (1-line clamp). Chips:
   **Current**, **Published** (10 §4), **(snapshot removed)**. A detail strip at the panel foot
   shows the focused row's full label, heading and question; native `title` tooltips are not used.
 - **Pending rows.** While a section job runs, a muted provisional row appears under the current
-  version (for example "Answering… · Pricing"), from `tree.pending`; the real row replaces it when
+  version (for example "Answering… · Pricing", "Answering in depth… · Pricing" when the pending
+  row has `depth: 'deep'`, or "Searching further… · Pricing" with `depth: 'deeper'`, in the row and in its text alternative), from `tree.pending`; the real row replaces it when
   `eli5:doc:versions-changed` arrives. New rows fade in over 1 s (none under reduced motion).
 - **Banners** (inline, polite live region): `detached` → "This document changed outside the app;
   it will be saved as a version on the next change." `degraded` → "Version history couldn't be saved

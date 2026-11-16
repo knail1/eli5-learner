@@ -11,13 +11,16 @@ import {
   renderDocument,
   type DocumentModel,
 } from '../../document';
+import { toPromptText } from '../../extract';
 import {
   LibraryError,
   META_SCHEMA_VERSION,
+  SOURCES_DIR,
   STAGING_DIR,
   type CatalogEntry,
   type DocumentMeta,
   type SourceRecord,
+  type SourceSidecarInput,
   type TabRecord,
 } from '../../library';
 import { deserializePrepared, type PreparedContentJson } from '../../llm';
@@ -98,6 +101,96 @@ function firstHeading(blocks: readonly { kind: string; text?: string; blocks?: u
 
 function uniq(xs: readonly (string | undefined)[]): string[] {
   return [...new Set(xs.filter((x): x is string => !!x))];
+}
+
+/** Image formats (03 IMAGE_FORMATS, plus a scanned PDF): vision input only, no kept text (09 §4.4). */
+const IMAGE_SOURCE_FORMATS: ReadonlySet<string> = new Set(['png', 'jpeg', 'gif', 'webp', 'heic', 'tiff', 'bmp']);
+
+const errCode = (err: unknown): string =>
+  err instanceof LibraryError
+    ? err.code
+    : typeof (err as { code?: unknown })?.code === 'string'
+      ? String((err as { code: string }).code)
+      : 'io';
+
+/**
+ * 09 §4.4: the retained-source inputs, one per resolved source in job order, built from the
+ * extracted contents (`toPromptText`; null text for an image). null when the library keeps no
+ * sidecar, or when an extracted artifact is missing (the document is still saved, without one).
+ */
+export async function sidecarInputs(ctx: StageContext, origin?: string): Promise<SourceSidecarInput[] | null> {
+  const { job, deps } = ctx;
+  const lib = deps.library;
+  if (lib.retainsSourceText === false) return null;
+  let contents: Awaited<ReturnType<typeof loadContents>>;
+  try {
+    contents = await loadContents(ctx);
+  } catch {
+    deps.log.warn('pipeline.sources-not-kept', { jobId: job.id, code: 'extracted-missing' });
+    return null;
+  }
+  return job.resolved.flatMap((r, i): SourceSidecarInput[] => {
+    const c = contents[i];
+    if (!c) return [];
+    const rec = sourceRecord(r);
+    return [
+      {
+        ref: r.ref,
+        label: r.title?.trim() || r.ref,
+        kind: rec.kind,
+        mime: r.mediaType,
+        format: c.format,
+        text: IMAGE_SOURCE_FORMATS.has(c.format) ? null : toPromptText(c),
+        chars: c.stats.chars,
+        ...(rec.sha256 ? { sourceSha256: rec.sha256 } : {}),
+        extractTruncated: c.truncated,
+        ...(origin ? { origin } : {}),
+      },
+    ];
+  });
+}
+
+/** Best effort: a sidecar failure never fails the save; a partial `.sources/` is removed. */
+async function stageSidecar(ctx: StageContext, dir: string, inputs: SourceSidecarInput[]): Promise<void> {
+  const lib = ctx.deps.library;
+  if (!lib.writeSourcesToStaging) return;
+  try {
+    await lib.writeSourcesToStaging(dir, inputs);
+  } catch (err) {
+    ctx.deps.log.warn('pipeline.sources-not-kept', { jobId: ctx.job.id, code: errCode(err) });
+    await rm(path.join(dir, SOURCES_DIR), { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/** Rebuild (design §5): adds the job's texts to the live sidecar; caller holds the doc lock. */
+async function upsertRebuildSources(
+  ctx: StageContext,
+  slug: string,
+  inputs: SourceSidecarInput[] | null,
+): Promise<void> {
+  const lib = ctx.deps.library;
+  if (!inputs || !lib.upsertSources) return;
+  try {
+    await lib.upsertSources(slug, inputs);
+  } catch (err) {
+    ctx.deps.log.warn('pipeline.sources-not-kept', { jobId: ctx.job.id, code: errCode(err) });
+  }
+}
+
+/**
+ * 09 §4.4, 06 §9.4: a rebuild the queue finds committed after a crash in `saving` never comes back
+ * through saveRebuild, so its upsert runs here, under the doc lock. Idempotent and best effort.
+ */
+export async function upsertRebuildSidecar(ctx: StageContext, slug: string): Promise<void> {
+  const lib = ctx.deps.library;
+  if (!lib.upsertSources) return;
+  const keep = await sidecarInputs(ctx, `rebuild:${ctx.job.id}`);
+  if (!keep) return;
+  try {
+    await lib.withDocLock(slug, () => upsertRebuildSources(ctx, slug, keep));
+  } catch (err) {
+    ctx.deps.log.warn('pipeline.sources-not-kept', { jobId: ctx.job.id, code: errCode(err) });
+  }
 }
 
 /** Skipped sources become `source-skipped` warnings in meta.json (06 §7.1). */
@@ -248,41 +341,53 @@ export async function saveStage(ctx: StageContext): Promise<CatalogEntry> {
     await ctx.persist();
   };
   await reserve();
+  const keep = lib.writeSourcesToStaging ? await sidecarInputs(ctx) : null;
 
   let slugRetried = false;
   let ioRetried = false;
-  for (;;) {
-    throwIfAborted(ctx.signal);
-    const reservation = ctx.reservation;
-    if (!reservation) throw new PipelineFailure('INTERNAL', 'no-reservation');
-    const { html, meta } = render(reservation.slug);
-    await rm(stagingDir, { recursive: true, force: true });
-    const dir = await lib.stagingDir(job.id);
-    await writeFile(path.join(dir, 'index.html'), html, { mode: 0o600 });
-    await writeFile(path.join(dir, 'meta.json'), JSON.stringify(meta, null, 2) + '\n', { mode: 0o600 });
-    throwIfAborted(ctx.signal);
-    try {
-      ctx.setCommitStarted(true);
-      const entry = await lib.commitDocument(reservation, dir, meta);
-      ctx.reservation = undefined; // released by the library on success (09 §8.2 step 5)
-      return entry;
-    } catch (err) {
-      ctx.setCommitStarted(false);
+  try {
+    return await saveLoop();
+  } catch (err) {
+    // Source text must not wait in the library root until the next start (09 §4.4).
+    await rm(stagingDir, { recursive: true, force: true }).catch(() => {});
+    throw err;
+  }
+
+  async function saveLoop(): Promise<CatalogEntry> {
+    for (;;) {
       throwIfAborted(ctx.signal);
-      if (err instanceof LibraryError && err.code === 'SLUG_TAKEN' && !slugRetried) {
-        // 09 §8.2 step 2: re-allocate once.
-        slugRetried = true;
-        reservation.release();
-        await reserve();
-        continue;
+      const reservation = ctx.reservation;
+      if (!reservation) throw new PipelineFailure('INTERNAL', 'no-reservation');
+      const { html, meta } = render(reservation.slug);
+      await rm(stagingDir, { recursive: true, force: true });
+      const dir = await lib.stagingDir(job.id);
+      await writeFile(path.join(dir, 'index.html'), html, { mode: 0o600 });
+      await writeFile(path.join(dir, 'meta.json'), JSON.stringify(meta, null, 2) + '\n', { mode: 0o600 });
+      if (keep) await stageSidecar(ctx, dir, keep);
+      throwIfAborted(ctx.signal);
+      try {
+        ctx.setCommitStarted(true);
+        const entry = await lib.commitDocument(reservation, dir, meta);
+        ctx.reservation = undefined; // released by the library on success (09 §8.2 step 5)
+        return entry;
+      } catch (err) {
+        ctx.setCommitStarted(false);
+        throwIfAborted(ctx.signal);
+        if (err instanceof LibraryError && err.code === 'SLUG_TAKEN' && !slugRetried) {
+          // 09 §8.2 step 2: re-allocate once.
+          slugRetried = true;
+          reservation.release();
+          await reserve();
+          continue;
+        }
+        if (!ioRetried) {
+          ioRetried = true;
+          deps.log.warn('pipeline.save-retry', { jobId: job.id, code: err instanceof LibraryError ? err.code : 'io' });
+          await deps.sleep(SAVE_RETRY_DELAY_MS);
+          continue;
+        }
+        throw new PipelineFailure('SAVE_FAILED', err instanceof LibraryError ? `library:${err.code}` : 'io');
       }
-      if (!ioRetried) {
-        ioRetried = true;
-        deps.log.warn('pipeline.save-retry', { jobId: job.id, code: err instanceof LibraryError ? err.code : 'io' });
-        await deps.sleep(SAVE_RETRY_DELAY_MS);
-        continue;
-      }
-      throw new PipelineFailure('SAVE_FAILED', err instanceof LibraryError ? `library:${err.code}` : 'io');
     }
   }
 }
@@ -344,8 +449,14 @@ interface RebuildParts {
 async function saveRebuild(ctx: StageContext, r: RebuildTarget, parts: RebuildParts): Promise<CatalogEntry> {
   const { job, deps } = ctx;
   const lib = deps.library;
+  // 09 §4.4: the rebuild's texts join the document's sidecar (also how an old document gets one).
+  const keep = lib.upsertSources ? await sidecarInputs(ctx, `rebuild:${job.id}`) : null;
   const already = await rebuildCommitted(lib, r.slug, job.id).catch(() => undefined);
-  if (already) return already;
+  if (already) {
+    // A crash between the commit and the upsert: run it now (idempotent).
+    if (keep) await lib.withDocLock(r.slug, () => upsertRebuildSources(ctx, r.slug, keep));
+    return already;
+  }
   if (!lib.hasSlug(r.slug)) throw new PipelineFailure('DOC_GONE', 'rebuild-slug-missing');
   const live = await lib.getMeta(r.slug);
   if (live.id !== r.docId) throw new PipelineFailure('SAVE_FAILED', 'REBUILD_DOC_MISMATCH');
@@ -393,7 +504,7 @@ async function saveRebuild(ctx: StageContext, r: RebuildTarget, parts: RebuildPa
         (r.baseVersionId !== null && (cur.detached || cur.tree.currentId !== r.baseVersionId)) ||
         sha256Hex(html) !== r.baseHtmlSha256;
       if (moved) throw new PipelineFailure('SAVE_FAILED', 'REBUILD_BASE_MOVED');
-      return lib.updateDocument(r.slug, {
+      const entry = await lib.updateDocument(r.slug, {
         html: built.html,
         label,
         change: {
@@ -404,6 +515,8 @@ async function saveRebuild(ctx: StageContext, r: RebuildTarget, parts: RebuildPa
         },
         meta: patchMeta,
       });
+      await upsertRebuildSources(ctx, r.slug, keep);
+      return entry;
     });
   } catch (err) {
     ctx.setCommitStarted(false);

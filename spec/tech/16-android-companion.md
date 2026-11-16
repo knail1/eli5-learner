@@ -632,6 +632,29 @@ Documents are LLM-generated HTML and are untrusted.
   document with the same `docId` replaces the imported copy, and importing a document already
   synced from the Mac is skipped.
 
+### 6.5 Sharing a document
+
+The Reader's top bar (Share) and each Library row's menu (also on long-press) send the phone's copy
+of the current version (the version on screen in the Reader; not offered for previews or for a
+synced document that is not downloaded) through the Android share sheet, so it can go by Messages,
+email, chat apps, Drive or Nearby Share.
+
+- The verified bytes are copied to `cacheDir/share/<random>/<title>.html`. The title is sanitised
+  (no path separators, control or format characters, no leading dot, at most 80 characters and
+  200 UTF-8 bytes); an empty result falls back to the `docId` or storage key.
+- `ACTION_SEND`, type `text/html`, `EXTRA_STREAM` a `content:` URI from an androidx `FileProvider`
+  (authority `<applicationId>.share`, not exported, `grantUriPermissions`, paths limited to
+  `cache-path share/`), `FLAG_GRANT_READ_URI_PERMISSION` with `ClipData`, `EXTRA_SUBJECT` the title,
+  `EXTRA_TEXT` one line asking the recipient to open the attached file in a browser.
+  `Intent.createChooser` with `EXTRA_EXCLUDE_COMPONENTS` naming the app's own import and capture
+  activities, so a share never re-imports into this app. The import (VIEW/SEND) and capture paths
+  also drop any `content:` URI whose authority resolves to one of this app's own providers, so an
+  explicit intent carrying a share URI is never opened with the app's own permissions.
+- Copies older than one day are deleted on the next share and at app start, off the main thread.
+  Nothing outside `cacheDir/share` is ever served. A missing file or IO error shows a snackbar.
+- The recipient receives the self-contained document; opened in a browser, it runs with the
+  document's own meta CSP (no reader header policy). The app sends nothing itself.
+
 ## 7. Before sync is set up
 
 The APK is useful with no Google setup. "Import HTML" (Settings, onboarding, Library empty state)
@@ -685,6 +708,12 @@ app; `adb push`; the public sample on the project's Pages site.
   devices, "Make this Mac the primary", "Delete cloud copy", and the privacy line: "Turning this on
   copies your learnings (not your sources or notes) to a hidden folder in your Google Drive. Google
   can read them." A sidebar footer sync indicator with the same three states as the phone.
+- **Ask deep** (08 §6.9) and **Ask deeper** (08 §6.10) change nothing here: they are `ask` with an
+  optional `depth: 'deep'` or `'deeper'`, so `VERSION_CHANGE_KINDS`, `JOB_KINDS` and the wire
+  schemas are unchanged. A version node may carry either `depth`; an older app that rewrites
+  `tree.json` drops it, which is accepted. Phone `ask` jobs never carry `depth`, so they stay
+  quick; neither is offered on the phone. A deeper answer box's page list is document content and
+  syncs with the HTML like any answer.
 - **Guardrails** in the same change: ESLint network allowlist gains `src/main/sync/**`;
   `mainModules` gains `sync`; 12 §7.5 gains the consent URL; 12 §10.1 and principle 6 gain "only with
   Sync on, to your own Drive".
@@ -695,7 +724,10 @@ Leaves the desktop, only with Sync on, only to the user's own Drive app-data fol
 snapshots per `sync.history`, the manifest (titles, summaries, headings, tabs, dates, folder
 placement), sanitized version trees, job statuses. Leaves the phone: what the user explicitly
 captures or asks. Never leaves: `meta.json` fields outside the allowlist, source files on the
-desktop, API keys, tokens, logs. There is no end-to-end encryption; Google can read the files.
+desktop, the retained source text in each document's `.sources/` (09 §4.4; sync reads documents
+only through the library facade and version blobs, never the folder, and a test pushes a document
+with a sidecar through the real engine and checks that no uploaded object holds its text), API
+keys, tokens, logs. Phone asks are quick asks only: the source text never goes to the phone. There is no end-to-end encryption; Google can read the files.
 Logs on both surfaces record ids, counts and HTTP codes only, never titles, URLs, questions or
 tokens.
 

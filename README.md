@@ -7,14 +7,14 @@ macOS app that turns decks, docs, PDFs, screenshots and URLs into interactive HT
 
 ## Download
 
-**Latest release: [v0.4.0](https://github.com/knail1/eli5-learner/releases/tag/v0.4.0)** ·
+**Latest release: [v0.5.0](https://github.com/knail1/eli5-learner/releases/tag/v0.5.0)** ·
 [all releases](https://github.com/knail1/eli5-learner/releases) ·
 [always the newest](https://github.com/knail1/eli5-learner/releases/latest)
 
 | Platform | Download |
 | --- | --- |
-| Mac (Apple silicon, unsigned) | [`ELI5.Learner-0.4.0-arm64.dmg`](https://github.com/knail1/eli5-learner/releases/download/v0.4.0/ELI5.Learner-0.4.0-arm64.dmg) |
-| Android (sideload companion) | [`eli5-learner-0.4.0.apk`](https://github.com/knail1/eli5-learner/releases/download/v0.4.0/eli5-learner-0.4.0.apk) |
+| Mac (Apple silicon, unsigned) | [`ELI5.Learner-0.5.0-arm64.dmg`](https://github.com/knail1/eli5-learner/releases/download/v0.5.0/ELI5.Learner-0.5.0-arm64.dmg) |
+| Android (sideload companion) | [`eli5-learner-0.5.0.apk`](https://github.com/knail1/eli5-learner/releases/download/v0.5.0/eli5-learner-0.5.0.apk) |
 
 - **Mac:** open the dmg and drag the app to Applications. The build is unsigned, so on first launch
   macOS may block it: open **System Settings > Privacy & Security** and click **Open Anyway**. Then add
@@ -26,6 +26,25 @@ macOS app that turns decks, docs, PDFs, screenshots and URLs into interactive HT
   Google Drive API); it has been verified end to end against a real Drive. This APK is signed with the
   project owner's release key, so Google sign-in in it only works with the owner's Google Cloud project.
   Forks build and sign their own (see [android/README.md](android/README.md)).
+
+### What's new in v0.5.0
+
+- **Ask deep and Ask deeper.** Next to **Ask** (Enter: answers from the section and the sections
+  around it), two deeper ways to ask about a selected passage:
+  - **Ask deep** (Cmd+Enter) also reads every tab and the original source text the document was
+    written from. The app now keeps that extracted text
+    next to each document, locally only; it is never put in the document, synced or published.
+  - **Ask deeper** (Cmd+Shift+Enter) reads all of that first, then searches the web (at most three
+    searches), then uses the AI's general knowledge. Anything from outside the document is marked in
+    the answer ("From the web, …", "In general, …"), the badge says how far the answer went, and the
+    web pages it used are listed under it as plain text (no links). A web search costs about $0.01 on
+    top of the tokens, and the search queries go to your AI provider's search; see
+    [docs/privacy](https://knail1.github.io/eli5-learner/privacy/).
+
+  Each Ask button shows a small ⓘ and explains itself when you hover or tab to it. Answers land in an
+  answer box inside the section, appear in History as their own version, and can be undone.
+- **Android: Share.** Share a document from the reader or a Library row's menu; the recipient gets the
+  `.html` file to open in any browser.
 
 ### What's new in v0.4.0
 
@@ -48,7 +67,8 @@ macOS app that turns decks, docs, PDFs, screenshots and URLs into interactive HT
 - **Android** shows everything the desktop makes: the third tab, the animations and the new palette.
 - **Sync** gives a clear message when the Google Drive API is turned off in your Cloud project.
 
-Earlier releases: [v0.3.0](https://github.com/knail1/eli5-learner/releases/tag/v0.3.0) (personal sync,
+Earlier releases: [v0.4.0](https://github.com/knail1/eli5-learner/releases/tag/v0.4.0) (ASD-STE100
+tab, AI-designed animations, WSJ Five-Box), [v0.3.0](https://github.com/knail1/eli5-learner/releases/tag/v0.3.0) (personal sync,
 Android companion), [v0.2.0](https://github.com/knail1/eli5-learner/releases/tag/v0.2.0).
 
 ## What it does
@@ -121,7 +141,9 @@ The ELI5 tab rebuilds the same material in plain words, with analogies, simple d
   - Excel
   - Public web pages
 - **Living documents.** Select any passage to open a small menu, grouped so it stays short:
-  - *Ask a question about this…*: type a question and press Enter (see *Ask* below)
+  - *Ask a question about this…*: type a question and press Enter for **Ask**, Cmd+Enter for
+    **Ask deep**, or Cmd+Shift+Enter for **Ask deeper** (see *Ask* below); hover or tab to a button's
+    ⓘ to see what it searches
   - **Explain ▾**: *Expand this*, *Re-explain it*, *Give me an analogy*, *Go deeper*
   - **ELI5 ▾**: *Create a separate ELI5 for this section*, and *ELI5 this selection*, a focused ELI5
     tab about exactly what you selected, from one phrase to several paragraphs
@@ -133,7 +155,7 @@ The ELI5 tab rebuilds the same material in plain words, with analogies, simple d
   *Expand this*. The four Explain actions, and *Edit with my note*, regenerate only that section, in place. Selecting body text never picks up the
   glossary notes in the margin, and a selection inside a note stays inside it.
 
-  <img src="images/highlight_expander.png" alt="Selecting a passage opens a small menu: an Ask a question field with an Ask button, an optional note, and Explain, ELI5 and Edit with my note; the Explain popup is open with Expand this, This isn't clear, re-explain it, Give me an analogy and Go deeper" width="560">
+  <img src="images/highlight_expander.png" alt="Selecting a passage opens a small menu: an Ask a question field, the Ask, Ask deep and Ask deeper buttons each with a small i marker, an optional note, and Explain, ELI5 and Edit with my note; the Explain popup is open with Expand this, This isn't clear, re-explain it, Give me an analogy and Go deeper" width="560">
 
   While it works, the section is marked "Updating…" and the status line shows the job, which you can cancel:
 
@@ -150,6 +172,18 @@ The ELI5 tab rebuilds the same material in plain words, with analogies, simple d
   your question shown; afterwards the box keeps only a small "?" chip that reveals the question again.
   Several answers in one section stack, and they move with the section if it is rewritten later.
   Answer boxes are plain content: they are in exports, print, and documents opened in any browser.
+  There are three Ask buttons. **Ask** answers from the section and its neighbours. **Ask deep** also
+  reads every tab and a private copy of the text extracted from the document's sources, and its
+  box says whether it was checked against the original sources, excerpts of them, or the tabs only.
+  That copy stays inside the document's folder: it is never published or synced. Documents made
+  before this feature have no copy, so Ask deep there works over their tabs only. **Ask deeper**
+  reads the same material first; only when that does not answer the question does it let your AI
+  provider search the web, and then fall back to the AI's general knowledge. Anything from outside
+  the document is marked in the answer, the box says how far it had to go, and the web pages it used
+  are listed as plain text (titles and addresses, no links). Hover or tab to a button to see what it
+  reads:
+
+  <img src="images/ask_deeper_tooltip.png" alt="The selection menu with the question 'How long does it take to catch up?' typed and the Ask deeper button focused; its tooltip reads: Searches every tab and the original sources first, then the web, then the AI's general knowledge. Anything from outside the document is marked. (⌘ ⇧ Enter or Ctrl+Shift+Enter)" width="560">
 - **Version tree.** Every change (a section action, an answer, a closed tab, a merge) is a version,
   and nothing is thrown away when you go back and change something else: that starts a branch.
   Undo / Redo (Cmd+Z / Shift+Cmd+Z) step back and forward, and Forward retraces the branch you last

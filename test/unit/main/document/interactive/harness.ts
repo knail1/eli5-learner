@@ -18,8 +18,15 @@ import {
   type SectionJobPayload,
   type ViewerPort,
 } from '../../../../../src/main/document';
-import type { FsLibrary } from '../../../../../src/main/library';
-import type { DocumentDraftTab, SectionAnswerDraft, SectionDraft } from '../../../../../src/main/llm';
+import type { DocumentMeta, FsLibrary, SourceSidecarInput } from '../../../../../src/main/library';
+import type {
+  DeepAskInput,
+  DeepAskResult,
+  DeeperAskResult,
+  DocumentDraftTab,
+  SectionAnswerDraft,
+  SectionDraft,
+} from '../../../../../src/main/llm';
 import type { SectionRunContext } from '../../../../../src/main/pipeline';
 import type { JobFailureCode, JobStatus } from '../../../../../src/preload/contract';
 import { fixtureDocument } from '../../../../fixtures/documents/models';
@@ -144,6 +151,35 @@ export const ANSWER: SectionAnswerDraft = {
   ],
 };
 
+/** A canned Deep Ask result (08 §6.9); `plan.sourceMode` decides the box badge. */
+export const DEEP_RESULT: DeepAskResult = {
+  draft: {
+    topic: 'What the report says',
+    paragraphs: ['The report puts search first; the tabs simplified the split.'],
+  },
+  plan: {
+    sourceMode: 'all',
+    tabsKept: ['indepth', 'eli5'],
+    tabsDropped: [],
+    indepthTrimmed: false,
+    chunks: 0,
+    inputTokens: 900,
+  },
+};
+
+/** A canned Ask deeper result (08 §6.10): a web answer with one kept page. */
+export const DEEPER_RESULT: DeeperAskResult = {
+  draft: {
+    topic: 'Typical ROAS targets',
+    paragraphs: ['The report gives no target.', 'From the web, Example.org says many shops aim for about 4.'],
+    reach: 'web',
+    web: [{ title: 'What is a good ROAS?', url: 'https://example.org/guides/roas?ref=x' }],
+  },
+  plan: { ...DEEP_RESULT.plan },
+  webSearches: 2,
+  webSourceCount: 5,
+};
+
 export interface Setup {
   lib: FsLibrary;
   slug: string;
@@ -154,6 +190,8 @@ export interface Setup {
   clock: FakeClock;
   runSectionAction: ReturnType<typeof vi.fn<(i: { action: string }) => Promise<SectionDraft | DocumentDraftTab>>>;
   answerSectionQuestion: ReturnType<typeof vi.fn<(i: { question: string }) => Promise<SectionAnswerDraft>>>;
+  answerDeepQuestion: ReturnType<typeof vi.fn<(i: DeepAskInput) => Promise<DeepAskResult>>>;
+  answerDeeperQuestion: ReturnType<typeof vi.fn<(i: DeepAskInput) => Promise<DeeperAskResult>>>;
   hasApiKey: ReturnType<typeof vi.fn<() => Promise<boolean>>>;
   ir: ReturnType<typeof createInteractiveReading>;
   events: { updated: unknown[]; scroll: unknown[]; busy: unknown[] };
@@ -167,7 +205,15 @@ export interface Setup {
 }
 
 export async function setup(
-  opts: { model?: DocumentModel; deps?: Partial<InteractiveDeps>; idSource?: IdSource } = {},
+  opts: {
+    model?: DocumentModel;
+    deps?: Partial<InteractiveDeps>;
+    idSource?: IdSource;
+    /** Overrides on the committed meta.json (e.g. `sourcesUsed`). */
+    meta?: Partial<DocumentMeta>;
+    /** Kept source text written into staging before the commit (09 §4.4), as the pipeline save does. */
+    sources?: SourceSidecarInput[];
+  } = {},
 ): Promise<Setup> {
   const model = opts.model ?? fixture.model;
   const { lib } = await testLibrary({ devChecks: true });
@@ -175,8 +221,9 @@ export async function setup(
   const html = render(model);
   const staging = await lib.stagingDir('job-c1');
   await writeFile(path.join(staging, 'index.html'), html);
-  const meta = makeMeta({ title: 'Example Widgets', topicSlug: r.slug, tabs: mirrorTabs(model.tabs) });
+  const meta = makeMeta({ title: 'Example Widgets', topicSlug: r.slug, tabs: mirrorTabs(model.tabs), ...opts.meta });
   await writeFile(path.join(staging, 'meta.json'), JSON.stringify(meta));
+  if (opts.sources) await lib.writeSourcesToStaging(staging, opts.sources);
   await lib.commitDocument(r, staging, meta);
   const slug = r.slug;
   const jobs = new FakeJobs();
@@ -186,10 +233,12 @@ export async function setup(
     i.action === 'eli5-tab' || i.action === 'eli5-selection' ? NEW_TAB : NEW_SECTION,
   );
   const answerSectionQuestion = vi.fn(async (_i: { question: string }): Promise<SectionAnswerDraft> => ANSWER);
+  const answerDeepQuestion = vi.fn(async (_i: DeepAskInput): Promise<DeepAskResult> => DEEP_RESULT);
+  const answerDeeperQuestion = vi.fn(async (_i: DeepAskInput): Promise<DeeperAskResult> => DEEPER_RESULT);
   const hasApiKey = vi.fn(async () => true);
   const ir = createInteractiveReading({
     library: lib,
-    tasks: { runSectionAction, answerSectionQuestion },
+    tasks: { runSectionAction, answerSectionQuestion, answerDeepQuestion, answerDeeperQuestion },
     viewer,
     hasApiKey,
     clock,
@@ -212,6 +261,8 @@ export async function setup(
     clock,
     runSectionAction,
     answerSectionQuestion,
+    answerDeepQuestion,
+    answerDeeperQuestion,
     hasApiKey,
     ir,
     events,

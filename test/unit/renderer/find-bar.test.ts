@@ -147,6 +147,17 @@ describe('FindBar', () => {
     expect(findMock().mock.calls).toEqual([['widget', { forward: true }]]);
   });
 
+  it('a tab change while new text waits on the debounce searches the new text, not the old one', async () => {
+    const { input } = await mountBar({ initialQuery: 'widget' });
+    fake.emit('find-result', { kind: 'result', activeMatchOrdinal: 2, matches: 5, finalUpdate: true });
+    findMock().mockClear();
+    await type(input, 'online');
+    fake.emit('find-result', { kind: 'reset', reason: 'tab' });
+    expect(findMock().mock.calls).toEqual([['online', { forward: true }]]);
+    await debounce();
+    expect(findMock().mock.calls).toEqual([['online', { forward: true }]]);
+  });
+
   it('the handle focuses the field and steps through matches (Cmd+G from anywhere)', async () => {
     const { input, handle } = await mountBar({ initialQuery: 'widget' });
     findMock().mockClear();

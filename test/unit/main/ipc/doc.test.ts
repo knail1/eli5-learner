@@ -504,6 +504,27 @@ describe('eli5:doc:ask-section (08 Ask)', () => {
     expect(svc.askSection).not.toHaveBeenCalled();
   });
 
+  it('passes depth quick, deep or deeper through (08 §6.9, §6.10)', async () => {
+    const { svc } = fakeActions();
+    const h = await setup({ services: { sectionActions: svc } });
+    for (const depth of ['quick', 'deep', 'deeper']) {
+      expect(await h.call(IPC.doc.askSection, askReq({ depth }), 'viewer')).toMatchObject({ ok: true });
+      expect(svc.askSection).toHaveBeenLastCalledWith(askReq({ depth }));
+    }
+  });
+
+  it('rejects any other depth with E_BAD_REQUEST', async () => {
+    const { svc } = fakeActions();
+    const h = await setup({ services: { sectionActions: svc } });
+    for (const depth of ['Deep', 'Deeper', 'deepest', '', 1, true, null]) {
+      expect(await h.call(IPC.doc.askSection, askReq({ depth }), 'viewer')).toMatchObject({
+        ok: false,
+        error: { code: 'E_BAD_REQUEST' },
+      });
+    }
+    expect(svc.askSection).not.toHaveBeenCalled();
+  });
+
   it('accepts only the viewer of the same document (08 §4.3 step 1)', async () => {
     const { svc } = fakeActions();
     const h = await setup({ services: { sectionActions: svc } });

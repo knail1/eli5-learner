@@ -86,7 +86,8 @@ private sealed interface Loaded {
  * offers Ask ([onAsk]) when the Mac accepts questions and the Reader shows the Mac's current version.
  * With [preview], the Reader shows that earlier version (downloaded through [onFetchVersion] when it
  * is not on the phone), never saves a reading position for it, and offers "Make current on your Mac"
- * ([onMakeCurrent]). The preview's file outlives this screen through a [PreviewLease] held by the
+ * ([onMakeCurrent]). A Share button sends the version on screen through the system share sheet
+ * ([onShare]); it is hidden for a preview and while the document is not on the phone. The preview's file outlives this screen through a [PreviewLease] held by the
  * navigation entry, which also drops the downloaded copy once the entry is gone.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -104,6 +105,7 @@ fun ReaderScreen(
     onVersions: (() -> Unit)? = null,
     onAsk: ((sha: String) -> Unit)? = null,
     onMakeCurrent: (() -> Unit)? = null,
+    onShare: ((entry: DocEntry, sha: String) -> Unit)? = null,
 ) {
     val loaded by produceState<Loaded>(Loaded.Loading, key) {
         index.find(key) // the first load reconciles the index with the files
@@ -168,6 +170,13 @@ fun ReaderScreen(
                             },
                             modifier = Modifier.semantics { contentDescription = versionsLabel },
                         )
+                    }
+                    val shareEntry = entry
+                    val shareSha = shown
+                    if (onShare != null && preview == null && shareEntry != null && shareSha != null) {
+                        IconButton(onClick = { onShare(shareEntry, shareSha) }) {
+                            Icon(painterResource(R.drawable.ic_share), contentDescription = stringResource(R.string.action_share_document))
+                        }
                     }
                     val ask = onAsk?.takeIf { askSha != null }
                     if (preview == null && (onVersions != null && entry?.synced == true || ask != null)) {

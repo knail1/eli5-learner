@@ -87,6 +87,64 @@ describe('blockToMarkdown', () => {
     );
   });
 
+  it('writes a deep answer box with its badge line in italics (10 §5.2)', () => {
+    const base = {
+      type: 'qa' as const,
+      id: 'q-00000001',
+      question: 'Is 4 good?',
+      topic: 'Good ROAS',
+      quote: 'ROAS of 4',
+      paragraphs: ['Yes, mostly.'],
+      askedAt: '2026-09-27T14:00:00.000Z',
+      depth: 'deep' as const,
+    };
+    expect(blockToMarkdown({ ...base, sources: 'excerpts' })).toBe(
+      '> **You asked:** Is 4 good?\n>\n> *Deep answer · checked against excerpts of the original sources*\n>\n> Yes, mostly.',
+    );
+    expect(blockToMarkdown({ ...base, sources: 'none' })).toContain(
+      '> *Deep answer · the original source text is not available for this document, so this answer uses the tabs only*',
+    );
+    const { depth: _d, ...quick } = base;
+    expect(blockToMarkdown(quick)).not.toContain('Deep answer');
+    // 08 §6.9 decision 10: a deep box's links leave as their text, a quick box keeps them.
+    const linked = ['See [here](https://evil.example/x).'];
+    expect(blockToMarkdown({ ...base, paragraphs: linked })).toContain('> See here.');
+    expect(blockToMarkdown({ ...quick, paragraphs: linked })).toContain('[here](https://evil.example/x)');
+  });
+
+  it('writes a deeper answer box with its badge in italics and its pages as a plain-text list (10 §5.2)', () => {
+    const base = {
+      type: 'qa' as const,
+      id: 'q-00000002',
+      question: 'What ROAS is typical?',
+      topic: 'Typical ROAS',
+      quote: 'ROAS of 4',
+      paragraphs: ['From the web, about 4; see [the guide](https://evil.example/x).'],
+      askedAt: '2026-09-27T14:00:00.000Z',
+      depth: 'deeper' as const,
+      sources: 'all' as const,
+    };
+    const web = [{ title: 'A *good* [ROAS] <guide>', url: 'https://example.org/guides/roas?ref=x' }];
+    expect(blockToMarkdown({ ...base, reach: 'web', web })).toBe(
+      [
+        '> **You asked:** What ROAS is typical?',
+        '> *Deeper answer · includes information from the web (pages listed below)*',
+        '> From the web, about 4; see the guide.',
+        '> - A \\*good\\* \\[ROAS\\] &lt;guide&gt; — example.org/guides/roas',
+      ].join('\n>\n'),
+    );
+    expect(blockToMarkdown({ ...base, reach: 'general' })).toContain(
+      "> *Deeper answer · includes the AI's general knowledge, not from the document or the web*",
+    );
+    expect(blockToMarkdown({ ...base, reach: 'material' })).toContain(
+      '> *Deeper answer · found in the document and its original sources*',
+    );
+    // Never a Markdown link, and no Deep answer badge on a deeper box.
+    const md = blockToMarkdown({ ...base, reach: 'web', web });
+    expect(md).not.toMatch(/\]\(/);
+    expect(md).not.toContain('Deep answer');
+  });
+
   it('escapes literal angle brackets so they stay inert', () => {
     expect(blockToMarkdown({ type: 'paragraph', md: 'Use <script> and a > b' })).toBe(
       'Use &lt;script&gt; and a &gt; b',

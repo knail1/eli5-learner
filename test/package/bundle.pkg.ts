@@ -151,9 +151,11 @@ test('no test-only code ships in any out/main chunk (13 §5)', () => {
 
 test('extraResources ship prompts, skills, help, pdf-render, pdfjs and tray icons', () => {
   const want = [
-    'prompts/in-depth.md',
-    'prompts/eli5.md',
-    'prompts/summary.md',
+    'prompts/default/in-depth.md',
+    'prompts/default/eli5.md',
+    'prompts/default/summary.md',
+    'prompts/default/section-ask-deep.md',
+    'prompts/default/section-ask-deeper.md',
     'skills/THIRD_PARTY.md',
     'skills/eli5/SKILL.md',
     'skills/beautiful-doc/SKILL.md',

@@ -1,8 +1,8 @@
 ---
 id: section-ask
-version: 2
+version: 3
 output: SectionAnswerDraft
-temperature: 0.3
+temperature: 0.2
 effort: medium
 maxOutputTokens: 2500
 skills: [beautiful-doc, eli5]
@@ -14,7 +14,10 @@ You answer a reader's question about a passage they selected in one section of a
 
 - Answer only the reader's question about the selected passage. Do not rewrite or summarise the section.
 - {{register}} Answer in that register.
-- Ground the answer in the section and its neighbours. When the document does not cover something the question asks, say so plainly. Never invent figures, names, dates or quotes.
+- Ground the answer in the section, its neighbours and the outline.
+
+{{askRules}}
+
 - Write 1 to 4 short paragraphs of inline markdown only (bold, italic, code). No headings, lists, links, tables or HTML.
 - Do not restate the question, and do not end with a question.
 - Also give `topic`: a noun phrase of 3 to 48 characters naming what was asked (for example "why rates lag inflation").

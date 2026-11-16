@@ -50,6 +50,18 @@ export {
   toWire,
 } from './versions';
 export type { PruneLimits, PrunePlan } from './versions';
+export {
+  SOURCES_DIR,
+  SOURCES_MANIFEST,
+  SOURCE_FILE_RE,
+  SIDECAR_VERSION,
+  MAX_SOURCE_CHARS,
+  MAX_SIDECAR_BYTES,
+  MAX_SIDECAR_SOURCES,
+  SourceSidecarManifestSchema,
+  sourcesForMeta,
+} from './sources';
+export type { SourceSidecar, SourceSidecarEntry, SourceSidecarInput, SourceSidecarManifest } from './sources';
 export { writeFileAtomic, writeJsonAtomic, fsyncDir, renameDirAtomic } from './fs-atomic';
 export { AsyncMutex, acquireProcessLock, releaseProcessLock, defaultProcessProbe } from './locks';
 export type { ProcessLockRecord, ProcessLockResult } from './locks';

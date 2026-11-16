@@ -13,7 +13,7 @@ import { checkpointOf, resetToReading, stageIndex, type StageContext } from './s
 import { extractStage } from './stages/extract';
 import { GEN, generateStage } from './stages/generate';
 import { readStage, resolvedArtifactsExist } from './stages/read';
-import { libraryStagingDir, rebuildCommitted, saveStage } from './stages/save';
+import { libraryStagingDir, rebuildCommitted, saveStage, upsertRebuildSidecar } from './stages/save';
 import { assertTransition } from './status';
 import { JobStore } from './store';
 import type {
@@ -805,6 +805,15 @@ export class JobQueue {
     if (!r) return false;
     const done = await rebuildCommitted(this.d.library, r.slug, job.id).catch(() => undefined);
     if (!done) return false;
+    // 09 §4.4: the sidecar upsert the crashed save never reached (the job's extracted texts are
+    // still in its staging until finishDone).
+    const rt: Running = {
+      controller: new AbortController(),
+      runningSteps: [],
+      commitStarted: false,
+      stageStartedAt: this.d.clock.now().getTime(),
+    };
+    await upsertRebuildSidecar(this.stageContext(job, rt), r.slug);
     job.result = { docId: done.id, topicSlug: done.topicSlug, title: done.title };
     await this.finishDone(job, undefined, false);
     await this.d.endFetchJob?.(job.id).catch(() => {});

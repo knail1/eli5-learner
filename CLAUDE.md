@@ -17,7 +17,10 @@ ASD-STE100 tab (Simplified Technical English, generated from the in-depth draft,
   Drive passed (Nov 2026), and the rest of real-Drive behavior is still unverified. After M5: the prompt catalogue in `config/prompts/` with prompt sets, the
   ASD-STE100 tab, AI-written sandboxed `animation` blocks (no fixed animation kinds; spec 07 §7.1),
   the shared chart palette, ELI5 critique, and rebuild-as-new-version through the dev real-run
-  driver (`scripts/real-run/README.md`). See the build order in `spec/tech/README.md`.
+  driver (`scripts/real-run/README.md`). v0.5.0 adds Ask deep (every tab plus the retained source
+  text, spec 08 §6.9) and Ask deeper (then provider web search, then model knowledge, marked; 08
+  §6.10); Claude web search was smoke-tested against the real API once (Nov 2026), OpenAI's is
+  verified offline only. See the build order in `spec/tech/README.md`.
 - **Source of truth:** `spec/ELI5 Learner Product Requirements Document.md` (what) and
   `spec/tech/` (how: one engineering spec per module; start at `spec/tech/README.md`, which also
   has the build order). `README.md` is the user-facing summary.

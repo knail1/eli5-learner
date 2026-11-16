@@ -153,6 +153,27 @@ describe('BudgetGuardProvider', () => {
     expect(l.reservedUsd).toBe(0);
   });
 
+  it('charges $0.01 per web search the provider reports, and reserves every allowed search (Ask deeper)', async () => {
+    const l = ledger(10);
+    const inner = new FakeProvider(
+      script({ responses: { 'section-ask-deeper': JSON.stringify('x'.repeat(398)) }, webSources: [] }),
+      { model: 'claude-opus-5' },
+    );
+    vi.spyOn(inner, 'generate').mockResolvedValue({
+      ...usageResult({ inputTokens: 100, outputTokens: 100 }),
+      webSearches: 2,
+    });
+    const reserve = vi.spyOn(l, 'reserve');
+    await guard(inner, l).generate(req({ taskId: 'section-ask-deeper', webSearch: { maxUses: 3 } }));
+    expect(l.spentUsd).toBeCloseTo(100 * IN + 100 * OUT + 2 * 0.01, 12);
+    // The worst case includes all 3 allowed searches.
+    expect(reserve.mock.calls[0]?.[0].maxCostUsd).toBeGreaterThanOrEqual(3 * 0.01);
+    // No search charge without webSearch.
+    const l2 = new BudgetLedger({ path: path.join(dir, 'w.jsonl'), capUsd: 10 });
+    await guard(fake(), l2).generate(req());
+    expect(l2.spentUsd).toBeCloseTo(100 * IN + 100 * OUT, 12);
+  });
+
   it('prices cache reads at 0.1x and explicit cache writes at 1.25x', async () => {
     const inner = fake();
     vi.spyOn(inner, 'generate').mockResolvedValue(

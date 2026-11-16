@@ -29,6 +29,11 @@ app on your phone, follow [SETUP.md](SETUP.md).
 > it accepts; the desktop does not run phone questions yet, so it stays hidden for now. Everything
 > against a real Google Drive was smoke-tested at gate G1 (spec 16 §13). The G1 smoke test passed against a real Google Drive in November 2026: sign-in on the Mac and on a Pixel, desktop push, primary claim, and the phone pulling and listing the library. Phone jobs (Ask) and conflict paths are still unverified against a real Drive.
 >
+> **0.5.0 (versionCode 4): Share.** Share a document from the reader or from a Library row's menu; the
+> recipient gets "<title>.html" through the share sheet, served read-only from the app's cache by a
+> non-exported FileProvider. The reader shows the desktop's new Ask, Ask deep and Ask deeper answer
+> boxes as they are written into the document (badge and plain-text page list included).
+>
 > **0.4.0 (versionCode 3): reads everything the desktop now writes.** The reader opens three-tab
 > documents (In depth, ELI5 and the optional ASD-STE100 tab with its one-line hint, plus section ELI5
 > tabs), the model-written animations (each in an `<iframe sandbox="allow-scripts" srcdoc>` whose two
@@ -158,6 +163,9 @@ Reader and import (no Google setup):
 - [ ] Import a non-ELI5 HTML file: it opens labelled "Foreign file · scripts off".
 - [ ] Share an `index.html` to ELI5 Learner from another app, and "Open with" from Files: both
       import.
+- [ ] In the Reader tap Share (or Share in a Library row's menu): the share sheet lists Messages,
+      email and other apps but not ELI5 Learner; the recipient gets "<title>.html", which opens in a
+      browser.
 - [ ] Rotate the phone and use split screen: the layout adapts and nothing is lost.
 - [ ] In portrait no page scrolls sideways; a wide chart or table scrolls inside its own box. Text
       size at the system's largest font setting still fits.

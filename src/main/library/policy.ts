@@ -11,6 +11,7 @@ export const defaultLibraryPolicy: LibraryPolicy = Object.freeze({
   trashRetentionDays: TRASH_RETENTION_DAYS,
   resolvedSuggestionRetentionDays: RESOLVED_SUGGESTION_RETENTION_DAYS,
   sourceUrls: 'full' as const,
+  retainSourceText: true,
 });
 
 /** Public build: any pair may be suggested; similarity alone decides (HOOK-LIB-02). */

@@ -12,6 +12,7 @@ import type {
   LibraryMoveReceipt,
   LibraryOrganization,
   MenuAction,
+  DeepAskDepth,
   MergeSuggestion,
   MergeSuggestionStatus,
   PublicationRecord,
@@ -80,6 +81,8 @@ export interface AskRecord {
   /** The answer box's element id, 'q-' + 8 hex (07 §4). */
   qaId: string;
   jobId: string;
+  /** 08 §6.9 Ask deep or §6.10 Ask deeper; absent means a quick one. */
+  depth?: DeepAskDepth;
 }
 
 /** 09 §5.2. Local paths are basenames only; URLs have no fragment. */
@@ -213,6 +216,12 @@ export interface LibraryPolicy {
   resolvedSuggestionRetentionDays: number;
   /** Whether meta.json may record source URLs ('full') or only redacted forms. */
   sourceUrls: 'full' | 'redacted';
+  /**
+   * Whether each document keeps the extracted text of its sources in `<slug>/.sources/` for Deep
+   * Ask (09 §4.4). Absent means true. With false nothing is written, nothing is read, and
+   * housekeeping removes every existing `.sources/`.
+   */
+  retainSourceText?: boolean;
 }
 
 /** HOOK-LIB-02 · Merge eligibility predicate (09 §10.2). Public build: `() => true`. */
@@ -234,6 +243,8 @@ export interface VersionChange {
   target?: VersionTarget;
   undoTarget?: VersionUndoTarget;
   jobId?: string;
+  /** Only with kind 'ask': Ask deep (08 §6.9) or Ask deeper (§6.10). */
+  depth?: DeepAskDepth;
 }
 
 /**
@@ -280,6 +291,8 @@ export interface VersionNodeRecord {
   /** The child Redo follows. */
   forwardId?: string;
   jobId?: string;
+  /** Only with kind 'ask': Ask deep (08 §6.9) or Ask deeper (§6.10). */
+  depth?: DeepAskDepth;
 }
 
 /** `.versions/tree.json`: a rebuildable index of the node files. */

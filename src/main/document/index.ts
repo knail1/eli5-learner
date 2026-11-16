@@ -45,6 +45,14 @@ export {
   STE_TAB_LABEL,
 } from './build';
 export { licenseName } from './render/credit';
+export {
+  deepAnswerBadge,
+  DEEP_ANSWER_BADGE_TEXT,
+  deeperAnswerBadge,
+  DEEPER_ANSWER_BADGE_TEXT,
+  webPageLabel,
+  webPageText,
+} from './render/blocks';
 export { renderDocument, renderSectionHtml, documentCsp, scriptHash, TAB_LABEL_MAX, TAB_HINTS } from './render';
 export {
   parseDocument,
@@ -64,7 +72,10 @@ export {
   sectionIdsOfTab,
   sectionToDraft,
   insertAnswer,
+  cleanAnswerWeb,
   carryAnswers,
+  linksToText,
+  tabsForDeepAsk,
   MAX_SECTION_ELI5_TABS,
   MAX_QA_QUESTION,
   MAX_QA_TOPIC,
@@ -72,7 +83,7 @@ export {
   MAX_QA_PARAGRAPHS,
   MAX_QA_PARAGRAPH,
 } from './mutate';
-export type { AnswerInput } from './mutate';
+export type { AnswerInput, DeepAskTabDraft } from './mutate';
 export { mintQaId, QA_ID_RE } from './ids';
 export { isUserQuestion } from './validate';
 export {

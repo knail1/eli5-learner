@@ -260,8 +260,8 @@ describe('selection bridge (08 §5)', () => {
     const m = menuParts(h.selection?.root);
     type(win, m.question, 'Why every channel?');
     type(win, m.note, 'shorter');
-    // Busy disables everything: Ask, both triggers, every item, Edit; the fields are read-only.
-    expect(m.buttons().length).toBe(10);
+    // Busy disables everything: the three Asks, both triggers, every item, Edit; the fields are read-only.
+    expect(m.buttons().length).toBe(12);
     expect(m.buttons().every((b) => b.disabled)).toBe(true);
     expect(m.question?.readOnly).toBe(true);
     expect(m.note?.readOnly).toBe(true);
@@ -439,6 +439,196 @@ describe('Ask a question (08 §5.1, §5.5, §6.8)', () => {
     const snap = h.selection?.current();
     expect(snap?.text.length).toBeGreaterThan(3);
     expect(snap?.text).not.toContain('You asked');
+  });
+});
+
+describe('Ask deep (08 §6.9)', () => {
+  const setup = (name = 'with-tab') => {
+    const bridge = fakeBridge();
+    const { win, doc } = loadGolden(name, { bridge });
+    const h = boot(win, doc);
+    const section = doc.querySelector<HTMLElement>('#tab-indepth > section');
+    openOn(win, doc, '#tab-indepth > section p', 'judges every channel');
+    return { bridge, win, doc, h, section, m: menuParts(h.selection?.root) };
+  };
+  const enter = (win: Window & typeof globalThis, el: Element | null, mods: KeyboardEventInit = {}): boolean =>
+    el?.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, ...mods })) ??
+    false;
+
+  it('sits after Ask in the Ask row, with a screen-reader description', () => {
+    const { m, h } = setup();
+    const deep = m.button('Ask deep');
+    expect(deep).toBeDefined();
+    expect(deep?.hidden).toBe(false);
+    const row = m.question?.parentElement;
+    expect(row?.contains(deep ?? null)).toBe(true);
+    // DOM (= Tab) order: question -> Ask -> Ask deep -> Ask deeper -> note.
+    const order = Array.from(row?.querySelectorAll('input, button') ?? []);
+    expect(order).toEqual([m.question, m.button('Ask'), deep, m.button('Ask deeper')]);
+    expect(row?.nextElementSibling).toBe(m.note);
+    const id = deep?.getAttribute('aria-describedby') ?? '';
+    expect(id).toBe('deep-desc');
+    // 08 §5.4: the Cmd/Ctrl+Enter shortcut is announced; the tooltip (not a native title) shows it.
+    expect(deep?.getAttribute('aria-keyshortcuts')).toBe('Meta+Enter Control+Enter');
+    expect(deep?.hasAttribute('title')).toBe(false);
+    const desc = h.selection?.root.getElementById(id);
+    expect(desc?.textContent).toBe('Also searches every tab and the original source text. (⌘ Enter or Ctrl+Enter)');
+    expect(desc?.classList.contains('sr')).toBe(true);
+    // The visually hidden class exists in the menu's shadow stylesheet.
+    expect(h.selection?.root.querySelector('style')?.textContent).toMatch(/\.sr\{position:absolute;width:1px/);
+  });
+
+  it('follows the Ask enable rules: under 3 non-space characters, and while busy', async () => {
+    const { bridge, win, m, h, section } = setup();
+    const deep = m.button('Ask deep');
+    expect(deep?.disabled).toBe(true);
+    type(win, m.question, ' a b ');
+    expect(deep?.disabled).toBe(true);
+    await h.selection?.submit('ask-deep', 'a b');
+    expect(bridge.askDeep).not.toHaveBeenCalled();
+    type(win, m.question, 'Why every channel?');
+    expect(deep?.disabled).toBe(false);
+    bridge.busyCb?.({ busy: [{ sectionId: section?.id ?? '', action: 'expand' }] });
+    expect(deep?.disabled).toBe(true);
+    await h.selection?.submit('ask-deep');
+    expect(bridge.askDeep).not.toHaveBeenCalled();
+  });
+
+  it('a click sends {question} through askDeep, never the note; busy reads "Answering in depth…"', async () => {
+    const { bridge, win, m, section } = setup();
+    type(win, m.note, 'a note');
+    type(win, m.question, '  Why does it\n judge   every channel?  ');
+    m.button('Ask deep')?.click();
+    expect(section?.querySelector('.eli5-busy-label')?.textContent).toBe('Answering in depth…');
+    await vi.runAllTimersAsync();
+    expect(bridge.askDeep).toHaveBeenCalledWith({
+      tabKey: 'indepth',
+      sectionId: section?.id,
+      selectionText: 'judges every channel',
+      question: 'Why does it judge every channel?',
+    });
+    expect(bridge.askQuestion).not.toHaveBeenCalled();
+    expect(bridge.regenerateSection).not.toHaveBeenCalled();
+    expect(m.question?.value).toBe('');
+  });
+
+  it('Cmd+Enter and Ctrl+Enter in the question field send Ask deep; plain Enter stays Ask', async () => {
+    for (const mod of [{ metaKey: true }, { ctrlKey: true }]) {
+      const { bridge, win, m } = setup();
+      type(win, m.question, 'Why every channel?');
+      expect(enter(win, m.question, mod)).toBe(false); // handled
+      await vi.runAllTimersAsync();
+      expect(bridge.askDeep).toHaveBeenCalledTimes(1);
+      expect(bridge.askQuestion).not.toHaveBeenCalled();
+    }
+    const { bridge, win, m } = setup();
+    type(win, m.question, 'Why every channel?');
+    enter(win, m.question);
+    await vi.runAllTimersAsync();
+    expect(bridge.askQuestion).toHaveBeenCalledTimes(1);
+    expect(bridge.askDeep).not.toHaveBeenCalled();
+  });
+
+  it('Cmd+Enter does nothing while the question is too short', async () => {
+    const { bridge, win, m } = setup();
+    type(win, m.question, 'ab');
+    enter(win, m.question, { metaKey: true });
+    await vi.runAllTimersAsync();
+    expect(bridge.askDeep).not.toHaveBeenCalled();
+    expect(bridge.askQuestion).not.toHaveBeenCalled();
+  });
+
+  it('keeps the question and shows the notice when the app refuses', async () => {
+    const { bridge, win, m, section } = setup();
+    bridge.askDeep.mockImplementation(() =>
+      Promise.resolve({ ok: false, error: { message: 'Too many deep questions; try again in a minute' } }),
+    );
+    type(win, m.question, 'Why every channel?');
+    m.button('Ask deep')?.click();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(section?.hasAttribute('data-eli5-busy')).toBe(false);
+    expect(section?.querySelector('.eli5-notice')?.textContent).toBe('Too many deep questions; try again in a minute');
+    expect(m.question?.value).toBe('Why every channel?');
+  });
+
+  it("maps a busy item {action: 'ask', depth: 'deep'} to its own label", () => {
+    const { bridge, section } = setup();
+    bridge.busyCb?.({ busy: [{ sectionId: section?.id ?? '', action: 'ask', depth: 'deep' }] });
+    expect(section?.getAttribute('data-eli5-busy')).toBe('ask-deep');
+    expect(section?.querySelector('.eli5-busy-label')?.textContent).toBe('Answering in depth…');
+    bridge.busyCb?.({ busy: [{ sectionId: section?.id ?? '', action: 'ask' }] });
+    expect(section?.getAttribute('data-eli5-busy')).toBe('ask');
+    expect(section?.querySelector('.eli5-busy-label')?.textContent).toBe('Answering…');
+  });
+
+  it('an older app (askQuestion but no askDeep) shows Ask only; Cmd/Ctrl+Enter does nothing, Enter asks', async () => {
+    const bridge: Partial<ReturnType<typeof fakeBridge>> = fakeBridge();
+    delete bridge.askDeep;
+    const full = bridge as ReturnType<typeof fakeBridge>;
+    const { win, doc } = loadGolden('with-tab', { bridge: full });
+    const h = boot(win, doc);
+    openOn(win, doc, '#tab-indepth > section p', 'judges every channel');
+    const m = menuParts(h.selection?.root);
+    expect(m.question?.parentElement?.hidden).toBe(false);
+    expect(m.button('Ask')?.hidden).toBe(false);
+    expect(m.button('Ask deep')?.hidden).toBe(true);
+    // The Ask row's `display: inline-flex` must not override [hidden].
+    const css = h.selection?.root.querySelector('style')?.textContent ?? '';
+    expect(css).toContain('.askb button[hidden]{display:none}');
+    expect(css.indexOf('.askb button[hidden]{display:none}')).toBeGreaterThan(css.indexOf('.askb button{'));
+    type(win, m.question, 'Why every channel?');
+    enter(win, m.question, { metaKey: true });
+    enter(win, m.question, { ctrlKey: true });
+    await vi.runAllTimersAsync();
+    expect(full.askQuestion).not.toHaveBeenCalled();
+    enter(win, m.question);
+    await vi.runAllTimersAsync();
+    expect(full.askQuestion).toHaveBeenCalledTimes(1);
+    // A direct submit cannot reach a missing method: it is a refusal with a notice.
+    type(win, m.question, 'Why every channel?');
+    openOn(win, doc, '#tab-indepth > section p', 'judges every channel');
+    await h.selection?.submit('ask-deep');
+    expect(doc.querySelector('#tab-indepth > section .eli5-notice')?.textContent).toBe(
+      'Update the app to ask in depth',
+    );
+  });
+
+  it('a selection inside a deep answer box never includes the badge', () => {
+    const { win, doc, h } = setup('deep-asked');
+    const box = doc.querySelector('aside.qa.qa-deep');
+    const badge = box?.querySelector('.qa-badge');
+    expect(badge?.textContent).toMatch(/^Deep answer · /);
+    expect(badge?.hasAttribute('data-eli5-noact')).toBe(true);
+    // Badge sits before .qa-a, outside it.
+    expect(badge?.nextElementSibling?.classList.contains('qa-a')).toBe(true);
+    // A selection from the badge into the answer opens no menu (it starts in an excluded region).
+    const range = doc.createRange();
+    const badgeText = badge?.firstChild;
+    const answer = box?.querySelector('.qa-a p')?.firstChild;
+    if (!badgeText || !answer) throw new Error('fixture');
+    range.setStart(badgeText, 0);
+    range.setEnd(answer, 10);
+    const sel = doc.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+    doc.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true }));
+    vi.advanceTimersByTime(200);
+    expect(h.selection?.current()).toBeNull();
+    // A selection across the whole box (from the section text before it) skips the badge text.
+    const section = box?.closest('section');
+    const before = section?.querySelector(':scope > p, :scope > h2')?.firstChild;
+    if (!before) throw new Error('fixture');
+    const r2 = doc.createRange();
+    r2.setStart(before, 0);
+    r2.setEnd(answer, 10);
+    sel?.removeAllRanges();
+    sel?.addRange(r2);
+    doc.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true }));
+    vi.advanceTimersByTime(200);
+    const snap = h.selection?.current();
+    expect(snap).not.toBeNull();
+    expect(snap?.text).not.toContain('Deep answer');
+    expect(snap?.text).not.toContain('checked against');
   });
 });
 

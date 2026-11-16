@@ -40,6 +40,8 @@ interface DocApi {
   regenerateSection(r: object): Promise<unknown>;
   createSectionEli5(r: object): Promise<unknown>;
   askQuestion(r: object): Promise<unknown>;
+  askDeep(r: object): Promise<unknown>;
+  askDeeper(r: object): Promise<unknown>;
   closeTab(tabKey: string): Promise<unknown>;
   openExternal(url: string): Promise<unknown>;
   onScrollTo(cb: (e: unknown) => void): () => void;
@@ -216,6 +218,86 @@ describe('doc preload: askQuestion (08 Ask)', () => {
       null as unknown as object,
     ]) {
       expect(await api().askQuestion(bad)).toMatchObject({ ok: false, error: { code: 'E_BAD_REQUEST' } });
+    }
+    expect(invoke).not.toHaveBeenCalled();
+  });
+});
+
+describe('doc preload: askDeep (08 §6.9)', () => {
+  const ask = {
+    tabKey: 'indepth',
+    sectionId: 'sec-indepth-3f9a1c2e',
+    selectionText: 'judges every channel',
+    question: 'What does the report say about reach?',
+  };
+
+  it('sends ask-section with depth deep, the slug from the URL and only the known fields', async () => {
+    await api().askDeep({ ...ask, slug: 'someone-else', depth: 'quick', note: 'dropped', action: 'expand' });
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenCalledWith(IPC.doc.askSection, { ...ask, depth: 'deep', slug: 'example-widgets' });
+  });
+
+  it('askQuestion never sends a depth, even when the page passes one', async () => {
+    await api().askQuestion({ ...ask, depth: 'deep' });
+    expect(invoke).toHaveBeenCalledWith(IPC.doc.askSection, { ...ask, slug: 'example-widgets' });
+    expect(invoke.mock.calls[0]?.[1]).not.toHaveProperty('depth');
+  });
+
+  it('refuses without transient user activation; no IPC is sent', async () => {
+    activation.isActive = false;
+    expect(await api().askDeep(ask)).toEqual(forbidden);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it('applies the same shape checks as askQuestion', async () => {
+    const { question: _q, ...noQuestion } = ask;
+    for (const bad of [
+      noQuestion,
+      { ...ask, question: 'ab' },
+      { ...ask, question: 'w'.repeat(501) },
+      { ...ask, question: 'two\nlines?' },
+      { ...ask, selectionText: 'ab' },
+      { ...ask, sectionId: 'sec-eli5-3f9a1c2e' },
+      null as unknown as object,
+    ]) {
+      expect(await api().askDeep(bad)).toMatchObject({ ok: false, error: { code: 'E_BAD_REQUEST' } });
+    }
+    expect(invoke).not.toHaveBeenCalled();
+  });
+});
+
+describe('doc preload: askDeeper (08 §6.10)', () => {
+  const ask = {
+    tabKey: 'indepth',
+    sectionId: 'sec-indepth-3f9a1c2e',
+    selectionText: 'judges every channel',
+    question: 'What ROAS do shops usually aim for?',
+  };
+
+  it('sends ask-section with depth deeper, the slug from the URL and only the known fields', async () => {
+    await api().askDeeper({ ...ask, slug: 'someone-else', depth: 'deep', note: 'dropped', action: 'expand' });
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenCalledWith(IPC.doc.askSection, { ...ask, depth: 'deeper', slug: 'example-widgets' });
+  });
+
+  it('refuses without transient user activation; no IPC is sent', async () => {
+    activation.isActive = false;
+    expect(await api().askDeeper(ask)).toEqual(forbidden);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it('applies the same shape checks as askQuestion', async () => {
+    const { question: _q, ...noQuestion } = ask;
+    for (const bad of [
+      noQuestion,
+      { ...ask, question: 'ab' },
+      { ...ask, question: 'w'.repeat(501) },
+      { ...ask, question: 'two\nlines?' },
+      { ...ask, selectionText: 'ab' },
+      { ...ask, sectionId: 'sec-eli5-3f9a1c2e' },
+      null as unknown as object,
+    ]) {
+      expect(await api().askDeeper(bad)).toMatchObject({ ok: false, error: { code: 'E_BAD_REQUEST' } });
     }
     expect(invoke).not.toHaveBeenCalled();
   });

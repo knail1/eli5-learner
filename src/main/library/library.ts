@@ -41,6 +41,18 @@ import {
 } from './schema';
 import { chooseSlug, isValidSlug } from './slug';
 import {
+  SOURCES_DIR,
+  readSidecar,
+  removeSidecar,
+  sweepSidecar,
+  unionSidecars,
+  upsertSidecar,
+  validStagingSidecar,
+  writeStagingSidecar,
+  type SourceSidecar,
+  type SourceSidecarInput,
+} from './sources';
+import {
   cleanTopic,
   historyFromTree,
   isAvailable,
@@ -307,6 +319,11 @@ export class FsLibrary implements Library {
     return this.readOnlyReason !== undefined;
   }
 
+  /** HOOK-LIB-01 (09 §4.4): absent in the policy means retain. */
+  get retainsSourceText(): boolean {
+    return this.d.policy.retainSourceText !== false;
+  }
+
   /** 09 §8.5; the first reason wins. */
   enterReadOnly(reason: ReadOnlyReason): void {
     if (this.readOnlyReason === undefined) {
@@ -399,6 +416,68 @@ export class FsLibrary implements Library {
     return dir;
   }
 
+  // ---- retained source text (09 §4.4) ----
+
+  private sidecarOptions() {
+    return { sourceUrls: this.d.policy.sourceUrls, now: this.d.clock.now(), logger: this.d.logger };
+  }
+
+  /**
+   * Lock-free. null: no sidecar, an invalid manifest, or the policy is off. A referenced file that
+   * is missing is re-tried once after re-reading the manifest.
+   */
+  async readSources(slug: string): Promise<SourceSidecar | null> {
+    const dir = path.dirname(this.docPath(slug));
+    if (!this.retainsSourceText) return null;
+    return readSidecar(dir, slug, this.d.logger);
+  }
+
+  /** Writes `<stagingDir>/.sources/` (the pipeline save, before commitDocument). Policy off: null. */
+  async writeSourcesToStaging(
+    stagingDir: string,
+    inputs: SourceSidecarInput[],
+  ): Promise<{ count: number; bytes: number } | null> {
+    if (!this.retainsSourceText) return null;
+    const staging = await this.checkStaging(stagingDir);
+    if (inputs.length === 0) return { count: 0, bytes: 0 };
+    return writeStagingSidecar(staging, inputs, this.sidecarOptions());
+  }
+
+  /**
+   * Adds new texts to a live document's sidecar; replaces the entry with the same key whose text
+   * changed (key: `sourceSha256` when present, else kind + ref). Caller holds `withDocLock(slug)`.
+   * Read-only library or policy off: no-op.
+   */
+  async upsertSources(slug: string, inputs: SourceSidecarInput[]): Promise<void> {
+    if (this.readOnly || !this.retainsSourceText) return;
+    const dir = path.dirname(this.docPath(slug));
+    if (!this.holdsDocLock(slug)) {
+      if (this.d.devChecks) throw new LibraryError('LOCK_NOT_HELD', { slug });
+      return this.withDocLock(slug, () => this.upsertSources(slug, inputs));
+    }
+    if (!this.hasSlug(slug)) throw new LibraryError('NOT_FOUND', { slug });
+    const r = await upsertSidecar(dir, inputs, this.sidecarOptions());
+    if (r.added > 0) this.d.logger.info('library.sources-updated', { slug, count: r.added, bytes: r.bytes });
+  }
+
+  /**
+   * Appends `fromSlug`'s sidecar entries not already in the target's (by sha256), each tagged with
+   * `origin` (the outermost merge). Caller holds both doc locks. Missing source folder, read-only
+   * library or policy off: no-op. Idempotent.
+   */
+  async unionSourceSidecars(targetSlug: string, fromSlug: string, origin: string): Promise<void> {
+    if (this.readOnly || !this.retainsSourceText) return;
+    const target = path.dirname(this.docPath(targetSlug));
+    const from = path.dirname(this.docPath(fromSlug));
+    if (!this.holdsDocLock(targetSlug) || !this.holdsDocLock(fromSlug)) {
+      throw new LibraryError('LOCK_NOT_HELD', { slug: targetSlug });
+    }
+    const st = await fsp.lstat(from).catch(() => undefined);
+    if (!st?.isDirectory()) return;
+    const r = await unionSidecars(target, from, fromSlug, origin, this.sidecarOptions());
+    if (r.added > 0) this.d.logger.info('library.sources-merged', { slug: targetSlug, count: r.added });
+  }
+
   // ---- locks (09 §8.3) ----
 
   withDocLock<T>(slug: string, fn: () => Promise<T>): Promise<T> {
@@ -452,7 +531,11 @@ export class FsLibrary implements Library {
     });
   }
 
-  /** 09 §8.2. `stagingDir` must be `<root>/.staging/<jobId>/` holding exactly index.html + meta.json. */
+  /**
+   * 09 §8.2. `stagingDir` must be `<root>/.staging/<jobId>/` holding exactly index.html + meta.json,
+   * plus an optional `.sources/` sidecar (09 §4.4): a real directory of `manifest.json` and
+   * `src-NN.md` files only.
+   */
   async commitDocument(r: SlugReservation, stagingDir: string, meta: DocumentMeta): Promise<CatalogEntry> {
     this.assertWritable();
     const slug = r.slug;
@@ -465,7 +548,13 @@ export class FsLibrary implements Library {
       if (!parsed.success) throw new LibraryError('META_INVALID', { slug });
       const clean = sanitizeMeta(parsed.data, this.d.policy.sourceUrls);
       const names = (await fsp.readdir(staging)).sort();
-      if (names.length !== 2 || names[0] !== INDEX_FILE || names[1] !== META_FILE) {
+      const files = names.filter((n) => n !== SOURCES_DIR);
+      if (
+        files.length !== 2 ||
+        files[0] !== INDEX_FILE ||
+        files[1] !== META_FILE ||
+        (names.includes(SOURCES_DIR) && !(await validStagingSidecar(staging)))
+      ) {
         throw new LibraryError('WRITE_FAILED', { slug, kind: 'staging-contents' });
       }
       // The committed meta.json is the validated, sanitized one.
@@ -1529,10 +1618,21 @@ export class FsLibrary implements Library {
       ...docDirs,
       ...docDirs.flatMap((d) => {
         const v = versionPaths(d);
-        return [v.dir, v.nodes, v.blobs];
+        return [v.dir, v.nodes, v.blobs, path.join(d, SOURCES_DIR)];
       }),
     ];
     let removed = 0;
+    // 09 §4.4: retained source text. Policy off: every sidecar goes, live and trashed alike.
+    if (this.retainsSourceText) {
+      for (const d of docDirs) removed += await sweepSidecar(d, now).catch(() => 0);
+    } else {
+      const trashed = (await fsp.readdir(path.join(this.root, TRASH_DIR)).catch(() => [] as string[])).map((n) =>
+        path.join(this.root, TRASH_DIR, n),
+      );
+      let gone = 0;
+      for (const d of [...docDirs, ...trashed]) gone += await removeSidecar(d).catch(() => 0);
+      if (gone > 0) this.d.logger.info('library.sources-removed', { count: gone });
+    }
     for (const dir of dirs) {
       const names = await fsp.readdir(dir).catch(() => [] as string[]);
       for (const n of names) {
@@ -1680,6 +1780,7 @@ function nodeRecordFor(
     ...(c?.target ? { target: { ...c.target } } : {}),
     ...(c?.undoTarget ? { undoTarget: { ...c.undoTarget } } : {}),
     ...(c?.jobId ? { jobId: c.jobId } : {}),
+    ...(c?.kind === 'ask' && (c.depth === 'deep' || c.depth === 'deeper') ? { depth: c.depth } : {}),
   };
   // A malformed target must not make tree.json unreadable: drop the extras rather than the node.
   return VersionNodeRecordSchema.safeParse(full).success ? full : base;

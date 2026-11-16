@@ -230,6 +230,62 @@ describe('VersionTreePanel (11 §5.7)', () => {
     expect(fake.api.doc.checkout).not.toHaveBeenCalled();
   });
 
+  it("a deep ask shows 'Asked (deep)' with its question, and a deep pending row 'Answering in depth…'", async () => {
+    const base = tree();
+    const { host } = await mount({
+      ...base,
+      currentId: 'd',
+      busy: true,
+      redoId: undefined,
+      nodes: [
+        ...base.nodes,
+        versionNode({
+          id: 'd',
+          parentId: 'b',
+          kind: 'ask',
+          depth: 'deep',
+          topic: 'Why tiers',
+          label: "asked (deep) about 'Pricing'",
+          question: 'Why three tiers?',
+          createdAt: at(4),
+        }),
+      ],
+      pending: [{ sectionId: 's1' as SectionId, action: 'ask', depth: 'deep', heading: 'Pricing' }],
+    });
+    expect(item(host, 'd')?.querySelector('.version-meta')?.textContent).toMatch(/^Asked \(deep\) · /);
+    expect(item(host, 'd')?.querySelector('.version-question')?.textContent).toBe('“Why three tiers?”');
+    expect(item(host, 'x')?.querySelector('.version-meta')?.textContent).toMatch(/^Asked · /);
+    expect(item(host, 'd')?.querySelector('.version-pending')?.textContent).toBe('Answering in depth… · Pricing');
+    expect(host.querySelector('.visually-hidden')?.textContent).toContain('Answering in depth… Pricing');
+  });
+
+  it("an Ask deeper shows 'Asked (deeper)', and its pending row 'Searching further…'", async () => {
+    const base = tree();
+    const { host } = await mount({
+      ...base,
+      currentId: 'd',
+      busy: true,
+      redoId: undefined,
+      nodes: [
+        ...base.nodes,
+        versionNode({
+          id: 'd',
+          parentId: 'b',
+          kind: 'ask',
+          depth: 'deeper',
+          topic: 'Typical tiers',
+          label: "asked (deeper) about 'Pricing'",
+          question: 'What do other shops charge?',
+          createdAt: at(4),
+        }),
+      ],
+      pending: [{ sectionId: 's1' as SectionId, action: 'ask', depth: 'deeper', heading: 'Pricing' }],
+    });
+    expect(item(host, 'd')?.querySelector('.version-meta')?.textContent).toMatch(/^Asked \(deeper\) · /);
+    expect(item(host, 'd')?.querySelector('.version-pending')?.textContent).toBe('Searching further… · Pricing');
+    expect(host.querySelector('.visually-hidden')?.textContent).toContain('Searching further… Pricing');
+  });
+
   it('shows the detached and degraded banners in a polite live region', async () => {
     const { host } = await mount(tree({ detached: true, degraded: true }));
     const live = host.querySelector('[aria-live="polite"]');

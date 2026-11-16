@@ -164,14 +164,20 @@ test.describe('find in document', () => {
     const viewer = app.windows().find((p) => p.url().startsWith(url));
     if (!viewer) throw new Error('viewer page not found');
     await findField(win).fill('online');
+    // Enter starts the 'online' search at once, so the count read next is not the 'widget' one
+    // still showing during the debounce.
+    await findField(win).press('Enter');
     await expect(findCount(win)).toHaveText(/^1 of \d+$/);
     const inDepth = (await count(win))?.of;
     await viewer.getByRole('tab', { name: 'ELI5' }).click();
     // Only a fresh search counts the ELI5 tab's matches; a new search starts from the clicked tab,
-    // so the active match need not be the first.
+    // so the active match need not be the first. Wait for a count before each comparison, so a
+    // count briefly cleared by the new search cannot pass.
+    await expect(findCount(win)).toHaveText(/^\d+ of \d+$/);
     await expect.poll(async () => (await count(win))?.of).not.toBe(inDepth);
     await expect(findCount(win)).toHaveText(/^\d+ of \d+$/);
     await viewer.getByRole('tab', { name: 'In depth' }).click();
+    await expect(findCount(win)).toHaveText(/^\d+ of \d+$/);
     await expect.poll(async () => (await count(win))?.of).toBe(inDepth);
   });
 

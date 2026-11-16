@@ -104,6 +104,12 @@ describe('checkTrackedPaths (13 §11 rule 1, 12 §12 gate 2)', () => {
     expect(bad(paths)).toEqual(paths);
   });
 
+  it('flags a tracked retained-source sidecar anywhere (09 §4.4)', () => {
+    const paths = ['my-doc/.sources/manifest.json', 'test/fixtures/x/.sources/src-01.md', '.sources/src-02.md'];
+    expect(bad(paths)).toEqual(paths);
+    expect(bad(['src/main/library/sources.ts', 'test/unit/main/library/sources.test.ts'])).toEqual([]);
+  });
+
   it('flags Android and sync secrets, build output and IDE files (16 §11)', () => {
     const paths = [
       'android/local.properties',
@@ -503,7 +509,14 @@ describe('this repository', () => {
 
   it('whitelists exactly the public Pages paths from .gitignore', () => {
     const allow = parseAllowFile(readFileSync(join(repoRoot, 'config', 'hygiene-allow'), 'utf8'));
-    expect(allow.paths).toEqual(['docs/.gitkeep', 'docs/.nojekyll', 'docs/index.html', 'docs/sample/', 'docs/guides/']);
+    expect(allow.paths).toEqual([
+      'docs/.gitkeep',
+      'docs/.nojekyll',
+      'docs/index.html',
+      'docs/sample/',
+      'docs/guides/',
+      'docs/privacy/',
+    ]);
   });
 
   it('keeps secret exceptions narrow: no directory-wide test/** and no unpinned bundle-chunk globs', () => {

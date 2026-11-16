@@ -5,7 +5,15 @@ import { attrs, esc, escAttr } from '../html';
 import { toDataUri } from '../images';
 import { renderInline, renderInlineMany, type DfnAnchor, type InlineMarks } from '../inline-md';
 import { creditHtml } from './credit';
-import type { AssetRef, BlockEnhancement, DocBlock, GlossaryNote } from '../types';
+import type {
+  AnswerReach,
+  AnswerSourceMode,
+  AnswerWebPage,
+  AssetRef,
+  BlockEnhancement,
+  DocBlock,
+  GlossaryNote,
+} from '../types';
 
 /** How a merge's marks are written (07 §6.4): the `<ins>` opening tag and the hover text. */
 export interface MergeMarkup {
@@ -195,20 +203,92 @@ function renderFigure(b: Extract<DocBlock, { type: 'figure' }>, ctx: BlockContex
  * chip on the box's top edge and is always plain text; the answer paragraphs are inline markdown.
  */
 function renderQa(b: Extract<DocBlock, { type: 'qa' }>): string {
+  const deep = b.depth === 'deep';
+  const deeper = b.depth === 'deeper';
+  const badge = deep ? deepAnswerBadge(b.sources) : deeper ? deeperAnswerBadge(b.reach, (b.web?.length ?? 0) > 0) : '';
+  const pages = deeper && b.web?.length ? b.web : [];
   return (
     `<aside${attrs([
-      ['class', 'qa'],
+      ['class', deep ? 'qa qa-deep' : deeper ? 'qa qa-deeper' : 'qa'],
       ['id', b.id],
-      ['aria-label', 'Answer to a reader question'],
+      [
+        'aria-label',
+        deep
+          ? 'Deep answer to a reader question'
+          : deeper
+            ? 'Deeper answer to a reader question'
+            : 'Answer to a reader question',
+      ],
     ])}>` +
     '<details class="qa-q"><summary class="qa-chip"><span class="qa-mark" aria-hidden="true">?</span>' +
     '<span class="qa-cap">You asked</span></summary>' +
     `<p class="qa-q-text">${esc(b.question)}</p>` +
     (b.quote ? `<p class="qa-q-about">About: “${esc(b.quote)}”</p>` : '') +
     '</details>' +
-    `<div class="qa-a">${b.paragraphs.map((p) => `<p>${renderInline(p)}</p>`).join('')}</div>` +
+    // 07 §6.5: outside .qa-a, and never part of a selection snapshot (data-eli5-noact).
+    (badge ? `<p class="qa-badge" data-eli5-noact>${esc(badge)}</p>` : '') +
+    // 08 §6.9 decision 10: a deep or deeper box never shows a link, whatever its stored text says.
+    `<div class="qa-a">${b.paragraphs.map((p) => `<p>${renderInline(p, [], undefined, { links: !(deep || deeper) })}</p>`).join('')}</div>` +
+    // 08 §6.10 step 7: the pages a deeper answer used, as plain text (never an <a>).
+    (pages.length
+      ? '<ul class="qa-web" data-eli5-noact aria-label="Web pages used">' +
+        pages.map((w) => `<li>${esc(webPageText(w))}</li>`).join('') +
+        '</ul>'
+      : '') +
     '</aside>'
   );
+}
+
+/** 07 §6.5: what a deep answer box says about the source text it was checked against (UI text). */
+export const DEEP_ANSWER_BADGE_TEXT: Readonly<Record<AnswerSourceMode, string>> = {
+  all: 'checked against the original sources',
+  excerpts: 'checked against excerpts of the original sources',
+  none: 'the original source text is not available for this document, so this answer uses the tabs only',
+};
+
+/** "Deep answer · <text>"; just "Deep answer" when the mode is missing. */
+export function deepAnswerBadge(mode: AnswerSourceMode | undefined): string {
+  return mode ? `Deep answer · ${DEEP_ANSWER_BADGE_TEXT[mode]}` : 'Deep answer';
+}
+
+/** 07 §6.5 / 08 §6.10: what a deeper answer box says about how far it went (UI text). */
+export const DEEPER_ANSWER_BADGE_TEXT: Readonly<Record<AnswerReach, string>> = {
+  material: 'found in the document and its original sources',
+  web: 'includes information from the web (pages listed below)',
+  general: "includes the AI's general knowledge, not from the document or the web",
+};
+
+/**
+ * "Deeper answer · <text>"; just "Deeper answer" when the reach is missing. A web answer whose
+ * pages were all dropped (none reported by the provider) does not point at a list that is not there.
+ */
+export function deeperAnswerBadge(reach: AnswerReach | undefined, hasPages = true): string {
+  if (!reach) return 'Deeper answer';
+  if (reach === 'web' && !hasPages) return 'Deeper answer · includes information from the web';
+  // A general answer may also use the web (08 §6.10): say both when pages are listed.
+  if (reach === 'general' && hasPages)
+    return "Deeper answer · includes information from the web (pages listed below) and the AI's general knowledge";
+  return `Deeper answer · ${DEEPER_ANSWER_BADGE_TEXT[reach]}`;
+}
+
+/**
+ * 07 §6.5: a page's address as shown in a deeper box: host and path, no scheme, query or
+ * fragment, a trailing "/" dropped. The URL is not decoded, so it is shown as stored.
+ */
+export function webPageLabel(url: string): string {
+  try {
+    const u = new URL(url);
+    const path = u.pathname === '/' ? '' : u.pathname.replace(/\/$/, '');
+    return `${u.host}${path}`;
+  } catch {
+    return '';
+  }
+}
+
+/** "Title — host/path" (just the title when the URL does not parse). */
+export function webPageText(w: AnswerWebPage): string {
+  const where = webPageLabel(w.url);
+  return where ? `${w.title} — ${where}` : w.title;
 }
 
 /** One block plus the glossary notes anchored in it (rendered right after the block, 07 §9.2). */

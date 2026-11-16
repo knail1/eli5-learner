@@ -1,7 +1,6 @@
 package io.github.eli5learner.capture
 
 import android.Manifest
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -18,6 +17,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.eli5learner.AppContainer
 import io.github.eli5learner.R
+import io.github.eli5learner.share.OwnUris
 import io.github.eli5learner.ui.theme.Eli5Theme
 import kotlinx.coroutines.launch
 
@@ -34,17 +34,7 @@ class CaptureActivity : ComponentActivity() {
     }
 
     /** A `content:` URI whose provider belongs to this app (any of its providers, exported or not). */
-    private fun isOwnUri(uri: Uri): Boolean {
-        val authority = uri.authority ?: return true
-        val provider =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                packageManager.resolveContentProvider(authority, PackageManager.ComponentInfoFlags.of(0))
-            } else {
-                @Suppress("DEPRECATION")
-                packageManager.resolveContentProvider(authority, 0)
-            }
-        return provider?.packageName == packageName
-    }
+    private fun isOwnUri(uri: Uri): Boolean = OwnUris.isOwn(this, uri)
 
     private val askPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->

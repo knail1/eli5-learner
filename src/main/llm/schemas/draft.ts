@@ -213,6 +213,20 @@ export const SectionAnswerDraftSchema = z.object({
 });
 export type SectionAnswerDraft = z.infer<typeof SectionAnswerDraftSchema>;
 
+/** How far an Ask deeper answer went (08 §6.10): the document material, the web, or general knowledge. */
+export const ANSWER_REACHES = ['material', 'web', 'general'] as const;
+export type AnswerReachDraft = (typeof ANSWER_REACHES)[number];
+
+/**
+ * The Ask deeper answer (02 §10, 08 §6.10): the answer, the farthest step it used (`reach`) and the
+ * web pages it used. The app keeps only `web` entries whose URL the provider reported for the call.
+ */
+export const SectionDeeperAnswerDraftSchema = SectionAnswerDraftSchema.extend({
+  reach: z.enum(ANSWER_REACHES),
+  web: z.array(z.object({ title: z.string().max(300), url: z.string().min(1).max(2000) })).max(6),
+});
+export type SectionDeeperAnswerDraft = z.infer<typeof SectionDeeperAnswerDraftSchema>;
+
 /**
  * The ASD-STE100 tab as the `ste` prompt writes it (02 §10, D15): text blocks rewritten in STE, and
  * `keep` references to the visuals of the same in-depth section, which `resolveSte` (ste.ts) copies
@@ -252,6 +266,7 @@ export const DRAFT_SCHEMAS = {
   PhotoPickDraft: PhotoPickDraftSchema,
   MergePlanDraft: MergePlanDraftSchema,
   SectionAnswerDraft: SectionAnswerDraftSchema,
+  SectionDeeperAnswerDraft: SectionDeeperAnswerDraftSchema,
   SteDraft: SteDraftSchema,
 } as const;
 export type DraftSchemaName = keyof typeof DRAFT_SCHEMAS;

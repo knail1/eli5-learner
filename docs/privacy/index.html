@@ -46,6 +46,11 @@
   <hr class="rule">
   <ul>
     <li>The documents you generate and their version history, in the app's folder on your Mac.</li>
+    <li>A private copy of the text extracted from each document's sources, kept in that document's folder so
+      Ask deep can check answers against the original. It is never published or synced by the app, it is sent only
+      to your AI provider when you use Ask deep or Ask deeper, and it is removed with the document. If you merged the document
+      into another one, a copy stays with the merged document until that one is deleted. If you keep the library in a
+      cloud-synced folder, this copy is there too, like your documents.</li>
     <li>Your AI provider API key, in the macOS Keychain.</li>
     <li>If you turn on sync: a Google sign-in token, in the macOS Keychain on the desktop and in Android's
       account system on the phone.</li>
@@ -57,6 +62,10 @@
     <li><strong>To the AI provider you choose</strong> (Anthropic or OpenAI): the source material you give the app and
       the instructions needed to write your document, sent with your own API key. That provider's own privacy
       policy applies.</li>
+    <li><strong>When you use Ask deeper</strong>: your AI provider may search the web for you with its own search
+      tool. The provider writes the search queries from your question and the document, so words from either can
+      appear in them, and its search partner's policy applies too. The app itself never opens those pages; it only
+      writes the titles and addresses of the pages an answer used into the document, as plain text.</li>
     <li><strong>To public web pages you add as sources</strong>: an ordinary request to fetch the page.</li>
     <li><strong>To your Google Drive, only if you turn on sync</strong>: your documents and their versions.</li>
   </ul>
