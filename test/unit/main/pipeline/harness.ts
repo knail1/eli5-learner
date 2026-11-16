@@ -120,6 +120,12 @@ export function libraryPort(lib: FsLibrary, over: Partial<PipelineLibrary> = {})
     updateDocument: (s, p) => lib.updateDocument(s, p),
     versions: (s) => lib.versions(s),
     readVersion: (s, id) => lib.readVersion(s, id),
+    // Retained source text (09 §4.4); a test drops these to model a library without a sidecar.
+    get retainsSourceText() {
+      return lib.retainsSourceText;
+    },
+    writeSourcesToStaging: (d, i) => lib.writeSourcesToStaging(d, i),
+    upsertSources: (s, i) => lib.upsertSources(s, i),
     ...over,
   };
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { DocVersionNode, DocVersionTree } from '../../../preload/contract';
 import { relativeDate } from '../library/order';
-import { layoutVersionTree, PENDING_VERBS, versionVerb, type VersionRow } from './version-tree-layout';
+import { layoutVersionTree, pendingVerb, versionVerb, type VersionRow } from './version-tree-layout';
 
 /**
  * Versions panel (11 §5.7, PRD *Versions*): the open document's versions as a WAI-ARIA tree. A
@@ -287,14 +287,14 @@ export function VersionTreePanel(p: {
           {row.isCurrent &&
             tree?.pending.map((pd, i) => (
               <div key={`pending-${i}`} className="version-pending muted" aria-hidden="true">
-                {PENDING_VERBS[pd.action] ?? 'Updating…'} · {pd.heading}
+                {pendingVerb(pd)} · {pd.heading}
               </div>
             ))}
         </li>
       );
     });
 
-  const pendingText = tree?.pending.map((pd) => `${PENDING_VERBS[pd.action] ?? 'Updating…'} ${pd.heading}`).join('; ');
+  const pendingText = tree?.pending.map((pd) => `${pendingVerb(pd)} ${pd.heading}`).join('; ');
 
   return (
     <aside

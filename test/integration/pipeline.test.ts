@@ -15,7 +15,7 @@ import { Registry } from '../../src/main/editions/registry';
 import { createFetcher, inProcessReadability, nodeTransport, type Fetcher } from '../../src/main/fetch';
 import { requestHeaders } from '../../src/main/fetch/network';
 import { Politeness } from '../../src/main/fetch/politeness';
-import { CATALOG_FILE, openLibrary, type DocumentMeta, type FsLibrary } from '../../src/main/library';
+import { CATALOG_FILE, openLibrary, sourcesForMeta, type DocumentMeta, type FsLibrary } from '../../src/main/library';
 import type { LlmTasks } from '../../src/main/llm';
 import { FakeProvider, loadFakeScript, type FakeScript } from '../../src/main/llm/testing/fake';
 import {
@@ -234,6 +234,36 @@ describe('pipeline integration (06 acceptance, 13 §2)', () => {
     expect(html).toContain('policy-memo.docx');
     expect(await exists(path.join(app.userData, 'jobs', jobId))).toBe(false);
     expect(await readdir(path.join(app.lib.root, '.staging'))).toEqual([]);
+    app.rt.dispose();
+  });
+
+  it('keeps the extracted source text in .sources/, matching meta.sourcesUsed (09 §4.4)', async () => {
+    const app = await launch();
+    const { jobId } = await app.queue.start({
+      inputs: [file('sources/text/notes.md'), file('sources/docx/policy-memo.docx'), url(server.url('/article/'))],
+      options: opts,
+    });
+    const job = await app.finished(jobId);
+    expect(job.status).toBe('done');
+    const slug = job.result?.topicSlug ?? '';
+    const sc = await app.lib.readSources(slug);
+    expect(sc?.manifest.sources.map((e) => [e.kind, e.stored])).toEqual([
+      ['file', 'text'],
+      ['file', 'text'],
+      ['url', 'text'],
+    ]);
+    expect(sc?.manifest.sources.map((e) => e.ref).slice(0, 2)).toEqual(['notes.md', 'policy-memo.docx']);
+    const { meta, html } = await savedDoc(app, slug);
+    const m = sourcesForMeta(sc ?? null, meta.sourcesUsed);
+    expect(m.missing).toEqual([]);
+    expect(Object.keys(m.texts)).toEqual(['src-01', 'src-02', 'src-03']);
+    // The kept text never lands in the document files.
+    const kept = Object.values(sc?.texts ?? {}).map((t) => t.split('\n').find((l) => l.length > 40) ?? '');
+    for (const line of kept.filter(Boolean)) {
+      expect(JSON.stringify(meta)).not.toContain(line);
+      expect(await readFile(path.join(app.lib.root, CATALOG_FILE), 'utf8')).not.toContain(line);
+    }
+    expect(html).not.toContain('.sources');
     app.rt.dispose();
   });
 

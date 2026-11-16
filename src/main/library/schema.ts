@@ -136,6 +136,8 @@ export const AskRecordSchema = z.object({
   question: z.string().min(1).max(500),
   qaId: z.string().regex(QA_ID_RE),
   jobId: z.string(),
+  // 08 §6.9, §6.10; an unknown value from a newer app is dropped, not a parse failure.
+  depth: z.enum(['deep', 'deeper']).optional().catch(undefined),
 });
 
 /** 10 §3.2. */
@@ -228,6 +230,8 @@ export const VersionNodeRecordSchema = z.object({
   bytes: z.number().int().min(0),
   forwardId: VersionId.optional(),
   jobId: z.string().optional(),
+  // 08 §6.9, §6.10; an unknown value from a newer app is dropped, not a parse failure.
+  depth: z.enum(['deep', 'deeper']).optional().catch(undefined),
 });
 
 export const VersionTreeFileSchema = z.object({

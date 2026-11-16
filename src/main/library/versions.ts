@@ -243,6 +243,7 @@ export function toWire(view: VersionTreeView, extras: { busy: boolean; pending: 
       ...(n.heading !== undefined ? { heading: n.heading } : {}),
       ...(n.question !== undefined ? { question: n.question } : {}),
       ...(n.target !== undefined ? { target: { ...n.target } } : {}),
+      ...(n.depth === 'deep' || n.depth === 'deeper' ? { depth: n.depth } : {}),
       available: isAvailable(n),
       published: n.sha256 !== null && n.sha256 === view.publishedSha,
     })),

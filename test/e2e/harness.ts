@@ -248,18 +248,26 @@ export interface RecordedCall {
   imageCount: number;
   /** All message text of the request, joined. */
   text: string;
+  /** Provider web search, when the request asked for it (Ask deeper, 08 §6.10). */
+  webSearch?: { maxUses: number };
 }
 
 /** Every request the test build's FakeProvider(s) recorded, in order (13 §8.2 E2). */
 export async function fakeCalls(app: ElectronApplication): Promise<RecordedCall[]> {
   return app.evaluate(() => {
-    type Call = { taskId: string; imageCount: number; messages: { text: string }[] };
+    type Call = {
+      taskId: string;
+      imageCount: number;
+      messages: { text: string }[];
+      webSearch?: { maxUses: number };
+    };
     const providers = (globalThis as { __eli5FakeProviders?: { calls: Call[] }[] }).__eli5FakeProviders ?? [];
     return providers.flatMap((p) =>
       p.calls.map((c) => ({
         taskId: c.taskId,
         imageCount: c.imageCount,
         text: c.messages.map((m) => m.text).join('\n'),
+        ...(c.webSearch ? { webSearch: c.webSearch } : {}),
       })),
     );
   });

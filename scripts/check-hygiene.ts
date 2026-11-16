@@ -105,6 +105,8 @@ function trackedPathReason(p: string, allow: readonly string[]): string | null {
   if (p.startsWith('enterprise/')) return 'the enterprise overlay is private (HOOK-CFG-02)';
   if (p === 'spec/internal.md') return 'the private spec is never committed';
   if (p.startsWith('.library/')) return 'the dev library holds generated learnings';
+  // 09 §4.4: a document's kept source text (`<slug>/.sources/`) belongs to the library only.
+  if (/(^|\/)\.sources\//.test(p)) return 'retained source text is never committed';
   const name = basename(p);
   if (name.startsWith('.env') && name !== '.env.example') return 'env files are never committed';
   if (/\.(pem|p12|key)$/i.test(name)) return 'key material is never committed';

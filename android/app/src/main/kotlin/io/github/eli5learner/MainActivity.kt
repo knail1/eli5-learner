@@ -10,6 +10,7 @@ import androidx.activity.viewModels
 import androidx.core.content.IntentCompat
 import io.github.eli5learner.auth.AccountViewModel
 import io.github.eli5learner.library.LibraryViewModel
+import io.github.eli5learner.share.OwnUris
 import io.github.eli5learner.ui.nav.AppNav
 import io.github.eli5learner.ui.theme.Eli5Theme
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,6 +40,8 @@ class MainActivity : ComponentActivity() {
         val container = AppContainer.from(this)
         container.syncScheduler.start(container.authorizer.state)
         container.syncScheduler.watchJobs(container.outbox.active)
+        // Share copies older than a day (16 §6.5), off the main thread.
+        if (savedInstanceState == null) container.docSharer.cleanupIn(container.appScope)
         setContent {
             Eli5Theme {
                 AppNav(container = AppContainer.from(this), library = library, account = account, openInbox = openInbox)
@@ -68,7 +71,8 @@ class MainActivity : ComponentActivity() {
             openInbox.value += 1
             return
         }
-        val uris = importUris(intent) ?: return
+        // This app's own share copies are refused (16 §6.5): MainActivity is exported.
+        val uris = importUris(intent) { OwnUris.isOwn(this, it) } ?: return
         library.import(uris)
     }
 
@@ -81,13 +85,17 @@ class MainActivity : ComponentActivity() {
 
         /**
          * URIs to import from a VIEW or SEND intent, or null when the intent is not an import. An
-         * intent relaunched from Recents was already handled when it first arrived.
+         * intent relaunched from Recents was already handled when it first arrived. URIs for which
+         * [isOwn] is true (this app's own providers, such as the share FileProvider) are dropped.
          */
-        fun importUris(intent: Intent?): List<Uri>? =
+        fun importUris(
+            intent: Intent?,
+            isOwn: (Uri) -> Boolean = { false },
+        ): List<Uri>? =
             if (intent != null && intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) {
                 null
             } else {
-                importUrisOf(intent)
+                importUrisOf(intent)?.filterNot(isOwn)
             }
 
         private fun importUrisOf(intent: Intent?): List<Uri>? =

@@ -1,4 +1,4 @@
-import type { DocVersionNode, DocVersionTree } from '../../../preload/contract';
+import type { DocVersionNode, DocVersionPending, DocVersionTree } from '../../../preload/contract';
 
 /**
  * Pure layout of a document's version tree for the Versions panel (11 §5.7).
@@ -167,10 +167,19 @@ export const REBUILT_VERB = 'Rebuilt with new prompts';
  * The History verb of one version. A rebuild reuses kind 'outside' (0.3.0 phones parse the kind
  * strictly), so it is told apart by its label; everything else uses VERSION_VERBS.
  */
-export function versionVerb(n: Pick<DocVersionNode, 'kind' | 'label'>): string {
+export function versionVerb(n: Pick<DocVersionNode, 'kind' | 'label' | 'depth'>): string {
   if (n.kind === 'outside' && n.label.startsWith(REBUILT_LABEL_PREFIX)) return REBUILT_VERB;
+  if (n.kind === 'ask' && n.depth === 'deep') return DEEP_ASK_VERB;
+  if (n.kind === 'ask' && n.depth === 'deeper') return DEEPER_ASK_VERB;
   return (VERSION_VERBS as Record<string, string | undefined>)[n.kind] ?? n.kind;
 }
+
+/** 11 §5.7: a Deep Ask (08 §6.9) is kind 'ask' with depth 'deep'. */
+export const DEEP_ASK_VERB = 'Asked (deep)';
+export const DEEP_ASK_PENDING = 'Answering in depth…';
+/** 11 §5.7: Ask deeper (08 §6.10) is kind 'ask' with depth 'deeper'. */
+export const DEEPER_ASK_VERB = 'Asked (deeper)';
+export const DEEPER_ASK_PENDING = 'Searching further…';
 
 /** Provisional row text while a section job runs, e.g. "Answering…". */
 export const PENDING_VERBS: Record<string, string> = {
@@ -183,3 +192,10 @@ export const PENDING_VERBS: Record<string, string> = {
   'eli5-tab': 'Making an ELI5 tab…',
   'eli5-selection': 'Explaining the selection…',
 };
+
+/** The provisional verb of one pending row: a deep ask has its own (08 §6.9). */
+export function pendingVerb(pd: Pick<DocVersionPending, 'action' | 'depth'>): string {
+  if (pd.action === 'ask' && pd.depth === 'deep') return DEEP_ASK_PENDING;
+  if (pd.action === 'ask' && pd.depth === 'deeper') return DEEPER_ASK_PENDING;
+  return PENDING_VERBS[pd.action] ?? 'Updating…';
+}

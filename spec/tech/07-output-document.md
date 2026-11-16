@@ -140,7 +140,19 @@ export interface QaDocBlock {
   quote: string;                  // <= 160 chars, excerpt of the selection it answers
   paragraphs: string[];           // 1..4 inline-markdown paragraphs, each <= 1200 chars
   askedAt: string;
+  depth?: 'deep' | 'deeper';      // Ask deep (08 §6.9) or Ask deeper (08 §6.10); absent = quick
+  sources?: AnswerSourceMode;     // only with depth: what the answer was checked against (6.5)
+  reach?: AnswerReach;            // only with depth 'deeper': how far the answer went (6.5 badge)
+  web?: { title: string; url: string }[]; // only with depth 'deeper': 0..6 pages it used (6.5)
 }
+/**
+ * Ask deep source mode (08 §6.9) and Ask deeper reach (08 §6.10). Zod: depth z.enum(['deep',
+ * 'deeper']), sources z.enum([...]), reach z.enum([...]), web an array of {title (1..120), url
+ * (http/https, <= 2,000)} up to 6; each optional and `.catch(undefined)`, so an unknown value
+ * from a newer app degrades to a plain box instead of failing the parse.
+ */
+export type AnswerSourceMode = 'all' | 'excerpts' | 'none';
+export type AnswerReach = 'material' | 'web' | 'general';
 
 export interface AssetRef { id: string; mime: 'image/png' | 'image/jpeg' | 'image/webp';
                             width: number; height: number; sha256: string; label: string }
@@ -338,7 +350,7 @@ the runtime changed) the runtime blocks.
 
 **Runtime upgrades.** A document keeps its embedded runtime (`generator.runtimeVersion`, the
 `eli5-css` and `eli5-runtime` blocks) until one of these explicit exceptions re-renders the same
-model with the bundled runtime (`bundledDocRuntime()`, `DOC_RUNTIME_VERSION`, currently `1.3.4`, animation shell version 5; `1.3.3` was animation shell version 4; `1.3.2` was the 3:1 `--viz-muted` of 11.1 and animation shell version 3; `1.3.1` was the shared chart palette of 11.1; `1.3.0` was the first runtime with animation frames, 7.1; `1.2.0` was an unreleased runtime whose fixed, built-in animation kinds were removed before release):
+model with the bundled runtime (`bundledDocRuntime()`, `DOC_RUNTIME_VERSION`, currently `1.5.0`, the Ask deep and Ask deeper buttons with their ⓘ tooltips and the deeper answer box styles (08 §5.1, §6.10, 6.5); `1.4.0` was the first Deep ask button and the deep answer box styles (08 §6.9, 6.5); `1.3.4` was animation shell version 5; `1.3.3` was animation shell version 4; `1.3.2` was the 3:1 `--viz-muted` of 11.1 and animation shell version 3; `1.3.1` was the shared chart palette of 11.1; `1.3.0` was the first runtime with animation frames, 7.1; `1.2.0` was an unreleased runtime whose fixed, built-in animation kinds were removed before release):
 
 1. **On open** ([08](08-interactive-reading.md) §5.1): when a document with an older runtime is
    opened in the app's viewer, the library is writable, the document parses and nothing in it is
@@ -573,6 +585,30 @@ text; markdown in it is not rendered):
 - **Print:** the question shows as a static "You asked: …" line (the `<details>` content is
   forced visible and the chip is hidden); `.qa` keeps its tint (`print-color-adjust: exact`).
 - "Hide highlights" (6.4) does not hide answers; they are content.
+- **Deep answers** (08 §6.9, `depth: 'deep'`). Non-deep output is byte-identical to the markup above. A deep box adds the class `qa-deep`, its own label and a badge line, a sibling **before** `.qa-a`:
+
+  ```html
+  <aside class="qa qa-deep" id="q-1a2b3c4d" aria-label="Deep answer to a reader question">
+    <details class="qa-q">…same chip, caption "You asked"…</details>
+    <p class="qa-badge" data-eli5-noact>Deep answer · {badge text}</p>
+    <div class="qa-a"><p>…</p></div>
+  </aside>
+  ```
+
+  The badge text comes from `sources`, never from the model: `all` → `checked against the original sources`; `excerpts` → `checked against excerpts of the original sources`; `none` → `the original source text is not available for this document, so this answer uses the tabs only`. The badge sits outside `.qa-a` and carries `data-eli5-noact`, so a selection inside the answer (for a follow-up question) never picks it up. These are UI strings: `toDraftBlock` drops `qa` blocks, so models never see them. Style: `.qa-deep` gets an accent edge and `.qa-badge` a small caps-style line with light and dark tokens, readable in print and without JS. Deep answer paragraphs carry no links: `insertAnswer` stores every `[text](url)` of a deep answer as its text. The Markdown export (10 §5) writes the badge line in italics.
+- **Deeper answers** (08 §6.10, `depth: 'deeper'`). The box has the class `qa-deeper` (not also `qa-deep`), the label "Deeper answer to a reader question", the same badge position, and, when it kept web pages, a plain-text page list after `.qa-a`:
+
+  ```html
+  <aside class="qa qa-deeper" id="q-1a2b3c4d" aria-label="Deeper answer to a reader question">
+    <details class="qa-q">…same chip…</details>
+    <p class="qa-badge" data-eli5-noact>Deeper answer · {reach text}</p>
+    <div class="qa-a"><p>…</p></div>
+    <ul class="qa-web" data-eli5-noact aria-label="Web pages used"><li>{title} — {host/path}</li></ul>
+  </aside>
+  ```
+
+  The badge text comes from `reach`, never from the model: `material` → `found in the document and its original sources`; `web` → `includes information from the web (pages listed below)`; `general` → `includes the AI's general knowledge, not from the document or the web`, or, when the box also stores pages (the prompt allows `general` for an answer that used the web too), `includes information from the web (pages listed below) and the AI's general knowledge`; a `web` box with no stored pages drops the "(pages listed below)" clause; a missing `reach` shows `Deeper answer`. Each list item is the stored title, an em dash and `host/path` of the stored URL (`webPageLabel`: no scheme, query or fragment; a trailing `/` dropped), all escaped; there is never an `<a>`. Paragraph links are stored and rendered as text, as for deep boxes. Style: `.qa-deeper` gets its own subtle accent edge (a different hue from `.qa-deep`) with light and dark tokens; `.qa-web` is a small muted list. The Markdown export (10 §5) writes the badge line in italics and the pages as a plain-text list.
+- **Older app.** The qa schema is not strict, so an older app parses a document with a deep or deeper box and drops `depth`, `sources`, `reach` and `web` on its next re-render: the box becomes a plain answer box with the answer kept. An app that knows only `depth: 'deep'` treats `'deeper'` the same way (its schema's `.catch` drops the unknown value).
 - The drop-cap rule (`section:first-of-type > p:first-of-type`) matches direct children only, so
   answer paragraphs never get one.
 
@@ -1035,8 +1071,15 @@ export function addSectionEli5Tab(model: DocumentModel, from: SectionId, selecti
   // words of the selection when empty), origin gets scope 'selection' and sectionIds.
 export function removeTab(model: DocumentModel, tabKey: string, now: string): DocumentModel;
 export function insertAnswer(model: DocumentModel, id: SectionId, afterBlock: number | null,
-  answer: { question: string; topic: string; quote: string; paragraphs: string[] }, now: string,
+  answer: { question: string; topic: string; quote: string; paragraphs: string[];
+            depth?: 'deep' | 'deeper'; sources?: AnswerSourceMode;            // 08 §6.9
+            reach?: AnswerReach; web?: { title: string; url: string }[] },  // 08 §6.10
+  now: string,
   opts?: MutationOptions): { model: DocumentModel; qaId: string };
+/** Ask deep material (08 §6.9): every tab in document order; content sections only (references
+ *  excluded); qa blocks dropped by sectionToDraft. */
+export interface DeepAskTabDraft { key: string; kind: TabKind; label: string; sections: SectionDraft[] }
+export function tabsForDeepAsk(model: DocumentModel): DeepAskTabDraft[];
 export function mintQaId(src: IdSource, taken: TakenIds): string;    // 'q-' + 8 hex (4.2)
 // src/main/document/merge.ts (contract required by 09 §10.3; TabRecord and DocumentMeta from 09)
 export function prepareMergeWeave(input: { targetHtml; targetMeta; sourceHtml; sourceMeta }): MergeWeavePrep;
@@ -1073,7 +1116,11 @@ All mutators are pure (return a new model); the caller renders and writes under
   `validate.ts`); the question never is. It shifts `glossary[].blockIndex` (same section, at or
   after the insertion point) and `enh.blocks[].block` by one and keeps `enh`, sets the section's
   `updatedAt` and `lastAction: 'ask'` and the model's `updatedAt`, and leaves `origin` and the
-  `SectionId` unchanged.
+  `SectionId` unchanged. With `depth: 'deep'` it stores `depth` and `sources` on the block and,
+  before the length cap, rewrites every inline link `[text](url)` in the paragraphs to its text
+  (source text is attacker-controllable; 08 §6.9). With `depth: 'deeper'` it does the same and
+  also stores `reach` and `web` (http/https URLs only, at most 6, titles one line and at most 120
+  characters; 08 §6.10). Quick answers keep their links.
 - `toDraftBlock`, `sectionToDraft` and `getSectionContext` omit `qa` blocks, so the model never
   sees or echoes earlier answers. Glossary placement and merge enhancement diffs skip them.
 - `carryAnswers(old, newBlocks)` re-appends a section's answer boxes, in order and with their IDs,
@@ -1433,6 +1480,13 @@ open-on-landing is part of `scroll.init()`, 08 §7.4), and the menu is part of `
       and its markdown is not rendered; a later `replaceSection` keeps the box at the section's end.
 - [ ] An answer box is readable without JS, prints with its question, passes axe in both themes,
       and is never sent to the model in section context.
+- [ ] A deep answer box (`qa-deep`) shows the badge for its `sources` mode outside `.qa-a` with
+      `data-eli5-noact`, stores no links, round-trips through `parseDocument` and the runtime
+      refresh, and a non-deep box renders byte-identical to before.
+- [ ] A deeper answer box (`qa-deeper`) shows the badge for its `reach` outside `.qa-a`, lists its
+      kept pages as plain text (`ul.qa-web`, no `<a>`, no query or fragment, escaped), stores no
+      links, round-trips through `parseDocument`, and an unknown `depth` or `reach` degrades to a
+      plain answer box instead of failing the parse.
 - [ ] Opening, mutating or checking out a document with an older runtime re-renders it with the
       bundled runtime via parse → render (5.5), never by string replacement.
 - [ ] Tab order is In depth, ELI5, ASD-STE100 (when present), then section ELI5 tabs by creation;

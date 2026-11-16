@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 16 §6.5: the share FileProvider serves only copies under cacheDir/share. -->
+<paths>
+    <cache-path name="share" path="share/" />
+</paths>

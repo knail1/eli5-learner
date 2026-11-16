@@ -1,12 +1,15 @@
 // Section runner (08 §6.2-§6.4, §7.1): generating stage (context + LLM), then the saving stage
 // (re-read and re-parse under withDocLock, precondition, pure mutator, render, post-check, write).
 import type { DocUpdatedEvent } from '../../../preload/contract';
-import { LibraryError, type DocumentMeta, type VersionChange } from '../../library';
+import { LibraryError, sourcesForMeta, type DocumentMeta, type SourceSidecar, type VersionChange } from '../../library';
 import {
+  DeepContextTooLargeError,
   estimateTokens,
   sectionText,
+  type DeepAskSource,
   type DocumentDraftTab,
   type SectionAnswerDraft,
+  type SectionDeeperAnswerDraft,
   type SectionDraft,
 } from '../../llm';
 import { PipelineFailure, type SectionRunContext, type SectionRunner } from '../../pipeline';
@@ -14,11 +17,12 @@ import { canonicalJson } from '../canonical-json';
 import { DocumentBuildError, DocumentFormatError, DocumentMutationError, TooManyTabsError } from '../errors';
 import { collapseWs } from '../html';
 import { sectionIdsOf } from '../ids';
-import { addSectionEli5Tab, getSectionContext, insertAnswer, replaceSection } from '../mutate';
+import { addSectionEli5Tab, getSectionContext, insertAnswer, replaceSection, tabsForDeepAsk } from '../mutate';
 import { parseDocument } from '../parse';
 import { renderDocument } from '../render';
 import { DOC_RUNTIME_VERSION, compareRuntimeVersions } from '../runtime-assets';
 import type {
+  AnswerSourceMode,
   DocRuntime,
   DocumentModel,
   ParsedDocument,
@@ -144,14 +148,51 @@ const isAnswerDraft = (v: unknown): v is SectionAnswerDraft =>
 type Draft = SectionDraft | DocumentDraftTab | SectionAnswerDraft;
 
 /**
+ * 08 §6.9 (decision 8): the kept texts a Deep Ask may use are the sidecar entries that match a record
+ * of the live meta.sourcesUsed. Entries without text (images, omitted, unreadable) and records with
+ * no entry at all are listed with `text: null`, once each. null: no sidecar at all.
+ */
+export function deepAskSources(
+  sidecar: SourceSidecar | null,
+  used: DocumentMeta['sourcesUsed'],
+): DeepAskSource[] | null {
+  if (sidecar === null) return null;
+  const m = sourcesForMeta(sidecar, used);
+  // Records that match no entry at all (with or without text): every entry counts as present.
+  const anyText = Object.fromEntries(sidecar.manifest.sources.map((e) => [e.id, '']));
+  const unmatched = sourcesForMeta({ manifest: sidecar.manifest, texts: anyText }, used).missing;
+  return [
+    ...m.entries.map((e) => ({
+      id: e.id,
+      ref: e.ref,
+      label: e.label,
+      format: e.format,
+      text: m.texts[e.id] ?? null,
+      truncated: e.truncated,
+    })),
+    ...unmatched.map((s, i) => ({
+      id: `missing-${i + 1}`,
+      ref: s.ref,
+      label: s.ref,
+      format: 'unknown',
+      text: null,
+      truncated: false,
+    })),
+  ];
+}
+
+interface Generated {
+  draft: Draft;
+  currentHash: string;
+  /** Deep Ask only: what the answer was checked against (the box badge). */
+  sourceMode?: AnswerSourceMode;
+}
+
+/**
  * Generating stage (08 §6.2): context from the embedded model, then one LLM call. Also returns the
  * target's current hash, which a user retry uses as its baseHash.
  */
-async function generate(
-  env: RunnerEnv,
-  p: SectionJobPayload,
-  signal: AbortSignal,
-): Promise<{ draft: Draft; currentHash: string }> {
+async function generate(env: RunnerEnv, p: SectionJobPayload, signal: AbortSignal): Promise<Generated> {
   const d = env.deps;
   const { model } = await readDoc(d, p.slug);
   let ctx: SectionContext;
@@ -164,7 +205,7 @@ async function generate(
   if (p.action === 'ask') {
     if (!p.question?.trim()) throw new PipelineFailure('INTERNAL', 'no_question');
     // 08 Ask: the section, its neighbours (budgeted like a rewrite), the selection and the question.
-    const out: unknown = await d.tasks.answerSectionQuestion({
+    const local = {
       tabKind: ctx.tab.kind,
       section: ctx.draft,
       outline: ctx.outline,
@@ -172,17 +213,68 @@ async function generate(
       selection: p.selectionText,
       question: p.question,
       signal,
-    });
+    };
+    let out: unknown;
+    let sourceMode: AnswerSourceMode | undefined;
+    if (p.depth === 'deeper' && d.tasks.answerDeeperQuestion) {
+      // 08 §6.10: the same material as Ask deep, then the web and general knowledge, each marked.
+      const tabs = tabsForDeepAsk(model);
+      const sidecar = (await d.library.readSources?.(p.slug)) ?? null;
+      const used = sidecar === null ? [] : (await d.library.getMeta(p.slug)).sourcesUsed;
+      const sources = deepAskSources(sidecar, used);
+      try {
+        const r = await d.tasks.answerDeeperQuestion({ ...local, tabs, sources });
+        // Counts only: never the question, the answer or a URL (08 §6.10 step 8).
+        d.log?.info('document.deep-ask', {
+          slug: p.slug,
+          sectionId: p.sectionId,
+          kind: 'deeper',
+          sourceMode: r.plan.sourceMode,
+          count: r.plan.chunks,
+          inputTokens: r.plan.inputTokens,
+          webSearches: r.webSearches,
+          webKept: r.draft.web.length,
+        });
+        out = r.draft;
+        sourceMode = r.plan.sourceMode;
+      } catch (err) {
+        if (err instanceof DeepContextTooLargeError) throw new PipelineFailure('SECTION_TOO_LARGE', 'deep_context');
+        throw err;
+      }
+    } else if (p.depth === 'deep' || p.depth === 'deeper') {
+      // 08 §6.9: also every tab and the kept source text the live meta still uses.
+      const tabs = tabsForDeepAsk(model);
+      const sidecar = (await d.library.readSources?.(p.slug)) ?? null;
+      const used = sidecar === null ? [] : (await d.library.getMeta(p.slug)).sourcesUsed;
+      const sources = deepAskSources(sidecar, used);
+      try {
+        const r = await d.tasks.answerDeepQuestion({ ...local, tabs, sources });
+        d.log?.info('document.deep-ask', {
+          slug: p.slug,
+          sectionId: p.sectionId,
+          kind: r.plan.sourceMode,
+          count: r.plan.chunks,
+          inputTokens: r.plan.inputTokens,
+        });
+        out = r.draft;
+        sourceMode = r.plan.sourceMode;
+      } catch (err) {
+        if (err instanceof DeepContextTooLargeError) throw new PipelineFailure('SECTION_TOO_LARGE', 'deep_context');
+        throw err;
+      }
+    } else {
+      out = await d.tasks.answerSectionQuestion(local);
+    }
     // No paragraph left after insertAnswer's filter: the output is unusable (no OUTPUT_INVALID code).
     if (!isAnswerDraft(out)) throw new PipelineFailure('INTERNAL', 'invalid_output');
-    return { draft: out, currentHash: sectionHash(ctx.section) };
+    return { draft: out, currentHash: sectionHash(ctx.section), ...(sourceMode ? { sourceMode } : {}) };
   }
   const focused = p.action === 'eli5-selection';
   // 08 §7.5: a selection ELI5 sends the selection plus brief context, never the neighbours.
   const around = focused
     ? { context: selectionContext(model, p.sectionIds ?? [p.sectionId], p.selectionText) }
     : fitBudget(ctx, d.inputBudgetTokens?.());
-  // sourceExcerpt (08 §6.2 step 4) is omitted: 09 retains no extracted source text in v1.
+  // sourceExcerpt (08 §6.2 step 4) is omitted: only Deep Ask reads the kept source text (08 §6.9).
   const out: unknown = await d.tasks.runSectionAction({
     action: p.action,
     tabKind: ctx.tab.kind,
@@ -247,6 +339,7 @@ async function plan(
   draft: Draft,
   baseHash: string,
   now: string,
+  sourceMode?: AnswerSourceMode,
 ): Promise<Planned> {
   const d = env.deps;
   const parsed = await readDoc(d, p.slug);
@@ -261,6 +354,9 @@ async function plan(
     if (sectionHash(hit.section) !== baseHash) throw new PipelineFailure('SECTION_CHANGED');
     const answer = draft as SectionAnswerDraft;
     const question = p.question ?? '';
+    // 08 §6.9 / §6.10: an unknown depth (never expected) is answered and stored as quick.
+    const depth = p.depth === 'deep' || p.depth === 'deeper' ? p.depth : undefined;
+    const deeper = depth === 'deeper' ? (answer as Partial<SectionDeeperAnswerDraft>) : undefined;
     const retiredIds = (await d.library.getMeta(p.slug)).retiredIds ?? [];
     let inserted: { model: DocumentModel; qaId: string };
     try {
@@ -268,7 +364,16 @@ async function plan(
         model,
         p.sectionId,
         blockIndexOfSelection(model, hit.section, p.selectionText),
-        { question, topic: answer.topic, quote: p.selectionText, paragraphs: answer.paragraphs },
+        {
+          question,
+          topic: answer.topic,
+          quote: p.selectionText,
+          paragraphs: answer.paragraphs,
+          // 08 §6.9: a missing mode (never expected) shows the honest "tabs only" badge.
+          ...(depth ? { depth, sources: sourceMode ?? 'none' } : {}),
+          ...(deeper?.reach ? { reach: deeper.reach } : {}),
+          ...(deeper?.web ? { web: deeper.web } : {}),
+        },
         now,
         { idSource: d.sectionIds, retiredIds },
       );
@@ -283,12 +388,20 @@ async function plan(
     // The box holds the question and topic as stored (whitespace collapsed, capped).
     const stored = box?.type === 'qa' ? box : { topic: answer.topic, question };
     const { topic } = stored;
-    const asked = { at: now, sectionId: p.sectionId, tabKey: p.tabKey, question: stored.question, qaId, jobId };
+    const asked = {
+      at: now,
+      sectionId: p.sectionId,
+      tabKey: p.tabKey,
+      question: stored.question,
+      qaId,
+      jobId,
+      ...(depth ? { depth } : {}),
+    };
     return {
       html,
       meta: (m) => ({ ...m, tabs: mirrorTabs(next.tabs), asks: [...(m.asks ?? []), asked] }),
       event: { slug: p.slug, sectionId: p.sectionId, tabKey: p.tabKey, anchorId: qaId },
-      label: changeLabel('ask', topic),
+      label: changeLabel('ask', topic, { depth }),
       change: {
         kind: 'ask',
         topic,
@@ -297,6 +410,7 @@ async function plan(
         target: { ...here, anchorId: qaId },
         undoTarget: here,
         jobId,
+        ...(depth ? { depth } : {}),
       },
     };
   }
@@ -451,14 +565,14 @@ export function createSectionRunner(env: RunnerEnv): SectionRunner {
     };
     const prior = await alreadyCommitted(d, p, jobId);
     if (prior) return done(prior);
-    const { draft, currentHash } = await generate(env, p, ctx.signal);
+    const { draft, currentHash, sourceMode } = await generate(env, p, ctx.signal);
     const baseHash = fresh ? currentHash : p.baseHash;
     await ctx.enterSaving();
     const c = await d.library.withDocLock(p.slug, async (): Promise<Committed> => {
       const again = await alreadyCommitted(d, p, jobId);
       if (again) return again;
       const now = d.clock.now().toISOString();
-      const planned = await plan(env, p, jobId, draft, baseHash, now);
+      const planned = await plan(env, p, jobId, draft, baseHash, now, sourceMode);
       ctx.markCommitStarted();
       const entry = await write(d, p.slug, planned);
       return {

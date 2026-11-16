@@ -563,6 +563,36 @@ ins.enh {
   font: 13px/1.4 var(--font-sans);
   color: var(--muted);
 }
+/* 08 §6.9 Deep Ask: an accent edge on the box, and a small badge line above the answer that says
+   what it was checked against. The badge is outside .qa-a (data-eli5-noact), so it is never part of
+   a selection. Text stays --muted (not accent) so it reads in both themes and in print. */
+.qa-deep {
+  border-left: 4px solid var(--accent);
+}
+.qa-badge {
+  margin: 0 0 8px;
+  font: 600 12px/1.4 var(--font-sans);
+  letter-spacing: 0.04em;
+  font-variant-caps: all-small-caps;
+  color: var(--muted);
+}
+/* 08 §6.10 Ask deeper: its own edge hue (the shared teal chart slot, >= 4.5:1 on both papers and not
+   themable, so it never collides with a theme's accent), the same badge line, and the web pages it
+   used as a small plain-text list after the answer (data-eli5-noact: never part of a selection). */
+.qa-deeper {
+  border-left: 4px solid var(--viz-5);
+}
+.qa-web {
+  margin: 0 0 8px;
+  padding: 6px 0 0 1.1em;
+  border-top: 1px dashed var(--rule);
+  font: 12px/1.45 var(--font-sans);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.qa-web > li {
+  margin: 0 0 2px;
+}
 @media (prefers-reduced-motion: reduce) {
   .qa-cap {
     transition: none;
@@ -1288,7 +1318,9 @@ html.js.eli5-sel-note .gl-note[data-eli5-sel] * {
   [data-eli5-noact] {
     display: none !important;
   }
-  .tab-hint[data-eli5-noact] {
+  .tab-hint[data-eli5-noact],
+  .qa-badge[data-eli5-noact],
+  .qa-web[data-eli5-noact] {
     display: block !important;
   }
   html.js .tabpanel[hidden] {

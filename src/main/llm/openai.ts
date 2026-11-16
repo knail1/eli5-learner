@@ -3,7 +3,15 @@ import type { Settings } from '../config';
 import { BaseProvider, type ProviderDeps, type SendContext, type SendResult } from './base';
 import { LLMError } from './errors';
 import { humanMessage } from './retry';
-import type { ChatMessage, GenerationRequest, GenerationResult, LLMErrorKind, LLMProvider, ModelLimits } from './types';
+import type {
+  ChatMessage,
+  GenerationRequest,
+  GenerationResult,
+  LLMErrorKind,
+  LLMProvider,
+  ModelLimits,
+  WebSource,
+} from './types';
 
 type ResponseParams = OpenAI.Responses.ResponseCreateParamsStreaming;
 type InputItem = OpenAI.Responses.ResponseInputItem;
@@ -37,6 +45,33 @@ function mapStop(r: ResponseObject | undefined): GenerationResult['stopReason'] 
     if (why === 'content_filter') return 'refusal';
   }
   return 'other';
+}
+
+/**
+ * 02 §6: the pages a response reports, from `web_search_call` items with a `search` action
+ * (`action.sources`, requested with `include`) and from `url_citation` annotations on output text;
+ * `searches` counts the search actions.
+ */
+export function webSourcesOfResponse(r: ResponseObject | undefined): { sources: WebSource[]; searches: number } {
+  const sources: WebSource[] = [];
+  let searches = 0;
+  for (const item of r?.output ?? []) {
+    if (item.type === 'web_search_call') {
+      if (item.action.type !== 'search') continue;
+      searches++;
+      for (const src of item.action.sources ?? []) if (typeof src.url === 'string') sources.push({ url: src.url });
+    } else if (item.type === 'message') {
+      for (const part of item.content) {
+        if (part.type !== 'output_text') continue;
+        for (const a of part.annotations) {
+          if (a.type === 'url_citation' && typeof a.url === 'string') {
+            sources.push({ url: a.url, ...(a.title ? { title: a.title } : {}) });
+          }
+        }
+      }
+    }
+  }
+  return { sources, searches };
 }
 
 /** Text label part before each image part, then the message text (02 §6). */
@@ -91,12 +126,19 @@ export class OpenAIProvider extends BaseProvider implements LLMProvider {
         },
       };
     }
+    // 02 §6: the Responses API's own web search; `include` asks for the sources of each search.
+    if (req.webSearch && limits.supportsWebSearch) {
+      params.tools = [{ type: 'web_search' }];
+      params.include = ['web_search_call.action.sources'];
+    }
     return params;
   }
 
   protected async send(req: GenerationRequest, ctx: SendContext): Promise<SendResult> {
     const client = new OpenAI({ apiKey: ctx.apiKey, fetch: ctx.fetch, maxRetries: 0, timeout: ctx.sdkTimeoutMs });
-    const stream = await client.responses.create(this.buildParams(req), { signal: ctx.signal });
+    const params = this.buildParams(req);
+    const web = params.tools !== undefined;
+    const stream = await client.responses.create(params, { signal: ctx.signal });
     let text = '';
     let refusal = '';
     let final: ResponseObject | undefined;
@@ -136,6 +178,7 @@ export class OpenAIProvider extends BaseProvider implements LLMProvider {
         json = undefined;
       }
     }
+    const found = web ? webSourcesOfResponse(final) : undefined;
     const usage = final?.usage;
     const cached = usage?.input_tokens_details?.cached_tokens ?? 0;
     return {
@@ -149,6 +192,7 @@ export class OpenAIProvider extends BaseProvider implements LLMProvider {
       },
       model: final?.model ?? this.model,
       provider: 'openai',
+      ...(found ? { webSources: found.sources, webSearches: found.searches } : {}),
     };
   }
 }

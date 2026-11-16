@@ -30,6 +30,16 @@ export interface DocBridge {
     selectionText: string;
     question: string;
   }): Promise<BridgeResult>;
+  /**
+   * Deep Ask (08 §6.9): also reads every tab and the document's kept source text. Absent in an
+   * older app's bridge, so the runtime feature-detects it and hides the button.
+   */
+  askDeep?(r: { tabKey: string; sectionId: string; selectionText: string; question: string }): Promise<BridgeResult>;
+  /**
+   * Ask deeper (08 §6.10): the same material, then the web, then general knowledge. Absent in an
+   * older app's bridge, so the runtime feature-detects it and hides the button.
+   */
+  askDeeper?(r: { tabKey: string; sectionId: string; selectionText: string; question: string }): Promise<BridgeResult>;
   closeTab(tabKey: string): Promise<BridgeResult>;
   openExternal(url: string): Promise<BridgeResult>;
   /** `anchorId`: an element inside the section to land on instead (an answer box, 08 Ask). */
@@ -38,7 +48,8 @@ export interface DocBridge {
   ): () => void;
   onSectionBusy(
     cb: (e: {
-      busy: { sectionId: string; action: string }[];
+      /** `depth` only on Ask deep ('deep') or Ask deeper ('deeper'), action 'ask'. */
+      busy: { sectionId: string; action: string; depth?: string }[];
       notices?: { sectionId: string; message: string }[];
     }) => void,
   ): () => void;

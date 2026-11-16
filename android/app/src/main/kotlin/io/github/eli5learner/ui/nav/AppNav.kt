@@ -60,6 +60,8 @@ import io.github.eli5learner.ask.OutlineSection
 import io.github.eli5learner.reader.PreviewLease
 import io.github.eli5learner.reader.ReaderPreview
 import io.github.eli5learner.reader.ReaderScreen
+import io.github.eli5learner.share.ShareRequest
+import io.github.eli5learner.share.rememberShareDocument
 import io.github.eli5learner.sync.protocol.JobKind
 import io.github.eli5learner.versions.VersionsActions
 import io.github.eli5learner.versions.VersionsEvent
@@ -134,6 +136,7 @@ fun AppNav(
     val snackbar = remember { SnackbarHostState() }
     val resources = LocalResources.current
     val scope = rememberCoroutineScope()
+    val shareDocument = rememberShareDocument(container.docSharer, snackbar)
     val consent =
         rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
             account.onConsentResult(r.resultCode == Activity.RESULT_OK, r.data)
@@ -262,6 +265,7 @@ fun AppNav(
                                     onRefresh = library::syncNow,
                                     onFolder = library::setFolder,
                                     onPin = { e, pin -> library.setPinned(e.key, pin) },
+                                    onShare = { e -> e.sha?.let { shareDocument(ShareRequest.of(e, it)) } },
                                 )
                             }
                             entry<InboxKey> {
@@ -364,6 +368,7 @@ fun AppNav(
                                     container = container,
                                     k = k,
                                     snackbar = snackbar,
+                                    onShare = shareDocument,
                                     onBack = { if (backStack.size > 1) backStack.removeAt(backStack.lastIndex) },
                                     onPreview = { p ->
                                         // From a preview, another preview replaces it instead of stacking up.
@@ -388,6 +393,7 @@ private fun ReaderEntry(
     container: AppContainer,
     k: ReaderKey,
     snackbar: SnackbarHostState,
+    onShare: (ShareRequest) -> Unit,
     onBack: () -> Unit,
     onPreview: (ReaderPreview) -> Unit,
 ) {
@@ -457,6 +463,7 @@ private fun ReaderEntry(
             preview
                 ?.takeIf { p -> vstate.canCheckout && vstate.items.none { it.row.id == p.versionId && it.row.isCurrent } }
                 ?.let { p -> { versions.checkout(p.versionId) } },
+        onShare = { e, sha -> onShare(ShareRequest.of(e, sha)) },
     )
     if (showVersions) {
         VersionsSheet(

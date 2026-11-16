@@ -33,7 +33,41 @@ export const EDIT_ACTION = ['revise', 'Edit with my note'] as const;
 type MenuItem = (typeof MENU_GROUPS)[number]['items'][number];
 /** The six popup items, flattened in order (for tests). */
 export const MENU_ACTIONS: readonly MenuItem[] = MENU_GROUPS.flatMap((g): readonly MenuItem[] => g.items);
-export type MenuActionId = MenuItem[0] | (typeof EDIT_ACTION)[0] | 'ask';
+export type MenuActionId = MenuItem[0] | (typeof EDIT_ACTION)[0] | AskActionId;
+/** 08 §5.1: the three Ask buttons, in row order. */
+export type AskActionId = 'ask' | 'ask-deep' | 'ask-deeper';
+export const ASK_ACTIONS: readonly AskActionId[] = ['ask', 'ask-deep', 'ask-deeper'];
+/** 08 §5.1: each Ask button's exact label (its accessible name; the ⓘ marker is aria-hidden). */
+export const ASK_LABELS: Readonly<Record<AskActionId, string>> = {
+  ask: 'Ask',
+  'ask-deep': 'Ask deep',
+  'ask-deeper': 'Ask deeper',
+};
+/** 08 §5.1: the tooltip shown on hover and focus, also each button's accessible description. */
+export const ASK_TOOLTIPS: Readonly<Record<AskActionId, string>> = {
+  ask: 'Answers from this section and the sections around it. Fastest. (Enter)',
+  'ask-deep': 'Also searches every tab and the original source text. (⌘ Enter or Ctrl+Enter)',
+  'ask-deeper':
+    "Searches every tab and the original sources first, then the web, then the AI's general knowledge. Anything from outside the document is marked. (⌘ ⇧ Enter or Ctrl+Shift+Enter)",
+};
+/** 08 §5.4: the shortcuts typed in the question field. */
+export const ASK_KEYSHORTCUTS: Readonly<Record<AskActionId, string>> = {
+  ask: 'Enter',
+  'ask-deep': 'Meta+Enter Control+Enter',
+  'ask-deeper': 'Meta+Shift+Enter Control+Shift+Enter',
+};
+/** 08 §6.9: the Ask deep button. */
+export const DEEP_ASK_LABEL = ASK_LABELS['ask-deep'];
+export const DEEP_ASK_DESCRIPTION = ASK_TOOLTIPS['ask-deep'];
+export const DEEP_ASK_KEYSHORTCUTS = ASK_KEYSHORTCUTS['ask-deep'];
+/** 08 §6.10: the Ask deeper button. */
+export const DEEPER_ASK_LABEL = ASK_LABELS['ask-deeper'];
+export const DEEPER_ASK_DESCRIPTION = ASK_TOOLTIPS['ask-deeper'];
+export const DEEPER_ASK_KEYSHORTCUTS = ASK_KEYSHORTCUTS['ask-deeper'];
+/** Tooltip geometry (08 §5.1): gap to the button, viewport margin, widest. */
+const TIP_GAP = 6;
+const TIP_MARGIN = 8;
+const TIP_MAX_WIDTH = 260;
 
 export const MAX_SELECTION_CHARS = 4000;
 export const MAX_NOTE_CHARS = 200;
@@ -167,13 +201,22 @@ padding:8px;border-radius:10px;background:var(--eli5-menu-bg,#1f2125);color:#f3f
 border:1px solid var(--eli5-menu-rule,#1f2125);box-shadow:var(--eli5-menu-shadow,0 6px 24px rgba(0,0,0,.25))}
 .m[hidden],.ask[hidden],.pop[hidden]{display:none}
 input{font:inherit;min-width:0;padding:6px 8px;border-radius:6px;border:1px solid #555;background:#2b2e33;color:inherit}
-.ask{display:flex;gap:4px}
-input.q{flex:1}
+.ask{display:flex;flex-wrap:wrap;gap:4px}
+input.q{flex:1 1 120px}
+.askb{display:flex;gap:4px;flex:1 0 auto}
+.askb button{flex:1 1 auto;display:inline-flex;align-items:center;justify-content:center}
+.askb button:disabled{pointer-events:none}
+.info{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:12px;height:12px;margin-left:5px;
+border:1px solid currentColor;border-radius:50%;font:italic 700 8px/1 Georgia,'Times New Roman',serif;opacity:.8}
+.tip{position:absolute;z-index:1;box-sizing:border-box;max-width:260px;padding:6px 8px;border-radius:6px;background:#f3f1ec;color:#1f2125;
+font:12px/1.35 -apple-system,'Helvetica Neue',Arial,sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.35);pointer-events:none;white-space:normal}
+.tip[hidden]{display:none}
 .acts{display:flex;flex-wrap:wrap;gap:4px}
 button{font:inherit;font-weight:600;color:inherit;background:#34373d;border:0;border-radius:6px;padding:6px 8px;cursor:pointer}
 button:focus-visible,button:hover{background:#4a4e56;outline:none}
 button:disabled{opacity:.45;cursor:default}
-.go{flex:none}
+.go{flex:none;white-space:nowrap}
+.sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
 .trig{display:inline-flex;align-items:center;gap:6px}
 .caret{width:0;height:0;border:4px solid transparent;border-top:5px solid currentColor;border-bottom:0;transition:transform .15s}
 .trig[aria-expanded=true] .caret{transform:rotate(180deg)}
@@ -188,6 +231,8 @@ button:disabled{opacity:.45;cursor:default}
 /** 08 §5.5 step 2: the label under the heading while a section is busy. */
 const BUSY_LABEL: Record<string, string> = {
   ask: 'Answering…',
+  'ask-deep': 'Answering in depth…',
+  'ask-deeper': 'Searching further…',
   'eli5-tab': 'Creating ELI5 tab…',
   'eli5-selection': 'Creating ELI5 tab…',
 };
@@ -199,9 +244,10 @@ export interface SelectionController {
   current(): SelectionSnapshot | null;
   open(s: SelectionSnapshot, range?: Range): void;
   close(): void;
-  /** `text` is the note, or for 'ask' the question (the question field when omitted). */
+  /** `text` is the note, or for an Ask the question (the question field when omitted). */
   submit(action: MenuActionId, text?: string): Promise<void>;
-  setBusy(busy: { sectionId: string; action: string }[]): void;
+  /** `depth` 'deep' or 'deeper' on an 'ask' item is Ask deep or Ask deeper (their own busy labels). */
+  setBusy(busy: { sectionId: string; action: string; depth?: string }[]): void;
 }
 
 function lastRect(range: Range | null): { left: number; top: number; bottom: number; width: number } | undefined {
@@ -263,10 +309,51 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
   const hint = el('p', 'hint', { 'aria-live': 'polite' });
   const askRow = el('div', 'ask');
   const question = input('q', 'Ask a question about this…', MAX_QUESTION_CHARS, 'Your question about this passage');
-  const askBtn = button('Ask', 'go');
-  askRow.append(question, askBtn);
-  // An older app's bridge has no askQuestion: the row stays hidden there.
+  // 08 §5.1: three Ask buttons, each with a visible ⓘ marker (aria-hidden, so the accessible name is
+  // exactly the label), a tooltip on hover and focus, and the same text as its accessible
+  // description. No native `title`, so the browser never draws a second tooltip.
+  const askButton = (id: AskActionId, cls: string, descId: string): HTMLButtonElement => {
+    const b = el('button', cls, {
+      'aria-describedby': descId,
+      'aria-keyshortcuts': ASK_KEYSHORTCUTS[id],
+      'data-ask': id,
+    });
+    b.type = 'button';
+    const label = el('span', 'lbl');
+    label.textContent = ASK_LABELS[id];
+    const info = el('span', 'info', { 'aria-hidden': 'true' });
+    info.textContent = 'i';
+    b.append(label, info);
+    return b;
+  };
+  const askBtn = askButton('ask', 'go', 'ask-desc');
+  const askDeepBtn = askButton('ask-deep', 'go deep', 'deep-desc');
+  const askDeeperBtn = askButton('ask-deeper', 'go deeper', 'deeper-desc');
+  const askBtns = el('div', 'askb');
+  askBtns.append(askBtn, askDeepBtn, askDeeperBtn);
+  const descs = (
+    [
+      ['ask-desc', 'ask'],
+      ['deep-desc', 'ask-deep'],
+      ['deeper-desc', 'ask-deeper'],
+    ] as const
+  ).map(([id, a]) => {
+    const d = el('span', 'sr', { id });
+    d.textContent = ASK_TOOLTIPS[a];
+    return d;
+  });
+  askRow.append(question, askBtns, ...descs);
+  // An older app's bridge has no askQuestion: the row stays hidden there. One with askQuestion but
+  // no askDeep (or no askDeeper) hides that button.
   askRow.hidden = typeof bridge.askQuestion !== 'function';
+  const hasDeep = typeof bridge.askDeep === 'function';
+  const hasDeeper = typeof bridge.askDeeper === 'function';
+  askDeepBtn.hidden = !hasDeep;
+  askDeeperBtn.hidden = !hasDeeper;
+  const askButtons = [askBtn, askDeepBtn, askDeeperBtn];
+  // One tooltip for the three buttons, inside the menu (08 §5.1).
+  const tip = el('div', 'tip', { 'aria-hidden': 'true' });
+  tip.hidden = true;
   const note = input('note', 'Add a note (optional)', MAX_NOTE_CHARS, 'Note for this action');
   const acts = el('div', 'acts', { role: 'toolbar', 'aria-label': 'Section actions' });
   const groups: Group[] = MENU_GROUPS.map((g) => {
@@ -294,7 +381,7 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
   /** The toolbar's controls: one roving tab stop. */
   const tools = [...groups.map((g) => g.trigger), revise];
   const cap = el('p', 'cap');
-  menu.append(hint, askRow, note, acts, ...groups.map((g) => g.pop), cap);
+  menu.append(hint, askRow, note, acts, ...groups.map((g) => g.pop), cap, tip);
   root.append(style, menu);
 
   let snap: SelectionSnapshot | null = null;
@@ -372,6 +459,8 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
     question.readOnly = isBusy;
     note.readOnly = isBusy;
     askBtn.disabled = isBusy || nonSpace(question.value) < MIN_QUESTION_CHARS;
+    askDeepBtn.disabled = askBtn.disabled;
+    askDeeperBtn.disabled = askBtn.disabled;
     for (const g of groups) {
       for (const b of g.items) b.disabled = isBusy || (tooLong && b.dataset.action === 'eli5-selection');
       g.trigger.disabled = g.items.every((b) => b.disabled);
@@ -413,6 +502,7 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
     },
     close() {
       menu.hidden = true;
+      hideTip(true);
       closePop();
       snap = null;
       snapRange = null;
@@ -422,7 +512,9 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
       const s = snap;
       if (!s || busy.has(s.sectionId)) return;
       if (action === 'eli5-selection' && s.selection.tooLong) return;
-      const isAsk = action === 'ask';
+      const isDeep = action === 'ask-deep';
+      const isDeeper = action === 'ask-deeper';
+      const isAsk = action === 'ask' || isDeep || isDeeper;
       const q = isAsk ? normalizeQuestion(text ?? question.value) : '';
       if (isAsk && nonSpace(q) < MIN_QUESTION_CHARS) return;
       // The note is never sent with Ask.
@@ -434,7 +526,15 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
       const base = { tabKey: s.tabKey, sectionId: s.sectionId, selectionText: s.text, ...(n ? { note: n } : {}) };
       let res: { ok: boolean; error?: { message?: string } };
       try {
-        if (isAsk) {
+        if (isDeeper) {
+          res = bridge.askDeeper
+            ? await bridge.askDeeper({ ...base, question: q })
+            : { ok: false, error: { message: 'Update the app to ask deeper' } };
+        } else if (isDeep) {
+          res = bridge.askDeep
+            ? await bridge.askDeep({ ...base, question: q })
+            : { ok: false, error: { message: 'Update the app to ask in depth' } };
+        } else if (isAsk) {
           res = bridge.askQuestion
             ? await bridge.askQuestion({ ...base, question: q })
             : { ok: false, error: { message: 'Update the app to ask questions' } };
@@ -469,7 +569,10 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
       for (const el of Array.from(doc.querySelectorAll<HTMLElement>('section[data-eli5-busy]'))) {
         if (!busy.has(el.id)) markBusy(doc, el, null);
       }
-      for (const b of list) markBusy(doc, doc.getElementById(b.sectionId), b.action);
+      for (const b of list) {
+        const action = b.action === 'ask' && (b.depth === 'deep' || b.depth === 'deeper') ? `ask-${b.depth}` : b.action;
+        markBusy(doc, doc.getElementById(b.sectionId), action);
+      }
       if (!menu.hidden) refresh();
     },
   };
@@ -481,14 +584,103 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
     });
 
   askBtn.addEventListener('click', () => void ctl.submit('ask'));
+  askDeepBtn.addEventListener('click', () => void ctl.submit('ask-deep'));
+  askDeeperBtn.addEventListener('click', () => void ctl.submit('ask-deeper'));
   question.addEventListener('input', refresh);
   question.addEventListener('keydown', (e) => {
-    // Enter submits Ask when enabled; the keydown carries user activation (08 §5.4). An Enter
-    // that commits an IME composition is not a submit.
+    // Enter submits Ask when enabled, Cmd+Enter (Ctrl+Enter elsewhere) Ask deep, Cmd+Shift+Enter
+    // Ask deeper; the keydown carries user activation (08 §5.4). An Enter that commits an IME
+    // composition is not a submit.
     if (e.key !== 'Enter' || e.isComposing) return;
     e.preventDefault();
-    if (!askBtn.disabled) void ctl.submit('ask');
+    if (askBtn.disabled) return;
+    const mod = e.metaKey || e.ctrlKey;
+    const action: AskActionId = mod && e.shiftKey ? 'ask-deeper' : mod ? 'ask-deep' : 'ask';
+    // 08 §5.4: a shortcut does nothing when its button is not offered (an older app).
+    if ((action === 'ask-deep' && !hasDeep) || (action === 'ask-deeper' && !hasDeeper)) return;
+    void ctl.submit(action);
   });
+
+  // ---- 08 §5.1: the Ask tooltips, on hover and on keyboard focus ----
+  let hovered: HTMLButtonElement | null = null;
+  let focused: HTMLButtonElement | null = null;
+  /** Esc hid the tooltip; it stays hidden until the hover or focus target changes. */
+  let tipDismissed = false;
+  const placeTip = (b: HTMLButtonElement): void => {
+    const vw = win.innerWidth || doc.documentElement.clientWidth;
+    const vh = win.innerHeight || doc.documentElement.clientHeight;
+    tip.style.maxWidth = `${String(Math.max(120, Math.min(TIP_MAX_WIDTH, vw - 2 * TIP_MARGIN)))}px`;
+    tip.style.left = '0px';
+    tip.style.top = '0px';
+    const m = menu.getBoundingClientRect();
+    const r = b.getBoundingClientRect();
+    const tw = tip.offsetWidth;
+    const th = tip.offsetHeight;
+    const left = Math.max(TIP_MARGIN, Math.min(r.left + r.width / 2 - tw / 2, vw - TIP_MARGIN - tw));
+    let top = r.bottom + TIP_GAP;
+    if (top + th > vh - TIP_MARGIN) top = Math.max(TIP_MARGIN, r.top - TIP_GAP - th);
+    // The tooltip is positioned in the menu's padding box.
+    tip.style.left = `${String(Math.round(left - m.left - menu.clientLeft))}px`;
+    tip.style.top = `${String(Math.round(top - m.top - menu.clientTop))}px`;
+  };
+  const showTip = (b: HTMLButtonElement): void => {
+    const id = b.dataset.ask as AskActionId | undefined;
+    if (!id || b.hidden || menu.hidden) return;
+    tip.textContent = ASK_TOOLTIPS[id];
+    tip.dataset.for = id;
+    tip.hidden = false;
+    placeTip(b);
+  };
+  function hideTip(reset = false): void {
+    tip.hidden = true;
+    delete tip.dataset.for;
+    if (reset) {
+      hovered = null;
+      focused = null;
+      tipDismissed = false;
+    }
+  }
+  const updateTip = (): void => {
+    const b = hovered ?? focused;
+    if (b && !tipDismissed) showTip(b);
+    else hideTip();
+  };
+  // Disabled buttons get no pointer events (CSS), so hover is tracked on the group by position.
+  askBtns.addEventListener('mousemove', (e) => {
+    const b =
+      askButtons.find((x) => {
+        if (x.hidden) return false;
+        const r = x.getBoundingClientRect();
+        return e.clientX >= r.left && e.clientX < r.right && e.clientY >= r.top && e.clientY < r.bottom;
+      }) ?? null;
+    if (b !== hovered) {
+      hovered = b;
+      tipDismissed = false;
+      updateTip();
+    }
+  });
+  askBtns.addEventListener('mouseleave', () => {
+    hovered = null;
+    updateTip();
+  });
+  for (const b of askButtons) {
+    b.addEventListener('mouseenter', () => {
+      if (hovered !== b) {
+        hovered = b;
+        tipDismissed = false;
+        updateTip();
+      }
+    });
+    b.addEventListener('focus', () => {
+      focused = b;
+      tipDismissed = false;
+      updateTip();
+    });
+    b.addEventListener('blur', () => {
+      if (focused === b) focused = null;
+      updateTip();
+    });
+  }
   note.addEventListener('input', refresh);
   note.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.isComposing) {
@@ -564,6 +756,13 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
   };
   menu.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
+    // 08 §5.4: Esc hides an open tooltip first.
+    if (!tip.hidden) {
+      e.preventDefault();
+      tipDismissed = true;
+      hideTip();
+      return;
+    }
     // Esc layering: an open popup closes first (focus back on its trigger), then the menu.
     if (openGroup) {
       e.preventDefault();
@@ -616,7 +815,10 @@ export function initSelection(doc: Document, win: Window, bridge: DocBridge, tab
     if (menu.hidden) return;
     const r = lastRect(snapRange);
     if (r && (r.bottom < 0 || r.top > win.innerHeight)) ctl.close();
-    else place();
+    else {
+      place();
+      if (!tip.hidden) updateTip();
+    }
   };
   win.addEventListener('scroll', follow, { passive: true });
   win.addEventListener('resize', () => {

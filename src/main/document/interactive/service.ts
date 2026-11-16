@@ -2,6 +2,7 @@
 // the events IPC forwards (`eli5:doc:updated`, `scroll-to`, `section-busy`).
 import { readFile } from 'node:fs/promises';
 import type {
+  DeepAskDepth,
   AskSectionRequest,
   CloseTabRequest,
   CreateSectionEli5Request,
@@ -68,6 +69,12 @@ export const NOTICES = {
   nothingToRedo: 'Nothing to redo',
 } as const;
 
+/**
+ * 08 §6.1 step 1a: Deep Ask's own limit per document, on top of the shared one, because each deep
+ * ask can send up to DEEP_ASK_INPUT_CAP_TOKENS of input.
+ */
+export const DEEP_ASK_RATE = { max: 3, windowMs: 60_000 } as const;
+
 export interface InteractiveReading {
   /** IpcServices.sectionActions (src/main/ipc/doc.ts). */
   readonly actions: SectionActions;
@@ -97,10 +104,16 @@ interface Inflight {
   slug: string;
   sectionId: SectionId;
   action: MenuAction;
+  /** Ask deep (08 §6.9) or Ask deeper (§6.10): busy items and pending rows carry it. */
+  depth?: DeepAskDepth;
   jobId?: string;
   /** The section heading, once known (the Versions panel's pending row). */
   heading?: string;
 }
+
+/** The stored depth of a payload or inflight entry; an unknown value counts as quick. */
+const deepOf = (f: { depth?: string | undefined }): { depth?: DeepAskDepth } =>
+  f.depth === 'deep' || f.depth === 'deeper' ? { depth: f.depth } : {};
 
 const nodeOf = (tree: VersionTreeFile, id: string | null | undefined): VersionNodeRecord | undefined =>
   id == null ? undefined : tree.nodes.find((n) => n.id === id);
@@ -138,6 +151,11 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
     ...(d.rateLimit ?? {}),
     now: () => d.clock.now().getTime(),
   });
+  const deepLimiter = new RateLimiter({
+    ...DEEP_ASK_RATE,
+    ...(d.deepAskRate ?? {}),
+    now: () => d.clock.now().getTime(),
+  });
   /** Last status seen per section job, to tell a user retry (failed -> queued) from a new job. */
   const lastStatus = new Map<string, string>();
   const retried = new Set<string>();
@@ -156,6 +174,7 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
         sectionId: f.sectionId,
         action: f.action,
         heading: f.heading ?? (f.jobId ? jobs?.get(f.jobId)?.section?.heading : undefined) ?? '',
+        ...deepOf(f),
       }));
   const historyOf = (slug: string, view: VersionTreeView): DocHistoryState => ({
     ...historyFromTree(view.tree),
@@ -195,7 +214,7 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
     if (d.viewer.currentSlug() !== slug) return;
     const list = [...inflight.values()]
       .filter((f) => f.slug === slug)
-      .map((f) => ({ sectionId: f.sectionId, action: f.action }));
+      .map((f) => ({ sectionId: f.sectionId, action: f.action, ...deepOf(f) }));
     busy.emit({ busy: list, ...(notices.length ? { notices } : {}) });
   };
   const refresh = new ViewerRefresh(d.viewer, {
@@ -230,7 +249,14 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
       if (adopt) cur.jobId ??= jobId;
       return false;
     }
-    inflight.set(key, { slug: p.slug, sectionId: p.sectionId, action: p.action, jobId, heading: p.heading });
+    inflight.set(key, {
+      slug: p.slug,
+      sectionId: p.sectionId,
+      action: p.action,
+      ...(p.action === 'ask' ? deepOf(p) : {}),
+      jobId,
+      heading: p.heading,
+    });
     return true;
   };
 
@@ -248,7 +274,7 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
       blocked.delete(s.id);
       const released = release(p, s.id);
       const code = s.status === 'failed' ? job.failure?.code : undefined;
-      const message = code ? failureNotice(code) : undefined;
+      const message = code ? failureNotice(code, p) : undefined;
       if (released || message) broadcast(p.slug, message ? [{ sectionId: p.sectionId, message }] : []);
     } else if (s.status === 'queued') {
       // A new job, a user retry or a crash resume (08 §8.1).
@@ -276,11 +302,18 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
   const request = async (
     r: Omit<SectionActionRequest, 'action'> &
       Pick<CreateSectionEli5Request, 'sectionIds'> &
-      Partial<Pick<AskSectionRequest, 'question'>>,
+      Partial<Pick<AskSectionRequest, 'question' | 'depth'>>,
     action: MenuAction,
   ): Promise<{ jobId: string }> => {
     if (d.viewer.currentSlug() !== r.slug) refuse('E_FORBIDDEN', 'Forbidden');
+    // 08 §6.1 step 1a: Ask deep and Ask deeper share the deep limiter.
+    const depth = action === 'ask' ? deepOf(r).depth : undefined;
+    const deep = depth !== undefined;
     if (!limiter.take(r.slug)) refuse('E_RATE_LIMITED', NOTICES.rateLimited);
+    if (deep && !deepLimiter.take(r.slug)) {
+      limiter.refund(r.slug);
+      refuse('E_RATE_LIMITED', NOTICES.rateLimited);
+    }
     const key = busyKey(r.slug, r.sectionId);
     let reserved = false;
     try {
@@ -289,7 +322,7 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
       if (!d.library.hasSlug(r.slug)) refuse('E_NOT_FOUND', NOTICES.docGone);
       if (inflight.has(key)) refuse('E_CONFLICT', NOTICES.busy);
       // Reserved before any await, so two requests for one section cannot both pass step 4.
-      inflight.set(key, { slug: r.slug, sectionId: r.sectionId, action });
+      inflight.set(key, { slug: r.slug, sectionId: r.sectionId, action, ...(depth ? { depth } : {}) });
       reserved = true;
       if (!(await (d.hasApiKey?.() ?? Promise.resolve(true)))) refuse('E_NO_API_KEY', NOTICES.noApiKey);
       const { model } = await readModel(r.slug);
@@ -320,6 +353,7 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
         ...(r.note ? { note: r.note } : {}),
         ...(covered ? { sectionIds: covered } : {}),
         ...(action === 'ask' ? { question: r.question } : {}),
+        ...(depth ? { depth } : {}),
         heading: section.heading,
         baseHash: sectionHash(section),
       };
@@ -327,11 +361,17 @@ export function createInteractiveReading(input: InteractiveDeps): InteractiveRea
       const cur = inflight.get(key);
       if (cur && !cur.jobId) cur.jobId = jobId;
       broadcast(r.slug);
-      d.log?.info('document.section-action', { slug: r.slug, sectionId: r.sectionId, jobId, kind: action });
+      d.log?.info('document.section-action', {
+        slug: r.slug,
+        sectionId: r.sectionId,
+        jobId,
+        kind: depth ? `ask-${depth}` : action,
+      });
       return { jobId };
     } catch (err) {
       if (reserved && !inflight.get(key)?.jobId) inflight.delete(key);
       limiter.refund(r.slug);
+      if (deep) deepLimiter.refund(r.slug);
       throw err;
     }
   };

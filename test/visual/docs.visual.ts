@@ -41,6 +41,8 @@ async function stubBridge(page: Page): Promise<void> {
       regenerateSection: ok,
       createSectionEli5: ok,
       askQuestion: ok,
+      askDeep: ok,
+      askDeeper: ok,
       closeTab: ok,
       openExternal: ok,
       onScrollTo: () => () => {},
@@ -236,7 +238,9 @@ for (const theme of ['light', 'dark'] as const) {
       await expectRegion(page, shot('merged-highlights-hidden'), body);
     });
 
-    test('selection action menu: Ask field, Explain and ELI5 triggers, Edit with my note', async ({ page }) => {
+    test('selection action menu: Ask field with Ask, Ask deep and Ask deeper, Explain and ELI5 triggers, Edit with my note', async ({
+      page,
+    }) => {
       await open(page, 'full', { bridge: true });
       const para = section(page, 'indepth', 0).locator(':scope > p').first();
       const box = await para.boundingBox();
@@ -248,6 +252,9 @@ for (const theme of ['light', 'dark'] as const) {
       const menu = page.getByRole('group', { name: 'Selection actions' });
       await expect(menu).toBeVisible();
       await expect(menu.getByRole('button', { name: 'ELI5', exact: true })).toBeVisible();
+      await expect(menu.getByRole('button', { name: 'Ask', exact: true })).toBeVisible();
+      await expect(menu.getByRole('button', { name: 'Ask deep', exact: true })).toBeVisible();
+      await expect(menu.getByRole('button', { name: 'Ask deeper', exact: true })).toBeVisible();
       await page.mouse.move(0, 0);
       await settle(page);
       await expectRegion(page, shot('full-selection-menu'), [
@@ -302,6 +309,126 @@ for (const theme of ['light', 'dark'] as const) {
       await page.mouse.move(0, 0);
       await settle(page);
       await expectRegion(page, shot('qa-box-question-open'), [qa, qa.locator('.qa-chip')]);
+    });
+
+    test('deep answer boxes: badge per source mode (all, excerpts, none)', async ({ page }) => {
+      await open(page, 'deep-asked');
+      const boxes = page.locator('#tab-indepth aside.qa.qa-deep');
+      await expect(boxes).toHaveCount(3);
+      for (const [i, mode] of (['all', 'excerpts', 'none'] as const).entries()) {
+        const qa = boxes.nth(i);
+        await expect(qa.locator('.qa-badge')).toBeVisible();
+        await qa.scrollIntoViewIfNeeded();
+        await page.mouse.move(0, 0);
+        await settle(page);
+        await expectRegion(page, shot(`qa-deep-${mode}`), [qa, qa.locator('.qa-chip')]);
+      }
+    });
+
+    test('deeper answer boxes: badge per reach (material, web with its pages, general)', async ({ page }) => {
+      await open(page, 'deep-asked');
+      const boxes = page.locator('#tab-indepth aside.qa.qa-deeper');
+      await expect(boxes).toHaveCount(3);
+      for (const [i, reach] of (['material', 'web', 'general'] as const).entries()) {
+        const qa = boxes.nth(i);
+        await expect(qa.locator('.qa-badge')).toBeVisible();
+        await qa.scrollIntoViewIfNeeded();
+        await page.mouse.move(0, 0);
+        await settle(page);
+        await expectRegion(page, shot(`qa-deeper-${reach}`), [qa, qa.locator('.qa-chip')]);
+      }
+      await expect(boxes.nth(1).locator('ul.qa-web > li')).toHaveCount(2);
+    });
+
+    test('selection menu with the Ask deeper tooltip open from keyboard focus', async ({ page }) => {
+      await open(page, 'full', { bridge: true });
+      const para = section(page, 'indepth', 0).locator(':scope > p').first();
+      const box = await para.boundingBox();
+      if (!box) throw new Error('no paragraph');
+      await page.mouse.move(box.x + 2, box.y + 10);
+      await page.mouse.down();
+      await page.mouse.move(box.x + 360, box.y + 10, { steps: 6 });
+      await page.mouse.up();
+      const menu = page.getByRole('group', { name: 'Selection actions' });
+      await expect(menu).toBeVisible();
+      const q = menu.getByRole('textbox', { name: 'Your question about this passage' });
+      await q.fill('How long does it take to catch up?');
+      const deeper = menu.getByRole('button', { name: 'Ask deeper', exact: true });
+      await expect(deeper).toBeEnabled();
+      await deeper.focus();
+      const tip = menu.locator('.tip');
+      await expect(tip).toBeVisible();
+      await expect(tip).toHaveText(
+        "Searches every tab and the original sources first, then the web, then the AI's general knowledge. Anything from outside the document is marked. (⌘ ⇧ Enter or Ctrl+Shift+Enter)",
+      );
+      await expect(deeper).toHaveAccessibleDescription(/then the web, then the AI's general knowledge/);
+      const tb = await tip.boundingBox();
+      const vw = page.viewportSize()?.width ?? 0;
+      if (!tb) throw new Error('no tooltip');
+      expect(tb.x).toBeGreaterThanOrEqual(8 - 0.5);
+      expect(tb.x + tb.width).toBeLessThanOrEqual(vw - 8 + 0.5);
+      await page.mouse.move(0, 0);
+      await settle(page);
+      await expectRegion(page, shot('menu-ask-tooltip'), [para, menu, tip]);
+      // Esc hides the tooltip first; the menu stays open.
+      await page.keyboard.press('Escape');
+      await expect(tip).toBeHidden();
+      await expect(menu).toBeVisible();
+    });
+
+    test('selection menu at 320 px: question, then Ask, Ask deep and Ask deeper on one row', async ({ page }) => {
+      await page.setViewportSize({ width: 320, height: 700 });
+      await open(page, 'full', { bridge: true });
+      const para = section(page, 'indepth', 0).locator(':scope > p').first();
+      const box = await para.boundingBox();
+      if (!box) throw new Error('no paragraph');
+      await page.mouse.move(box.x + 2, box.y + 10);
+      await page.mouse.down();
+      await page.mouse.move(box.x + 200, box.y + 10, { steps: 6 });
+      await page.mouse.up();
+      const menu = page.getByRole('group', { name: 'Selection actions' });
+      await expect(menu).toBeVisible();
+      const q = menu.getByRole('textbox', { name: 'Your question about this passage' });
+      const ask = menu.getByRole('button', { name: 'Ask', exact: true });
+      const deep = menu.getByRole('button', { name: 'Ask deep', exact: true });
+      const deeper = menu.getByRole('button', { name: 'Ask deeper', exact: true });
+      const [qb, ab, db, eb, mb] = await Promise.all([
+        q.boundingBox(),
+        ask.boundingBox(),
+        deep.boundingBox(),
+        deeper.boundingBox(),
+        menu.boundingBox(),
+      ]);
+      if (!qb || !ab || !db || !eb || !mb) throw new Error('no ask row');
+      // The three buttons never split: one row, left to right, below or beside the field.
+      expect(Math.abs(db.y - ab.y)).toBeLessThan(4);
+      expect(Math.abs(eb.y - ab.y)).toBeLessThan(4);
+      expect(ab.x + ab.width).toBeLessThanOrEqual(db.x);
+      expect(db.x + db.width).toBeLessThanOrEqual(eb.x);
+      expect(ab.y).toBeGreaterThanOrEqual(qb.y);
+      // Everything inside the menu, the menu inside the viewport, and the field keeps a usable width.
+      for (const b of [qb, ab, db, eb]) {
+        expect(b.x).toBeGreaterThanOrEqual(mb.x);
+        expect(b.x + b.width).toBeLessThanOrEqual(mb.x + mb.width + 0.5);
+      }
+      expect(mb.x + mb.width).toBeLessThanOrEqual(320);
+      expect(qb.width).toBeGreaterThan(100);
+      // Each label stays on one line (a button no taller than the field).
+      for (const b of [ab, db, eb]) expect(b.height).toBeLessThan(qb.height + 6);
+      await page.mouse.move(0, 0);
+      await settle(page);
+      await expectRegion(page, shot('narrow-selection-menu'), [menu]);
+      // The longest tooltip stays inside the 320 px viewport (8 px margins).
+      await q.fill('How long does it take to catch up?');
+      await deeper.focus();
+      const tip = menu.locator('.tip');
+      await expect(tip).toBeVisible();
+      const tb = await tip.boundingBox();
+      if (!tb) throw new Error('no tooltip');
+      expect(tb.x).toBeGreaterThanOrEqual(8 - 0.5);
+      expect(tb.x + tb.width).toBeLessThanOrEqual(320 - 8 + 0.5);
+      expect(tb.y).toBeGreaterThanOrEqual(0);
+      expect(tb.y + tb.height).toBeLessThanOrEqual(700);
     });
 
     test('a section being updated shows "Updating…"', async ({ page }) => {

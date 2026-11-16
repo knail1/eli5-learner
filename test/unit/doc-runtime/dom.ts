@@ -10,11 +10,13 @@ const SRC = '../../../src/doc-runtime/';
 
 type BridgeResult = { ok: boolean; error?: { message?: string } };
 type ScrollTo = { sectionId?: string; tabKey?: string; anchorId?: string; flash: boolean; loadSeq: number };
-type Busy = { busy: { sectionId: string; action: string }[] };
+type Busy = { busy: { sectionId: string; action: string; depth?: string }[] };
 export interface DocBridge {
   regenerateSection(r: object): Promise<BridgeResult>;
   createSectionEli5(r: object): Promise<BridgeResult>;
   askQuestion?(r: object): Promise<BridgeResult>;
+  askDeep?(r: object): Promise<BridgeResult>;
+  askDeeper?(r: object): Promise<BridgeResult>;
   closeTab(tabKey: string): Promise<BridgeResult>;
   openExternal(url: string): Promise<BridgeResult>;
   onScrollTo(cb: (e: ScrollTo) => void): () => void;
@@ -40,7 +42,7 @@ export interface RuntimeHandle {
     root: ShadowRoot;
     current(): Snapshot | null;
     close(): void;
-    /** `text`: the note, or the question for 'ask'. */
+    /** `text`: the note, or the question for 'ask' / 'ask-deep'. */
     submit(action: string, text?: string): Promise<void>;
   };
 }
@@ -127,6 +129,8 @@ export function fakeBridge() {
     regenerateSection: vi.fn(rec('regenerateSection')),
     createSectionEli5: vi.fn(rec('createSectionEli5')),
     askQuestion: vi.fn(rec('askQuestion')),
+    askDeep: vi.fn(rec('askDeep')),
+    askDeeper: vi.fn(rec('askDeeper')),
     closeTab: vi.fn(rec('closeTab')),
     openExternal: vi.fn(rec('openExternal')),
     onScrollTo: vi.fn((cb: (e: ScrollTo) => void) => {
@@ -134,11 +138,11 @@ export function fakeBridge() {
       return () => undefined;
     }),
     scrollCb: undefined as ((e: ScrollTo) => void) | undefined,
-    onSectionBusy: vi.fn((cb: (e: { busy: { sectionId: string; action: string }[] }) => void) => {
+    onSectionBusy: vi.fn((cb: (e: Busy) => void) => {
       b.busyCb = cb;
       return () => undefined;
     }),
-    busyCb: undefined as ((e: { busy: { sectionId: string; action: string }[] }) => void) | undefined,
+    busyCb: undefined as ((e: Busy) => void) | undefined,
   };
   return b;
 }
@@ -167,6 +171,15 @@ export function selectText(doc: Document, selector: string, text?: string, endSe
   sel?.addRange(range);
 }
 
+/** An element's text without its aria-hidden parts (the Ask buttons' ⓘ markers), as a name. */
+export function accessibleText(el: Element): string {
+  const label = el.getAttribute('aria-label');
+  if (label !== null) return label;
+  const copy = el.cloneNode(true) as Element;
+  for (const h of Array.from(copy.querySelectorAll('[aria-hidden="true"]'))) h.remove();
+  return copy.textContent ?? '';
+}
+
 /** The parts of the selection menu (08 §5.1), looked up in its shadow root. */
 export function menuParts(root: ShadowRoot | undefined) {
   const all = <T extends Element>(sel: string): T[] => Array.from(root?.querySelectorAll<T>(sel) ?? []);
@@ -184,8 +197,10 @@ export function menuParts(root: ShadowRoot | undefined) {
     items: () => all<HTMLButtonElement>('[role="menuitem"]'),
     pops: () => all<HTMLElement>('[role="menu"]'),
     buttons,
-    /** The button whose text is exactly `label`. */
-    button: (label: string) => buttons().find((b) => b.textContent === label),
+    /** The button whose accessible name (its text without aria-hidden parts) is exactly `label`. */
+    button: (label: string) => buttons().find((b) => accessibleText(b) === label),
+    /** The Ask tooltip (08 §5.1). */
+    tip: one<HTMLElement>('.tip'),
     active: () => root?.activeElement ?? null,
   };
 }

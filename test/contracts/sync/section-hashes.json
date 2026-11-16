@@ -13,6 +13,18 @@
       ]
     },
     {
+      "file": "deep-asked.html",
+      "sections": [
+        { "id": "sec-indepth-001ce0e7", "hash": "0ddc593c2eb15f08991de497ee4b676620d54caf5e48d9b5fed2ac3bebdeb6be" },
+        { "id": "sec-indepth-1c099207", "hash": "b3c69cdf2b0831a65a3cf57e56d41df66c1b960017e43b6a41728a9c0c3a7d12" },
+        { "id": "sec-indepth-b6fc5245", "hash": "810cf3b050f29afcb9ef2f2453073835aaf1ef490565c298d874965dbcce6019" },
+        { "id": "sec-indepth-148f210a", "hash": "409a269614de7b86eaef1499cf0f4cb60dd1a5c7fac03691f5f65c00b687b53f" },
+        { "id": "sec-eli5-aa296fff", "hash": "13d752616429ba40220f501db6963610cd173d8ba8aca1b746df76688d96a601" },
+        { "id": "sec-eli5-7d0f4e94", "hash": "a33b0dd220056411ba041e47372988acbfb6a7009eb6b05c43736d78b30bdac0" },
+        { "id": "sec-sx01806c-8f0193e9", "hash": "05a892b42321a7cfb8092172a8dcabc4cda9ba9a283845e44c61ac751c535c2f" }
+      ]
+    },
+    {
       "file": "full.html",
       "sections": [
         { "id": "sec-indepth-001ce0e7", "hash": "aa41d156fc3720575dc45020347de6fae48e039215fb183f1e18cbaba264d647" },

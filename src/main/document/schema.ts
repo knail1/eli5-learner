@@ -1,6 +1,13 @@
 // zod schema for the embedded `#eli5-model` (07 §3, §8: parseDocument validates it).
 import { z } from 'zod';
-import { AnimationBlockSchema, ChartSpecSchema } from '../llm';
+import {
+  AnimationBlockSchema,
+  ChartSpecSchema,
+  DEEPER_WEB_MAX,
+  DEEPER_WEB_TITLE_MAX,
+  DEEPER_WEB_URL_MAX,
+  normalizeWebUrl,
+} from '../llm';
 import { QA_ID_RE } from './ids';
 import { SECTION_ID_RE, TAB_KEY_RE, TAB_KINDS } from './section-id';
 import type { DocBlock, DocumentModel, SectionId } from './types';
@@ -49,6 +56,27 @@ export const DocBlockSchema = z.discriminatedUnion('type', [
     quote: z.string().max(160),
     paragraphs: z.array(z.string().min(1).max(1200)).min(1).max(4),
     askedAt: z.string(),
+    // 08 §6.9 item 8 / §6.10 item 9: an unknown value from a newer app degrades to a plain box.
+    depth: z.enum(['deep', 'deeper']).optional().catch(undefined),
+    sources: z.enum(['all', 'excerpts', 'none']).optional().catch(undefined),
+    reach: z.enum(['material', 'web', 'general']).optional().catch(undefined),
+    web: z
+      .array(
+        z.object({
+          title: z
+            .string()
+            .min(1)
+            .max(DEEPER_WEB_TITLE_MAX)
+            .regex(/^[^\r\n]*$/),
+          url: z
+            .string()
+            .max(DEEPER_WEB_URL_MAX)
+            .refine((u) => normalizeWebUrl(u) === u, 'http(s) URL without a fragment'),
+        }),
+      )
+      .max(DEEPER_WEB_MAX)
+      .optional()
+      .catch(undefined),
   }),
   AnimationBlockSchema,
 ]);

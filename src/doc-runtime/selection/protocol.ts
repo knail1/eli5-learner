@@ -1,5 +1,7 @@
 // Document <-> host message envelope (08 §4.2). v1 carries these as contextBridge arguments; the
 // envelope is versioned so a future <iframe> host can carry the same messages over postMessage.
+// An 'ask' payload may carry `depth: 'deep'` (Ask deep, 08 §6.9) or `'deeper'` (Ask deeper, 08 §6.10);
+// neither has a message type of its own.
 
 export type DocMessageType = 'act' | 'ask' | 'close-tab' | 'open-external' | 'scroll-to' | 'section-busy';
 

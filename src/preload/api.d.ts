@@ -207,7 +207,17 @@ export interface Eli5DocApi {
   regenerateSection(r: Omit<SectionActionRequest, 'slug'>): R<{ jobId: string }>;
   createSectionEli5(r: Omit<CreateSectionEli5Request, 'slug'>): R<{ jobId: string }>;
   /** 08 Ask: enqueues a job that inserts an answer box after the selection. Needs user activation. */
-  askQuestion(r: Omit<AskSectionRequest, 'slug'>): R<{ jobId: string }>;
+  askQuestion(r: Omit<AskSectionRequest, 'slug' | 'depth'>): R<{ jobId: string }>;
+  /**
+   * 08 §6.9 Deep Ask: the same request and checks as askQuestion, answered from every tab and the
+   * kept source text. Feature-detectable: an older app's bridge has no askDeep.
+   */
+  askDeep(r: Omit<AskSectionRequest, 'slug' | 'depth'>): R<{ jobId: string }>;
+  /**
+   * 08 §6.10 Ask deeper: the same request and checks, answered from the same material as askDeep,
+   * then the web, then general knowledge. Feature-detectable: an older app's bridge has none.
+   */
+  askDeeper(r: Omit<AskSectionRequest, 'slug' | 'depth'>): R<{ jobId: string }>;
   closeTab(tabKey: string): R<void>;
   openExternal(url: string): R<void>;
   onScrollTo(cb: (e: ScrollToEvent) => void): Unsub;

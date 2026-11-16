@@ -85,6 +85,33 @@ describe('placeMenu (08 §5.2 step 6)', () => {
     expect(p).toMatchObject({ left: 8, width: 344 });
   });
 
+  it('at 320 px the Ask row (question, Ask, Ask deep, Ask deeper) wraps only as a group (08 §5.1)', () => {
+    const p = menu.placeMenu({
+      ...base,
+      viewport: { width: 320, height: 640 },
+      anchor: { left: 100, top: 300, bottom: 320, width: 50 },
+    });
+    expect(p).toMatchObject({ left: 8, width: 304 });
+    // jsdom has no layout, so the wrapping contract is pinned on the menu stylesheet (the real
+    // geometry is in the narrow-selection-menu visual test): the row may wrap, but the three buttons
+    // sit in one non-wrapping group that moves under the field as a whole; the field keeps 120 px.
+    const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
+    const h = rt.boot(win, doc);
+    const css = h.selection?.root.querySelector('style')?.textContent ?? '';
+    expect(css).toMatch(/\.ask\{display:flex;flex-wrap:wrap;gap:4px\}/);
+    expect(css).toMatch(/input\{font:inherit;min-width:0;/);
+    expect(css).toMatch(/input\.q\{flex:1 1 120px\}/);
+    expect(css).toMatch(/\.askb\{display:flex;gap:4px;flex:1 0 auto\}/);
+    expect(css).not.toMatch(/\.askb\{[^}]*flex-wrap/);
+    expect(css).toMatch(/\.go\{flex:none;white-space:nowrap\}/);
+    // 304 - 16 padding leaves room for the three short labels and their markers on one line.
+    const m = menuParts(h.selection?.root);
+    const group = m.button('Ask')?.parentElement;
+    expect(group?.classList.contains('askb')).toBe(true);
+    const labels = Array.from(group?.querySelectorAll('button') ?? []).map((b) => b.querySelector('.lbl')?.textContent);
+    expect(labels).toEqual(['Ask', 'Ask deep', 'Ask deeper']);
+  });
+
   it('prefer: above stays above and grows upward; it flips only off the viewport top', () => {
     // 260 tall at anchor top 300: above would reach 32, under the 44 px tab bar.
     const tall = {
@@ -261,6 +288,26 @@ describe('menu interaction (08 §5.2, §5.4)', () => {
     const h = rt.boot(win, doc);
     open(win, doc);
     const m = menuParts(h.selection?.root);
+    m.note?.focus();
+    expect(key(win, m.note, 'Tab', { shiftKey: true })).toBe(false);
+    expect(m.active()).toBe(m.question);
+  });
+
+  it('Tab order in the Ask row: question -> Ask -> Ask deep -> Ask deeper -> note; Shift+Tab from the note still lands on the question', () => {
+    const { win, doc } = loadGolden('with-tab', { bridge: fakeBridge() });
+    const h = rt.boot(win, doc);
+    open(win, doc);
+    const m = menuParts(h.selection?.root);
+    const focusables = Array.from(
+      h.selection?.root.querySelectorAll<HTMLElement>('input, button:not([role="menuitem"])') ?? [],
+    ).filter((e) => e.tabIndex >= 0 && !e.closest('[hidden]'));
+    expect(focusables.slice(0, 5)).toEqual([
+      m.question,
+      m.button('Ask'),
+      m.button('Ask deep'),
+      m.button('Ask deeper'),
+      m.note,
+    ]);
     m.note?.focus();
     expect(key(win, m.note, 'Tab', { shiftKey: true })).toBe(false);
     expect(m.active()).toBe(m.question);

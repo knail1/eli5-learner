@@ -146,6 +146,72 @@ describe('numbers in the docs match the code', () => {
   });
 });
 
+/** A numeric `export const NAME = <expr>;` that may use `_` separators and `a * b` products. */
+function numericConstIn(rel: string, name: string): number {
+  const m = new RegExp(`export const ${name} = ([0-9_ *]+);`).exec(read(rel));
+  expect(m, `${name} in ${rel}`).not.toBeNull();
+  return (m?.[1] ?? '')
+    .split('*')
+    .map((part) => Number(part.trim().replace(/_/g, '')))
+    .reduce((a, b) => a * b, 1);
+}
+
+describe('Quick Ask, Ask deep, Ask deeper and retained source text in the docs', () => {
+  const readme = read('README.md');
+  const prd = read(PRD);
+  const s08 = read('spec/tech/08-interactive-reading.md');
+  const s09 = read('spec/tech/09-library-storage.md');
+
+  it('describes the three Ask buttons and the private source copy in the README', () => {
+    expect(readme).toMatch(/three Ask buttons/);
+    expect(readme).toMatch(/\*\*Ask deep\*\*/);
+    expect(readme).toMatch(/\*\*Ask deeper\*\*/);
+    expect(readme).not.toMatch(/Deep ask/);
+    expect(readme).toMatch(/private copy of the text extracted/);
+    expect(readme).toMatch(/never published or synced/);
+    expect(readme).toMatch(/over their tabs only/);
+  });
+
+  it('describes Ask, Ask deep, Ask deeper and hidden source retention in the PRD', () => {
+    expect(prd).toMatch(/\*\*Ask \(quick\):\*\*/);
+    expect(prd).toMatch(/\*\*Ask deep:\*\*/);
+    expect(prd).toMatch(/\*\*Ask deeper:\*\*/);
+    expect(prd).not.toMatch(/Deep ask/);
+    expect(prd).toMatch(/\.sources\//);
+    expect(prd).toMatch(/hidden, private copy of the text extracted/);
+  });
+
+  it('names the Quick Ask, Ask deep and Ask deeper sections in 08 and the sidecar section in 09', () => {
+    expect(s08).toMatch(/^### 6\.8 Quick Ask/m);
+    expect(s08).toMatch(/^### 6\.9 Ask deep/m);
+    expect(s08).toMatch(/^### 6\.10 Ask deeper/m);
+    expect(s09).toMatch(/^### 4\.4 Retained source text/m);
+  });
+
+  it('states the Deep Ask input cap from src/main/llm/deep-ask.ts', () => {
+    const cap = numericConstIn('src/main/llm/deep-ask.ts', 'DEEP_ASK_INPUT_CAP_TOKENS');
+    expect(s08).toContain(`DEEP_ASK_INPUT_CAP_TOKENS = ${cap.toLocaleString('en-US')}`);
+    expect(read('spec/tech/02-llm-provider.md')).toContain(`min(inputBudget, ${cap.toLocaleString('en-US')})`);
+  });
+
+  it('states the sidecar caps from src/main/library/sources.ts', () => {
+    const file = 'src/main/library/sources.ts';
+    const perSource = numericConstIn(file, 'MAX_SOURCE_CHARS');
+    const perDoc = numericConstIn(file, 'MAX_SIDECAR_BYTES');
+    expect(perDoc % (1024 * 1024)).toBe(0);
+    expect(s09).toMatch(
+      new RegExp(`within ${perSource.toLocaleString('en-US')} characters per source, ${perDoc / (1024 * 1024)} MiB`),
+    );
+    expect(read('spec/tech/hooks.md')).toContain(`(${perDoc / (1024 * 1024)} MiB cap)`);
+  });
+
+  it('lists the source copy on the public privacy page', () => {
+    const privacy = read('docs/privacy/index.html');
+    expect(privacy).toMatch(/private copy of the text extracted from each document's sources/);
+    expect(privacy).toMatch(/never published or synced/);
+  });
+});
+
 describe('Android parity in the user-facing docs', () => {
   it('no longer says the phone reader shows two tabs', () => {
     expect(read('README.md')).not.toMatch(/Both tabs/);

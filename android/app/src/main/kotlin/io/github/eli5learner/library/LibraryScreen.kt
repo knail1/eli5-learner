@@ -2,7 +2,7 @@ package io.github.eli5learner.library
 
 import android.text.format.DateUtils
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -72,7 +72,8 @@ fun syncIconState(s: SyncStatus): SyncIconState =
 /**
  * The library list (16 §6.2): search, folder chips, rows (title, updated time, offline pin, unread
  * dot), the sync icon with its status sheet, pull-to-refresh, the reconnect banner and the empty
- * state. Stateless apart from the sheet. Sync parts show only while connected.
+ * state. A row's menu (also on long-press) offers Share for a document on this phone (16 §6.5).
+ * Stateless apart from the sheet. Sync parts show only while connected.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,6 +90,7 @@ fun LibraryScreen(
     onRefresh: () -> Unit = {},
     onFolder: (String?) -> Unit = {},
     onPin: (DocEntry, Boolean) -> Unit = { _, _ -> },
+    onShare: (DocEntry) -> Unit = {},
 ) {
     var sheet by rememberSaveable { mutableStateOf(false) }
     val syncVisible = connected || needsReconnect
@@ -111,10 +113,10 @@ fun LibraryScreen(
             if (needsReconnect) ReconnectBanner(onReconnect)
             if (connected) {
                 PullToRefreshBox(isRefreshing = state.sync.syncing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
-                    LibraryBody(state, onQueryChange, onImport, onOpen, onRemove, onFolder, onPin, waitingForMac = state.sync.waitingForMac)
+                    LibraryBody(state, onQueryChange, onImport, onOpen, onRemove, onFolder, onPin, onShare, waitingForMac = state.sync.waitingForMac)
                 }
             } else {
-                LibraryBody(state, onQueryChange, onImport, onOpen, onRemove, onFolder, onPin, waitingForMac = false)
+                LibraryBody(state, onQueryChange, onImport, onOpen, onRemove, onFolder, onPin, onShare, waitingForMac = false)
             }
         }
     }
@@ -234,6 +236,7 @@ private fun LibraryBody(
     onRemove: (DocEntry) -> Unit,
     onFolder: (String?) -> Unit,
     onPin: (DocEntry, Boolean) -> Unit,
+    onShare: (DocEntry) -> Unit,
     waitingForMac: Boolean,
 ) {
     when {
@@ -263,7 +266,7 @@ private fun LibraryBody(
                     }
                 }
                 items(state.items, key = { it.key }) { entry ->
-                    LibraryRow(entry, onOpen = { onOpen(entry) }, onRemove = { onRemove(entry) }, onPin = { onPin(entry, it) })
+                    LibraryRow(entry, onOpen = { onOpen(entry) }, onRemove = { onRemove(entry) }, onPin = { onPin(entry, it) }, onShare = { onShare(entry) })
                 }
             }
     }
@@ -309,6 +312,7 @@ private fun LibraryRow(
     onOpen: () -> Unit,
     onRemove: () -> Unit,
     onPin: (Boolean) -> Unit,
+    onShare: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
     val time =
@@ -316,7 +320,12 @@ private fun LibraryRow(
             .getRelativeTimeSpanString(entry.updatedAt, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)
             .toString()
     ListItem(
-        modifier = Modifier.clickable(onClick = onOpen),
+        modifier =
+            Modifier.combinedClickable(
+                onClick = onOpen,
+                onLongClick = { menu = true },
+                onLongClickLabel = stringResource(R.string.row_show_menu, entry.title),
+            ),
         leadingContent =
             if (entry.unread) {
                 {
@@ -352,6 +361,15 @@ private fun LibraryRow(
                         Icon(painterResource(R.drawable.ic_more_vert), contentDescription = stringResource(R.string.row_more, entry.title))
                     }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        if (entry.available) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.action_share)) },
+                                onClick = {
+                                    menu = false
+                                    onShare()
+                                },
+                            )
+                        }
                         if (entry.synced) {
                             DropdownMenuItem(
                                 text = { Text(stringResource(if (entry.pinned) R.string.action_unpin else R.string.action_pin)) },

@@ -254,8 +254,9 @@ Clarifying input (PRD "Processing pipeline") goes verbatim into the `indepth` an
 
 1. Build the final `DocumentModel` (doc 07): the in-depth tab, the ELI5 tab (or placeholder), the glossary notes, and a references section listing every resolved and skipped source with reasons (PRD "References").
 2. Render `index.html` and `meta.json` (a `DocumentMeta` containing sources used, sources skipped, clarifying input, tab list, `jobId`, `warnings`) into `<library-root>/.staging/<jobId>/`, on the same volume as the library root.
+   2a. **Retained source text** (best effort, [09](09-library-storage.md) §4.4): the `SourceSidecarInput[]` is built once, before the save loop, from `job.resolved` and the extracted contents (`text = toPromptText(content)`, `null` for an image format; a missing extracted artifact means no sidecar). Each attempt writes it with `library.writeSourcesToStaging?.(stagingDir, inputs)` into `<staging>/.sources/` after `index.html` and `meta.json` and before step 3, so the sidecar arrives with the folder rename. A library without the optional member, or with retention off by policy (HOOK-LIB-01), writes nothing. A failure here never fails the job: log `pipeline.sources-not-kept {jobId, code}`, remove the partial `.sources/`, and commit without it.
 3. Call `library.commitDocument(reservation, '<library-root>/.staging/<jobId>/', meta)` (doc 09 §8.2). Doc 09 fsyncs, atomically renames the directory to `<library-root>/<topic-slug>/`, and upserts the `CatalogEntry` (including the summary) into `catalog.json` with its atomic write. The pipeline does no rename or catalog write of its own.
-4. If saving fails or the job is cancelled before step 3 begins, call `reservation.release()` and remove `<library-root>/.staging/<jobId>/`.
+4. If saving fails or the job is cancelled before step 3 begins, call `reservation.release()` and remove `<library-root>/.staging/<jobId>/`. When the save finally throws, the library staging dir is removed before the error is rethrown, so source text never waits in the library root until the next start.
 5. Set `result`, move to `done`, persist, and emit `eli5:jobs:changed` and `eli5:library:changed`. The Library sidebar and menu bar list update from the library event (doc 11). `JobQueue` also emits an in-process `done` event with the finished job (`kind`, `slug`, `docId`, `title`). Bootstrap's completion listener posts the completion notification (doc 11 §14): one per `create` job, never for failed jobs, section jobs or merges. The pipeline itself never imports `shell`; bootstrap (`src/main/index.ts`) wires the two (doc 01 §3).
 6. Delete `jobs/<jobId>/` staging for the job (§9.5).
 7. Fire the merge check (§10).
@@ -270,6 +271,7 @@ A rebuild regenerates an existing document from its sources with the current pro
 2. `meta = library.getMeta(slug)`; `meta.id` must equal `rebuild.docId` (else `SAVE_FAILED`, detail `REBUILD_DOC_MISMATCH`).
 3. Build the model with the document's id and `createdAt` and `reservedIds` (the live section IDs, `meta.retiredIds` and every version's `retiredIds`), render, and run the validity checks against the patched meta. The STE lint and critique outcome go to `job.rebuild.report`.
 4. Under `withDocLock(slug)`: if the live version id or the live html's sha256 differs from the captured base, fail `SAVE_FAILED` (detail `REBUILD_BASE_MOVED`) without writing; else `library.updateDocument(slug, …)` with the rebuild patch. `setCommitStarted` is on from just before the lock, so cancel is refused from there. No slug is allocated and nothing is committed through `commitDocument`.
+4a. Still under the same doc lock, after `updateDocument` commits: `library.upsertSources?.(slug, inputs)` with `origin: 'rebuild:<jobId>'` (the inputs of §5.7 step 2a). Best effort: a failure logs `pipeline.sources-not-kept {jobId, code}` and the job still ends done. This is also how a document saved before source retention gets a sidecar ([09](09-library-storage.md) §4.4). Step 1's early return (a crash between the commit and the upsert) runs the same upsert under `withDocLock` before finishing; it is idempotent.
 5. Done as in §5.7 steps 5 and 6, but with no merge check (§10): the document already exists.
 
 Crash recovery (§9.4 step 2) applies step 1 to a rebuild job found in `saving`. A rebuild job is never resumed: it spends only inside the driver's session (budget guard, per-document gate, hard stop), so any other non-terminal rebuild job found at launch fails with `INTERRUPTED` (detail `rebuild-not-resumed`), and the owner reruns the driver. For the same reason a failed rebuild job is never retried from the queue: its `canRetry` is false and `eli5:jobs:retry` refuses it with `E_CONFLICT`. The other way round, a headless driver session (a real run or rebuild, dry runs included) starts the queue with `init({ holdLeftovers: true })`: leftover non-terminal jobs that are not rebuilds are loaded but neither recovered nor scheduled, and their records stay unchanged, so only the driver's own jobs call a provider; the next normal launch recovers them (§9.4).
@@ -314,7 +316,12 @@ Doc 11 renders the status line (lower right). `status.ts` is the only producer o
 | section job running, action `eli5-selection` | `Adding ELI5 tab for a selection: {heading}` (done: `Added tab: {label}`) |
 | section job running, action `ask` | `Answering a question: {heading}` |
 | section job done, action `ask` | `Answered: {heading}` |
+| section job running, action `ask` with `depth: 'deep'` (doc 08 §6.9) | `Answering in depth: {heading}` |
+| section job done, action `ask` with `depth: 'deep'` | `Answered in depth: {heading}` |
+| section job running, action `ask` with `depth: 'deeper'` (doc 08 §6.10) | `Searching further: {heading}` |
+| section job done, action `ask` with `depth: 'deeper'` | `Answered (deeper): {heading}` |
 | `failed` / `SECTION_TOO_LARGE` | `Failed: section too long to rewrite` |
+| `failed` / `SECTION_TOO_LARGE` on an Ask deep or Ask deeper (08 §9) | `Failed: question needs more context than the model allows` |
 | `failed` / `SECTION_GONE` | `Failed: section no longer exists` |
 | `failed` / `SECTION_CHANGED` | `Failed: section changed, try again` |
 | `failed` / `DOC_GONE` | `Failed: document no longer exists` |
@@ -428,7 +435,7 @@ Recovery runs once in the main process after the registry loads and before the r
 1. Load all job records (§9.1).
 2. For each non-terminal job, in `JobId` order:
    1. If `cancelRequested`, finish it as `failed/CANCELLED` and delete staging.
-   2. A rebuild job (§5.7.1) is never resumed: if `status === 'saving'` and a version node of its document carries its `jobId`, mark it `done` (no merge check); otherwise fail it with `INTERRUPTED` and apply its staging retention. For other jobs, if `status === 'saving'` and `checkpoint.topicSlug` is set:
+   2. A rebuild job (§5.7.1) is never resumed: if `status === 'saving'` and a version node of its document carries its `jobId`, run the step 4a source upsert under `withDocLock` (idempotent, best effort; the job staging still holds its extracted texts), then mark it `done` (no merge check); otherwise fail it with `INTERRUPTED` and apply its staging retention. For other jobs, if `status === 'saving'` and `checkpoint.topicSlug` is set:
       - If `docs/<slug>/meta.json` exists with a matching `jobId`, ask doc 09 to finish the commit (upsert the catalog entry if it is missing), then mark it `done` (and fire the merge check if the catalog entry was just added).
       - Otherwise remove any leftover `docs/.staging/<jobId>/` and resume at saving.
    3. If `policy.resumeAfterCrash?.(job) === false`, fail it with `INTERRUPTED` and apply its staging retention.
@@ -534,6 +541,7 @@ Renderer payloads are validated with a schema in the main process. Main cannot t
 - [ ] The pipeline never retries an LLM call itself: a transient error is retried only by doc 02 (02 §7.1), and an exhausted retryable error on the in-depth call ends the job `failed/LLM_UNAVAILABLE`.
 - [ ] All standalone images are reserved in the job `ImageBudget` before any other source is extracted.
 - [ ] Saving goes through `library.allocateSlug(title, hint)` and `library.commitDocument()`; a failed or cancelled save calls `reservation.release()`.
+- [ ] A new document's folder holds `.sources/` with the extracted text of its sources (09 §4.4); a sidecar failure, a missing extracted artifact or a library without the optional members still saves the document without it; a save that finally fails removes the library staging dir; a rebuild upserts the sidecar once, also after a crash between commit and upsert; no source text reaches `index.html`, `meta.json`, `catalog.json` or any version file.
 - [ ] Section-job failures use `SECTION_TOO_LARGE`, `SECTION_GONE`, `SECTION_CHANGED` or `DOC_GONE` with the §6 strings.
 - [ ] Cancelling a queued or running job ends it `Cancelled` within 2s and leaves no folder, catalog entry or staging directory.
 - [ ] Killing the app during `generating` and relaunching resumes the job without redoing finished reading, extraction or generation steps, and ends with exactly one document.

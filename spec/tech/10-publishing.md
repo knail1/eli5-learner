@@ -174,7 +174,9 @@ Every `PublishError` maps to `IpcError` with `code: 'E_PUBLISH_FAILED'`, the `Pu
 2. Start from the allowlist `['index.html']`. v1 documents are self-contained (07), so this is the
    whole set. If a future document format adds an `assets/` folder, entries under it are added only
    if their extension is in `{.png,.jpg,.jpeg,.gif,.svg,.webp,.css,.js,.woff2}`.
-3. Never include: `meta.json`, `catalog.json`, dotfiles, anything outside `docs/<slug>/`, symlinks
+3. Never include: `meta.json`, `catalog.json`, dotfiles and dot-folders (in particular
+   `.versions/` and `.sources/`, the retained source text of [09](09-library-storage.md) §4.4, which
+   never leaves the machine through any publisher), anything outside `docs/<slug>/`, symlinks
    (checked with `lstat`; a symlink anywhere in the set aborts with `E_PUBLISH_FAILED`).
 4. Compute `bytes` and `sha256` for each file. A set larger than 25 MB total aborts with
    `E_PUBLISH_FAILED` ("Document too large to publish").
@@ -310,6 +312,7 @@ Conversion (`markdown.ts`), in reading order:
 | chart | italic title line, a data table (missing values as `-`), then the highlight and a `Source:` note |
 | diagram, figure | one italic line: title or caption, then the alt text |
 | stepper | bold title, then a numbered list of bold step labels with their text |
+| answer box (`qa`) | a quote: `**You asked:** <question>` (Markdown characters escaped), then the answer paragraphs; a deep answer ([07](07-output-document.md) §6.5) adds its badge line in italics, `*Deep answer · …*`, before the paragraphs; a deeper answer adds `*Deeper answer · …*` the same way and, after the paragraphs, its kept web pages as a plain-text list (`- Title — host/path`, Markdown characters escaped, never a link) |
 | animation | `#### title` (one level under the section heading), the alt text, the caption, then `*(interactive animation in the HTML version)*`; never the code or the poster SVG (07 §7.1) |
 
 For completion notifications (11 §14) Export copy and Export Markdown are both local publishers;

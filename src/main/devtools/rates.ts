@@ -15,6 +15,9 @@ export const MODEL_RATES: Readonly<Record<string, ModelRates>> = {
   'claude-haiku-4-5': { inputPerMTok: 1, outputPerMTok: 5 },
 };
 
+/** USD per provider-run web search (Claude: $10 per 1,000 searches; 02 §5, Ask deeper). */
+export const WEB_SEARCH_USD = 0.01;
+
 /** Prompt-cache multipliers on the input rate. */
 export const CACHE_WRITE_MULTIPLIER = 1.25;
 export const CACHE_READ_MULTIPLIER = 0.1;

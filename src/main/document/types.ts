@@ -7,6 +7,7 @@ import type { IdSource } from './section-id';
 import type { ResolvedSource, SkippedSource } from '../sources';
 import type {
   CreateSectionEli5Request,
+  DeepAskDepth,
   DocUpdatedEvent,
   MenuAction,
   ScrollToEvent,
@@ -21,6 +22,7 @@ import type {
 // Shared with the preload contract; defined there, re-exported here (08 §3).
 export type {
   CreateSectionEli5Request,
+  DeepAskDepth,
   DocUpdatedEvent,
   MenuAction,
   ScrollToEvent,
@@ -162,6 +164,24 @@ export interface QaDocBlock {
   /** 1..4 answer paragraphs of inline markdown. */
   paragraphs: string[];
   askedAt: string;
+  /** 08 §6.9 Ask deep or §6.10 Ask deeper (its links were stored as text). Absent = quick. */
+  depth?: DeepAskDepth;
+  /** Only with depth: what source text the answer was checked against (the badge, 07 §6.5). */
+  sources?: AnswerSourceMode;
+  /** Only with depth 'deeper': how far the answer went (its badge, 07 §6.5). */
+  reach?: AnswerReach;
+  /** Only with depth 'deeper': 0..6 web pages it used, shown as plain text (07 §6.5). */
+  web?: AnswerWebPage[];
+}
+
+/** 07 §6.5 / 08 §6.9: the whole kept source text, excerpts of it, or none (tabs only). */
+export type AnswerSourceMode = 'all' | 'excerpts' | 'none';
+/** 07 §6.5 / 08 §6.10: the document material, the web, or the model's general knowledge. */
+export type AnswerReach = 'material' | 'web' | 'general';
+/** One web page a deeper answer used (08 §6.10): a one-line title and an http(s) URL. */
+export interface AnswerWebPage {
+  title: string;
+  url: string;
 }
 
 /**
@@ -339,6 +359,8 @@ export interface SectionJobPayload {
   sectionIds?: SectionId[];
   /** 'ask' only: the reader's question, 3..500 chars on one line (08 Ask). */
   question?: string;
+  /** 'ask' only: Ask deep (08 §6.9) or Ask deeper (§6.10). Absent = quick; phone asks never carry it. */
+  depth?: DeepAskDepth;
   heading: string; // source section heading at request time
   baseHash: string; // sectionHash(section) at request time (08 §6.3)
 }

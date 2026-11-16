@@ -120,6 +120,92 @@ describe('answer boxes (07 §7.1)', () => {
   });
 });
 
+describe('deep answer boxes (08 §6.9)', () => {
+  it('are readable without JavaScript: badge, question and answer in the DOM, one per source mode', () => {
+    const { doc } = loadGolden('deep-asked'); // not booted
+    const deep = Array.from(doc.querySelectorAll<HTMLElement>('aside.qa.qa-deep'));
+    expect(deep).toHaveLength(3);
+    expect(deep.map((b) => b.querySelector('.qa-badge')?.textContent)).toEqual([
+      'Deep answer · checked against the original sources',
+      'Deep answer · checked against excerpts of the original sources',
+      'Deep answer · the original source text is not available for this document, so this answer uses the tabs only',
+    ]);
+    for (const b of deep) {
+      expect(b.getAttribute('aria-label')).toBe('Deep answer to a reader question');
+      expect(b.querySelector('.qa-a p')?.textContent?.trim()).not.toBe('');
+      expect(b.querySelector('details.qa-q .qa-q-text')?.textContent?.trim()).not.toBe('');
+      expect(b.closest('[data-eli5-noact]')).toBeNull();
+      // The badge is outside the answer, so selections and follow-up asks never carry it.
+      expect(b.querySelector('.qa-a .qa-badge')).toBeNull();
+    }
+    // A deep answer stores links as plain text.
+    expect(deep[0]?.querySelector('.qa-a a')).toBeNull();
+    expect(deep[0]?.querySelector('.qa-a')?.textContent).toContain('See the channel table for the other channels.');
+    // Quick boxes in the same document stay unmarked.
+    const quick = Array.from(doc.querySelectorAll<HTMLElement>('aside.qa:not(.qa-deep):not(.qa-deeper)'));
+    expect(quick).toHaveLength(2);
+    for (const b of quick) expect(b.querySelector('.qa-badge')).toBeNull();
+  });
+
+  it('print shows the badge (an exception to the [data-eli5-noact] rule) and keeps the box together', () => {
+    const print = printBlock(CSS);
+    expect(print).toMatch(/\[data-eli5-noact\] \{\s*display: none !important;/);
+    expect(print).toMatch(
+      /\.qa-badge\[data-eli5-noact\],\s*\.qa-web\[data-eli5-noact\] \{\s*display: block !important;/,
+    );
+    // .qa-deep is also .qa: break-inside avoid and exact colors apply.
+    expect(print).toMatch(/\.qa,[^{]*\{\s*break-inside: avoid;/);
+  });
+
+  it('the deep box style uses theme tokens only (light and dark follow the palette)', () => {
+    const rule = (sel: string): string =>
+      new RegExp(`\\n${sel.replace('.', '\\.')} \\{([^}]*)\\}`).exec(CSS)?.[1] ?? '';
+    expect(rule('.qa-deep')).toContain('var(--accent)');
+    const badge = rule('.qa-badge');
+    expect(badge).toContain('color: var(--muted)');
+    expect(badge).not.toMatch(/#[0-9a-f]{3,6}/i);
+  });
+});
+
+describe('deeper answer boxes (08 §6.10)', () => {
+  it('are readable without JavaScript: badge per reach, the page list as plain text, no links', () => {
+    const { doc } = loadGolden('deep-asked'); // not booted
+    const boxes = Array.from(doc.querySelectorAll<HTMLElement>('aside.qa.qa-deeper'));
+    expect(boxes).toHaveLength(3);
+    for (const b of boxes) {
+      expect(b.classList.contains('qa-deep')).toBe(false);
+      expect(b.getAttribute('aria-label')).toBe('Deeper answer to a reader question');
+      expect(b.querySelector('.qa-badge')?.hasAttribute('data-eli5-noact')).toBe(true);
+      expect(b.querySelector('.qa-badge')?.nextElementSibling?.classList.contains('qa-a')).toBe(true);
+      expect(b.querySelector('a')).toBeNull();
+    }
+    expect(boxes.map((b) => b.querySelector('.qa-badge')?.textContent)).toEqual([
+      'Deeper answer · found in the document and its original sources',
+      'Deeper answer · includes information from the web (pages listed below)',
+      "Deeper answer · includes the AI's general knowledge, not from the document or the web",
+    ]);
+    // Only the web box lists pages: after the answer, plain text, no query or fragment, escaped.
+    expect(boxes[0]?.querySelector('ul.qa-web')).toBeNull();
+    expect(boxes[2]?.querySelector('ul.qa-web')).toBeNull();
+    const list = boxes[1]?.querySelector<HTMLElement>('ul.qa-web');
+    expect(list?.hasAttribute('data-eli5-noact')).toBe(true);
+    expect(list?.previousElementSibling?.classList.contains('qa-a')).toBe(true);
+    expect(Array.from(list?.querySelectorAll('li') ?? []).map((li) => li.textContent)).toEqual([
+      'What is a good ROAS? <A guide> & more — example.org/guides/roas',
+      'Advertising basics — www.example.net/ads',
+    ]);
+    expect(list?.innerHTML).toContain('&lt;A guide&gt; &amp; more');
+  });
+
+  it('print shows the page list and the deeper box style uses the shared teal slot, not a hex', () => {
+    const rule = (sel: string): string =>
+      new RegExp(`\\n${sel.replace('.', '\\.')} \\{([^}]*)\\}`).exec(CSS)?.[1] ?? '';
+    expect(rule('.qa-deeper')).toContain('var(--viz-5)');
+    expect(rule('.qa-web')).toContain('color: var(--muted)');
+    expect(rule('.qa-web')).not.toMatch(/#[0-9a-f]{3,6}/i);
+  });
+});
+
 describe('animations (07 §7.1, §13)', () => {
   it('show their poster, title and caption without JavaScript; the frame is hidden', () => {
     const { doc } = loadGolden('showcase'); // not booted

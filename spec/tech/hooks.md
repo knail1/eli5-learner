@@ -52,7 +52,7 @@ Four layers share one ID per hook:
 | HOOK-DOC-01 | Organization document theme and branding | [07-output-document.md](./07-output-document.md) | `registerDocTheme` | neutral theme, "Made with ELI5 Learner" | none |
 | HOOK-DOC-02 | References for organization sources | [07-output-document.md](./07-output-document.md) | `registerReferenceFormatter` | never produces `kind:'org'` | none |
 | HOOK-DOC-03 | Organization-approved image library | [07-output-document.md](./07-output-document.md) | `registerStockImageProvider` | public open-licensed photo search; a stub turns photos off | `images.stockPhotos` (lockable via HOOK-CFG-01) |
-| HOOK-LIB-01 | Enterprise library storage policy | [09-library-storage.md](./09-library-storage.md) | `registerLibraryPolicy` | library root per 09 §3.1, 30-day trash | library root setting |
+| HOOK-LIB-01 | Enterprise library storage policy | [09-library-storage.md](./09-library-storage.md) | `registerLibraryPolicy` | library root per 09 §3.1, 30-day trash, extracted source text kept in `<slug>/.sources/` (2 MiB cap) for Ask deep | library root setting |
 | HOOK-LIB-02 | Merge eligibility across source sensitivity | [09-library-storage.md](./09-library-storage.md) | `registerMergeEligibility` | every pair eligible (`() => true`) | none |
 | HOOK-PUB-01 | Organization cloud drive publisher | [10-publishing.md](./10-publishing.md) | `registerPublisher('drive')` | `drive.stub.ts`, `available:false` | `publish.drive.*` |
 | HOOK-PUB-02 | Organization-wide sharing policy | [10-publishing.md](./10-publishing.md) | inside `drive` publisher; values via `registerSettingsExtension` | never shares | `publish.drive.*` |
@@ -224,12 +224,13 @@ The one-paragraph summaries below are not the contract. The callout in the defin
 ### LIB
 
 **HOOK-LIB-01 · Enterprise library storage policy.** Defined in [09-library-storage.md](./09-library-storage.md).
-- *Public:* the library root is resolved as in 09 §3.1. Files are protected only by the user account and OS disk encryption, and trash is kept for 30 days.
+- *Public:* the library root is resolved as in 09 §3.1. Files are protected only by the user account and OS disk encryption, and trash is kept for 30 days. Each document keeps the extracted text of its sources in `<slug>/.sources/` (capped at 2 MiB) for Ask deep (09 §4.4; `LibraryPolicy.retainSourceText`, absent means true).
 - *Binding supplies:*
   - whether the library root is pinned or restricted;
   - at-rest protection for organization-sourced documents;
   - trash and staging retention;
-  - whether `meta.json` may store source URLs or only redacted forms.
+  - whether `meta.json` may store source URLs or only redacted forms;
+  - whether extracted source text is retained.
 
 **HOOK-LIB-02 · Merge eligibility across source sensitivity.** Defined in [09-library-storage.md](./09-library-storage.md).
 - *Public:* eligibility depends on similarity alone, so any pair may be suggested.

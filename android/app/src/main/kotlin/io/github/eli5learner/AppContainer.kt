@@ -17,6 +17,8 @@ import io.github.eli5learner.importer.HtmlImporter
 import io.github.eli5learner.inbox.OutboxRepository
 import io.github.eli5learner.inbox.ReadyNotifier
 import io.github.eli5learner.inbox.UploadWorker
+import io.github.eli5learner.share.DocSharer
+import io.github.eli5learner.share.ShareCache
 import io.github.eli5learner.sync.DeviceWriter
 import io.github.eli5learner.sync.SyncRepository
 import io.github.eli5learner.sync.SyncScheduler
@@ -29,7 +31,7 @@ import java.io.File
 /**
  * Manual dependency injection (16 §6.1). One instance per process, owned by [Eli5App]. Documents
  * under `filesDir/docs` with the Room library index over them, the importer, preferences, the Google
- * authorization and Drive client, library sync, and the capture outbox. Nothing here makes a request: Drive calls happen
+ * authorization and Drive client, library sync, the capture outbox, and share copies. Nothing here makes a request: Drive calls happen
  * only after the user connects (16 §7).
  */
 class AppContainer(
@@ -48,6 +50,10 @@ class AppContainer(
     val libraryIndex: LibraryIndex by lazy { LibraryIndex(db, docStore, legacyFile = File(filesDir, "library-index.json")) }
     val importer: HtmlImporter by lazy { HtmlImporter(docStore, libraryIndex) }
     val preferences = AppPreferences.create(File(filesDir, "datastore/settings.preferences_pb"))
+
+    /** Copies handed to other apps through the share sheet (16 §6.5). */
+    val shareCache = ShareCache(File(context.cacheDir, "share"))
+    val docSharer: DocSharer by lazy { DocSharer(docStore, libraryIndex, shareCache) }
 
     private val http: OkHttpClient by lazy { OkHttpClient() }
 

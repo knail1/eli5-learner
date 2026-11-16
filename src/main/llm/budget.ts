@@ -1,5 +1,6 @@
 import { blocksToPromptText, promptAttributes, toPromptText } from '../extract';
 import type { ContentBlock, ExtractedContent, PromptTextOptions } from '../extract';
+import type { SectionDraft } from './schemas/draft';
 import type { ImageInput, ModelLimits } from './types';
 
 /**
@@ -11,9 +12,14 @@ import type { ImageInput, ModelLimits } from './types';
 
 const CJK_RE = /[぀-ヿ㐀-䶿一-鿿가-힯豈-﫿ｦ-ﾟ]/g;
 
+/** Characters that estimateTokens counts as CJK. */
+export function cjkCount(text: string): number {
+  return text.match(CJK_RE)?.length ?? 0;
+}
+
 export function estimateTokens(text: string): number {
   if (text.length === 0) return 0;
-  const cjk = text.match(CJK_RE)?.length ?? 0;
+  const cjk = cjkCount(text);
   return Math.ceil(text.length / (cjk / text.length > 0.3 ? 1.5 : 3.5));
 }
 
@@ -68,6 +74,50 @@ export function wrapSource(
 ): string {
   const extra = attrs.map(([k, v]) => ` ${k}="${attrValue(v)}"`).join('');
   return `<source ref="${attrValue(ref)}"${part ? ` part="${part}"` : ''}${extra}>\n${escapeSourceText(body)}\n</source>`;
+}
+
+/** Plain text of a section draft (heading first, one line per block) for prompts that quote a section. */
+export function sectionText(s: SectionDraft): string {
+  const lines = [s.heading];
+  for (const b of s.blocks) {
+    switch (b.type) {
+      case 'paragraph':
+      case 'analogy':
+      case 'callout':
+        lines.push(b.md);
+        break;
+      case 'list':
+        lines.push(...b.items.map((i) => `- ${i}`));
+        break;
+      case 'pullquote':
+        lines.push(`"${b.text}"${b.attribution ? ` (${b.attribution})` : ''}`);
+        break;
+      case 'table':
+        lines.push(
+          [b.caption ?? '', b.header.join(' | '), ...b.rows.map((r) => r.join(' | '))].filter(Boolean).join('\n'),
+        );
+        break;
+      case 'chart':
+        lines.push(`Chart: ${b.chart.title}${b.chart.subtitle ? ` (${b.chart.subtitle})` : ''}`);
+        break;
+      case 'diagram':
+        lines.push(`Diagram: ${b.title}. ${b.alt}`);
+        break;
+      case 'animation':
+        lines.push(`Animation: ${b.title}. ${b.alt}`);
+        break;
+      case 'figure':
+        lines.push(`Figure: ${b.caption}`);
+        break;
+      case 'photo':
+        lines.push(`Photo: ${b.alt}`);
+        break;
+      case 'stepper':
+        lines.push(b.title, ...b.steps.map((st, i) => `${i + 1}. ${st.label}: ${st.md}`));
+        break;
+    }
+  }
+  return lines.join('\n');
 }
 
 type LabelOf = (imageId: string) => string | undefined;

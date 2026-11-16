@@ -49,6 +49,10 @@ export const LOG_FIELD_ALLOWLIST: ReadonlySet<string> = new Set([
   'hookId',
   'capability',
   'overlayName',
+  // 08 §6.10: Ask deeper's counts (a plan mode name and numbers, never text or URLs).
+  'sourceMode',
+  'webSearches',
+  'webKept',
 ]);
 
 const MAX_STRING = 200;

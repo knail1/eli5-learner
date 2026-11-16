@@ -11,6 +11,7 @@ import type {
   ModelLimits,
   PromptId,
   StreamChunk,
+  WebSource,
 } from '../types';
 
 /** Test-only scripted provider (13 §6.1, 02 §16). Never registered in package builds. */
@@ -24,6 +25,11 @@ export interface FakeScript {
   errors?: Partial<Record<PromptId, LLMErrorKind | LLMErrorKind[]>>;
   latencyMs?: number; // default 0
   truncateTask?: PromptId; // simulate max_tokens truncation for one task
+  /**
+   * Pages a webSearch request reports (02 §16). When set, the fake's default limits support web
+   * search; a request with `webSearch` gets these and one search, a request without it none.
+   */
+  webSources?: WebSource[];
 }
 
 export interface FakeCall {
@@ -35,6 +41,8 @@ export interface FakeCall {
   withImages: boolean;
   /** Native structured-output schema, when the request carried one (02 §10). */
   jsonSchema?: GenerationRequest['jsonSchema'];
+  /** Provider web search, when the request asked for it (08 §6.10). */
+  webSearch?: GenerationRequest['webSearch'];
 }
 
 export interface FakeProviderOptions {
@@ -77,7 +85,7 @@ export class FakeProvider implements LLMProvider {
   ) {
     this.id = opts.id ?? 'claude';
     this.model = opts.model ?? 'fake-model';
-    this.limits = opts.limits ?? fallbackLimits(this.id);
+    this.limits = opts.limits ?? { ...fallbackLimits(this.id), supportsWebSearch: script.webSources !== undefined };
     this.readFile = opts.readFile;
   }
 
@@ -125,6 +133,7 @@ export class FakeProvider implements LLMProvider {
       imageBytes: images.map((i) => i.data.byteLength),
       withImages,
       ...(req.jsonSchema ? { jsonSchema: req.jsonSchema } : {}),
+      ...(req.webSearch ? { webSearch: req.webSearch } : {}),
     });
 
     // 1. Unknown task fails loudly.
@@ -170,6 +179,8 @@ export class FakeProvider implements LLMProvider {
       provider: this.id,
       latencyMs: Date.now() - started,
       attempts: 1,
+      // Deterministic web search (02 §16): the scripted pages and one search per webSearch request.
+      ...(req.webSearch ? { webSources: (this.script.webSources ?? []).map((w) => ({ ...w })), webSearches: 1 } : {}),
     };
   }
 

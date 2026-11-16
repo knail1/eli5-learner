@@ -42,6 +42,13 @@ export const STATUS_LINES = {
   /** 08 Ask. */
   sectionAskRunning: (heading: string) => `Answering a question: ${heading}`,
   sectionAskDone: (heading: string) => `Answered: ${heading}`,
+  sectionAskDeepRunning: (heading: string) => `Answering in depth: ${heading}`,
+  sectionAskDeepDone: (heading: string) => `Answered in depth: ${heading}`,
+  /** 08 §6.10: Ask deeper. */
+  sectionAskDeeperRunning: (heading: string) => `Searching further: ${heading}`,
+  sectionAskDeeperDone: (heading: string) => `Answered (deeper): ${heading}`,
+  /** 08 §9: a Deep Ask's SECTION_TOO_LARGE is about context, not a long section. */
+  sectionAskDeepTooLarge: 'Failed: question needs more context than the model allows',
   failed: {
     NO_USABLE_CONTENT: (n: number) => `Failed: no usable content in ${n} source(s)`,
     LLM_AUTH: 'Failed: API key rejected. Check Settings',
@@ -111,6 +118,13 @@ function failedLine(job: StatusLineJob): string {
     const reason = job.inputs.length === 1 && job.skipped.length === 1 ? lineReason(job.skipped[0]?.reason) : '';
     return reason ? `${line} · ${reason}` : line;
   }
+  if (
+    code === 'SECTION_TOO_LARGE' &&
+    job.section?.action === 'ask' &&
+    (job.section.depth === 'deep' || job.section.depth === 'deeper')
+  ) {
+    return STATUS_LINES.sectionAskDeepTooLarge;
+  }
   return STATUS_LINES.failed[code];
 }
 
@@ -125,6 +139,16 @@ function sectionLine(job: StatusLineJob, ctx: StatusLineContext): string {
   const action = job.section?.action;
   const eli5Tab = action === 'eli5-tab' || action === 'eli5-selection';
   if (action === 'ask') {
+    if (job.section?.depth === 'deeper') {
+      return job.status === 'done'
+        ? STATUS_LINES.sectionAskDeeperDone(heading)
+        : STATUS_LINES.sectionAskDeeperRunning(heading);
+    }
+    if (job.section?.depth === 'deep') {
+      return job.status === 'done'
+        ? STATUS_LINES.sectionAskDeepDone(heading)
+        : STATUS_LINES.sectionAskDeepRunning(heading);
+    }
     return job.status === 'done' ? STATUS_LINES.sectionAskDone(heading) : STATUS_LINES.sectionAskRunning(heading);
   }
   if (job.status === 'done') {

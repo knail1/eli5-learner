@@ -2,13 +2,76 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { Settings } from '../config';
 import { BaseProvider, type ProviderDeps, type SendContext, type SendResult } from './base';
 import { classifyError } from './retry';
-import type { ChatMessage, GenerationRequest, GenerationResult, LLMProvider, ModelLimits } from './types';
+import type {
+  ChatMessage,
+  GenerationRequest,
+  GenerationResult,
+  LLMProvider,
+  ModelLimits,
+  TokenUsage,
+  WebSource,
+} from './types';
 
 /** Tool-mode system instruction (02 §5 `strict_tool_auto`). */
 const TOOL_INSTRUCTION = (name: string): string =>
   `\n\nAnswer only by calling the \`${name}\` tool exactly once with the complete result. Do not write prose.`;
 
 const FORCED_TOOL_REJECTED = /tool_choice/i;
+/** A 400 that names web search: the tool is not enabled for this organisation (02 §5). */
+const WEB_SEARCH_REJECTED = /web[_ ]?search/i;
+/** 02 §5: at most this many `pause_turn` continuations per call. */
+export const MAX_PAUSE_CONTINUATIONS = 3;
+/** The server web search tool (02 §5); the dynamic-filtering variant, no separate code execution tool. */
+export const WEB_SEARCH_TOOL_TYPE = 'web_search_20260209';
+
+/** The full message of a raw SDK error (the classified one is cut to 160 characters). */
+function rawMessage(e: unknown): string {
+  const m = typeof e === 'object' && e !== null ? (e as { message?: unknown }).message : undefined;
+  return typeof m === 'string' ? m : '';
+}
+
+/**
+ * 02 §5: the pages a response reports, from `web_search_tool_result` blocks whose `content` is a
+ * result list (an error object means that search found nothing) and from web citations on text.
+ */
+export function webSourcesOf(content: readonly Anthropic.ContentBlock[]): WebSource[] {
+  const out: WebSource[] = [];
+  for (const b of content) {
+    if (b.type === 'web_search_tool_result') {
+      if (!Array.isArray(b.content)) continue;
+      for (const r of b.content) {
+        if (r.type === 'web_search_result' && typeof r.url === 'string') {
+          out.push({ url: r.url, ...(typeof r.title === 'string' && r.title ? { title: r.title } : {}) });
+        }
+      }
+    } else if (b.type === 'text' && Array.isArray(b.citations)) {
+      for (const c of b.citations) {
+        if (c.type === 'web_search_result_location' && typeof c.url === 'string') {
+          out.push({ url: c.url, ...(c.title ? { title: c.title } : {}) });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+function usageOfMessage(u: Anthropic.Usage): TokenUsage {
+  const cached = u.cache_read_input_tokens ?? 0;
+  return {
+    inputTokens: u.input_tokens + cached + (u.cache_creation_input_tokens ?? 0),
+    outputTokens: u.output_tokens,
+    ...(cached > 0 ? { cachedInputTokens: cached } : {}),
+  };
+}
+
+function sumUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
+  const cached = (a.cachedInputTokens ?? 0) + (b.cachedInputTokens ?? 0);
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    ...(cached > 0 ? { cachedInputTokens: cached } : {}),
+  };
+}
 
 function mapStop(r: Anthropic.StopReason | null): GenerationResult['stopReason'] {
   switch (r) {
@@ -62,7 +125,10 @@ export class ClaudeProvider extends BaseProvider implements LLMProvider {
   buildParams(req: GenerationRequest, limits: ModelLimits = this.limits): Anthropic.MessageStreamParams {
     const mode = limits.structuredMode;
     const schema = req.jsonSchema;
-    const toolMode = schema !== undefined && (mode === 'strict_tool_auto' || mode === 'forced_tool');
+    // 02 §5: web search only when the model supports it. Its structured output is always the strict
+    // tool with auto choice: forced tool_choice is rejected and output_config.format is not safe with it.
+    const web = req.webSearch !== undefined && limits.supportsWebSearch;
+    const toolMode = schema !== undefined && (web || mode === 'strict_tool_auto' || mode === 'forced_tool');
     const systemText = req.system + (toolMode && schema ? TOOL_INSTRUCTION(schema.name) : '');
     const outputConfig: Anthropic.OutputConfig = {};
     if (req.effort && limits.supportsEffort) outputConfig.effort = req.effort;
@@ -84,17 +150,26 @@ export class ClaudeProvider extends BaseProvider implements LLMProvider {
     }
     if (req.temperature !== undefined && limits.supportsTemperature) params.temperature = req.temperature;
     if (Object.keys(outputConfig).length > 0) params.output_config = outputConfig;
+    const tools: Anthropic.ToolUnion[] = [];
     if (toolMode && schema) {
-      params.tools = [
-        {
-          name: schema.name,
-          description: 'Return the result.',
-          input_schema: schema.schema as Anthropic.Tool.InputSchema,
-          strict: true,
-        },
-      ];
-      params.tool_choice = mode === 'forced_tool' ? { type: 'tool', name: schema.name } : { type: 'auto' };
+      tools.push({
+        name: schema.name,
+        description: 'Return the result.',
+        input_schema: schema.schema as Anthropic.Tool.InputSchema,
+        strict: true,
+      });
+      params.tool_choice = mode === 'forced_tool' && !web ? { type: 'tool', name: schema.name } : { type: 'auto' };
     }
+    if (web && req.webSearch) {
+      const tool: Anthropic.WebSearchTool20260209 = {
+        type: WEB_SEARCH_TOOL_TYPE,
+        name: 'web_search',
+        max_uses: Math.max(1, Math.floor(req.webSearch.maxUses)),
+      };
+      tools.push(tool);
+      params.tool_choice ??= { type: 'auto' };
+    }
+    if (tools.length > 0) params.tools = tools;
     return params;
   }
 
@@ -113,13 +188,24 @@ export class ClaudeProvider extends BaseProvider implements LLMProvider {
         this.currentLimits = { ...this.currentLimits, structuredMode: 'output_config' };
         return this.sendOnce(req, ctx);
       }
+      // 02 §5: web search not available for this account: resend once without the tool (not a
+      // retry); the answer then falls back to the model's own knowledge.
+      if (
+        req.webSearch &&
+        this.limits.supportsWebSearch &&
+        err.kind === 'bad_request' &&
+        (WEB_SEARCH_REJECTED.test(rawMessage(e)) || WEB_SEARCH_REJECTED.test(err.message))
+      ) {
+        const { webSearch: _drop, ...plain } = req;
+        const r = await this.sendOnce(plain, ctx);
+        return { ...r, webSources: [], webSearches: 0 };
+      }
       throw err;
     }
   }
 
-  private async sendOnce(req: GenerationRequest, ctx: SendContext): Promise<SendResult> {
-    const params = this.buildParams(req);
-    const toolName = params.tools ? req.jsonSchema?.name : undefined;
+  /** One streamed Messages call; touches the idle timer on every event. */
+  private async streamMessage(params: Anthropic.MessageStreamParams, ctx: SendContext): Promise<Anthropic.Message> {
     const stream = this.client(ctx).messages.stream(params, { signal: ctx.signal });
     stream.on('streamEvent', (event) => {
       ctx.touch();
@@ -127,36 +213,52 @@ export class ClaudeProvider extends BaseProvider implements LLMProvider {
         ctx.onDelta(event.delta.text);
       }
     });
-    const msg = await stream.finalMessage();
+    return stream.finalMessage();
+  }
+
+  private async sendOnce(req: GenerationRequest, ctx: SendContext): Promise<SendResult> {
+    const params = this.buildParams(req);
+    const toolName = params.tools?.some((t) => 'input_schema' in t) ? req.jsonSchema?.name : undefined;
+    const web = params.tools?.some((t) => t.type === WEB_SEARCH_TOOL_TYPE) ?? false;
+    // 02 §5: a long server-tool turn stops with pause_turn; the assistant content goes back unchanged
+    // and the same request continues, at most MAX_PAUSE_CONTINUATIONS times.
+    const content: Anthropic.ContentBlock[] = [];
+    let messages = params.messages;
+    let usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
+    let searches = 0;
+    let msg: Anthropic.Message;
+    for (let turn = 0; ; turn++) {
+      msg = await this.streamMessage({ ...params, messages }, ctx);
+      content.push(...msg.content);
+      usage = sumUsage(usage, usageOfMessage(msg.usage));
+      searches += msg.usage.server_tool_use?.web_search_requests ?? 0;
+      if (msg.stop_reason !== 'pause_turn' || turn >= MAX_PAUSE_CONTINUATIONS) break;
+      messages = [...messages, { role: 'assistant', content: msg.content }];
+    }
     let text = '';
     let json: unknown;
     if (toolName) {
-      const call = msg.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === toolName);
+      const call = content.findLast((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === toolName);
       if (call) {
         json = call.input;
         text = JSON.stringify(call.input);
       }
     } else {
-      text = msg.content
+      text = content
         .filter((b): b is Anthropic.TextBlock => b.type === 'text')
         .map((b) => b.text)
         .join('');
       if (req.jsonSchema) json = tryParse(text);
     }
     const stopReason = mapStop(msg.stop_reason);
-    const u = msg.usage;
-    const cached = u.cache_read_input_tokens ?? 0;
     return {
       text,
       ...(json !== undefined && stopReason === 'end' ? { json } : {}),
       stopReason,
-      usage: {
-        inputTokens: u.input_tokens + cached + (u.cache_creation_input_tokens ?? 0),
-        outputTokens: u.output_tokens,
-        ...(cached > 0 ? { cachedInputTokens: cached } : {}),
-      },
+      usage,
       model: msg.model,
       provider: 'claude',
+      ...(web ? { webSources: webSourcesOf(content), webSearches: searches } : {}),
     };
   }
 

@@ -165,6 +165,63 @@ describe('statusLine (06 §6)', () => {
       'Failed: section changed, try again',
     );
   });
+
+  it('a Deep Ask has its own running and done lines (08 §6.9)', () => {
+    const deep = {
+      slug: 's',
+      tabKey: 'indepth',
+      sectionId: 'sec-indepth-0123abcd',
+      action: 'ask',
+      selectionText: 'abc',
+      question: 'Why cache at all?',
+      depth: 'deep',
+      heading: 'Resolvers',
+      baseHash: 'h',
+    } as NonNullable<StatusLineJob['section']>;
+    const s = (over: Partial<StatusLineJob>) => job({ kind: 'section', inputs: [], section: deep, ...over });
+    for (const status of ['queued', 'generating', 'saving'] as const) {
+      expect(statusLine(s({ status, section: deep }))).toBe('Answering in depth: Resolvers');
+    }
+    expect(statusLine(s({ status: 'done', section: deep }), { tabLabel: 'ELI5: Caching' })).toBe(
+      'Answered in depth: Resolvers',
+    );
+    expect(statusLine(s({ status: 'failed', section: deep, failure: { code: 'SECTION_CHANGED', message: '' } }))).toBe(
+      'Failed: section changed, try again',
+    );
+    // 08 §9: too much context, not a long section; a quick Ask keeps the rewrite wording.
+    const tooLarge = { code: 'SECTION_TOO_LARGE', message: '' } as const;
+    expect(statusLine(s({ status: 'failed', section: deep, failure: tooLarge }))).toBe(
+      'Failed: question needs more context than the model allows',
+    );
+    const { depth: _d, ...quick } = deep;
+    expect(statusLine(s({ status: 'failed', section: quick, failure: tooLarge }))).toBe(
+      'Failed: section too long to rewrite',
+    );
+  });
+});
+
+describe('Ask deeper status lines (08 §6.10, 06 §6)', () => {
+  it('has its own running and done lines and the deep SECTION_TOO_LARGE line', () => {
+    const deeper = {
+      slug: 's',
+      tabKey: 'indepth',
+      sectionId: 'sec-indepth-0123abcd',
+      action: 'ask',
+      selectionText: 'abc',
+      question: 'Why cache at all?',
+      depth: 'deeper',
+      heading: 'Resolvers',
+      baseHash: 'h',
+    } as NonNullable<StatusLineJob['section']>;
+    const s = (over: Partial<StatusLineJob>) => job({ kind: 'section', inputs: [], section: deeper, ...over });
+    for (const status of ['queued', 'generating', 'saving'] as const) {
+      expect(statusLine(s({ status }))).toBe('Searching further: Resolvers');
+    }
+    expect(statusLine(s({ status: 'done' }))).toBe('Answered (deeper): Resolvers');
+    expect(statusLine(s({ status: 'failed', failure: { code: 'SECTION_TOO_LARGE', message: '' } }))).toBe(
+      'Failed: question needs more context than the model allows',
+    );
+  });
 });
 
 describe('canTransition (06 §3.2)', () => {

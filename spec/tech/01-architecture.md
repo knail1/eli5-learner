@@ -183,7 +183,9 @@ Each directory has one public entry (`index.ts`) that is the only import path ot
    and shows the inline action menu (only if `window.eli5Doc` exists; in a plain browser the menu is
    not shown).
 2. On action, the runtime calls `eli5Doc.regenerateSection({tabKey, sectionId, action,
-   selectionText, note})`, `eli5Doc.askQuestion({tabKey, sectionId, selectionText, question})` or
+   selectionText, note})`, `eli5Doc.askQuestion({tabKey, sectionId, selectionText, question})`,
+   `eli5Doc.askDeep(...)` (the same channel with `depth: 'deep'`, 08 §6.9),
+   `eli5Doc.askDeeper(...)` (`depth: 'deeper'`, 08 §6.10) or
    `eli5Doc.createSectionEli5(...)` → `eli5:doc:regenerate-section`, `eli5:doc:ask-section` or
    `eli5:doc:create-section-eli5` (the preload adds `slug`). These are jobs too; they enter the same
    queue, report on `eli5:jobs:changed`, and main pushes `eli5:doc:section-busy` to the viewer.
@@ -344,7 +346,7 @@ this table is corrected. Channel **names** are fixed here.
 | Channel | Dir | Request | Response / event payload | Spec |
 | --- | --- | --- | --- | --- |
 | `eli5:doc:regenerate-section` | D→M | `SectionActionRequest {slug; tabKey; sectionId; action: SectionAction; selectionText; note?}` | `{jobId}` | 08 §3 |
-| `eli5:doc:ask-section` | D→M | `AskSectionRequest {slug; tabKey; sectionId; selectionText; question}` (question 3..500 chars, one line) | `{jobId}` | 08 §3, §6.8 |
+| `eli5:doc:ask-section` | D→M | `AskSectionRequest {slug; tabKey; sectionId; selectionText; question; depth?}` (question 3..500 chars, one line; `depth` `'quick'` (default), `'deep'` or `'deeper'`) | `{jobId}` | 08 §3, §6.8, §6.9, §6.10 |
 | `eli5:doc:create-section-eli5` | D→M | `CreateSectionEli5Request` (06's `eli5:doc:section-eli5` is this channel) | `{jobId}` | 08 §3 |
 | `eli5:doc:close-tab` | D→M | `CloseTabRequest {slug; tabKey}` (section ELI5 tabs only) | `void` | 08 §3 |
 | `eli5:doc:updated` | M→R | — | `{slug; sectionId?: SectionId; tabKey?: string; anchorId?: string}` | 08 |
@@ -488,7 +490,9 @@ export interface Eli5Api {
 export interface Eli5DocApi {
   regenerateSection(r: Omit<SectionActionRequest, 'slug'>): Promise<IpcResult<{ jobId: string }>>;
   createSectionEli5(r: Omit<CreateSectionEli5Request, 'slug'>): Promise<IpcResult<{ jobId: string }>>;
-  askQuestion(r: Omit<AskSectionRequest, 'slug'>): Promise<IpcResult<{ jobId: string }>>; // user activation required
+  askQuestion(r: Omit<AskSectionRequest, 'slug' | 'depth'>): Promise<IpcResult<{ jobId: string }>>; // user activation required
+  askDeep(r: Omit<AskSectionRequest, 'slug' | 'depth'>): Promise<IpcResult<{ jobId: string }>>;     // same checks; sends depth 'deep' (08 §6.9)
+  askDeeper(r: Omit<AskSectionRequest, 'slug' | 'depth'>): Promise<IpcResult<{ jobId: string }>>;   // same checks; sends depth 'deeper' (08 §6.10)
   closeTab(tabKey: string): Promise<IpcResult<void>>;
   openExternal(url: string): Promise<IpcResult<void>>;
   onScrollTo(cb: (e: ScrollToEvent) => void): Unsub;
@@ -563,7 +567,7 @@ the private spec's checklist are built from it. A spec that adds a hook adds a r
 | HOOK-DOC-01 | 07 | `registerDocTheme` | neutral default `DocTheme` |
 | HOOK-DOC-02 | 07 | `registerReferenceFormatter` | public formatter (never produces `kind:'org'`) |
 | HOOK-DOC-03 | 07 | `registerStockImageProvider` | Openverse, then Wikimedia Commons (`FallbackStockImages`); `approved-library.stub.ts` documented, not registered |
-| HOOK-LIB-01 | 09 | `registerLibraryPolicy` | root per 09 §3, 30-day retention |
+| HOOK-LIB-01 | 09 | `registerLibraryPolicy` | root per 09 §3, 30-day retention, extracted source text kept in `<slug>/.sources/` (2 MiB cap) for Ask deep (`retainSourceText` absent = true) |
 | HOOK-LIB-02 | 09 | `registerMergeEligibility` | `() => true` |
 | HOOK-PUB-01 | 10 | `registerPublisher('drive')` | `drive.stub.ts` |
 | HOOK-PUB-02 | 10 | inside the `drive` publisher; values via `registerSettingsExtension` | never shares |

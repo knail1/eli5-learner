@@ -19,6 +19,8 @@ export type PromptId =
   | 'section-deeper'
   | 'section-revise'
   | 'section-ask'
+  | 'section-ask-deep'
+  | 'section-ask-deeper'
   | 'section-eli5-tab'
   | 'selection-eli5-tab'
   | 'summary'
@@ -39,6 +41,8 @@ export const PROMPT_IDS: readonly PromptId[] = [
   'section-deeper',
   'section-revise',
   'section-ask',
+  'section-ask-deep',
+  'section-ask-deeper',
   'section-eli5-tab',
   'selection-eli5-tab',
   'summary',
@@ -79,6 +83,14 @@ export interface GenerationRequest {
   timeoutMs?: number; // overrides llm.timeoutMs for this call
   /** Called before each retry wait (02 §7.1 step 6); 06 shows " (retrying)" while it runs. */
   onRetry?: (attempt: number, waitMs: number) => void;
+  /** Provider-run web search (Ask deeper, 08 §6.10); sent only if limits.supportsWebSearch (02 §5, §6). */
+  webSearch?: { maxUses: number };
+}
+
+/** A web page the provider reports it searched or cited for one call (02 §3). */
+export interface WebSource {
+  url: string;
+  title?: string;
 }
 
 export interface TokenUsage {
@@ -96,6 +108,10 @@ export interface GenerationResult {
   provider: ProviderId;
   latencyMs: number;
   attempts: number; // 1 + retries performed
+  /** webSearch requests only: pages the provider reports it searched or cited. */
+  webSources?: WebSource[];
+  /** webSearch requests only: searches the provider ran (0 when the web tool was dropped). */
+  webSearches?: number;
 }
 
 export type StreamChunk = { type: 'text'; delta: string } | { type: 'done'; result: GenerationResult };
@@ -111,6 +127,8 @@ export interface ModelLimits {
   thinkingReserveTokens: number;
   systemRole: 'system' | 'developer'; // OpenAI only
   structuredMode: 'output_config' | 'strict_tool_auto' | 'forced_tool' | 'json_schema_strict';
+  /** The provider's own web search tool works with this model (02 §5, §6); unknown models: false. */
+  supportsWebSearch: boolean;
 }
 
 /** Result of LLMProvider.testConnection; never thrown (02 §3, §13). */

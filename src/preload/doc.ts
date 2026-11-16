@@ -122,6 +122,18 @@ function actPayload(r: ActFields, withAction: boolean): Record<string, unknown> 
   };
 }
 
+/** Copies only the known ask fields; Quick Ask sends no `depth` (08 §6.8). */
+function askPayload(r: AskFields, depth?: 'deep' | 'deeper'): Record<string, unknown> {
+  return {
+    tabKey: r.tabKey,
+    sectionId: r.sectionId,
+    selectionText: r.selectionText,
+    question: r.question,
+    ...(depth ? { depth } : {}),
+    slug: currentSlug(),
+  };
+}
+
 const api: Eli5DocApi = {
   regenerateSection: (r) => {
     if (!activated()) return forbidden();
@@ -136,13 +148,19 @@ const api: Eli5DocApi = {
   askQuestion: (r) => {
     if (!activated()) return forbidden();
     if (!validAsk(r)) return badRequest();
-    return invoke(IPC.doc.askSection, {
-      tabKey: r.tabKey,
-      sectionId: r.sectionId,
-      selectionText: r.selectionText,
-      question: r.question,
-      slug: currentSlug(),
-    });
+    return invoke(IPC.doc.askSection, askPayload(r));
+  },
+  // 08 §6.9: the same channel and checks; only `depth` differs.
+  askDeep: (r) => {
+    if (!activated()) return forbidden();
+    if (!validAsk(r)) return badRequest();
+    return invoke(IPC.doc.askSection, askPayload(r, 'deep'));
+  },
+  // 08 §6.10: the same channel and checks; only `depth` differs.
+  askDeeper: (r) => {
+    if (!activated()) return forbidden();
+    if (!validAsk(r)) return badRequest();
+    return invoke(IPC.doc.askSection, askPayload(r, 'deeper'));
   },
   closeTab: (tabKey) => {
     if (!activated()) return forbidden();

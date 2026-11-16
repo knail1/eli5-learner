@@ -31,13 +31,13 @@
       "text": "{\"v\":1,\"deviceId\":\"0b7c5e2a-1f3d-4c4e-9a8b-2d6f0e1c3b5a\",\"platform\":\"macos\",\"name\":\"Example Mac\",\"appVersion\":\"0.4.0\",\"role\":\"primary\",\"accepts\":[],\"inbox\":\"off\"}"
     },
     {
-      "name": "blob-d669167149e390ff6a94fa310894748b9ab78d9ac271b117dcee3bf573c53977.html.gz",
+      "name": "blob-df70876ceea0b57bc519041c5d88bc8a7ada9f2992b685afc3f9e00107ad31d4.html.gz",
       "mimeType": "application/gzip",
       "appProperties": {
         "k": "blob",
         "dev": "0b7c5e2a-1f3d-4c4e-9a8b-2d6f0e1c3b5a",
         "d": "2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d",
-        "s": "d669167149e390ff6a94fa310894748b9ab78d9ac271b117dcee3bf573c53977"
+        "s": "df70876ceea0b57bc519041c5d88bc8a7ada9f2992b685afc3f9e00107ad31d4"
       },
       "html": "full.html"
     },
@@ -50,27 +50,27 @@
         "d": "2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d",
         "n": "1"
       },
-      "text": "{\"v\":1,\"docId\":\"2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d\",\"seq\":1,\"currentId\":\"v-000000000001\",\"nodes\":[{\"id\":\"v-000000000001\",\"parentId\":null,\"kind\":\"initial\",\"label\":\"first version\",\"createdAt\":\"2026-10-01T10:02:00.000Z\",\"sha\":\"d669167149e390ff6a94fa310894748b9ab78d9ac271b117dcee3bf573c53977\",\"uploaded\":true}]}"
+      "text": "{\"v\":1,\"docId\":\"2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d\",\"seq\":1,\"currentId\":\"v-000000000001\",\"nodes\":[{\"id\":\"v-000000000001\",\"parentId\":null,\"kind\":\"initial\",\"label\":\"first version\",\"createdAt\":\"2026-10-01T10:02:00.000Z\",\"sha\":\"df70876ceea0b57bc519041c5d88bc8a7ada9f2992b685afc3f9e00107ad31d4\",\"uploaded\":true}]}"
     },
     {
-      "name": "blob-65b1a3faf3bdc3fc60f7d4d3ee5b3d0a88130abf8f3902282bd990336c1275e5.html.gz",
+      "name": "blob-607300a1a67952b85db420c2ef9ecd477cfa127553d755986f4f7c40fbaf66a7.html.gz",
       "mimeType": "application/gzip",
       "appProperties": {
         "k": "blob",
         "dev": "0b7c5e2a-1f3d-4c4e-9a8b-2d6f0e1c3b5a",
         "d": "6f1c2b8e-3d4a-4b5c-9e7f-0a1b2c3d4e5f",
-        "s": "65b1a3faf3bdc3fc60f7d4d3ee5b3d0a88130abf8f3902282bd990336c1275e5"
+        "s": "607300a1a67952b85db420c2ef9ecd477cfa127553d755986f4f7c40fbaf66a7"
       },
       "html": "with-ste.html"
     },
     {
-      "name": "blob-358732d2a9e7c9568092bc5aaae138de54821c731aeeeae225a6e18233a9d893.html.gz",
+      "name": "blob-b976a8b0e6fb2023b3c6bdb15d0f438f5fa4a97de0893b23f10c1eee1443bbe7.html.gz",
       "mimeType": "application/gzip",
       "appProperties": {
         "k": "blob",
         "dev": "0b7c5e2a-1f3d-4c4e-9a8b-2d6f0e1c3b5a",
         "d": "6f1c2b8e-3d4a-4b5c-9e7f-0a1b2c3d4e5f",
-        "s": "358732d2a9e7c9568092bc5aaae138de54821c731aeeeae225a6e18233a9d893"
+        "s": "b976a8b0e6fb2023b3c6bdb15d0f438f5fa4a97de0893b23f10c1eee1443bbe7"
       },
       "html": "showcase.html"
     },
@@ -83,7 +83,7 @@
         "d": "6f1c2b8e-3d4a-4b5c-9e7f-0a1b2c3d4e5f",
         "n": "1"
       },
-      "text": "{\"v\":1,\"docId\":\"6f1c2b8e-3d4a-4b5c-9e7f-0a1b2c3d4e5f\",\"seq\":1,\"currentId\":\"v-000000000003\",\"nodes\":[{\"id\":\"v-000000000002\",\"parentId\":null,\"kind\":\"initial\",\"label\":\"first version\",\"createdAt\":\"2026-10-01T10:04:00.000Z\",\"sha\":\"358732d2a9e7c9568092bc5aaae138de54821c731aeeeae225a6e18233a9d893\",\"uploaded\":true},{\"id\":\"v-000000000003\",\"parentId\":\"v-000000000002\",\"kind\":\"outside\",\"label\":\"Rebuilt with prompt set default (0123abcd)\",\"createdAt\":\"2026-10-01T10:05:00.000Z\",\"sha\":\"65b1a3faf3bdc3fc60f7d4d3ee5b3d0a88130abf8f3902282bd990336c1275e5\",\"uploaded\":true}]}"
+      "text": "{\"v\":1,\"docId\":\"6f1c2b8e-3d4a-4b5c-9e7f-0a1b2c3d4e5f\",\"seq\":1,\"currentId\":\"v-000000000003\",\"nodes\":[{\"id\":\"v-000000000002\",\"parentId\":null,\"kind\":\"initial\",\"label\":\"first version\",\"createdAt\":\"2026-10-01T10:04:00.000Z\",\"sha\":\"b976a8b0e6fb2023b3c6bdb15d0f438f5fa4a97de0893b23f10c1eee1443bbe7\",\"uploaded\":true},{\"id\":\"v-000000000003\",\"parentId\":\"v-000000000002\",\"kind\":\"outside\",\"label\":\"Rebuilt with prompt set default (0123abcd)\",\"createdAt\":\"2026-10-01T10:05:00.000Z\",\"sha\":\"607300a1a67952b85db420c2ef9ecd477cfa127553d755986f4f7c40fbaf66a7\",\"uploaded\":true}]}"
     },
     {
       "name": "lib-0b7c5e2a-1f3d-4c4e-9a8b-2d6f0e1c3b5a.json",
@@ -93,7 +93,7 @@
         "dev": "0b7c5e2a-1f3d-4c4e-9a8b-2d6f0e1c3b5a",
         "n": "1"
       },
-      "text": "{\"v\":1,\"seq\":1,\"generatedAt\":\"2026-11-08T12:00:00.000Z\",\"folders\":[],\"docs\":[{\"docId\":\"2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d\",\"title\":\"Where the ad money goes\",\"summary\":\"About Where the ad money goes.\",\"headings\":[\"Why ad spend is judged by ROAS\",\"2. How the budget moved\",\"How an order flows\"],\"tabs\":[\"indepth\",\"eli5\"],\"createdAt\":\"2026-10-01T10:01:00.000Z\",\"updatedAt\":\"2026-10-01T10:02:00.000Z\",\"placement\":{\"kind\":\"unfiled\"},\"currentVersionId\":\"v-000000000001\",\"currentSha\":\"d669167149e390ff6a94fa310894748b9ab78d9ac271b117dcee3bf573c53977\",\"sizeBytes\":110117,\"busy\":false},{\"docId\":\"6f1c2b8e-3d4a-4b5c-9e7f-0a1b2c3d4e5f\",\"title\":\"Getting a widget to the door\",\"summary\":\"About Getting a widget to the door.\",\"headings\":[\"From click to doorstep\",\"Where the days go\",\"Why the packing line backs up\"],\"tabs\":[\"indepth\",\"eli5\",\"sx052c0b\"],\"createdAt\":\"2026-10-01T10:03:00.000Z\",\"updatedAt\":\"2026-10-01T10:05:00.000Z\",\"placement\":{\"kind\":\"unfiled\"},\"currentVersionId\":\"v-000000000003\",\"currentSha\":\"65b1a3faf3bdc3fc60f7d4d3ee5b3d0a88130abf8f3902282bd990336c1275e5\",\"sizeBytes\":215319,\"busy\":false}]}"
+      "text": "{\"v\":1,\"seq\":1,\"generatedAt\":\"2026-11-08T12:00:00.000Z\",\"folders\":[],\"docs\":[{\"docId\":\"2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d\",\"title\":\"Where the ad money goes\",\"summary\":\"About Where the ad money goes.\",\"headings\":[\"Why ad spend is judged by ROAS\",\"2. How the budget moved\",\"How an order flows\"],\"tabs\":[\"indepth\",\"eli5\"],\"createdAt\":\"2026-10-01T10:01:00.000Z\",\"updatedAt\":\"2026-10-01T10:02:00.000Z\",\"placement\":{\"kind\":\"unfiled\"},\"currentVersionId\":\"v-000000000001\",\"currentSha\":\"df70876ceea0b57bc519041c5d88bc8a7ada9f2992b685afc3f9e00107ad31d4\",\"sizeBytes\":114859,\"busy\":false},{\"docId\":\"6f1c2b8e-3d4a-4b5c-9e7f-0a1b2c3d4e5f\",\"title\":\"Getting a widget to the door\",\"summary\":\"About Getting a widget to the door.\",\"headings\":[\"From click to doorstep\",\"Where the days go\",\"Why the packing line backs up\"],\"tabs\":[\"indepth\",\"eli5\",\"sx052c0b\"],\"createdAt\":\"2026-10-01T10:03:00.000Z\",\"updatedAt\":\"2026-10-01T10:05:00.000Z\",\"placement\":{\"kind\":\"unfiled\"},\"currentVersionId\":\"v-000000000003\",\"currentSha\":\"607300a1a67952b85db420c2ef9ecd477cfa127553d755986f4f7c40fbaf66a7\",\"sizeBytes\":220061,\"busy\":false}]}"
     }
   ]
 }

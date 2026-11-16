@@ -1,10 +1,15 @@
 package io.github.eli5learner.library
 
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import io.github.eli5learner.data.DocEntry
 import io.github.eli5learner.data.db.DocumentEntity
 import io.github.eli5learner.data.db.FolderEntity
@@ -115,6 +120,46 @@ class LibraryScreenTest {
         compose.onNodeWithText("Remove").assertDoesNotExist()
         compose.onNodeWithText("Keep offline").performClick()
         assertEquals(listOf("d2" to true), pins)
+    }
+
+    @Test fun `the row menu shares a document on this phone`() {
+        val shared = mutableListOf<String>()
+        compose.setContent {
+            Eli5Theme {
+                LibraryScreen(LibraryUiState(loaded = true, total = 1, items = listOf(eli5)), {}, {}, {}, {}, onShare = { shared += it.key })
+            }
+        }
+        compose.onNodeWithContentDescription("More options for How widgets work").performClick()
+        compose.onNodeWithText("Share").performClick()
+        assertEquals(listOf("local-a"), shared)
+    }
+
+    @Test fun `a synced document that is not downloaded has no Share`() {
+        compose.setContent {
+            Eli5Theme {
+                LibraryScreen(LibraryUiState(loaded = true, total = 1, items = listOf(synced)), {}, {}, {}, {}, connected = true)
+            }
+        }
+        compose.onNodeWithContentDescription("More options for Synced deck").performClick()
+        compose.onNodeWithText("Keep offline").assertIsDisplayed()
+        compose.onNodeWithText("Share").assertDoesNotExist()
+    }
+
+    @Test fun `a long press opens the row menu`() {
+        val opened = mutableListOf<String>()
+        compose.setContent {
+            Eli5Theme {
+                LibraryScreen(LibraryUiState(loaded = true, total = 1, items = listOf(eli5)), {}, {}, { opened += it.key }, {})
+            }
+        }
+        // TalkBack announces the label as an action: "Double-tap and hold to show options for …".
+        compose
+            .onNode(SemanticsMatcher("long-click label") { it.config.getOrNull(SemanticsActions.OnLongClick)?.label == "show options for How widgets work" })
+            .assertExists()
+        compose.onNodeWithText("How widgets work").performTouchInput { longClick() }
+        compose.onNodeWithText("Share").assertIsDisplayed()
+        compose.onNodeWithText("Remove").assertIsDisplayed()
+        assertEquals(emptyList<String>(), opened)
     }
 
     @Test fun `folder chips select a folder`() {

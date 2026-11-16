@@ -323,6 +323,8 @@ describe('default FakeProvider script (13 §6.1)', () => {
       'section-deeper': 'SectionDraft',
       'section-revise': 'SectionDraft',
       'section-ask': 'SectionAnswerDraft',
+      'section-ask-deeper': 'SectionDeeperAnswerDraft',
+      'section-ask-deep': 'SectionAnswerDraft',
       'section-eli5-tab': 'DocumentDraftTab',
       'selection-eli5-tab': 'DocumentDraftTab',
       summary: 'SummaryDraft',

@@ -7,6 +7,7 @@ import { fallbackLimits } from '../../../../src/main/llm/models';
 import { PromptCatalogue } from '../../../../src/main/llm/prompts';
 import type { DocumentDraftTab, SteDraft } from '../../../../src/main/llm/schemas/draft';
 import { SkillLibrary } from '../../../../src/main/llm/skills';
+import type { DeepAskSource, DeepAskTab } from '../../../../src/main/llm/deep-ask';
 import { createTasks, type LlmTasks, type PhotoPickSlot, type TaskDeps } from '../../../../src/main/llm/tasks';
 import { FakeProvider, loadFakeScript, type FakeScript } from '../../../../src/main/llm/testing/fake';
 import type { GenerationRequest, ImageInput, LLMProvider, ModelLimits } from '../../../../src/main/llm/types';
@@ -36,6 +37,7 @@ interface Recorded {
   temperature?: number;
   effort?: string;
   jsonSchema?: string;
+  webSearch?: number;
 }
 
 /** Wraps a provider and records each request without signals or image bytes. */
@@ -53,6 +55,7 @@ function recorder(inner: LLMProvider, out: Recorded[]): LLMProvider {
       ...(r.temperature !== undefined ? { temperature: r.temperature } : {}),
       ...(r.effort !== undefined ? { effort: r.effort } : {}),
       ...(r.jsonSchema ? { jsonSchema: r.jsonSchema.name } : {}),
+      ...(r.webSearch ? { webSearch: r.webSearch.maxUses } : {}),
     });
   };
   return {
@@ -189,6 +192,100 @@ async function runAll(): Promise<Record<string, Recorded[]>> {
       question: 'Who buys them?',
       signal,
     });
+  });
+  await scenario('deep-ask', async (rec) => {
+    const t = setup(rec);
+    const section = { heading: 'Widgets', blocks: [{ type: 'paragraph' as const, md: 'Widgets are sold.' }] };
+    const prev = { heading: 'Intro', blocks: [{ type: 'paragraph' as const, md: 'Before.' }] };
+    const tabs: DeepAskTab[] = [
+      { key: 'indepth', kind: 'indepth', label: 'In depth', sections: [prev, section] },
+      {
+        key: 'eli5',
+        kind: 'eli5',
+        label: 'ELI5',
+        sections: [{ heading: 'Simply', blocks: [{ type: 'paragraph', md: 'Shops sell widgets.' }] }],
+      },
+    ];
+    const local = {
+      tabKind: 'indepth' as const,
+      section,
+      outline: ['Intro', 'Widgets'],
+      prev,
+      selection: 'sold',
+      signal,
+    };
+    const report = [
+      '# Widget report',
+      'Example Widgets Inc. sells widgets to garden shops.',
+      '--- Page 2 ---',
+      'Garden shops buy most widgets in spring.',
+    ].join('\n');
+    const image: DeepAskSource = {
+      id: 'src-02',
+      ref: 'chart.png',
+      label: 'chart.png',
+      format: 'image',
+      text: null,
+      truncated: false,
+    };
+    // all: the source fits whole; the image is listed as not available as text.
+    await t.answerDeepQuestion({
+      ...local,
+      question: 'Who buys them?',
+      tabs,
+      sources: [
+        { id: 'src-01', ref: 'report.md', label: 'Widget report', format: 'markdown', text: report, truncated: false },
+        image,
+      ],
+    });
+    // excerpts: a long source under a small budget.
+    const filler = Array.from({ length: 600 }, (_, i) => `Line ${i + 1} is about shipping crates and pallets.`);
+    const long = [
+      '# Logistics',
+      ...filler.slice(0, 300),
+      '## Buyers',
+      'Garden shops buy most widgets in spring.',
+      ...filler.slice(300),
+    ].join('\n');
+    await t.answerDeepQuestion({
+      ...local,
+      question: 'Which shops buy widgets?',
+      tabs,
+      sources: [
+        { id: 'src-01', ref: 'log.md', label: 'Logistics notes', format: 'markdown', text: long, truncated: true },
+      ],
+      budgetTokens: 8_000, // about 4.5k tokens for tabs and sources after the fixed prompt
+    });
+    // none: an older document without kept sources.
+    await t.answerDeepQuestion({ ...local, question: 'Who buys them?', tabs, sources: null });
+  });
+  await scenario('deeper-ask', async (rec) => {
+    const section = { heading: 'Widgets', blocks: [{ type: 'paragraph' as const, md: 'Widgets are sold.' }] };
+    const prev = { heading: 'Intro', blocks: [{ type: 'paragraph' as const, md: 'Before.' }] };
+    const tabs: DeepAskTab[] = [{ key: 'indepth', kind: 'indepth', label: 'In depth', sections: [prev, section] }];
+    const input = {
+      tabKind: 'indepth' as const,
+      section,
+      outline: ['Intro', 'Widgets'],
+      prev,
+      selection: 'sold',
+      question: 'How long do widgets last?',
+      tabs,
+      sources: [
+        {
+          id: 'src-01',
+          ref: 'report.md',
+          label: 'Widget report',
+          format: 'markdown',
+          text: '# Widget report\nExample Widgets Inc. sells widgets to garden shops.',
+          truncated: false,
+        },
+      ],
+      signal,
+    };
+    // 08 §6.10: with web search (the default script reports pages), then knowledge-only.
+    await setup(rec).answerDeeperQuestion(input);
+    await setup(rec, { limits: { ...fallbackLimits('claude'), supportsWebSearch: false } }).answerDeeperQuestion(input);
   });
   await scenario('ste-and-critique', async (rec) => {
     const t = setup(rec);

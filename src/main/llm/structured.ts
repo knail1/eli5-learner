@@ -18,7 +18,7 @@ import {
   type DraftSchemaName,
   type MergePlanDraft,
 } from './schemas/draft';
-import type { GenerationRequest, GenerationResult, LLMProvider, TokenUsage } from './types';
+import type { GenerationRequest, GenerationResult, LLMProvider, TokenUsage, WebSource } from './types';
 
 /** 02 §10.1 step 3: blocks may be dropped when at most this share fails. */
 export const MAX_DROP_RATIO = 0.2;
@@ -274,6 +274,19 @@ export interface StructuredResult<T> {
   attempts: number;
   repaired: boolean;
   dropped: string[];
+  /** webSearch requests only: pages and searches over the call and its repair (02 §3). */
+  webSources?: WebSource[];
+  webSearches?: number;
+}
+
+/** The web search fields of one or two results, summed (absent when no result had them). */
+function webOf(...rs: GenerationResult[]): Pick<StructuredResult<unknown>, 'webSources' | 'webSearches'> {
+  const with_ = rs.filter((r) => r.webSources !== undefined || r.webSearches !== undefined);
+  if (with_.length === 0) return {};
+  return {
+    webSources: with_.flatMap((r) => r.webSources ?? []),
+    webSearches: with_.reduce((n, r) => n + (r.webSearches ?? 0), 0),
+  };
 }
 
 export function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
@@ -362,6 +375,7 @@ export async function generateStructured<N extends DraftSchemaName>(
       attempts: first.attempts,
       repaired: false,
       dropped: outcome.dropped,
+      ...webOf(first),
     };
   }
   const repairReq: GenerationRequest = {
@@ -397,6 +411,7 @@ export async function generateStructured<N extends DraftSchemaName>(
     attempts: first.attempts + second.attempts,
     repaired: true,
     dropped: again.dropped,
+    ...webOf(first, second),
   };
 }
 

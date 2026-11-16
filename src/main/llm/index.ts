@@ -8,6 +8,7 @@ export type {
   GenerationRequest,
   GenerationResult,
   TokenUsage,
+  WebSource,
   StreamChunk,
   ModelLimits,
   ConnectionCheck,
@@ -51,7 +52,42 @@ export { SkillLibrary, SKILL_SLOTS } from './skills';
 export type { Skill, SkillTexts } from './skills';
 export { generateStructured, validateDraft, OutputTruncated, usageOf } from './structured';
 export { createTasks, deserializePrepared, serializePrepared, sectionText, MODEL_ERROR_WHILE_READING } from './tasks';
+export {
+  BM25_B,
+  BM25_K1,
+  bm25Scores,
+  CHUNK_MAX_CHARS,
+  CHUNK_TARGET_CHARS,
+  chunkSourceText,
+  DEEP_ASK_INPUT_CAP_TOKENS,
+  DEEP_ASK_MIN_SOURCE_SHARE,
+  DEEP_ASK_MIN_TOKENS,
+  DEEP_ASK_TOP_CHUNKS,
+  DeepContextTooLargeError,
+  lexTokens,
+  planDeepContext,
+} from './deep-ask';
 export type {
+  DeepAskPlan,
+  DeepAskResult,
+  DeepAskSource,
+  DeepAskSourceMode,
+  DeepAskTab,
+  DeepContext,
+  DeepContextInput,
+  SourceChunk,
+} from './deep-ask';
+export {
+  DEEPER_ASK_MAX_SEARCHES,
+  DEEPER_WEB_MAX,
+  DEEPER_WEB_TITLE_MAX,
+  DEEPER_WEB_URL_MAX,
+  finalizeDeeperAnswer,
+  normalizeWebUrl,
+} from './deeper-ask';
+export type { DeeperAskResult } from './deeper-ask';
+export type {
+  DeepAskInput,
   LlmTasks,
   MergeCandidate,
   PhotoPickSlot,
