@@ -135,6 +135,8 @@ const volatile = (win: Page): Locator[] => [
 async function viewerPage(app: ElectronApplication, slug: string): Promise<Page> {
   const url = `eli5doc://doc/${slug}/index.html`;
   await expect.poll(() => viewerUrl(app)).toBe(url);
+  // Main reports the URL before Playwright sees the page; wait for it as the e2e helpers do.
+  await expect.poll(() => app.windows().some((p) => p.url().startsWith(url))).toBe(true);
   const page = app.windows().find((p) => p.url().startsWith(url));
   if (!page) throw new Error('viewer page not found');
   await expect(page.locator('html')).toHaveClass(/\bjs\b/);
