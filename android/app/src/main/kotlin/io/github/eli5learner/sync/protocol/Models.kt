@@ -506,6 +506,12 @@ sealed interface JobRequest : Validated {
         val clarifyingInput: String,
         val focus: List<FocusChip>,
         val attachments: List<Attachment>,
+        /**
+         * Also write the Deadpan tab (16 §5.1, desktop 0.6.0 and later). Off is omitted on the wire
+         * (`encodeDefaults = false`), so a capture without it is byte-identical to 0.5.0; an older Mac
+         * rejects the key, which is why the phone sends it only to a Mac that is new enough.
+         */
+        val deadpan: Boolean = false,
     ) : JobRequest {
         override fun validate(c: Checker) {
             validateBase(c)

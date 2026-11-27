@@ -1,6 +1,6 @@
 ---
 id: selection-eli5-tab
-version: 2
+version: 3
 output: DocumentDraftTab # kind "section-eli5"
 temperature: 0.4
 effort: medium
@@ -37,4 +37,4 @@ Where the selection sits (context only, do not explain it):
 Selected text to explain:
 {{selection}}
 
-Reader's note: {{note | "none"}}
+Reader's note: {{note | "none"}}{{factSource}}

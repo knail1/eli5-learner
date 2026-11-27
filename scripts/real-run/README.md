@@ -56,6 +56,7 @@ npx electron .
 | `ELI5_REAL_RUN_BUDGET_USD` | yes | The cap across every run that uses this ledger, in (0, 50] |
 | `ELI5_REAL_RUN_LEDGER` | no | Ledger path. Default: `<userData>/devtools/real-run-ledger.jsonl`. Keep it stable (and outside the repo) so the cap spans runs |
 | `ELI5_REAL_RUN_TIMEOUT_MS` | no | Overall wait before still-running jobs are cancelled. Default: 30 minutes |
+| `ELI5_REAL_RUN_DEADPAN=1` | no | Every job also asks for the optional Deadpan tab (one more model call per job, after the ASD-STE100 step). `0` or empty leaves it off |
 | `ELI5_KEYSTORE=memory` + `ELI5_TEST_API_KEY_CLAUDE` | for dev runs | API key without the Keychain (unpackaged builds only) |
 
 The run refuses to start when:
@@ -125,6 +126,7 @@ npx electron .
 | `ELI5_REAL_RUN_DRY=1` | Preflight and cost plan only. No job, no provider call, nothing written to the ledger. Wins over a rehearsal |
 | `ELI5_REAL_RUN_PROMPT_SET` | Optional. Must equal the prompt set in effect (`ELI5_PROMPT_SET` or settings `llm.promptSet`), else the run refuses |
 | `ELI5_REAL_RUN_DOC_GATE_USD` | Default 4. Before each document the remaining cap must be at least this, else the run stops cleanly with `stopped: "budget-gate"` |
+| `ELI5_REAL_RUN_DEADPAN=1` | Optional. Rebuilds every listed document with the Deadpan tab. Without it, each document keeps what it had: `meta.deadpanEnabled` when present, else whether it has a Deadpan tab |
 
 No `ELI5_KEYSTORE` is needed: the key is read in-process from the macOS Keychain, so macOS may
 ask once for access ("Always Allow"). The run also stops with `stopped: "hard-stop"` before a
@@ -151,8 +153,8 @@ document's current version id and the sha256 of its `index.html`; the save refus
 
 The plan gives, per document, a typical cost (the design's output sizes) and a worst case (every
 call at its full `maxOutputTokens`, one STE repair, one more in-depth-sized retry, input at the
-cache-write rate) over in-depth, ELI5, ASD-STE100, the ELI5 critique (step 1b), the glossary (when
-the document had it), the summary, photo-pick (when stock photos are on) and a retry allowance.
+cache-write rate) over in-depth, ELI5, ASD-STE100, the ELI5 critique (step 1b), Deadpan (step 1c,
+when the rebuild asks for it; it reads the STE draft), the glossary (when the document had it), the summary, photo-pick (when stock photos are on) and a retry allowance.
 Source tokens are a rough bound from the file size (images at the flat vision rate). The worst case
 is a planning bound; the budget guard's cap is what limits spend.
 
@@ -160,7 +162,8 @@ The printed summary has no clarifying input and only source file names, not path
 private: report the totals ("owner key: $X"), not the rows.
 
 After each document commits, the driver verifies: the new `index.html` passes the validity checks
-and parses and renders back byte for byte, it has the ASD-STE100 tab, the catalog id and
+and parses and renders back byte for byte, it has the ASD-STE100 tab (and the Deadpan tab, when
+the rebuild asked for it), the catalog id and
 `createdAt` are unchanged, the current version node is this job's, its parent is the captured base,
 and the parent's stored html hashes to the captured sha256 (so the rollback restores it exactly).
 
@@ -190,7 +193,7 @@ Summary (one row per document that started):
 ```
 
 The installed app must be at least the version that wrote the rebuilt documents (it has the
-ASD-STE100 tab); an older app shows them as view-only.
+ASD-STE100 tab, and 0.6.0 or later for a Deadpan tab); an older app shows them as view-only.
 
 ## Limits
 

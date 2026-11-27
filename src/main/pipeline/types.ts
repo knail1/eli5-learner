@@ -72,7 +72,7 @@ export type {
 };
 
 /** Sub-step shown while status === 'generating' (06 §3.1). */
-export type JobStep = 'indepth' | 'eli5' | 'ste' | 'eli5-critique' | 'glossary' | 'summary';
+export type JobStep = 'indepth' | 'eli5' | 'ste' | 'eli5-critique' | 'deadpan' | 'glossary' | 'summary';
 
 export interface JobProgress {
   sourcesTotal: number;
@@ -95,7 +95,13 @@ export interface JobFailure {
 /** Partial-failure notes, persisted into meta.json (06 §7.1). */
 export interface JobWarning {
   kind:
-    'source-skipped' | 'glossary-omitted' | 'summary-fallback' | 'eli5-placeholder' | 'input-truncated' | 'ste-omitted';
+    | 'source-skipped'
+    | 'glossary-omitted'
+    | 'summary-fallback'
+    | 'eli5-placeholder'
+    | 'input-truncated'
+    | 'ste-omitted'
+    | 'deadpan-omitted';
   message: string;
 }
 

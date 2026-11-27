@@ -137,6 +137,7 @@ class SyncRepositoryTest {
             assertEquals("Studio", mac0.name)
             assertEquals(1_800_000_000_000L, mac0.lastSeenMs)
             assertEquals(InboxState.ON, mac0.inbox)
+            assertEquals("the Mac's version gates newer capture fields", "1.0.0", mac0.appVersion)
             assertEquals(0, r.status.value.pendingDownloads)
 
             // The phone's own device file: role phone, no jobs, no inbox, a heartbeat.
@@ -148,6 +149,31 @@ class SyncRepositoryTest {
             assertEquals(emptyList<Any>(), record.accepts)
             assertEquals((NOW / 1000).toString(), own.meta.appProperties?.get("seen"))
             assertEquals(own.meta.id, prefs.cursor().deviceFileId)
+        }
+
+    @Test fun `the primary Mac's app version reaches the status, so an older Mac gets no Deadpan`() =
+        runTest {
+            TestMac(drive).bootstrap(appVersion = "0.5.0")
+            val r = repo()
+            assertEquals(SyncOutcome.Synced, r.sync())
+            val mac = r.status.value.mac!!
+            assertEquals("0.5.0", mac.appVersion)
+            assertFalse(io.github.eli5learner.util.AppVersions.macTakesDeadpan(mac.appVersion))
+        }
+
+    @Test fun `the Mac's app version is remembered for the next process, and forgotten on Disconnect`() =
+        runTest {
+            TestMac(drive).bootstrap(appVersion = "0.6.0")
+            assertNull("never seen", repo().macVersion())
+            assertEquals(SyncOutcome.Synced, repo().sync())
+            assertEquals("0.6.0", prefs.lastMacVersion())
+            // A new process (a share cold-starts the app): no pass yet, the remembered version stands in.
+            val cold = repo()
+            assertNull(cold.status.value.mac)
+            assertEquals("0.6.0", cold.macVersion())
+            cold.forget()
+            assertNull(prefs.lastMacVersion())
+            assertNull(repo().macVersion())
         }
 
     @Test fun `a steady-state pass uses the change feed and only touches the device file`() =

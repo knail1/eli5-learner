@@ -5,7 +5,7 @@ import type { InputDraft } from './types';
 /** Pure input-zone helpers (11 §5.4). */
 
 export function newDraft(glossary: boolean): InputDraft {
-  return { draftId: newDraftId(), inputs: [], lastRun: [], urlText: '', clarifying: '', glossary };
+  return { draftId: newDraftId(), inputs: [], lastRun: [], urlText: '', clarifying: '', glossary, deadpan: false };
 }
 
 export function isHttpUrl(s: string): boolean {
@@ -109,9 +109,15 @@ export function chipIcon(i: SourceInput): string {
 /** Staged pastes live under the draft's staging folder and must be discarded when removed (03 §13). */
 export const isStaged = (i: SourceInput): boolean => i.kind === 'text' || i.kind === 'image';
 
-/** `eli5:jobs:start` payload: `{inputs, options: {clarifyingInput, glossary}}` (11 §5.4 step 4). */
+/**
+ * `eli5:jobs:start` payload: `{inputs, options: {clarifyingInput, glossary, deadpan?}}` (11 §5.4
+ * step 4). `deadpan` is sent only when on, so a job without it is the same request as before.
+ */
 export function startRequest(d: InputDraft, inputs: SourceInput[]): StartJobRequest {
-  const req: StartJobRequest = { inputs, options: { clarifyingInput: d.clarifying.trim(), glossary: d.glossary } };
+  const req: StartJobRequest = {
+    inputs,
+    options: { clarifyingInput: d.clarifying.trim(), glossary: d.glossary, ...(d.deadpan ? { deadpan: true } : {}) },
+  };
   if (inputs.some(isStaged)) req.draftId = d.draftId;
   return req;
 }
@@ -127,6 +133,10 @@ export function primaryAction(d: InputDraft): 'start' | 'run-again' {
 
 export const RUN_AGAIN_TOOLTIP = "Send the last run's links again";
 
+/** Tooltip on the per-job Deadpan tab switch (11 §5.4). */
+export const DEADPAN_TOOLTIP =
+  'Also write a deadpan, sarcastic retelling, usually built from the ASD-STE100 tab. Facts stay correct. Adds one more model call.';
+
 /** URL inputs only, each with a fresh id, so a re-sent link is a new input (11 §5.4). */
 export function freshUrls(inputs: readonly SourceInput[]): SourceInput[] {
   return inputs.flatMap((i) => (i.kind === 'url' ? [{ ...i, id: newInputId() }] : []));
@@ -135,8 +145,9 @@ export function freshUrls(inputs: readonly SourceInput[]): SourceInput[] {
 /**
  * The draft after a successful start (11 §5.4 step 5). Every sent input leaves the chips, and
  * anything added while the start was in flight stays. The sent URLs become the last run (when none
- * were URLs, the previous last run is kept). Specifics and the glossary choice stay. Unsent staged
- * pastes keep the old draft id so their staging folder stays valid; otherwise a new id is taken.
+ * were URLs, the previous last run is kept). Specifics, the glossary and the Deadpan choices stay.
+ * Unsent staged pastes keep the old draft id so their staging folder stays valid; otherwise a new
+ * id is taken.
  */
 export function draftAfterStart(cur: InputDraft, sent: readonly SourceInput[]): InputDraft {
   const sentIds = new Set(sent.map((i) => i.id));

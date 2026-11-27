@@ -382,10 +382,15 @@ export interface DeepContext {
   plan: Omit<DeepAskPlan, 'inputTokens'>;
 }
 
-/** Tabs that may be dropped, in drop order: section-ELI5 (last first), then STE, then ELI5. */
+/**
+ * Tabs that may be dropped, in drop order: Deadpan (never meant to reach this planner: 08 §6.9 leaves
+ * it out of the material; dropped first as a defence, since jokes must not ground answers), then
+ * section-ELI5 (last first), then STE, then ELI5.
+ */
 function dropOrder(tabs: readonly DeepAskTab[]): DeepAskTab[] {
   const rev = [...tabs].reverse();
   return [
+    ...rev.filter((t) => t.kind === 'deadpan'),
     ...rev.filter((t) => t.kind === 'section-eli5'),
     ...rev.filter((t) => t.kind === 'ste'),
     ...rev.filter((t) => t.kind === 'eli5'),

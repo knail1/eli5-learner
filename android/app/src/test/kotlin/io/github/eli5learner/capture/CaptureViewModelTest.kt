@@ -18,6 +18,7 @@ import io.github.eli5learner.sync.protocol.Limits
 import io.github.eli5learner.sync.protocol.SyncProtocol
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -80,6 +81,21 @@ class CaptureViewModelTest {
         sync: SyncStatus = SyncStatus(),
         auth: AuthState = AuthState.Connected("reader@example.com"),
     ) = CaptureViewModel(input, outbox, { files[it] }, flowOf(auth), flowOf(sync))
+
+    /** The Inbox's "Send a link": nothing shared, the link is typed. */
+    private fun linkVm(
+        sync: SyncStatus = SyncStatus(mac = mac("0.6.0")),
+        auth: AuthState = AuthState.Connected("reader@example.com"),
+    ) = CaptureViewModel(ShareInput(), outbox, { files[it] }, flowOf(auth), flowOf(sync), manual = true)
+
+    private fun mac(version: String?) = MacInfo("Studio", 1L, InboxState.ON, listOf(JobKind.CAPTURE), appVersion = version)
+
+    private suspend fun CaptureViewModel.sendAndWait(): CaptureEvent {
+        send()
+        return withContext(Dispatchers.Default) { withTimeout(10_000) { messages.first() } }
+    }
+
+    private fun request(m: CaptureViewModel): JobRequest.Capture = SyncProtocol.decodeJob(File(root, "${m.jobId}/request.json").readText()) as JobRequest.Capture
 
     /** Real time: staging runs on Dispatchers.IO, which the test scheduler's virtual clock does not wait for. */
     private suspend fun CaptureViewModel.loaded(): CaptureUiState = withContext(Dispatchers.Default) { withTimeout(10_000) { state.first { !it.loading } } }
@@ -166,6 +182,202 @@ class CaptureViewModelTest {
             val s = vm(ShareInput(text = "   "), sync = SyncStatus(mac = mac)).loaded()
             assertTrue(s.macPaused)
             assertFalse(s.canSend)
+        }
+
+    @Test fun `Send a link starts empty and ready, the typed link is normalised and enables Send`() =
+        runTest {
+            val m = linkVm()
+            val s0 = m.state.value
+            assertFalse("nothing to copy, so no spinner", s0.loading)
+            assertTrue(s0.manual)
+            assertFalse(s0.canSend)
+            assertFalse("an empty field is not an error", s0.linkInvalid)
+
+            m.setLinkInput("  HTTPS://Example.COM/a?q=ü  ")
+            val s = m.state.value
+            assertEquals(listOf("https://example.com/a?q=%C3%BC"), s.urls)
+            assertTrue(s.canSend)
+            assertFalse(s.linkInvalid)
+
+            // A bare host gets https://.
+            m.setLinkInput("example.org/page")
+            assertEquals(listOf("https://example.org/page"), m.state.value.urls)
+        }
+
+    @Test fun `a bad, file or user-name link is refused and Send stays off`() =
+        runTest {
+            val m = linkVm()
+            val bad =
+                listOf(
+                    "not a link",
+                    "file:///sdcard/secret.txt",
+                    "content://io.github.eli5learner.internal/x",
+                    "javascript:alert(1)",
+                    "https://" + listOf("user", "pw").joinToString(":") + "@example.com/",
+                    "https://user@example.com/",
+                    "ftp://example.com/x",
+                    "https://bad_host!.example/",
+                )
+            for (b in bad) {
+                val fresh = linkVm()
+                fresh.setLinkInput(b)
+                assertFalse("not an error while typing: $b", fresh.state.value.linkInvalid)
+                m.setLinkInput(b)
+                m.finishLinkInput()
+                val s = m.state.value
+                assertEquals(b, emptyList<String>(), s.urls)
+                assertTrue(b, s.linkInvalid)
+                assertFalse(b, s.canSend)
+            }
+            m.setLinkInput("https://user@example.com/")
+            assertEquals("a user name is counted as a refused link", 1, m.state.value.refusedUrls)
+            // Fixing the link clears the error.
+            m.setLinkInput("https://example.com/")
+            assertFalse(m.state.value.linkInvalid)
+            assertEquals(0, m.state.value.refusedUrls)
+        }
+
+    @Test fun `a half-typed link is not an error until the field is done`() =
+        runTest {
+            val m = linkVm()
+            for (partial in listOf("h", "ht", "https:/", "https://", "example")) {
+                m.setLinkInput(partial)
+                assertFalse(partial, m.state.value.linkInvalid)
+                assertFalse(partial, m.state.value.canSend)
+            }
+            m.finishLinkInput()
+            assertTrue("done with a link that cannot be sent", m.state.value.linkInvalid)
+            m.setLinkInput("example.com")
+            assertFalse(m.state.value.linkInvalid)
+            // A shared capture has no link field.
+            val shared = vm(ShareInput(text = "https://example.com/shared"))
+            shared.finishLinkInput()
+            assertFalse(shared.state.value.linkTouched)
+        }
+
+    @Test fun `a cold start uses the remembered Mac version, then the pass's`() =
+        runTest {
+            val status = MutableStateFlow(SyncStatus())
+            fun coldVm(remembered: String?) =
+                CaptureViewModel(
+                    ShareInput(text = "https://example.com/a"),
+                    outbox,
+                    { files[it] },
+                    flowOf(AuthState.Connected("reader@example.com")),
+                    status,
+                    lastMacVersion = { remembered },
+                )
+
+            // Nothing read and nothing remembered: unknown, not "too old".
+            val unknown = coldVm(null)
+            unknown.loaded()
+            assertFalse(unknown.state.value.deadpanAvailable)
+            assertTrue(unknown.state.value.macVersionUnknown)
+            // The pass reads a 0.6.0 Mac: Deadpan turns on.
+            status.value = SyncStatus(mac = mac("0.6.0"))
+            assertTrue(unknown.state.value.deadpanAvailable)
+            assertFalse(unknown.state.value.macVersionUnknown)
+
+            // A 0.6.0 Mac remembered from an earlier pass: available before this process's first pass.
+            status.value = SyncStatus()
+            val remembered = coldVm("0.6.0")
+            remembered.loaded()
+            assertTrue(remembered.state.value.deadpanAvailable)
+            assertFalse(remembered.state.value.macVersionUnknown)
+            remembered.toggleDeadpan()
+            remembered.sendAndWait()
+            assertTrue(request(remembered).deadpan)
+
+            // The pass wins over what was remembered: the Mac went back to 0.5.0.
+            val stale = coldVm("0.6.0")
+            status.value = SyncStatus(mac = mac("0.5.0"))
+            assertFalse(stale.state.value.deadpanAvailable)
+            assertFalse(stale.state.value.macVersionUnknown)
+        }
+
+    @Test fun `a typed link with instructions is queued as a capture, labelled by its host`() =
+        runTest {
+            val m = linkVm()
+            m.setLinkInput("https://news.example/story")
+            m.setClarifyingInput("  Explain this for a beginner, focus on costs  ")
+            m.toggleFocus(FocusChip.BEGINNER)
+            assertEquals(CaptureEvent.Sent(askNotifications = false), m.sendAndWait())
+            val req = request(m)
+            assertEquals(listOf("https://news.example/story"), req.urls)
+            assertEquals("", req.text)
+            assertEquals("Explain this for a beginner, focus on costs", req.clarifyingInput)
+            assertEquals(listOf(FocusChip.BEGINNER), req.focus)
+            assertTrue(req.attachments.isEmpty())
+            assertFalse("off unless asked", req.deadpan)
+            assertEquals("news.example", db.jobs().get(m.jobId)!!.title)
+        }
+
+    @Test fun `deadpan is sent only when the Mac is 0_6_0 or later`() =
+        runTest {
+            val cases =
+                listOf(
+                    SyncStatus(mac = mac("0.6.0")) to true,
+                    SyncStatus(mac = mac("0.10.1")) to true,
+                    SyncStatus(mac = mac("0.6.0-beta.1")) to true,
+                    SyncStatus(mac = mac("0.5.0")) to false,
+                    SyncStatus(mac = mac(null)) to false,
+                    SyncStatus(mac = mac("0")) to false,
+                    SyncStatus() to false,
+                )
+            for ((sync, expected) in cases) {
+                val m = linkVm(sync = sync)
+                assertEquals("${sync.mac?.appVersion}", expected, m.state.value.deadpanAvailable)
+                m.setLinkInput("https://example.com/a")
+                m.toggleDeadpan()
+                assertTrue(m.state.value.deadpan)
+                assertEquals(expected, m.state.value.sendsDeadpan)
+                m.sendAndWait()
+                assertEquals("${sync.mac?.appVersion}", expected, request(m).deadpan)
+                val raw = File(root, "${m.jobId}/request.json").readText()
+                assertEquals(expected, "\"deadpan\"" in raw)
+            }
+            // Toggled back off: not sent.
+            val off = linkVm()
+            off.setLinkInput("https://example.com/b")
+            off.toggleDeadpan()
+            off.toggleDeadpan()
+            off.sendAndWait()
+            assertFalse(request(off).deadpan)
+        }
+
+    @Test fun `a shared capture can ask for Deadpan too`() =
+        runTest {
+            val m = vm(ShareInput(text = "https://example.com/shared"), sync = SyncStatus(mac = mac("0.6.0")))
+            m.loaded()
+            m.toggleDeadpan()
+            m.sendAndWait()
+            assertTrue(request(m).deadpan)
+        }
+
+    @Test fun `the link field only works in Send a link mode`() =
+        runTest {
+            val m = vm(ShareInput(text = "https://example.com/shared"))
+            m.loaded()
+            m.setLinkInput("https://elsewhere.example/")
+            assertEquals(listOf("https://example.com/shared"), m.state.value.urls)
+        }
+
+    @Test fun `dismissing discards the job, so nothing is queued`() =
+        runTest {
+            val m = linkVm()
+            m.setLinkInput("https://example.com/a")
+            m.dismiss()
+            assertEquals(null, db.jobs().get(m.jobId))
+            assertFalse(File(root, m.jobId).exists())
+            assertTrue(db.jobs().observeVisible().first().isEmpty())
+
+            // A shared file staged and then dismissed goes too.
+            val shared = vm(ShareInput(streams = listOf(share(1, "x.png", PNG))))
+            shared.loaded()
+            assertTrue(File(root, shared.jobId).isDirectory)
+            shared.dismiss()
+            assertFalse(File(root, shared.jobId).exists())
+            assertEquals(null, db.jobs().get(shared.jobId))
         }
 }
 

@@ -36,10 +36,17 @@ export function isRetryable(code: JobFailureCode | undefined): boolean {
   return code !== undefined && !NOT_RETRYABLE.has(code);
 }
 
-/** Steps in 06 §5.4 order; glossary only when the per-job toggle is on. */
+/** Steps in 06 §5.4 order; deadpan (step 1c) and glossary only when their per-job toggles are on. */
 export function plannedSteps(options: JobOptions): JobStep[] {
-  const first: JobStep[] = ['indepth', 'eli5', 'ste', 'eli5-critique'];
-  return options.glossary ? [...first, 'glossary', 'summary'] : [...first, 'summary'];
+  return [
+    'indepth',
+    'eli5',
+    'ste',
+    'eli5-critique',
+    ...(options.deadpan === true ? (['deadpan'] as const) : []),
+    ...(options.glossary ? (['glossary'] as const) : []),
+    'summary',
+  ];
 }
 
 export interface CreateJobInput {
@@ -112,8 +119,11 @@ export function snapshotOf(job: Job, ctx: SnapshotContext = {}): JobSnapshot {
 // ---- persisted record schema (06 §9.1: "each file is validated with a schema") ----
 
 const STATUSES = ['queued', 'reading', 'extracting', 'generating', 'saving', 'done', 'failed'] as const;
-/** Records written before step 1b (06 §5.4) lack 'ste' and 'eli5-critique' and still parse. */
-const STEPS = ['indepth', 'eli5', 'ste', 'eli5-critique', 'glossary', 'summary'] as const;
+/**
+ * Records written before step 1b (06 §5.4) lack 'ste' and 'eli5-critique', and records written
+ * before step 1c lack 'deadpan'; both still parse. Builds before 0.6.0 cannot read 'deadpan'.
+ */
+const STEPS = ['indepth', 'eli5', 'ste', 'eli5-critique', 'deadpan', 'glossary', 'summary'] as const;
 
 /**
  * Structural check of a job record. Nested records owned by other modules (SourceInput,
@@ -128,7 +138,9 @@ export const JobRecordSchema = z
     startedAt: z.string().optional(),
     finishedAt: z.string().optional(),
     inputs: z.array(z.object({ id: z.string(), kind: z.string() }).passthrough()),
-    options: z.object({ clarifyingInput: z.string(), glossary: z.boolean() }).passthrough(),
+    options: z
+      .object({ clarifyingInput: z.string(), glossary: z.boolean(), deadpan: z.boolean().optional() })
+      .passthrough(),
     progress: z
       .object({
         sourcesTotal: z.number().int().nonnegative(),

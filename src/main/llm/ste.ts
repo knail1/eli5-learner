@@ -1,4 +1,5 @@
-import type { DocumentDraftTab, DraftBlock, SectionDraft, SteBlock, SteDraft } from './schemas/draft';
+import type { TabKind } from '../../preload/contract';
+import type { DeadpanDraft, DocumentDraftTab, DraftBlock, SectionDraft, SteBlock, SteDraft } from './schemas/draft';
 import { splitSentences } from './lint/sentences';
 
 /**
@@ -76,21 +77,27 @@ export function steInputJson(indepth: DocumentDraftTab): string {
 }
 
 /**
- * SteDraft -> STE tab (D15). The section count must equal In depth's (else SteResolveError: the
- * caller already asked for one repair, so the tab is omitted). In each section, keeps that are out
- * of range, point at a text block or repeat an earlier keep are dropped; every In depth visual of the
- * section that is not kept is inserted after the nearest preceding kept visual (or at its own index
- * when none precedes it), so the tab always carries every visual exactly once.
+ * A section-for-section rewrite of a source view (SteDraft over In depth, DeadpanDraft over STE or
+ * In depth) -> the rewritten tab, stamped `kind` (D15). The section count must equal the source's
+ * (else SteResolveError: the caller already asked for one repair, so the tab is omitted). In each
+ * section, keeps that are out of range, point at a text block or repeat an earlier keep are dropped;
+ * every source visual of the section that is not kept is inserted after the nearest preceding kept
+ * visual (or at its own index when none precedes it), so the tab always carries every visual exactly
+ * once. Origins are block positions in `source`.
  */
-export function resolveSte(indepth: DocumentDraftTab, ste: SteDraft): ResolvedSte {
-  if (ste.sections.length !== indepth.sections.length) {
-    throw new SteResolveError(`section count ${ste.sections.length} != ${indepth.sections.length}`);
+export function resolveRewrite(
+  source: DocumentDraftTab,
+  draft: SteDraft | DeadpanDraft,
+  kind: Extract<TabKind, 'ste' | 'deadpan'>,
+): ResolvedSte {
+  if (draft.sections.length !== source.sections.length) {
+    throw new SteResolveError(`section count ${draft.sections.length} != ${source.sections.length}`);
   }
   const fixes: string[] = [];
   const sections: SectionDraft[] = [];
   const origins: (SteOrigin | null)[][] = [];
-  ste.sections.forEach((sec, si) => {
-    const src = indepth.sections[si];
+  draft.sections.forEach((sec, si) => {
+    const src = source.sections[si];
     if (!src) throw new SteResolveError(`section ${si} missing`);
     const items: { block: DraftBlock; origin: SteOrigin | null }[] = [];
     const kept = new Set<number>();
@@ -110,7 +117,7 @@ export function resolveSte(indepth: DocumentDraftTab, ste: SteDraft): ResolvedSt
     src.blocks.forEach((b, n) => {
       if (!isKeepable(b) || kept.has(n)) return;
       // After the nearest preceding kept visual; else at the block's own index, but never after a
-      // kept visual that comes later in In depth (so visuals stay in their original order).
+      // kept visual that comes later in the source (so visuals stay in their original order).
       let at = -1;
       for (let i = items.length - 1; i >= 0; i--) {
         const o = items[i]?.origin;
@@ -132,10 +139,36 @@ export function resolveSte(indepth: DocumentDraftTab, ste: SteDraft): ResolvedSt
     origins.push(items.map((x) => x.origin));
   });
   return {
-    tab: { kind: 'ste', title: ste.title, ...(ste.dek ? { dek: ste.dek } : {}), sections },
+    tab: { kind, title: draft.title, ...(draft.dek ? { dek: draft.dek } : {}), sections },
     origins,
     fixes,
   };
+}
+
+/** SteDraft -> STE tab (D15): `resolveRewrite` over the In depth draft. */
+export function resolveSte(indepth: DocumentDraftTab, ste: SteDraft): ResolvedSte {
+  return resolveRewrite(indepth, ste, 'ste');
+}
+
+/**
+ * Re-bases `origins` of a tab resolved over the STE tab onto In depth (07 §5 KeepOrigin): a kept
+ * STE block maps to that block's own In depth origin. A kept STE block with no origin (never
+ * expected: only visuals are keepable and every STE visual has one) becomes null, and is reported.
+ */
+export function composeOrigins(
+  origins: readonly (readonly (SteOrigin | null)[])[],
+  through: readonly (readonly (SteOrigin | null)[])[],
+): { origins: (SteOrigin | null)[][]; lost: number } {
+  let lost = 0;
+  const out = origins.map((sec) =>
+    sec.map((o) => {
+      if (!o) return null;
+      const next = through[o.section]?.[o.block] ?? null;
+      if (!next) lost++;
+      return next ? { ...next } : null;
+    }),
+  );
+  return { origins: out, lost };
 }
 
 /**

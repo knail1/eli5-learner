@@ -263,6 +263,15 @@ export function checkDocumentHtml(html: string, meta?: ValidityMeta): ValidityRe
     if (keys[ste - 1] !== 'eli5') err('tab-order', 'the ste tab does not directly follow eli5');
     if (keys.slice(0, ste).some((k) => /^sx/.test(k))) err('tab-order', 'a section ELI5 tab precedes the ste tab');
   }
+  // The optional Deadpan tab follows the ASD-STE100 tab when there is one, else eli5, and
+  // precedes every section ELI5 tab.
+  const deadpan = keys.indexOf('deadpan');
+  if (deadpan !== -1) {
+    const after = ste !== -1 ? 'ste' : 'eli5';
+    if (keys[deadpan - 1] !== after) err('tab-order', `the deadpan tab does not directly follow ${after}`);
+    if (keys.slice(0, deadpan).some((k) => /^sx/.test(k)))
+      err('tab-order', 'a section ELI5 tab precedes the deadpan tab');
+  }
   if (meta) {
     const want = meta.tabs.map((t) => t.key);
     if (want.join(',') !== keys.join(','))

@@ -27,6 +27,11 @@ export interface RealRunConfig {
   budgetUsd: number;
   ledgerPath: string;
   timeoutMs: number;
+  /**
+   * ELI5_REAL_RUN_DEADPAN=1: every job also asks for the Deadpan tab (one more call each). In a
+   * rebuild it adds the tab to documents that did not have it; without it a rebuild follows meta.
+   */
+  deadpan?: boolean;
   /** Present in rebuild mode (ELI5_REAL_RUN_REBUILD; design §5), when `urls` is empty. */
   rebuild?: RebuildRunConfig;
 }
@@ -109,8 +114,8 @@ export type RealRunEnv = Readonly<Record<string, string | undefined>>;
 /**
  * Reads ELI5_REAL_RUN_URLS (comma separated) or ELI5_REAL_RUN_REBUILD (`slug=/abs/file`, comma
  * separated, with the optional ELI5_REAL_RUN_DRY, ELI5_REAL_RUN_PROMPT_SET and
- * ELI5_REAL_RUN_DOC_GATE_USD), ELI5_REAL_RUN_BUDGET_USD, and the optional ELI5_REAL_RUN_LEDGER and
- * ELI5_REAL_RUN_TIMEOUT_MS. Undefined when packaged or not requested; throws on a malformed request
+ * ELI5_REAL_RUN_DOC_GATE_USD), ELI5_REAL_RUN_BUDGET_USD, and the optional ELI5_REAL_RUN_LEDGER,
+ * ELI5_REAL_RUN_TIMEOUT_MS and ELI5_REAL_RUN_DEADPAN. Undefined when packaged or not requested; throws on a malformed request
  * so a typo never runs without a cap. ELI5_LLM_FAKE=1 is refused, except with REBUILD in a test
  * build (`testBuild`), where it makes the run a rehearsal.
  */
@@ -161,10 +166,21 @@ export function realRunConfigFromEnv(
   if (rebuild && !rebuild.rehearsal && !env.ELI5_REAL_RUN_LEDGER?.trim()) {
     throw new Error('Real run refused: a rebuild needs its own ELI5_REAL_RUN_LEDGER (a new file for the owner key)');
   }
+  const deadpanRaw = env.ELI5_REAL_RUN_DEADPAN;
+  if (deadpanRaw !== undefined && deadpanRaw !== '1' && deadpanRaw !== '0' && deadpanRaw !== '') {
+    throw new Error('Real run refused: ELI5_REAL_RUN_DEADPAN must be 1 when set');
+  }
   const ledgerPath = env.ELI5_REAL_RUN_LEDGER
     ? path.resolve(env.ELI5_REAL_RUN_LEDGER)
     : path.join(o.userData, 'devtools', 'real-run-ledger.jsonl');
-  return { urls, budgetUsd: budget, ledgerPath, timeoutMs, ...(rebuild ? { rebuild } : {}) };
+  return {
+    urls,
+    budgetUsd: budget,
+    ledgerPath,
+    timeoutMs,
+    ...(deadpanRaw === '1' ? { deadpan: true } : {}),
+    ...(rebuild ? { rebuild } : {}),
+  };
 }
 
 /** The slice of the capability registry the pre-freeze hook needs. */
@@ -365,7 +381,11 @@ export async function startRealRun(o: StartRealRunOptions): Promise<RealRunSumma
         try {
           const { jobId } = await o.jobs.start({
             inputs: [{ id: `in-${(i + 1).toString(16).padStart(8, '0')}`, kind: 'url', origin: 'url-field', url }],
-            options: { clarifyingInput: '', glossary: o.glossary ?? true },
+            options: {
+              clarifyingInput: '',
+              glossary: o.glossary ?? true,
+              ...(config.deadpan ? { deadpan: true } : {}),
+            },
           });
           rows[i] = { ...rows[i]!, jobId };
           pending.set(jobId, i);

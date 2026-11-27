@@ -98,6 +98,8 @@ data class MacInfo(
     val lastSeenMs: Long?,
     val inbox: InboxState,
     val accepts: List<JobKind>,
+    /** The Mac's `appVersion` from its device file; gates newer capture fields (16 §5.1). */
+    val appVersion: String? = null,
 )
 
 data class SyncStatus(
@@ -153,7 +155,16 @@ class SyncRepository(
     private val deviceCache = HashMap<String, Pair<String?, DeviceRecord?>>()
     private var infoCache: Pair<String, Boolean>? = null
 
+    /** The version last written to [SyncPrefs.setLastMacVersion], so an unchanged one is not written every pass. */
+    private var savedMacVersion: String? = null
+
     override suspend fun runSync(): SyncOutcome = sync()
+
+    /**
+     * The primary Mac's `appVersion` for the capture gates (16 §5.1): this process's last pass, else
+     * the one remembered from an earlier pass, else null (never seen, or after Disconnect).
+     */
+    suspend fun macVersion(): String? = _status.value.mac?.appVersion ?: prefs.lastMacVersion()
 
     suspend fun sync(): SyncOutcome =
         run.withLock {
@@ -272,6 +283,8 @@ class SyncRepository(
             prefs.resetCursor()
             deviceCache.clear()
             infoCache = null
+            prefs.setLastMacVersion(null)
+            savedMacVersion = null
             _status.value = SyncStatus()
         }
 
@@ -299,9 +312,15 @@ class SyncRepository(
                 waitingForMac = primary == null,
                 mac =
                     mac?.let { (rec, seen) ->
-                        MacInfo(rec.name, seen?.let { s -> s * 1000 }, rec.inbox, rec.accepts)
+                        MacInfo(rec.name, seen?.let { s -> s * 1000 }, rec.inbox, rec.accepts, appVersion = rec.appVersion)
                     },
             )
+        }
+        mac?.first?.appVersion?.let { v ->
+            if (v != savedMacVersion) {
+                prefs.setLastMacVersion(v)
+                savedMacVersion = v
+            }
         }
 
         if (primary != null) {

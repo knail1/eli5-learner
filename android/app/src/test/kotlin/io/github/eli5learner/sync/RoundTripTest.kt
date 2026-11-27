@@ -123,6 +123,11 @@ class RoundTripTest {
             assertEquals(listOf("In depth", "ELI5"), old.tabs)
             assertArrayEquals(TestDocs.fixture("full.html"), store.read(old.key, old.sha!!))
 
+            // The desktop's device file carries its app version; this push came from a 0.4.0 Mac, which
+            // does not read `deadpan`, so the phone would not offer the Deadpan tab.
+            assertEquals("0.4.0", r.status.value.mac?.appVersion)
+            assertFalse(io.github.eli5learner.util.AppVersions.macTakesDeadpan(r.status.value.mac?.appVersion))
+
             // History: the rebuild is the current child of the first version, and both can be read.
             val state = VersionsViewModel.stateOf(rebuilt, db.versions().forDoc(rebuiltId), r.status.value.mac, emptySet()) { false }
             assertEquals(2, state.items.size)

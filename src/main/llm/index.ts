@@ -101,10 +101,20 @@ export type {
   StepResult,
   SteLintSummary,
   SteStepDraft,
+  DeadpanSource,
+  DeadpanStepDraft,
   Eli5CritiqueResult,
   TaskDeps,
 } from './tasks';
-export { resolveSte, steInputJson, indepthOutline, KEEPABLE_TYPES, SteResolveError } from './ste';
+export {
+  resolveSte,
+  resolveRewrite,
+  composeOrigins,
+  steInputJson,
+  indepthOutline,
+  KEEPABLE_TYPES,
+  SteResolveError,
+} from './ste';
 export type { ResolvedSte, SteOrigin } from './ste';
 export { lintSte, steFindingsText, STE_REPAIR_THRESHOLD } from './lint/ste-lint';
 export type { SteFinding, SteLintResult } from './lint/ste-lint';

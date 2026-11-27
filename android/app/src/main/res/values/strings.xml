@@ -35,7 +35,8 @@
     <string name="share_failed">Couldn’t share this document. Try again.</string>
 
     <string name="inbox_title">Inbox</string>
-    <string name="inbox_empty">Share a link, photo or file to ELI5 Learner and tap Send to my Mac. It shows up here while your Mac builds it.</string>
+    <string name="inbox_send_link">Send a link</string>
+    <string name="inbox_empty">Share a link, photo or file to ELI5 Learner and tap Send to my Mac, or tap Send a link. It shows up here while your Mac builds it.</string>
     <string name="inbox_untitled">Capture</string>
     <string name="inbox_chip_connect">Connect Google Drive to send</string>
     <string name="inbox_chip_waiting_upload">Waiting to upload</string>
@@ -62,7 +63,17 @@
     <string name="capture_label">Send to my Mac</string>
     <string name="capture_title">Send to my Mac</string>
     <string name="capture_reading">Copying what you shared…</string>
-    <string name="capture_question">What do you want to understand?</string>
+    <string name="capture_instructions">Instructions for your Mac (optional)</string>
+    <string name="capture_instructions_hint">e.g. explain this for a beginner, focus on costs</string>
+    <string name="capture_instructions_count">%1$d/%2$d</string>
+    <string name="capture_link_title">Send a link</string>
+    <string name="capture_link_field">Link</string>
+    <string name="capture_link_paste">Paste</string>
+    <string name="capture_link_invalid">Enter a web link that starts with http:// or https://, without a user name.</string>
+    <string name="capture_deadpan">Deadpan tab</string>
+    <string name="capture_deadpan_hint">Also write a deadpan, sarcastic retelling. Facts stay correct. Takes a little longer.</string>
+    <string name="capture_deadpan_checking">Checking which version your Mac runs…</string>
+    <string name="capture_deadpan_needs_update">Needs ELI5 Learner %1$s or later on your Mac.</string>
     <string name="capture_send">Send to my Mac</string>
     <string name="capture_sent">Sent. Follow it in the Inbox.</string>
     <string name="capture_failed">Couldn’t save this capture. Try again.</string>

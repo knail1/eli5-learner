@@ -34,7 +34,7 @@ import {
   svgIdPrefix,
 } from './validate';
 
-/** 07 §5.4: up to 3 fixed tabs (indepth, eli5, ste) + 20 section ELI5 tabs. */
+/** 07 §5.4: up to 4 fixed tabs (indepth, eli5, ste, deadpan) + 20 section ELI5 tabs. */
 export const MAX_SECTION_ELI5_TABS = 20;
 export const MAX_SELECTION = 4000;
 
@@ -95,17 +95,28 @@ export interface DeepAskTabDraft {
 /**
  * 08 §6.9: every tab in document order, content sections only (references and ELI5 placeholder
  * sections excluded); answer boxes are dropped by sectionToDraft. A tab left with no section is
- * left out.
+ * left out. The Deadpan tab is always left out: its jokes must never feed an answer.
  */
 export function tabsForDeepAsk(model: DocumentModel): DeepAskTabDraft[] {
   const out: DeepAskTabDraft[] = [];
   for (const t of model.tabs) {
+    if (t.kind === 'deadpan') continue;
     const sections = t.sections
       .filter((s) => s.kind === 'content' && s.origin !== 'placeholder')
       .map((s) => sectionToDraft(model, s));
     if (sections.length) out.push({ key: t.key, kind: t.kind, label: t.label, sections });
   }
   return out;
+}
+
+/**
+ * Ask on a Deadpan section (any depth): the answer keeps the deadpan tone but takes its facts only
+ * from the material, so the In depth tab always goes along as context. Deep and deeper asks already
+ * get it through tabsForDeepAsk; this is the In depth entry on its own, for the quick ask.
+ * Undefined when the In depth tab has no content section.
+ */
+export function inDepthForAsk(model: DocumentModel): DeepAskTabDraft | undefined {
+  return tabsForDeepAsk(model).find((t) => t.kind === 'indepth');
 }
 
 export function getSectionContext(model: DocumentModel, id: SectionId): SectionContext {
@@ -194,8 +205,8 @@ export function replaceSection(
     warnings.push(w);
   };
   // 07 §5.2 animation caps, counting every other section of the tab and the document (the STE
-  // tab's mirrors excepted). A keep marker in the draft takes the section's own animations back
-  // in order (08 §6.2); kept blocks always stay, they are only counted.
+  // and Deadpan tabs' mirrors excepted). A keep marker in the draft takes the section's own
+  // animations back in order (08 §6.2); kept blocks always stay, they are only counted.
   const ownAnimations = hit.section.blocks.filter(
     (b): b is Extract<DocBlock, { type: 'animation' }> => b.type === 'animation',
   );
@@ -204,8 +215,9 @@ export function replaceSection(
   const rawHeading = collapseWs(draft.heading) || hit.section.heading;
   const heading = rawHeading.length > 120 ? rawHeading.slice(0, 119) + '…' : rawHeading;
   // 08 §6.3: the ASD-STE100 tab keeps its charts, diagrams, tables, figures and animations and never adds
-  // or changes one; only keep markers bring an animation back.
-  const ste = hit.tab.kind === 'ste';
+  // or changes one; only keep markers bring an animation back. The Deadpan tab mirrors In depth the
+  // same way.
+  const ste = hit.tab.kind === 'ste' || hit.tab.kind === 'deadpan';
   const converted = convertBlocks(draft.blocks, {
     idSource: opts.idSource ?? cryptoIdSource,
     resolveFigure: assetResolver(model, opts),

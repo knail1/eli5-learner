@@ -1,10 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { DocumentDraftTab, SteDraft } from '../../../../src/main/llm/schemas/draft';
+import type { DeadpanDraft, DocumentDraftTab, SteDraft } from '../../../../src/main/llm/schemas/draft';
 import {
+  composeOrigins,
   critiqueInput,
   indepthOutline,
+  resolveRewrite,
   resolveSte,
   restoreAnimations,
   SteResolveError,
@@ -13,10 +15,11 @@ import {
 import { REPO } from './helpers';
 
 const script = JSON.parse(fs.readFileSync(path.join(REPO, 'test/fixtures/llm/default.json'), 'utf8')) as {
-  responses: { 'in-depth': DocumentDraftTab; ste: SteDraft };
+  responses: { 'in-depth': DocumentDraftTab; ste: SteDraft; deadpan: DeadpanDraft };
 };
 const indepth = (): DocumentDraftTab => structuredClone(script.responses['in-depth']);
 const ste = (): SteDraft => structuredClone(script.responses.ste);
+const deadpan = (): DeadpanDraft => structuredClone(script.responses.deadpan);
 
 /** A small in-depth draft: section 0 = [p, chart, p, diagram], section 1 = [p]. */
 function small(): DocumentDraftTab {
@@ -125,6 +128,10 @@ describe('resolveSte (02 §12, D15)', () => {
       { section: 0, block: 1 },
       { section: 0, block: 3 },
     ]);
+  });
+
+  it('resolveSte is resolveRewrite over In depth with kind ste', () => {
+    expect(resolveRewrite(indepth(), ste(), 'ste')).toEqual(resolveSte(indepth(), ste()));
   });
 
   it('refuses a draft whose section count differs from In depth', () => {
@@ -241,5 +248,49 @@ describe('resolveSte (02 §12, D15)', () => {
     expect(o).toContain('Example Widgets Inc. sells widgets through three channels.');
     expect(o).toContain('Online | 20 | 40');
     expect(o).not.toContain('Its supply plan decides'); // second sentence, no number
+  });
+});
+
+describe('resolveRewrite for the Deadpan tab', () => {
+  it('over the STE tab: stamps kind deadpan, copies the STE visuals and composes origins onto In depth', () => {
+    const steTab = resolveSte(indepth(), ste());
+    const r = resolveRewrite(steTab.tab, deadpan(), 'deadpan');
+    expect(r.fixes).toEqual([]);
+    expect(r.tab.kind).toBe('deadpan');
+    expect(r.tab.sections).toHaveLength(steTab.tab.sections.length);
+    // Origins are positions in the STE tab first ...
+    expect(r.origins[1]).toEqual([null, { section: 1, block: 1 }, { section: 1, block: 2 }]);
+    // ... and In depth positions once composed through the STE tab's own origins.
+    const composed = composeOrigins(r.origins, steTab.origins);
+    expect(composed.lost).toBe(0);
+    expect(composed.origins[1]).toEqual([null, { section: 1, block: 0 }, { section: 1, block: 1 }]);
+    expect(composed.origins[3]).toEqual([null, { section: 3, block: 1 }, null]);
+    const src = indepth();
+    composed.origins.forEach((sec, si) =>
+      sec.forEach((o, bi) => {
+        if (o) expect(r.tab.sections[si]?.blocks[bi]).toEqual(src.sections[o.section]?.blocks[o.block]);
+      }),
+    );
+  });
+
+  it('over In depth (no STE tab): bad keeps dropped, every visual still once, origins direct', () => {
+    const r = resolveRewrite(indepth(), deadpan(), 'deadpan');
+    expect(r.tab.kind).toBe('deadpan');
+    // Section 1 of the fixture keeps 1 and 2 (STE numbering): 2 is out of range in In depth.
+    expect(r.fixes).toContain('sections[1].blocks[2]: dropped keep 2');
+    // The chart (In depth block 0) was not kept, and no kept visual precedes it: it goes to index 0.
+    expect(r.tab.sections[1]?.blocks.map((b) => b.type)).toEqual(['chart', 'paragraph', 'table']);
+    expect(r.origins[1]).toEqual([{ section: 1, block: 0 }, null, { section: 1, block: 1 }]);
+  });
+
+  it('refuses a draft whose section count differs from its source', () => {
+    const d = deadpan();
+    d.sections.pop();
+    expect(() => resolveRewrite(indepth(), d, 'deadpan')).toThrow(SteResolveError);
+  });
+
+  it('composeOrigins reports a kept block that has no origin to compose through', () => {
+    const out = composeOrigins([[{ section: 0, block: 1 }, null]], [[null, null]]);
+    expect(out).toEqual({ origins: [[null, null]], lost: 1 });
   });
 });

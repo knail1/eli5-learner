@@ -249,7 +249,7 @@ export type ValidityRule =
 | `section-id-unique` | No duplicate `id` anywhere in the document (not just among sections). |
 | `section-id-mirror` | `data-section-id === id` on every section. |
 | `tabs-match-meta` | Tab keys and order equal `meta.tabs` when `meta` is given; `indepth` and `eli5` always present; every tab button in `nav.tabbar` controls exactly one panel and every panel has one button. |
-| `tab-order` | `ste`, when present, directly follows `eli5` and precedes every section ELI5 tab ([07](07-output-document.md) §12). |
+| `tab-order` | `ste`, when present, directly follows `eli5` and precedes every section ELI5 tab; `deadpan`, when present, directly follows `ste` (else `eli5`) and precedes every section ELI5 tab ([07](07-output-document.md) §12). |
 | `default-tab` | `indepth` is the initially active tab. |
 | `glossary-scope` | Glossary callouts appear only inside the `indepth` panel. |
 | `references` | `indepth` ends with a references section listing every `meta.sourcesUsed` and `meta.sourcesSkipped` entry (with reason). |
@@ -416,7 +416,7 @@ Coverage: every PRD source type, at least 3 cases per domain named in the PRD, a
 ### 9.3 Pipeline per case
 
 1. Run the real generation pipeline headless (integration harness, real provider, `SeededIdSource`).
-2. **Deterministic gates first:** `validateDocument` must pass; required tabs present (In depth and ELI5; the ASD-STE100 tab is optional); glossary present iff enabled; each `jargon` term appears in a glossary callout (In depth) when enabled. A gate failure scores the case 0 without calling the judge.
+2. **Deterministic gates first:** `validateDocument` must pass; required tabs present (In depth and ELI5; the ASD-STE100 and Deadpan tabs are optional); glossary present iff enabled; each `jargon` term appears in a glossary callout (In depth) when enabled. A gate failure scores the case 0 without calling the judge.
 3. **Judge:** for each tab (In depth, ELI5, and ASD-STE100 when the document has one), send the extracted source text, the tab's visible text (HTML stripped, figure captions and chart data kept as text), and the rubric to the judge model. The judge returns JSON `{ scores: Record<criterionId, 1|2|3|4|5>, rationale: Record<criterionId, string>, missingFacts: string[] }`.
 4. Run section actions if listed; judge the replaced section (or the new Section ELI5 tab) with the section-action rubric: S1 and S2 always, S3 only when the action carries a `note`.
 5. Repeat judging 3 times; take the median per criterion.
@@ -454,6 +454,8 @@ ASD-STE100 tab (judged only when the document has one):
 | `T2` | One word, one meaning | One term per concept, used the same way every time; no synonyms, idioms or phrasal verbs |
 | `T3` | Faithful to In depth | Every fact, number and caveat of the In depth view kept, nothing added; the same visuals |
 | `T4` | Clear active text | Active voice, simple common words, articles kept, warnings before the text they apply to |
+
+Deadpan tab: not judged in this version. Eval cases do not ask for it (`options.deadpan` stays off), so the suite scores and baselines are unchanged. When a case opts in later, a rubric would cover `P1` facts unchanged from In depth (every number, name and claim kept, none added, the same visuals), `P2` deadpan delivery (dry, at least one joke per section, no exclamation marks or emoji) and `P3` no punching down (humor aimed at situations and the subject, never at people or groups). Offline coverage is the FakeProvider unit, golden (`with-deadpan`) and e2e tests (`test/e2e/deadpan.e2e.ts`).
 
 Section actions: `S1` action honored (expanded / clearer / analogy / deeper / focused ELI5), `S2` consistent with surrounding sections, `S3` user note honored when given.
 

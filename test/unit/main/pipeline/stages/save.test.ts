@@ -359,4 +359,29 @@ describe('saving a rebuild as a new version (design §5)', { timeout: 20_000 }, 
     const out = await c.finished(rec.id);
     expect(out.failure?.code).toBe('NO_USABLE_CONTENT');
   });
+  it('a rebuild that asks for Deadpan adds the tab and records deadpanEnabled; one that does not clears it', async () => {
+    const h = await harness();
+    const before = await created(h);
+    expect(before.meta.deadpanEnabled).toBeUndefined();
+    const withDeadpan = async (t: RebuildTarget, deadpan: boolean): Promise<Job> => {
+      const { jobId } = await h.queue.startRebuild(
+        { inputs: [fileInput('sources/text/notes.md')], options: { ...opts, ...(deadpan ? { deadpan: true } : {}) } },
+        t,
+      );
+      return h.finished(jobId);
+    };
+    const first = await withDeadpan(await target(h, before.slug), true);
+    expect(first.status).toBe('done');
+    let meta = JSON.parse(await readFile(h.lib.docPath(before.slug, 'meta.json'), 'utf8')) as DocumentMeta;
+    expect(meta.tabs.map((x) => x.key)).toEqual(['indepth', 'eli5', 'ste', 'deadpan']);
+    expect(meta.deadpanEnabled).toBe(true);
+    expect(meta.generation.prompts.some((p) => p.startsWith('deadpan@'))).toBe(true);
+
+    const second = await withDeadpan(await target(h, before.slug), false);
+    expect(second.status).toBe('done');
+    meta = JSON.parse(await readFile(h.lib.docPath(before.slug, 'meta.json'), 'utf8')) as DocumentMeta;
+    expect(meta.tabs.map((x) => x.key)).toEqual(['indepth', 'eli5', 'ste']);
+    expect(meta.deadpanEnabled).toBeUndefined();
+    expect(meta.generation.prompts.some((p) => p.startsWith('deadpan@'))).toBe(false);
+  });
 });

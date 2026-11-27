@@ -81,6 +81,23 @@
       ]
     },
     {
+      "file": "with-deadpan.html",
+      "sections": [
+        { "id": "sec-indepth-0035a1ad", "hash": "1b77bc8fc66490c725772c058d561f6455b81918eb759f1c0bdbf8821f5acb41" },
+        { "id": "sec-indepth-340b2e0d", "hash": "ca227e14cc8cb4154c3be0e786fdf827a44daffac6d36cbee174337f023b94bb" },
+        { "id": "sec-indepth-5b862b39", "hash": "a042fef7227943bf09cf42cc672834b7ed06b737581a6609924f0db31ba2e1ba" },
+        { "id": "sec-indepth-eebc4a88", "hash": "8d5e0cc9f4650c8a41fd2f8271bb0ef9e6bb610f2ea59f25730d05f3fda35d65" },
+        { "id": "sec-eli5-42c9cd69", "hash": "3822f623539b35fecaefb524ff93004ae4ff083f1777fe67a6b129b4a2ec12a7" },
+        { "id": "sec-ste-17fecbbb", "hash": "8301cd0e9e8e03aec55e4cd226c6fbde2feb6af550a3862ee59c224f487cf766" },
+        { "id": "sec-ste-1fb0531f", "hash": "dd88a2c480e7f2aff30fa4c7d1b351b6df3e2c3166c1b1a8c803d745e9ecc43a" },
+        { "id": "sec-ste-d7094a77", "hash": "8d461f1288881f19ac031ba0a9566d09deb24f73bfac60a48a841b7f5e2bc390" },
+        { "id": "sec-deadpan-36bd7fd4", "hash": "a339d7c1b70078334719f0ae398994885274154e8804cddb3663e124002819f3" },
+        { "id": "sec-deadpan-b1b1dd97", "hash": "d8e41f2767c6f1b591f55cfb4e5c41bf7e7ff15f14ca501ec2a3b1c9d6a96ba1" },
+        { "id": "sec-deadpan-a3f7b165", "hash": "3f97bb07466b359bfddefd049191f650e824dbf0991783b2fdbc5dd7329cab68" },
+        { "id": "sec-sx052c0b-0e0fd25c", "hash": "977f3293be7e69f56b47f19361b4b8e5e298dda0f7b5e56f838713e2a8b2f478" }
+      ]
+    },
+    {
       "file": "with-ste.html",
       "sections": [
         { "id": "sec-indepth-0035a1ad", "hash": "1b77bc8fc66490c725772c058d561f6455b81918eb759f1c0bdbf8821f5acb41" },

@@ -27,6 +27,20 @@ describe('eli5:jobs:* (06 §11)', () => {
     expect(h.jobs.started[0]?.inputs).toEqual([url('https://example.com/a')]);
   });
 
+  it('keeps the per-job Deadpan option through the schema (07 §3), and leaves it out when absent', async () => {
+    const h = await setup();
+    const on = { ...opts, deadpan: true };
+    expect(await h.call(IPC.jobs.start, { inputs: [url('https://example.com/a')], options: on })).toMatchObject({
+      ok: true,
+    });
+    expect(h.jobs.started[0]?.options).toEqual(on);
+    await h.call(IPC.jobs.start, { inputs: [url('https://example.com/b', 'in-00000003')], options: opts });
+    expect(h.jobs.started[1]?.options).toEqual(opts);
+    expect(
+      await h.call(IPC.jobs.start, { inputs: [url('https://example.com/c')], options: { ...opts, deadpan: 'yes' } }),
+    ).toMatchObject({ ok: false, error: { code: 'E_BAD_REQUEST' } });
+  });
+
   it('rejects zero sources with E_BAD_REQUEST before any other check', async () => {
     const h = await setup();
     h.keyReady.value = false;

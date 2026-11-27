@@ -72,7 +72,8 @@ Related: [01-architecture.md](./01-architecture.md) · [06-generation-pipeline.m
 
 - Android app: offline library, a read-only reader for the self-contained `index.html`, import of
   exported documents, a read-only version tree with "Make current on your Mac", a share-sheet
-  capture that queues a job for the desktop, an Inbox with job status, Settings.
+  capture that queues a job for the desktop, an in-app "Send a link" capture from the Inbox (0.6.0),
+  an Inbox with job status, Settings.
 - Desktop: Settings > Sync, Google sign-in in the system browser, push of the library to the remote
   store, a job inbox that feeds the existing pipeline, a sync indicator.
 - One desktop ("primary") writes. A second desktop that signs in becomes a read-only mirror of status
@@ -302,6 +303,13 @@ type VersionTree = {
   (`Models.kt`) and would reject the whole manifest. Once no 0.3.0 phone is left, the write filter
   becomes `TAB_KEY_RE` with no phone release. The phone reader shows the ASD-STE100 tab either way,
   because it renders the document's own HTML and model.
+- The app's canonical pattern gained `deadpan` in 0.6.0 (07 §4.1); the protocol's `TAB_KEY_RE` and
+  `patterns.json` did not, on purpose. The write filter covers it too: `MANIFEST_TAB_KEY_RE`
+  (`src/main/sync/protocol.ts`) already rejects `deadpan`, so a Deadpan tab never appears in the
+  manifest's `tabs`, and 0.5.0 and older phones (which parse tab keys strictly) keep applying
+  manifests. The phone has no `deadpan` tab label either. The phone reader still shows the Deadpan
+  tab, because it renders the document's own HTML. A test checks that a document with a Deadpan tab
+  writes a manifest without the key.
 
 ### 4.5 Push (primary desktop)
 
@@ -419,7 +427,8 @@ later enable pushes everything again.
 ```ts
 type JobRequest = { v: 1; jobId: string; deviceId: string; createdAt: string } & (
   | { kind: 'capture'; urls: string[]; text: string; clarifyingInput: string; focus: FocusChip[];
-      attachments: Array<{ sha: string; name: string; mime: string; size: number }> }
+      attachments: Array<{ sha: string; name: string; mime: string; size: number }>;
+      deadpan?: boolean }                             // 0.6.0: ask for the Deadpan tab (07 §4.1)
   | { kind: 'checkout'; docId: string; versionId: string }
   | { kind: 'ask'; docId: string; sectionId: string; sectionHash: string; question: string } );
 type FocusChip = 'big-picture' | 'how-it-works' | 'numbers' | 'beginner';
@@ -431,6 +440,24 @@ job; MIME allowlist = the image, PDF, Office, HTML and plain-text types the desk
 (03), checked by sniffing, not by the declared type; `question` 3 to 500 characters, one line.
 Focus chips are appended to the clarifying input as fixed English phrases.
 
+**`deadpan` (0.6.0).** Optional, capture only, and a boolean when present (`null`, a string, or the
+key on any other kind is `E_INVALID`). The phone writes it only as `true`; with the switch off the
+key is left out (Kotlin `deadpan: Boolean = false` with `encodeDefaults = false`), so the job file is
+byte-identical to 0.5.0. There is no `v` bump, no new kind, focus chip or `accepts` value.
+Compatibility: a 0.5.0 desktop parses capture jobs with zod `.strict()`, so it rejects a job that
+carries `deadpan` with `E_INVALID` ("Your Mac could not read this request"). The phone therefore
+enables the switch only when the primary Mac's device file (§4.3) reports `appVersion` 0.6.0 or
+later (`AppVersions.atLeast`: compares the leading major.minor.patch, ignores a `-suffix` or
+`+build`; a missing or unparsable version counts as too old), and Retry applies the same check
+again with the current Mac version, dropping `deadpan` for a Mac known to be older (an unknown
+version keeps it: the request passed the gate when it was sent). The version comes from the last
+sync pass, else from the one remembered in DataStore (`SyncPrefs.lastMacVersion`, written when a
+pass reads the primary Mac's device file and cleared on Disconnect), so a share that cold-starts
+the app is gated correctly before its first pass; the share target also starts one pass when it
+opens. The contract
+fixtures cover one valid capture with `"deadpan": true` and three invalid ones (null, a string, a
+checkout carrying it).
+
 ### 5.2 Phone side
 
 1. The share target copies the shared bytes into `filesDir/outbox/<jobId>/` at once (URI grants are
@@ -440,6 +467,27 @@ Focus chips are appended to the clarifying input as fixed English phrases.
    not already exist, then `job-<jobId>.json`, then marks the job `UPLOADED` ("Waiting for your Mac").
 3. Cancel: write `jobcancel-<jobId>.json`. The desktop honours it only while the job is not running.
 4. After the phone has shown a terminal status, it adds the jobId to its `acks` file.
+
+**Send a link (0.6.0).** Besides the share target, the Inbox has a "Send a link" floating button. It
+opens the same capture sheet in manual mode (`CaptureViewModel(manual = true)`): the sheet is ready
+at once with an empty one-line Link field (URL keyboard, a Paste button that reads the clipboard),
+so nothing shared overwrites a typed link, and each opening gets a fresh `jobId`. The link goes
+through the same URL rules as a share: a bare host gets `https://`; `file:`, `javascript:`, `ftp:`
+and links with a user name are refused with "Enter a web link that starts with http:// or https://,
+without a user name." The error shows only once the user is done with the field (Next, focus
+leaves it, or a Paste), never while a link is half typed; Send stays disabled either way, and the
+share sheet's "n links can't be sent" note is not shown in manual mode. Dismissing the sheet discards everything staged (no Room row, no outbox
+folder). Sent and failed show a snackbar. The job is an ordinary `capture` with one URL, so a Mac
+that is off or asleep picks it up on its next pull after it starts (§4.8 cadence) and makes the
+document unattended.
+
+Both capture sheets label the clarifying field "Instructions for your Mac (optional)", with the
+hint "e.g. explain this for a beginner, focus on costs" and a visible `n/500` counter (the existing
+500-character cap). A "Deadpan tab" switch sits before Send ("Also write a deadpan, sarcastic
+retelling. Facts stay correct. Takes a little longer."); when the Mac is too old it is disabled
+with "Needs ELI5 Learner 0.6.0 or later on your Mac.", and while its version is not known yet (no
+pass has read it and none is remembered) it is disabled with "Checking which version your Mac
+runs…" when Drive is connected.
 
 Details of the phone side:
 
@@ -512,7 +560,9 @@ Kinds:
   because the files were staged by main. It stamps every input with origin `inbox`, requires each
   file under `root`, refuses pasted-item inputs, and records `{kind: 'inbox', ref}` on the job, so
   `JobSnapshot.origin` is `'inbox'` and `jobs.originOf(id)` maps pipeline events back to the phone's
-  job id. `glossary` is the `glossary.defaultOn` setting.
+  job id. `glossary` is the `glossary.defaultOn` setting. A capture with `deadpan: true` adds
+  `deadpan: true` to the options (`InboxCapture.deadpan`; without it the options are exactly as
+  before), so the job gets the Deadpan tab (06 §5.4 step 1c).
 - `checkout` runs the 08 §6.7 checkout service. A busy document is retried for 10 minutes, then
   `failed` with `E_CONFLICT` and the 08 text "Your Mac is updating this document; try again in a
   moment".
@@ -564,8 +614,8 @@ normal completion notification (11 §14), and the status area shows a "From phon
 | Library | Navigation suite with Library, Inbox, Settings. Search, folder chips, rows (title, updated time, offline pin, unread dot), sync icon (synced, syncing, offline/error) that opens a status sheet, pull-to-refresh, empty state. |
 | Reader | Full-bleed WebView (§6.3), collapsing bar with title and a version chip, "Updated on your Mac · Reload" banner (never auto-reloads), reading position per document and sha. |
 | Versions | Read-only tree, lanes from the Kotlin port of `version-tree-layout.ts`; preview of uploaded versions; "Make current on your Mac" queues a `checkout`; versions without an uploaded blob show "Not available on this phone". |
-| Capture | Translucent share target with a bottom sheet: preview, "What do you want to understand?", focus chips, "Send to my Mac". Never waits for the network. |
-| Inbox | Jobs with chips: Waiting to upload, Waiting for your Mac, Queued, Generating (stage), Ready, Built · N sources skipped, Failed (reason, Retry, Delete). "Mac last seen" line. |
+| Capture | Translucent share target with a bottom sheet: preview, "Instructions for your Mac (optional)" with an `n/500` counter, focus chips, the "Deadpan tab" switch (Mac 0.6.0 or later), "Send to my Mac". The same sheet in manual mode serves the Inbox's "Send a link" (§5.2). Never waits for the network. |
+| Inbox | Jobs with chips: Waiting to upload, Waiting for your Mac, Queued, Generating (stage), Ready, Built · N sources skipped, Failed (reason, Retry, Delete). "Mac last seen" line. A "Send a link" floating button (§5.2). |
 | Ask | From the Reader overflow, only when the primary accepts `ask`: section picker from the document outline, one-line question. |
 | Settings | Account and Disconnect, Sync now, offline policy (All, Recent 20, Pinned), large downloads on Wi-Fi only, Macs seen, storage and Clear cache, Import HTML, Diagnostics (counts only), licenses, About ("Sideloaded build", version, commit). |
 
@@ -879,3 +929,11 @@ failures after retries) and `E_SYNC_ABORTED`.
     with a one-line reason.
 11. `npm run check:hygiene`, `npm run check:spec`, the desktop suite and the Android `lint`,
     `testDebugUnitTest` and `assembleDebug` tasks pass.
+12. A capture without Deadpan writes the exact 0.5.0 job bytes (no `deadpan` key); with it, the job
+    ends in `"deadpan":true`, the desktop passes `deadpan: true` to the pipeline, and the manifest
+    never lists a `deadpan` tab key. The phone's Deadpan switch is enabled only for a primary Mac at
+    0.6.0 or later (the last pass's version, else the remembered one, so a cold-started share is
+    gated correctly), and Retry drops the field only for a Mac known to be older.
+13. The Inbox's "Send a link" sheet accepts a typed or pasted web link with optional instructions
+    (counter `n/500`), refuses `file:`, `javascript:`, `ftp:` and user-name links, and queues one
+    capture; dismissing it leaves no outbox row or folder.

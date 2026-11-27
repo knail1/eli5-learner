@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "jobId": "019a3c5e-7d2f-7a1b-9c3d-4e5f6a7b8c9d",
+  "deviceId": "9c8d7e6f-5a4b-4c3d-a2e1-f0e9d8c7b6a5",
+  "createdAt": "2026-10-01T09:00:00.000Z",
+  "kind": "checkout",
+  "docId": "3f2b8c1e-5a4d-4e7f-9b6a-0c1d2e3f4a5b",
+  "versionId": "v-000000000002",
+  "deadpan": true
+}

@@ -74,7 +74,8 @@
             "required": ["sha", "name", "mime", "size"],
             "additionalProperties": false
           }
-        }
+        },
+        "deadpan": { "type": "boolean" }
       },
       "required": [
         "v",

@@ -1,5 +1,7 @@
 package io.github.eli5learner.inbox
 
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -80,6 +82,16 @@ class InboxScreenTest {
         compose.onNodeWithText("Capture").assertExists()
         compose.onNodeWithText("Connect Google Drive").performClick()
         assertEquals(1, connects)
+    }
+
+    @Test fun `Send a link is always on the Inbox and opens the link sheet`() {
+        var opened = 0
+        compose.setContent {
+            Eli5Theme { InboxScreen(InboxUiState(connected = true), InboxActions(onSendLink = { opened++ }), now = now) }
+        }
+        compose.onNodeWithText("tap Send a link", substring = true).assertExists()
+        compose.onNode(hasContentDescription("Send a link") and hasClickAction()).assertExists().performClick()
+        assertEquals(1, opened)
     }
 
     @Test fun `the empty state and a paused Mac`() {

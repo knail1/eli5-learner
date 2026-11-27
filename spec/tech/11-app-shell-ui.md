@@ -56,7 +56,7 @@ hidden in the public build), *Configuration, scope, and open items* (settings sc
 | `src/renderer/App.tsx` | renderer | Top-level layout grid and route switch |
 | `src/renderer/library/` | renderer | `LibrarySidebar`, `LibraryItem`, `LibraryFilter` |
 | `src/renderer/viewer/` | renderer | `ViewerSlot`, `DocHeader`, `HistoryButtons`, `FindBar`, `ViewerEmpty`, `VersionTreePanel`, `version-tree-layout.ts` (pure tree layout), `PanelHandle` |
-| `src/renderer/input/` | renderer | `InputZone`, `DropBox`, `SourceChip`, `UrlField`, `ClarifyField`, `GlossaryToggle` |
+| `src/renderer/input/` | renderer | `InputZone`, `DropBox`, `SourceChip`, `UrlField`, `ClarifyField`, `GlossaryToggle`, the Deadpan tab switch |
 | `src/renderer/status/` | renderer | `StatusArea`, `JobLine` |
 | `src/renderer/suggestions/` | renderer | `SuggestionsPanel`, `SuggestionCard` |
 | `src/renderer/settings/` | renderer | `SettingsScreen` and its sections |
@@ -332,9 +332,9 @@ so renderer DOM can never draw over the viewer rectangle. Therefore:
   as do `Cmd+Y` and View > **Show Versions** (§9). When the window is too narrow for the panel
   (below), the toggle does not open it and shows an inline hint under the header instead: "Widen the
   window or hide the library to show versions."
-- The document's own tabs (In depth, ELI5, ASD-STE100 when the document has it, section ELI5
-  tabs) render inside the viewer (07, 08). The ASD-STE100 tab is fixed (no close control) and starts
-  with a short hint on what ASD-STE100 is (07 §4.1).
+- The document's own tabs (In depth, ELI5, ASD-STE100 and Deadpan when the document has them,
+  section ELI5 tabs) render inside the viewer (07, 08). The ASD-STE100 and Deadpan tabs are fixed
+  (no close control) and start with a short hint on what they are (07 §4.1).
   The shell adds no tab strip.
 - On `eli5:doc:updated {slug, sectionId?, tabKey?, anchorId?}` for the open document, main reloads
   the viewer and sends `eli5:doc:scroll-to` (08 §7.4). If the updated slug is not the open document, the shell does
@@ -380,6 +380,7 @@ export interface InputDraft {
   urlText: string;           // uncommitted text in the URL field
   clarifying: string;        // optional specifics
   glossary: boolean;         // initialised from settings glossary.defaultOn
+  deadpan: boolean;          // the Deadpan tab switch; false for every new draft, no settings default
 }
 ```
 
@@ -419,6 +420,14 @@ Parts (PRD *Input zone*):
    you want to understand? What do you already know?". `Shift+Enter` inserts a newline.
 6. **Glossary toggle.** Checkbox "Explain domain specific terms", initialised from
    `glossary.defaultOn` (12) for every new draft.
+
+   **Deadpan tab switch.** A `role="switch"` checkbox labelled "Deadpan tab" inside
+   `.input-buttons`, after the glossary toggle and just left of Clear, with the tooltip "Also write
+   a deadpan, sarcastic retelling, usually built from the ASD-STE100 tab. Facts stay correct. Adds
+   one more model call." (`DEADPAN_TOOLTIP`). Off for every new draft and after Clear; it stays on
+   after a start in the same session and is never remembered across launches or offered in
+   Settings. On its own it does not count as draft content for enabling Clear. Enter on it starts,
+   like the glossary toggle. At narrow widths the button row wraps under it and stays right-aligned.
 7. **Primary button**, hint "⌘⏎". It reads "Start" (sends the chips; typed URL text is committed
    first) when there are chips or typed text. Otherwise, when a last run exists, it reads
    "Run again" with the tooltip "Send the last run's links again": it re-sends the last run's URLs
@@ -427,10 +436,10 @@ Parts (PRD *Input zone*):
    (chips, last run, URL text or specifics). It is disabled while a start is in flight, and the
    programmatic clear (`Cmd+N`) does nothing then. It clears everything, the last run included:
    `eli5:sources:discard-draft` for staged pastes, `eli5:sources:release-drops` for its file chips,
-   a new `draftId`, glossary back to default, messages cleared. Focus moves to the drop box.
+   a new `draftId`, glossary back to default, the Deadpan switch off, messages cleared. Focus moves to the drop box.
 
 **Start algorithm** (`Cmd/Ctrl+Enter` anywhere in the zone; plain `Enter` on an empty URL field,
-in Specifics, on the glossary toggle or on the drop box; or clicking the primary button):
+in Specifics, on the glossary or Deadpan toggle or on the drop box; or clicking the primary button):
 
 1. If the URL field holds text, try to commit it as chips. If it is invalid, show the inline error,
    do not start, and keep focus on the field.
@@ -439,10 +448,11 @@ in Specifics, on the glossary toggle or on the drop box; or clicking the primary
 3. If no API key is stored for the selected provider (`eli5:settings:has-api-key`), do not start.
    Show the inline hint "Add an API key in Settings to start" with a link to Settings.
 4. Call `eli5:jobs:start {inputs, options: {clarifyingInput: draft.clarifying, glossary:
-   draft.glossary}}` (`JobOptions`, 06).
+   draft.glossary}}` (`JobOptions`, 06), plus `deadpan: true` only when the Deadpan switch is on
+   (when it is off the payload is exactly as before).
 5. On `ok`: every sent input leaves the chips. The sent URLs become the last run (when none of
-   the sent inputs were URLs, the previous last run is kept). Specifics and the glossary choice
-   stay. Inputs added while the start was in flight stay as chips. If unsent staged pastes remain,
+   the sent inputs were URLs, the previous last run is kept). Specifics, the glossary choice and
+   the Deadpan switch stay. Inputs added while the start was in flight stay as chips. If unsent staged pastes remain,
    the draft keeps its `draftId` (their staging lives under it); otherwise it gets a new one.
    Announce "Started" in the live region and show a transient hint ("Started", or "Started again
    with the last run" for Run again). The status area shows the new line. A start never cancels an
@@ -867,7 +877,7 @@ sign-in lifecycle itself is HOOK-AUTH-01; publishers are HOOK-PUB-01..04.
   with the sidebar auto-collapsing below 1000 CSS px of width.
 - **Tray.** Menu items are native, so VoiceOver reads them. The busy icon has an accessible
   description via the tooltip.
-- **Tab hints.** A document tab whose kind needs explaining (today only ASD-STE100) carries a hint
+- **Tab hints.** A document tab whose kind needs explaining (today ASD-STE100 and Deadpan) carries a hint
   paragraph at the top of its panel, visible without JavaScript and in print; the tab button names
   it with `aria-describedby` and repeats it as its `title` (07 §4.1).
 - **No time limits.** Nothing requiring action disappears on a timer; the 10-minute done-line hide
@@ -1085,7 +1095,10 @@ click shows the main window on Settings > Notifications.
       through matches, `Escape` closes the bar, clears the highlight and focuses the viewer; the Edit
       > Find items work while the viewer has focus; `Option+Cmd+F`, and `Cmd+F` with no document
       shown, focus the Library filter.
-- [ ] `eli5:jobs:start` is sent as `{inputs, options: {clarifyingInput, glossary}}`.
+- [ ] `eli5:jobs:start` is sent as `{inputs, options: {clarifyingInput, glossary}}`, plus
+      `deadpan: true` only when the Deadpan tab switch is on; the switch is off for a new draft and
+      after Clear, and a job started with it on shows the status line "Generating document (Deadpan
+      version)" and a Deadpan tab after ASD-STE100.
 - [ ] In the public build, non-URL text in the URL field classifies as `invalid` and shows the inline
       error; no job starts.
 - [ ] No microphone control exists in the UI, the `media` permission is denied, and the packaged

@@ -5,6 +5,7 @@
  * 'deep-asked' is 'asked' plus three Ask deep boxes (08 §6.9), one per source mode, and three Ask
  * deeper boxes (08 §6.10), one per reach.
  * 'with-ste' adds the optional ASD-STE100 tab before a section ELI5 tab (showcase.ts steModel).
+ * 'with-deadpan' is 'with-ste' plus the optional Deadpan tab after it (showcase.ts deadpanModel).
  */
 import {
   addSectionEli5Tab,
@@ -18,9 +19,10 @@ import type { DocumentDraftTab } from '../../../src/main/llm';
 import { SeededIdSource } from '../../helpers/ids';
 import { THEMED, fixtureInput, type FixtureName } from './drafts';
 import { wovenFixture } from './merge';
-import { showcaseModel, steModel } from './showcase';
+import { deadpanModel, showcaseModel, steModel } from './showcase';
 
-export type GoldenName = FixtureName | 'with-tab' | 'merged' | 'showcase' | 'asked' | 'with-ste' | 'deep-asked';
+export type GoldenName =
+  FixtureName | 'with-tab' | 'merged' | 'showcase' | 'asked' | 'with-ste' | 'with-deadpan' | 'deep-asked';
 export const GOLDEN_NAMES: readonly GoldenName[] = [
   'full',
   'placeholder',
@@ -30,6 +32,7 @@ export const GOLDEN_NAMES: readonly GoldenName[] = [
   'showcase',
   'asked',
   'with-ste',
+  'with-deadpan',
   'deep-asked',
 ];
 
@@ -206,6 +209,7 @@ export function fixtureDocument(name: GoldenName): FixtureDocument {
   // A four-step stepper, stock photos with credits and an "ELI5 this selection" tab (showcase.ts).
   if (name === 'showcase') return showcaseModel();
   if (name === 'with-ste') return steModel();
+  if (name === 'with-deadpan') return deadpanModel();
   if (name === 'merged') {
     // 09 §10.3: the 'full' fixture with a second document woven in (marks, legend, merged sources).
     const w = wovenFixture();

@@ -453,6 +453,99 @@
         }
       ]
     },
+    "deadpan": {
+      "title": "How Example Widgets Inc. bravely plans its widget supply",
+      "dek": "The supply plan sets how many widgets the company builds each quarter. Nobody has thrown a party about it yet.",
+      "sections": [
+        {
+          "heading": "The plan decides how many widgets exist, which is a lot of power for a spreadsheet",
+          "blocks": [
+            {
+              "type": "paragraph",
+              "md": "Example Widgets Inc. sells widgets through three channels. The supply plan sets how many widgets the company builds each quarter. A bad plan keeps too much cash in stock or leaves the shelves empty. Both options have their fans. None of them work in finance."
+            },
+            {
+              "type": "callout",
+              "tone": "keypoint",
+              "md": "The plan balances two costs: too much stock and no stock. Picking neither is not on the menu."
+            }
+          ]
+        },
+        {
+          "heading": "Online demand grew the most, as online things tend to do",
+          "blocks": [
+            {
+              "type": "paragraph",
+              "md": "Online orders grew from 20 thousand to 40 thousand in one year. Retail and wholesale orders stayed almost the same, with the calm of people who have seen trends before."
+            },
+            {
+              "type": "keep",
+              "block": 1
+            },
+            {
+              "type": "keep",
+              "block": 2
+            }
+          ]
+        },
+        {
+          "heading": "The forecast takes four steps, none of them is guessing, officially",
+          "blocks": [
+            {
+              "type": "stepper",
+              "title": "Make the build plan",
+              "steps": [
+                {
+                  "label": "Collect",
+                  "md": "Collect the orders of the last quarter for each channel. Yes, all of them."
+                },
+                {
+                  "label": "Forecast",
+                  "md": "Calculate the forecast with a simple moving average. It is simple. That is the point."
+                },
+                {
+                  "label": "Buffer",
+                  "md": "Add safety stock for uncertainty, which is always in stock."
+                },
+                {
+                  "label": "Commit",
+                  "md": "Send the build plan to the factory and try to look confident."
+                }
+              ]
+            },
+            {
+              "type": "list",
+              "ordered": false,
+              "items": [
+                "The company sells twelve SKUs. Each one is somebody's favourite.",
+                "The lead time is six weeks. The weeks do not negotiate."
+              ]
+            },
+            {
+              "type": "keep",
+              "block": 2
+            }
+          ]
+        },
+        {
+          "heading": "Keep an eye on online growth, it is not going anywhere",
+          "blocks": [
+            {
+              "type": "paragraph",
+              "md": "A planning memo says that safety stock is the cost of uncertainty. The memo did not offer a discount."
+            },
+            {
+              "type": "keep",
+              "block": 1
+            },
+            {
+              "type": "paragraph",
+              "md": "If online growth continues, the company must increase the safety stock for that channel. The widgets will be thrilled, in their quiet way."
+            }
+          ]
+        }
+      ]
+    },
     "eli5-critique": {
       "kind": "eli5",
       "title": "Widgets, explained simply",

@@ -22,7 +22,7 @@ import { readGolden } from '../../../fixtures/documents/runtime';
 const GOLDEN_DIR = path.join(import.meta.dirname, '../../../fixtures/documents/markdown');
 const UPDATE = process.env.ELI5_UPDATE_GOLDENS === '1';
 /** Between them, these goldens cover every block type (asserted below). */
-const MD_GOLDENS: readonly GoldenName[] = ['full', 'showcase', 'asked', 'with-ste'];
+const MD_GOLDENS: readonly GoldenName[] = ['full', 'showcase', 'asked', 'with-ste', 'with-deadpan'];
 const ALL_BLOCKS: readonly DocBlockType[] = [
   'paragraph',
   'list',

@@ -64,6 +64,8 @@ describe('statusLine (06 §6)', () => {
     expect(statusLine(g, { runningSteps: ['eli5-critique'] })).toBe(
       'Generating document (simplifying the ELI5 version)',
     );
+    // Step 1c: the optional Deadpan tab.
+    expect(statusLine(g, { runningSteps: ['deadpan'] })).toBe('Generating document (Deadpan version)');
     expect(statusLine(g, { runningSteps: ['glossary'] })).toBe('Generating document (glossary notes)');
     expect(statusLine(g, { runningSteps: ['summary'] })).toBe('Generating document (finishing up)');
     const withStep = job({

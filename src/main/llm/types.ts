@@ -28,7 +28,8 @@ export type PromptId =
   | 'photo-pick'
   | 'merge-weave'
   | 'ste'
-  | 'eli5-critique';
+  | 'eli5-critique'
+  | 'deadpan';
 
 export const PROMPT_IDS: readonly PromptId[] = [
   'in-depth',
@@ -51,6 +52,7 @@ export const PROMPT_IDS: readonly PromptId[] = [
   'merge-weave',
   'ste',
   'eli5-critique',
+  'deadpan',
 ];
 
 /** Image content part of a user message (02 §3). */

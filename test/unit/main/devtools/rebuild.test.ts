@@ -111,6 +111,31 @@ describe('planRebuildCost', () => {
     expect(plan.calls.find((c) => c.step === 'ste-repair')?.typicalOutputTokens).toBe(0);
   });
 
+  it('counts the Deadpan call (step 1c, from the STE draft) only when it is asked for', () => {
+    const base = {
+      rates,
+      sourceTokens: 0,
+      glossary: true,
+      photos: false,
+      maxOutputTokens: () => 30_000,
+      overheadTokens: () => 1_000,
+    };
+    const off = planRebuildCost(base);
+    expect(off.calls.map((c) => c.step)).not.toContain('deadpan');
+    const on = planRebuildCost({ ...base, deadpan: true });
+    const steps = on.calls.map((c) => c.step);
+    expect(steps.indexOf('deadpan')).toBe(steps.indexOf('eli5-critique') + 1);
+    expect(on.calls.find((c) => c.step === 'deadpan')).toEqual({
+      step: 'deadpan',
+      typicalInputTokens: 1_000 + TYPICAL_OUTPUT_TOKENS.ste,
+      typicalOutputTokens: TYPICAL_OUTPUT_TOKENS.deadpan,
+      worstInputTokens: 1_000 + 30_000,
+      worstOutputTokens: 30_000,
+    });
+    expect(on.typicalUsd).toBeGreaterThan(off.typicalUsd);
+    expect(on.worstUsd).toBeGreaterThan(off.worstUsd);
+  });
+
   it('keeps a document from the default prompts under the $4 gate typically, near the design estimate', () => {
     const max: Record<string, number> = {
       'in-depth': 32_000,
@@ -526,6 +551,51 @@ describe('startRebuildRun: real run', () => {
       expect.objectContaining({ slug: 'doc-two', ok: true, spentUsd: expect.closeTo(2, 10) as number }),
     ]);
     expect(s.codes).toEqual([0]);
+  });
+
+  it('asks for Deadpan when meta.deadpanEnabled says so, else when the document has the tab', async () => {
+    const s = await setup(['doc-one', 'doc-two', 'doc-three']);
+    const one = s.lib.docs.get('doc-one');
+    const two = s.lib.docs.get('doc-two');
+    if (!one || !two) throw new Error('setup');
+    one.meta.deadpanEnabled = true;
+    two.meta.tabs = [
+      { key: 'deadpan', kind: 'deadpan', label: 'Deadpan', sectionCount: 2, createdAt: '2026-11-01T00:00:00.000Z' },
+    ];
+    const jobs = new ScriptedRebuildQueue();
+    const verified: (boolean | undefined)[] = [];
+    const summary = await startRebuildRun(
+      s.opts({
+        jobs,
+        verify: (_lib, x) => {
+          verified.push(x.deadpan);
+          return Promise.resolve(OK_VERIFY);
+        },
+      }),
+    );
+    expect(summary.ok).toBe(true);
+    expect(summary.preflight.map((p) => p.deadpan)).toEqual([true, true, false]);
+    expect(jobs.started.map((x) => x.req.options.deadpan)).toEqual([true, true, undefined]);
+    expect(verified).toEqual([true, true, undefined]);
+  });
+
+  it('meta.deadpanEnabled false wins over a leftover tab; ELI5_REAL_RUN_DEADPAN=1 asks for it everywhere', async () => {
+    const s = await setup(['doc-one']);
+    const one = s.lib.docs.get('doc-one');
+    if (!one) throw new Error('setup');
+    one.meta.deadpanEnabled = false;
+    one.meta.tabs = [
+      { key: 'deadpan', kind: 'deadpan', label: 'Deadpan', sectionCount: 2, createdAt: '2026-11-01T00:00:00.000Z' },
+    ];
+    const jobs = new ScriptedRebuildQueue();
+    await startRebuildRun(s.opts({ jobs }));
+    expect(jobs.started[0]?.req.options).toEqual({ clarifyingInput: 'for a statistician', glossary: true });
+
+    const t = await setup(['doc-one']);
+    t.session.config.deadpan = true;
+    const jobs2 = new ScriptedRebuildQueue();
+    await startRebuildRun(t.opts({ jobs: jobs2 }));
+    expect(jobs2.started[0]?.req.options.deadpan).toBe(true);
   });
 
   it('stops cleanly before a document when the remaining cap is below the per-document gate', async () => {

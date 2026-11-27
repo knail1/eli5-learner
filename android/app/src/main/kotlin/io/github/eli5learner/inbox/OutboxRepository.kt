@@ -25,6 +25,7 @@ import io.github.eli5learner.sync.protocol.PROTOCOL_VERSION
 import io.github.eli5learner.sync.protocol.Patterns
 import io.github.eli5learner.sync.protocol.ProtocolException
 import io.github.eli5learner.sync.protocol.SyncProtocol
+import io.github.eli5learner.util.AppVersions
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -49,6 +50,8 @@ data class CaptureDraft(
     val attachments: List<Attachment>,
     /** Local label for the Inbox; never sent. */
     val title: String,
+    /** Also write the Deadpan tab; the caller sends it only to a Mac that reads it (16 §5.1). */
+    val deadpan: Boolean = false,
 )
 
 /**
@@ -75,6 +78,8 @@ class OutboxRepository(
     /** Posts "Learnings ready" for a finished job; true when a notification was shown. */
     private val notifyReady: suspend (JobEntity) -> Boolean = { false },
     private val now: () -> Long = System::currentTimeMillis,
+    /** The primary Mac's app version as last seen (null when unknown); Retry re-checks the Deadpan gate with it. */
+    private val macVersion: suspend () -> String? = { null },
 ) : JobSync {
     private val dao = db.jobs()
 
@@ -136,6 +141,7 @@ class OutboxRepository(
                 clarifyingInput = draft.clarifyingInput,
                 focus = draft.focus,
                 attachments = draft.attachments,
+                deadpan = draft.deadpan,
             )
         return queue(request, draft.title)
     }
@@ -621,8 +627,21 @@ class OutboxRepository(
             withContext(Dispatchers.IO) { d.deleteRecursively() }
             return false
         }
+        // The Mac may have changed since: an older one rejects `deadpan`, so the gate is checked again.
+        // An unknown version (no pass has read the Mac yet) keeps it: it passed the gate when sent.
+        val version = macVersion()
+        val deadpan = request.deadpan && (version == null || AppVersions.macTakesDeadpan(version))
         queueCapture(
-            CaptureDraft(newId, request.urls, request.text, request.clarifyingInput, request.focus, request.attachments, job.title),
+            CaptureDraft(
+                newId,
+                request.urls,
+                request.text,
+                request.clarifyingInput,
+                request.focus,
+                request.attachments,
+                job.title,
+                deadpan = deadpan,
+            ),
         )
         delete(jobId)
         return true

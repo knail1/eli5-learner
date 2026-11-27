@@ -1,6 +1,6 @@
 ---
 id: section-analogy
-version: 4
+version: 5
 output: SectionDraft
 temperature: 0.4
 effort: medium
@@ -42,4 +42,4 @@ Next section:
 Selected passage:
 {{selection | "(none)"}}
 
-Reader's note: {{note | "none"}}
+Reader's note: {{note | "none"}}{{factSource}}

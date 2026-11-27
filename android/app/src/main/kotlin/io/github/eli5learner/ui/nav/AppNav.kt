@@ -23,12 +23,14 @@ import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -46,6 +48,12 @@ import io.github.eli5learner.R
 import io.github.eli5learner.auth.AccountEvent
 import io.github.eli5learner.auth.AccountViewModel
 import io.github.eli5learner.auth.AuthState
+import io.github.eli5learner.capture.CaptureActions
+import io.github.eli5learner.capture.CaptureEvent
+import io.github.eli5learner.capture.CaptureSheet
+import io.github.eli5learner.capture.CaptureViewModel
+import io.github.eli5learner.capture.NotifyDialog
+import io.github.eli5learner.capture.ShareInput
 import io.github.eli5learner.inbox.InboxActions
 import io.github.eli5learner.inbox.InboxEvent
 import io.github.eli5learner.inbox.InboxScreen
@@ -271,6 +279,10 @@ fun AppNav(
                             entry<InboxKey> {
                                 val vm: InboxViewModel = viewModel(factory = InboxViewModel.factory(container))
                                 val inbox by vm.state.collectAsStateWithLifecycle()
+                                // "Send a link": each opening gets a fresh capture model (and job id).
+                                var linkSheet by rememberSaveable { mutableIntStateOf(0) }
+                                var linkOpen by rememberSaveable { mutableStateOf(false) }
+                                var askNotify by rememberSaveable { mutableStateOf(false) }
                                 LaunchedEffect(vm) {
                                     vm.messages.collect { e ->
                                         val res =
@@ -296,8 +308,32 @@ fun AppNav(
                                                 vm.enableNotifications(on)
                                                 if (on) requestNotifications()
                                             },
+                                            onSendLink = {
+                                                linkSheet++
+                                                linkOpen = true
+                                            },
                                         ),
                                 )
+                                if (linkOpen) {
+                                    SendLinkSheet(
+                                        container = container,
+                                        n = linkSheet,
+                                        onSent = { ask ->
+                                            linkOpen = false
+                                            if (ask) askNotify = true
+                                            scope.launch { snackbar.showSnackbar(resources.getString(R.string.capture_sent)) }
+                                        },
+                                        onFailed = { scope.launch { snackbar.showSnackbar(resources.getString(R.string.capture_failed)) } },
+                                        onDismiss = { linkOpen = false },
+                                    )
+                                }
+                                if (askNotify) {
+                                    NotifyDialog { yes ->
+                                        askNotify = false
+                                        vm.enableNotifications(yes)
+                                        if (yes) requestNotifications()
+                                    }
+                                }
                             }
                             entry<SettingsKey> {
                                 val vm: SyncSettingsViewModel = viewModel(factory = SyncSettingsViewModel.factory(container))
@@ -382,6 +418,48 @@ fun AppNav(
             }
         }
     }
+}
+
+/**
+ * The Inbox's "Send a link" (16 §5.2, §6.2): the capture sheet in manual mode, its model keyed by
+ * [n] so every opening starts empty under a new job id. Closing it without sending queues nothing.
+ */
+@Composable
+private fun SendLinkSheet(
+    container: AppContainer,
+    n: Int,
+    onSent: (askNotifications: Boolean) -> Unit,
+    onFailed: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val resolver = LocalContext.current.contentResolver
+    val vm: CaptureViewModel =
+        viewModel(key = "capture-$n", factory = CaptureViewModel.factory(container, ShareInput(), resolver, manual = true))
+    val state by vm.state.collectAsStateWithLifecycle()
+    LaunchedEffect(vm) {
+        vm.messages.collect { e ->
+            when (e) {
+                is CaptureEvent.Sent -> onSent(e.askNotifications)
+                CaptureEvent.Failed -> onFailed()
+            }
+        }
+    }
+    CaptureSheet(
+        state = state,
+        actions =
+            CaptureActions(
+                onClarifyingChange = vm::setClarifyingInput,
+                onToggleFocus = vm::toggleFocus,
+                onSend = vm::send,
+                onLinkChange = vm::setLinkInput,
+                onLinkDone = vm::finishLinkInput,
+                onToggleDeadpan = vm::toggleDeadpan,
+            ),
+        onDismiss = {
+            vm.dismiss()
+            onDismiss()
+        },
+    )
 }
 
 /**

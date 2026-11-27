@@ -310,6 +310,47 @@ async function runAll(): Promise<Record<string, Recorded[]>> {
     const t = setup(rec, { script: { ...script, truncateTask: 'ste' } });
     await t.generateSte(script.responses['in-depth'] as DocumentDraftTab, ctx).catch(() => undefined);
   });
+  await scenario('deadpan', async (rec) => {
+    const script = defaultScript();
+    const t = setup(rec);
+    const indepth = script.responses['in-depth'] as DocumentDraftTab;
+    // From the resolved STE tab (the usual source), then from In depth when STE was omitted.
+    const ste = await t.generateSte(indepth, ctx);
+    await t.generateDeadpan({ kind: 'ste', tab: ste.draft.tab, origins: ste.draft.origins }, ctx);
+    await t.generateDeadpan({ kind: 'indepth', tab: indepth }, ctx);
+    const section = { heading: 'Widgets', blocks: [{ type: 'paragraph' as const, md: 'Widgets are sold, bravely.' }] };
+    const prev = { heading: 'Intro', blocks: [{ type: 'paragraph' as const, md: 'Before.' }] };
+    await t.runSectionAction({
+      action: 'revise',
+      tabKind: 'deadpan',
+      section,
+      outline: ['Intro', 'Widgets'],
+      prev,
+      selection: 'sold',
+      note: 'funnier',
+      // The In depth section it retells: any fact the revision keeps or adds comes from here.
+      factSections: [{ heading: 'Widgets', blocks: [{ type: 'paragraph', md: 'Garden shops buy widgets.' }] }],
+      signal,
+    });
+    // Quick Ask on a Deadpan section: the tone of the tab, the facts of In depth.
+    await t.answerSectionQuestion({
+      tabKind: 'deadpan',
+      section,
+      outline: ['Intro', 'Widgets'],
+      prev,
+      selection: 'sold',
+      question: 'Who buys them?',
+      factSections: [{ heading: 'Widgets', blocks: [{ type: 'paragraph', md: 'Garden shops buy widgets.' }] }],
+      signal,
+    });
+  });
+  await scenario('deadpan-overflow-retry', async (rec) => {
+    const script = defaultScript();
+    const t = setup(rec, { script: { ...script, truncateTask: 'deadpan' } });
+    await t
+      .generateDeadpan({ kind: 'indepth', tab: script.responses['in-depth'] as DocumentDraftTab }, ctx)
+      .catch(() => undefined);
+  });
   await scenario('merge', async (rec) => {
     const t = setup(rec);
     await t.matchMerge('widgets', [{ catalogId: 'c1', title: 't', summary: 's' }]);

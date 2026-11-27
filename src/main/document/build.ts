@@ -6,9 +6,27 @@ import { placeGlossary } from './glossary';
 import { assetIdFor, passThroughNormalizer, sha256Hex } from './images';
 import { defaultReferenceFormatter } from './references';
 import { DOC_RUNTIME_VERSION } from './runtime-assets';
-import { cryptoIdSource, ELI5_TAB_KEY, INDEPTH_TAB_KEY, mintSectionId, STE_TAB_KEY, type IdSource } from './section-id';
+import {
+  cryptoIdSource,
+  DEADPAN_TAB_KEY,
+  ELI5_TAB_KEY,
+  INDEPTH_TAB_KEY,
+  mintSectionId,
+  STE_TAB_KEY,
+  type IdSource,
+} from './section-id';
 import { docThemeRef } from './theme';
-import type { AssetCredit, AssetRef, BuildInput, BuildResult, DocBlock, DocumentModel, Section, Tab } from './types';
+import type {
+  AssetCredit,
+  AssetRef,
+  BuildInput,
+  BuildResult,
+  DocBlock,
+  DocumentModel,
+  FixedTabKey,
+  Section,
+  Tab,
+} from './types';
 import { convertBlocks, countAnimations, animationBudget } from './validate';
 
 export const MAX_TITLE = 120;
@@ -18,6 +36,8 @@ export const MAX_SECTIONS_PER_TAB = 40;
 export const APP_NAME = 'ELI5 Learner';
 /** 07 §4.1: label of the optional ASD-STE100 tab. */
 export const STE_TAB_LABEL = 'ASD-STE100';
+/** Label of the optional Deadpan tab. */
+export const DEADPAN_TAB_LABEL = 'Deadpan';
 
 /** 06 §7.1 placeholder text for a failed ELI5 step. */
 export const ELI5_PLACEHOLDER_HEADING = 'ELI5 version unavailable';
@@ -253,19 +273,18 @@ export function buildDocumentModel(input: BuildInput): BuildResult {
   // neither drop nor count them (a mirror must stay identical to its original; a later
   // regenerate must not lose an animation to its mirror); the tab never holds more animations
   // than In depth does, whatever the draft says.
-  let ste: Tab | null = null;
-  if (input.ste) {
-    const origins = input.ste.origins;
+  const mirrorTab = (mirror: NonNullable<BuildInput['ste']>, key: FixedTabKey, label: string): Tab | null => {
+    const origins = mirror.origins;
     const fromIndepth = resolvePhotoIn('indepth');
-    let steLeft = indepthSections.reduce((n, s) => n + countAnimations(s.blocks), 0);
-    const steAnimations = (): boolean => {
-      if (steLeft <= 0) return false;
-      steLeft--;
+    let left = indepthSections.reduce((n, s) => n + countAnimations(s.blocks), 0);
+    const takeMirrored = (): boolean => {
+      if (left <= 0) return false;
+      left--;
       return true;
     };
-    const steSections = buildSections(input.ste.tab.sections, {
+    const sections = buildSections(mirror.tab.sections, {
       ...sctx,
-      tabKey: STE_TAB_KEY,
+      tabKey: key,
       resolvePhoto: (si, bi) => {
         const o = origins[si]?.[bi];
         return o ? fromIndepth(o.section, o.block) : undefined;
@@ -276,11 +295,21 @@ export function buildDocumentModel(input: BuildInput): BuildResult {
         const src = o ? input.indepth.sections[o.section] : undefined;
         return src ? sectionHeading(src.heading) : undefined;
       },
-      takeAnimation: steAnimations,
+      takeAnimation: takeMirrored,
     });
-    if (steSections.length > 0)
-      ste = { key: STE_TAB_KEY, kind: 'ste', label: STE_TAB_LABEL, createdAt: now, sections: steSections };
-    else warn('ste-omitted');
+    return sections.length > 0 ? { key, kind: key, label, createdAt: now, sections } : null;
+  };
+  let ste: Tab | null = null;
+  if (input.ste) {
+    ste = mirrorTab(input.ste, STE_TAB_KEY, STE_TAB_LABEL);
+    if (!ste) warn('ste-omitted');
+  }
+  // Deadpan tab: optional, never a placeholder, built like the ASD-STE100 tab. Its origins are
+  // already composed back to the in-depth draft (deadpan block -> STE block -> In depth origin).
+  let deadpan: Tab | null = null;
+  if (input.deadpan) {
+    deadpan = mirrorTab(input.deadpan, DEADPAN_TAB_KEY, DEADPAN_TAB_LABEL);
+    if (!deadpan) warn('deadpan-omitted');
   }
 
   // Step 6: glossary notes (in-depth only), ids unique against every id minted so far.
@@ -324,7 +353,7 @@ export function buildDocumentModel(input: BuildInput): BuildResult {
       edition: input.generator?.edition ?? __ELI5_EDITION__,
       runtimeVersion: input.generator?.runtimeVersion ?? DOC_RUNTIME_VERSION,
     },
-    tabs: [indepth, eli5, ...(ste ? [ste] : [])],
+    tabs: [indepth, eli5, ...(ste ? [ste] : []), ...(deadpan ? [deadpan] : [])],
     glossary,
     references,
     assets: assetRefs,

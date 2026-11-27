@@ -17,7 +17,14 @@ import { canonicalJson } from '../canonical-json';
 import { DocumentBuildError, DocumentFormatError, DocumentMutationError, TooManyTabsError } from '../errors';
 import { collapseWs } from '../html';
 import { sectionIdsOf } from '../ids';
-import { addSectionEli5Tab, getSectionContext, insertAnswer, replaceSection, tabsForDeepAsk } from '../mutate';
+import {
+  addSectionEli5Tab,
+  getSectionContext,
+  inDepthForAsk,
+  insertAnswer,
+  replaceSection,
+  tabsForDeepAsk,
+} from '../mutate';
 import { parseDocument } from '../parse';
 import { renderDocument } from '../render';
 import { DOC_RUNTIME_VERSION, compareRuntimeVersions } from '../runtime-assets';
@@ -40,6 +47,8 @@ import { changeLabel, mirrorTabs, type ResolvedDeps } from './types';
 export const SECTION_BUDGET_SHARE = 0.6;
 /** 08 §6.2 step 5: a shrunk neighbour keeps its heading and its first 1500 characters. */
 export const NEIGHBOUR_CHARS = 1500;
+/** At most this many In depth sections go along with an action on a Deadpan section. */
+export const FACT_SECTIONS = 3;
 
 export interface RunnerEnv {
   deps: ResolvedDeps;
@@ -125,6 +134,51 @@ function fitBudget(ctx: SectionContext, budgetTokens: number | undefined): Pick<
   return { ...(prev ? { prev: shrink(prev) } : {}), ...(next ? { next: shrink(next) } : {}) };
 }
 
+/**
+ * The In depth sections a Deadpan section's facts come from (08 Ask, §6.3): the tab retells In depth
+ * section by section, so the one at the same position first, then its neighbours outwards, while
+ * they fit in `budgetTokens`; at most FACT_SECTIONS, in document order. A counterpart too large on
+ * its own goes shrunk, like a neighbour; nothing when even that does not fit. Undefined for every
+ * other tab, or when In depth has no content.
+ */
+function factSectionsFor(
+  model: DocumentModel,
+  ctx: SectionContext,
+  budgetTokens: number | undefined,
+): SectionDraft[] | undefined {
+  if (ctx.tab.kind !== 'deadpan') return undefined;
+  const all = inDepthForAsk(model)?.sections;
+  if (!all?.length) return undefined;
+  const at = ctx.tab.sections.filter((s) => s.kind === 'content').findIndex((s) => s.id === ctx.section.id);
+  const centre = Math.min(Math.max(at, 0), all.length - 1);
+  const order = [centre];
+  for (let k = 1; order.length < Math.min(FACT_SECTIONS, all.length); k++) {
+    if (centre - k >= 0) order.push(centre - k);
+    if (centre + k < all.length && order.length < FACT_SECTIONS) order.push(centre + k);
+  }
+  const picked = new Map<number, SectionDraft>();
+  let left = budgetTokens ?? Infinity;
+  for (const i of order) {
+    const whole = all[i] as SectionDraft;
+    const d = tokens(whole) <= left ? whole : i === centre ? shrink(whole) : undefined;
+    if (!d || tokens(d) > left) break;
+    picked.set(i, d);
+    left -= tokens(d);
+  }
+  const out = [...picked.keys()].sort((a, b) => a - b).map((i) => picked.get(i) as SectionDraft);
+  return out.length ? out : undefined;
+}
+
+/** What is left of the section share once the section and its (fitted) neighbours are counted. */
+function factBudget(
+  budgetTokens: number | undefined,
+  ...used: (SectionDraft | string | undefined)[]
+): number | undefined {
+  if (budgetTokens === undefined) return undefined;
+  const spent = used.reduce((n, u) => n + (typeof u === 'string' ? estimateTokens(u) : tokens(u)), 0);
+  return Math.max(0, Math.floor(budgetTokens * SECTION_BUDGET_SHARE) - spent);
+}
+
 const isTabDraft = (v: unknown): v is DocumentDraftTab =>
   typeof v === 'object' && v !== null && Array.isArray((v as { sections?: unknown }).sections);
 const isSectionDraft = (v: unknown): v is SectionDraft =>
@@ -205,13 +259,23 @@ async function generate(env: RunnerEnv, p: SectionJobPayload, signal: AbortSigna
   if (p.action === 'ask') {
     if (!p.question?.trim()) throw new PipelineFailure('INTERNAL', 'no_question');
     // 08 Ask: the section, its neighbours (budgeted like a rewrite), the selection and the question.
+    // On a Deadpan section the answer keeps the tone but its facts come only from the material, so
+    // a quick ask also carries the In depth sections it retells, in what is left of the section
+    // budget (deep and deeper get In depth through `tabs`, which never holds the Deadpan tab).
+    const budget = d.inputBudgetTokens?.();
+    const near = fitBudget(ctx, budget);
+    const facts =
+      p.depth !== 'deep' && p.depth !== 'deeper'
+        ? factSectionsFor(model, ctx, factBudget(budget, ctx.draft, near.prev, near.next))
+        : undefined;
     const local = {
       tabKind: ctx.tab.kind,
       section: ctx.draft,
       outline: ctx.outline,
-      ...fitBudget(ctx, d.inputBudgetTokens?.()),
+      ...near,
       selection: p.selectionText,
       question: p.question,
+      ...(facts ? { factSections: facts } : {}),
       signal,
     };
     let out: unknown;
@@ -270,10 +334,13 @@ async function generate(env: RunnerEnv, p: SectionJobPayload, signal: AbortSigna
     return { draft: out, currentHash: sectionHash(ctx.section), ...(sourceMode ? { sourceMode } : {}) };
   }
   const focused = p.action === 'eli5-selection';
+  const budget = d.inputBudgetTokens?.();
   // 08 §7.5: a selection ELI5 sends the selection plus brief context, never the neighbours.
-  const around = focused
+  const around: Pick<SectionContext, 'prev' | 'next'> & { context?: string } = focused
     ? { context: selectionContext(model, p.sectionIds ?? [p.sectionId], p.selectionText) }
-    : fitBudget(ctx, d.inputBudgetTokens?.());
+    : fitBudget(ctx, budget);
+  // A Deadpan section's facts (kept or added) come from the In depth sections it retells.
+  const facts = factSectionsFor(model, ctx, factBudget(budget, ctx.draft, around.prev, around.next, around.context));
   // sourceExcerpt (08 §6.2 step 4) is omitted: only Deep Ask reads the kept source text (08 §6.9).
   const out: unknown = await d.tasks.runSectionAction({
     action: p.action,
@@ -283,6 +350,7 @@ async function generate(env: RunnerEnv, p: SectionJobPayload, signal: AbortSigna
     ...around,
     selection: p.selectionText,
     ...(p.note ? { note: p.note } : {}),
+    ...(facts ? { factSections: facts } : {}),
     signal,
   });
   const ok = p.action === 'eli5-tab' || focused ? isTabDraft(out) : isSectionDraft(out) && !isTabDraft(out);

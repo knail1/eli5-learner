@@ -32,11 +32,21 @@ import type { RealRunSession } from './real-run';
 export const REBUILD_HARD_STOP_USD = 10;
 
 /**
- * The calls one rebuild makes (06 §5.4 steps 1, 1b, glossary, summary, photo-pick) plus the bounded
- * STE repair and an allowance for the per-call JSON-repair and output-overflow retries.
+ * The calls one rebuild makes (06 §5.4 steps 1, 1b, 1c when Deadpan is on, glossary, summary,
+ * photo-pick) plus the bounded STE repair and an allowance for the per-call JSON-repair and
+ * output-overflow retries.
  */
 export type RebuildPlanStep =
-  'in-depth' | 'eli5' | 'ste' | 'ste-repair' | 'eli5-critique' | 'glossary' | 'summary' | 'photo-pick' | 'retries';
+  | 'in-depth'
+  | 'eli5'
+  | 'ste'
+  | 'ste-repair'
+  | 'eli5-critique'
+  | 'deadpan'
+  | 'glossary'
+  | 'summary'
+  | 'photo-pick'
+  | 'retries';
 /** Prompt ids the plan reads front matter for (the repairs re-use their step's prompt). */
 export type RebuildPromptId = Exclude<RebuildPlanStep, 'ste-repair' | 'retries'>;
 
@@ -46,6 +56,7 @@ export const TYPICAL_OUTPUT_TOKENS: Readonly<Record<RebuildPromptId, number>> = 
   eli5: 12_000,
   ste: 12_000,
   'eli5-critique': 10_000,
+  deadpan: 12_000,
   glossary: 5_000,
   summary: 1_500,
   'photo-pick': 500,
@@ -59,6 +70,8 @@ export interface CostPlanInput {
   /** Estimated tokens of the source content (sent to in-depth and eli5). */
   sourceTokens: number;
   glossary: boolean;
+  /** The Deadpan tab is asked for (step 1c); absent means off. */
+  deadpan?: boolean;
   /** Stock photos are on (settings images.stockPhotos): the photo-pick call runs. */
   photos: boolean;
   /** The step's effective maxOutputTokens: front matter, clamped by settings llm.maxOutputTokens. */
@@ -89,7 +102,7 @@ export interface CostPlan {
  * bound, not a guarantee: more retries or chunk-notes calls for a source over the context window
  * can exceed it, and the budget guard's cap is what actually limits spend. Drafts feed later steps:
  * STE and the glossary and summary read the in-depth draft; the critique reads the ELI5 draft plus
- * an outline (a tenth of the in-depth draft).
+ * an outline (a tenth of the in-depth draft); Deadpan reads the STE draft.
  */
 export function planRebuildCost(i: CostPlanInput): CostPlan {
   const typOut = (id: RebuildPromptId): number => Math.min(i.maxOutputTokens(id), TYPICAL_OUTPUT_TOKENS[id]);
@@ -113,6 +126,8 @@ export function planRebuildCost(i: CostPlanInput): CostPlan {
     oh('eli5-critique') + max('eli5') + Math.ceil(dW / 10),
     max('eli5-critique'),
   );
+  if (i.deadpan)
+    add('deadpan', oh('deadpan') + typOut('ste'), typOut('deadpan'), oh('deadpan') + max('ste'), max('deadpan'));
   if (i.glossary) add('glossary', oh('glossary') + dT, typOut('glossary'), oh('glossary') + dW, max('glossary'));
   add('summary', oh('summary') + dT, typOut('summary'), oh('summary') + dW, max('summary'));
   if (i.photos) add('photo-pick', oh('photo-pick'), typOut('photo-pick'), oh('photo-pick'), max('photo-pick'));
@@ -209,6 +224,8 @@ export interface RebuildVerify {
   roundTrip: boolean;
   /** The new version has the ASD-STE100 tab. */
   hasSte: boolean;
+  /** Only when the rebuild asked for Deadpan: the new version has the Deadpan tab. */
+  hasDeadpan?: boolean;
   /** The catalog entry keeps the document's id and createdAt. */
   catalogStable: boolean;
   /** The current version node is this job's. */
@@ -226,6 +243,8 @@ export interface VerifyExpect {
   createdAt: string;
   baseVersionId: string | null;
   baseHtmlSha256: string;
+  /** The rebuild asked for the Deadpan tab: verify adds the hasDeadpan check. */
+  deadpan?: boolean;
 }
 
 /** Every post-commit check; a rebuild verifies only when all of them hold. */
@@ -262,6 +281,10 @@ export async function verifyRebuild(lib: RebuildLibrary, x: VerifyExpect): Promi
       v.roundTrip =
         renderDocument(parsed.model, parsed.assets, { runtime: parsed.runtime, theme: parsed.theme }) === html;
       v.hasSte = parsed.model.tabs.some((t) => t.kind === 'ste') && meta.tabs.some((t) => t.kind === 'ste');
+      if (x.deadpan) {
+        v.hasDeadpan =
+          parsed.model.tabs.some((t) => t.kind === 'deadpan') && meta.tabs.some((t) => t.kind === 'deadpan');
+      }
     } catch {
       v.roundTrip = false;
     }
@@ -284,7 +307,8 @@ export async function verifyRebuild(lib: RebuildLibrary, x: VerifyExpect): Promi
   } catch (err) {
     log.warn('realrun.verify-failed', { slug: x.slug, errorKind: (err as Error | null)?.name ?? 'Error' });
   }
-  v.ok = REBUILD_VERIFY_CHECKS.every((k) => v[k]);
+  if (x.deadpan && v.hasDeadpan === undefined) v.hasDeadpan = false;
+  v.ok = REBUILD_VERIFY_CHECKS.every((k) => v[k]) && (!x.deadpan || v.hasDeadpan === true);
   return v;
 }
 
@@ -327,6 +351,8 @@ export interface RebuildPreflight {
   baseHtmlSha256?: string;
   sourceTokens?: number;
   glossary?: boolean;
+  /** The rebuild asks for the Deadpan tab: meta.deadpanEnabled, else the document has the tab. */
+  deadpan?: boolean;
 }
 
 /** What the run keeps per document but never prints (private text and local paths). */
@@ -434,6 +460,7 @@ async function preflightOne(
     // A rough bound: images go to vision at a flat rate; other files at their byte size as text.
     sourceTokens: IMAGE_EXT.test(name) ? IMAGE_TOKENS : estimateTextTokens(source.length),
     glossary: meta.glossaryEnabled,
+    deadpan: meta.deadpanEnabled ?? meta.tabs.some((t) => t.kind === 'deadpan'),
   };
   const ci = meta.clarifyingInput;
   if (!used) return fail(out, `meta.sourcesUsed has no ${name}`, ci);
@@ -521,6 +548,8 @@ export async function startRebuildRun(o: StartRebuildRunOptions): Promise<Rebuil
   };
 
   if (!rb) return finish('not a rebuild run');
+  /** ELI5_REAL_RUN_DEADPAN=1 adds the tab; otherwise the document's own record decides. */
+  const wantsDeadpan = (r: RebuildPreflight): boolean => config.deadpan === true || r.deadpan === true;
   // 1. Money checks (none in a rehearsal: the fake costs nothing and is not guarded).
   const rates = ratesFor(p.model);
   if (!rb.rehearsal) {
@@ -552,6 +581,7 @@ export async function startRebuildRun(o: StartRebuildRunOptions): Promise<Rebuil
       rates,
       sourceTokens: r.sourceTokens ?? 0,
       glossary: r.glossary ?? true,
+      deadpan: wantsDeadpan(r),
       photos: o.stockPhotos,
       maxOutputTokens: (id) => o.planInputs.maxOutputTokens(id),
       overheadTokens: (id) => o.planInputs.overheadTokens(id),
@@ -592,7 +622,11 @@ export async function startRebuildRun(o: StartRebuildRunOptions): Promise<Rebuil
       ({ jobId } = await o.jobs.startRebuild(
         {
           inputs: [{ id: `in-${(i + 1).toString(16).padStart(8, '0')}`, kind: 'file', origin: 'drop', path: file }],
-          options: { clarifyingInput, glossary: r.glossary ?? true },
+          options: {
+            clarifyingInput,
+            glossary: r.glossary ?? true,
+            ...(wantsDeadpan(r) ? { deadpan: true } : {}),
+          },
         },
         target,
       ));
@@ -636,6 +670,7 @@ export async function startRebuildRun(o: StartRebuildRunOptions): Promise<Rebuil
         createdAt: r.createdAt ?? '',
         baseVersionId: target.baseVersionId,
         baseHtmlSha256: target.baseHtmlSha256,
+        ...(wantsDeadpan(r) ? { deadpan: true } : {}),
       });
       out.verify = verify;
       if (verify.versionId !== undefined) out.versionId = verify.versionId;

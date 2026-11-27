@@ -49,6 +49,7 @@ export const StartJobRequestSchema = z.object({
   options: z.object({
     clarifyingInput: z.string().max(MAX_CLARIFYING_CHARS),
     glossary: z.boolean(),
+    deadpan: z.boolean().optional(),
   }),
   draftId: DraftId.optional(),
 });

@@ -494,7 +494,14 @@ async function bootstrap(): Promise<void> {
         ...c.files.map((f): SourceInput => ({ id: mintInputId(), kind: 'file', origin: 'inbox', path: f.path })),
       ];
       const { jobId } = await jobs.startFromMain(
-        { inputs, options: { clarifyingInput: c.clarifyingInput, glossary: settings.get().glossary.defaultOn } },
+        {
+          inputs,
+          options: {
+            clarifyingInput: c.clarifyingInput,
+            glossary: settings.get().glossary.defaultOn,
+            ...(c.deadpan ? { deadpan: true } : {}),
+          },
+        },
         { origin: 'inbox', ref: c.jobId, root: c.root },
       );
       return { pipelineJobId: jobId };

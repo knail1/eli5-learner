@@ -100,6 +100,7 @@ class AppContainer(
             prepareAuth = { authorizer.prepare() },
             kickUpload = { UploadWorker.enqueue(workManager()) },
             notifyReady = readyNotifier::notifyReady,
+            macVersion = { syncRepository.macVersion() },
         )
     }
 

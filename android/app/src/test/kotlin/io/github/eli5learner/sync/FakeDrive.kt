@@ -220,6 +220,7 @@ class TestMac(
         withInfo: Boolean = true,
         inbox: InboxState = InboxState.ON,
         seen: Long = 1_800_000_000,
+        appVersion: String = "1.0.0",
     ): TestMac {
         if (withInfo && drive.byKind("info").isEmpty()) {
             drive.put("sync-info.json", mapOf("k" to "info", "dev" to deviceId), INFO.toByteArray())
@@ -229,7 +230,7 @@ class TestMac(
             mapOf("k" to "claim", "dev" to deviceId, "n" to claimMs.toString()),
             SyncProtocol.encode(Claim.serializer(), Claim(deviceId, Instant.ofEpochMilli(claimMs).toString())).toByteArray(),
         )
-        val record = DeviceRecord(1, deviceId, Platform.MACOS, "Studio", "1.0.0", DeviceRole.PRIMARY, listOf(JobKind.CAPTURE), inbox)
+        val record = DeviceRecord(1, deviceId, Platform.MACOS, "Studio", appVersion, DeviceRole.PRIMARY, listOf(JobKind.CAPTURE), inbox)
         deviceFileId =
             drive.put(
                 "device-$deviceId.json",

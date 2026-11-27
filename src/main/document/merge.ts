@@ -16,7 +16,15 @@ import { mintDiagramPrefix, mintQaId, qaIdsOf, sectionIdsOf } from './ids';
 import { carryAnswers } from './mutate';
 import { parseDocument } from './parse';
 import { renderDocument } from './render';
-import { cryptoIdSource, ELI5_TAB_KEY, INDEPTH_TAB_KEY, mintSectionId, STE_TAB_KEY, type IdSource } from './section-id';
+import {
+  cryptoIdSource,
+  DEADPAN_TAB_KEY,
+  ELI5_TAB_KEY,
+  INDEPTH_TAB_KEY,
+  mintSectionId,
+  STE_TAB_KEY,
+  type IdSource,
+} from './section-id';
 import type {
   AssetRef,
   DocBlock,
@@ -85,11 +93,12 @@ export interface WeaveMergedResult {
   mergeId: string;
   /** "merge-weave@N", for meta.json generation.prompts. */
   prompt: string;
-  /** e.g. 'merge-unknown-section', 'merge-block-dropped', 'ste-dropped'. */
+  /** e.g. 'merge-unknown-section', 'merge-block-dropped', 'ste-dropped', 'deadpan-dropped'. */
   warnings: string[];
   /**
-   * SectionIds the merge removed with the ASD-STE100 tab (09 §10.3: the merge output drops it, note
-   * 'ste-dropped'); the caller adds them to meta.retiredIds so they are never minted again (07 §4.3).
+   * SectionIds the merge removed with the ASD-STE100 and Deadpan tabs (09 §10.3: the merge output
+   * drops them, notes 'ste-dropped' and 'deadpan-dropped'); the caller adds them to meta.retiredIds
+   * so they are never minted again (07 §4.3).
    */
   retiredSectionIds: SectionId[];
 }
@@ -590,13 +599,17 @@ export function applyMergePlan(
   // 09 §10.3 (D18): the ASD-STE100 tab is a rewrite of the pre-merge In depth tab, so it would be
   // stale after the merge. It is dropped (no extra paid call); the pre-merge version keeps it in
   // History and a rebuild recreates it. Its section ids are retired, never reused.
+  // The Deadpan tab is a retelling of the same pre-merge text, so it is dropped the same way
+  // ('deadpan-dropped') and its ids retired too.
   const steTab = t.tabs.find((x) => x.key === STE_TAB_KEY);
+  const deadpanTab = t.tabs.find((x) => x.key === DEADPAN_TAB_KEY);
   if (steTab) warn('ste-dropped');
-  const retiredSectionIds = steTab ? steTab.sections.map((x) => x.id) : [];
+  if (deadpanTab) warn('deadpan-dropped');
+  const retiredSectionIds = [steTab, deadpanTab].flatMap((x) => (x ? x.sections.map((y) => y.id) : []));
   const tabs = t.tabs.flatMap((tab) => {
     if (tab.key === INDEPTH_TAB_KEY) return [weaveTab(tab, plan.indepth)];
     if (tab.key === ELI5_TAB_KEY) return [weaveTab(tab, plan.eli5)];
-    if (tab === steTab) return [];
+    if (tab === steTab || tab === deadpanTab) return [];
     return [tab];
   });
 

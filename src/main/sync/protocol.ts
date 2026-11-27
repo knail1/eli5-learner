@@ -31,14 +31,15 @@ export const VERSION_ID_RE = /^v-[0-9a-f]{12}$/;
 /** 09 §4.2 folder ids. */
 export const FOLDER_ID_RE = /^f-[0-9a-f]{8}$/;
 /**
- * 07 tab keys as readers parse them (0.4.0 and later): the canonical preload-contract set, so a
+ * 07 tab keys as readers parse them (0.4.0 and later): the preload-contract set up to 0.5.0, so a
  * manifest that lists the ASD-STE100 key `ste` is valid. Shared with the phone character for
- * character (patterns.json).
+ * character (patterns.json). It leaves out the 0.6.0 Deadpan key `deadpan` on purpose: the manifest
+ * never lists that tab (MANIFEST_TAB_KEY_RE), so readers need not know it.
  */
 export const TAB_KEY_RE = /^(indepth|eli5|ste|sx[0-9a-f]{6})$/;
 /**
  * The tab keys the desktop writes into the manifest (16 §4.4, D21): the 0.3.0 pattern, without
- * `ste`, because 0.3.0 phones reject a manifest with a key they do not know. Drop this filter (write
+ * `ste` or `deadpan`, because a phone rejects a manifest with a key it does not know. Drop this filter (write
  * every TAB_KEY_RE key) once no 0.3.0 phone is left; 0.4.0 phones already accept `ste`.
  */
 export const MANIFEST_TAB_KEY_RE = /^(indepth|eli5|sx[0-9a-f]{6})$/;
@@ -352,6 +353,11 @@ export const JobRequestSchema = z
       clarifyingInput: z.string().max(LIMITS.clarifyingInputChars),
       focus: z.array(z.enum(FOCUS_CHIPS)).max(FOCUS_CHIPS.length),
       attachments: z.array(AttachmentSchema).max(LIMITS.attachments),
+      /**
+       * 0.6.0: also write the Deadpan tab. Optional so 0.5.0 phones' bytes stay valid; phones send it
+       * only as `true` and only to a Mac at 0.6.0 or later (an older Mac rejects the key).
+       */
+      deadpan: z.boolean().optional(),
     }),
     z.strictObject({ ...jobBase, kind: z.literal('checkout'), docId: DocId, versionId: VersionId }),
     z.strictObject({

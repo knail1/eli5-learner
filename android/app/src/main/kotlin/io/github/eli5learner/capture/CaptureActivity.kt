@@ -48,6 +48,9 @@ class CaptureActivity : ComponentActivity() {
             finish()
             return
         }
+        // A share often cold-starts the app: one pass reads the Mac's device file (its version gates
+        // Deadpan, 16 §5.1) while the sheet is open. MainActivity's foreground pull does not run here.
+        if (savedInstanceState == null) AppContainer.from(this).syncScheduler.syncNow()
         setContent {
             Eli5Theme {
                 val state by vm.state.collectAsStateWithLifecycle()
@@ -75,8 +78,17 @@ class CaptureActivity : ComponentActivity() {
                 } else {
                     CaptureSheet(
                         state = state,
-                        actions = CaptureActions(vm::setClarifyingInput, vm::toggleFocus, vm::send),
-                        onDismiss = { finish() },
+                        actions =
+                            CaptureActions(
+                                onClarifyingChange = vm::setClarifyingInput,
+                                onToggleFocus = vm::toggleFocus,
+                                onSend = vm::send,
+                                onToggleDeadpan = vm::toggleDeadpan,
+                            ),
+                        onDismiss = {
+                            vm.dismiss()
+                            finish()
+                        },
                     )
                 }
             }

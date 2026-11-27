@@ -1,6 +1,6 @@
 ---
 id: section-ask
-version: 3
+version: 4
 output: SectionAnswerDraft
 temperature: 0.2
 effort: medium
@@ -46,4 +46,4 @@ Selected passage:
 {{selection | "(none)"}}
 
 Reader's question (answer this):
-{{question}}
+{{question}}{{factSource}}

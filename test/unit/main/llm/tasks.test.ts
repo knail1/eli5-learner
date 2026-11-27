@@ -15,6 +15,7 @@ import { PromptCatalogue } from '../../../../src/main/llm/prompts';
 import {
   DocumentDraftTabSchema,
   SectionDraftSchema,
+  type DeadpanDraft,
   type DocumentDraftTab,
   type SteDraft,
 } from '../../../../src/main/llm/schemas/draft';
@@ -26,6 +27,7 @@ import {
   deserializePrepared,
   MODEL_ERROR_WHILE_READING,
   serializePrepared,
+  type DeadpanSource,
   type TaskDeps,
 } from '../../../../src/main/llm/tasks';
 import { FakeProvider, loadFakeScript, type FakeScript } from '../../../../src/main/llm/testing/fake';
@@ -252,6 +254,7 @@ describe('task functions (02 §12) with FakeProvider and the default script', ()
     ['eli5', /belongs to the ELI5 tab: plain everyday words/],
     ['section-eli5', /ELI5 tab made for one section: plain everyday words/],
     ['ste', /ASD-STE100 tab \(Simplified Technical English\)/],
+    ['deadpan', /belongs to the Deadpan tab: a dry, deadpan, tongue-in-cheek retelling/],
   ] as const)('renders the %s register in every in-place prompt and Ask (08 §6.2)', async (tabKind, register) => {
     const fake = new FakeProvider(defaultScript());
     const tasks = createTasks(deps(fake));
@@ -287,13 +290,17 @@ describe('task functions (02 §12) with FakeProvider and the default script', ()
       expect(c.system, c.taskId).toMatch(register);
       expect(c.system, c.taskId).not.toMatch(UNRENDERED);
       // Exactly one register: the others never leak in.
-      const others = ['In depth tab:', 'belongs to the ELI5 tab:', 'made for one section:', 'ASD-STE100 tab'].filter(
-        (x) => c.system.includes(x),
-      );
+      const others = [
+        'In depth tab:',
+        'belongs to the ELI5 tab:',
+        'made for one section:',
+        'ASD-STE100 tab',
+        'Deadpan tab:',
+      ].filter((x) => c.system.includes(x));
       expect(others, c.taskId).toHaveLength(1);
-      // 08 §6.3: the ASD-STE100 tab is never invited to write an animation (audit round 2).
+      // 08 §6.3: the ASD-STE100 and Deadpan tabs are never invited to write an animation (audit round 2).
       const invites = c.system.includes('small interactive you design and write yourself');
-      if (c.taskId !== 'section-ask') expect(invites, c.taskId).toBe(tabKind !== 'ste');
+      if (c.taskId !== 'section-ask') expect(invites, c.taskId).toBe(tabKind !== 'ste' && tabKind !== 'deadpan');
       else expect(invites).toBe(false);
     }
     expect(fake.calls.find((c) => c.taskId === 'section-deeper')?.system).toContain(
@@ -742,6 +749,139 @@ describe('ASD-STE100 step (02 §12, D15, D16)', () => {
     // The plain fixture revision leaves the animation out: the gate keeps the first draft.
     const dropped = await createTasks(deps(new FakeProvider(s))).critiqueEli5(eli5, indepth(), ctx);
     expect(dropped.gate).toMatchObject({ ok: false, reason: 'media' });
+  });
+});
+
+describe('Deadpan step (02 §12)', () => {
+  const indepth = (): DocumentDraftTab => defaultScript().responses['in-depth'] as DocumentDraftTab;
+  const deadpanFixture = (): DeadpanDraft => structuredClone(defaultScript().responses.deadpan) as DeadpanDraft;
+  const withDeadpan = (deadpan: unknown, extra: Partial<FakeScript> = {}): FakeScript => {
+    const s = defaultScript();
+    return { ...s, ...extra, responses: { ...s.responses, deadpan: deadpan as never } };
+  };
+  const steSource = async (): Promise<DeadpanSource> => {
+    const ste = await createTasks(deps(new FakeProvider(defaultScript()))).generateSte(indepth(), ctx);
+    return { kind: 'ste', tab: ste.draft.tab, origins: ste.draft.origins };
+  };
+
+  it('retells the STE tab: kind deadpan, the STE view as input, visuals byte for byte with In depth origins', async () => {
+    const source = await steSource();
+    const fake = new FakeProvider(defaultScript());
+    const r = await createTasks(deps(fake)).generateDeadpan(source, ctx);
+    expect(r.prompt).toBe('deadpan@1');
+    expect(r.draft.source).toBe('ste');
+    expect(r.draft.tab.kind).toBe('deadpan');
+    expect(r.draft.tab.sections).toHaveLength(source.tab.sections.length);
+    const src = indepth();
+    let visuals = 0;
+    r.draft.origins.forEach((sec, si) =>
+      sec.forEach((o, bi) => {
+        const block = r.draft.tab.sections[si]?.blocks[bi];
+        if (!o) return expect(block && isKeepable(block)).toBe(false);
+        visuals++;
+        expect(block).toEqual(src.sections[o.section]?.blocks[o.block]);
+      }),
+    );
+    expect(visuals).toBe(src.sections.flatMap((x) => x.blocks).filter(isKeepable).length);
+    const call = fake.calls.find((c) => c.taskId === 'deadpan');
+    expect(call?.system).not.toMatch(UNRENDERED);
+    expect(call?.messages[0]?.text).not.toMatch(UNRENDERED);
+    expect(call?.messages[0]?.text).toContain('<source ref="ste view">');
+    expect(call?.messages[0]?.text).toContain(source.tab.sections[0]?.heading ?? '?');
+    expect(call?.system).toContain('No punching down');
+    expect(call?.system).toContain('exactly 4 `sections`');
+    // Never sent animation code or SVG markup; no STE lint repair follows.
+    expect(call?.messages[0]?.text).not.toContain('ELI5.canvas');
+    expect(fake.calls.filter((c) => c.taskId === 'deadpan')).toHaveLength(1);
+  });
+
+  it('falls back to In depth when there is no STE tab', async () => {
+    const fake = new FakeProvider(defaultScript());
+    const r = await createTasks(deps(fake)).generateDeadpan({ kind: 'indepth', tab: indepth() }, ctx);
+    expect(r.draft.source).toBe('indepth');
+    expect(r.draft.tab.kind).toBe('deadpan');
+    expect(fake.calls[0]?.messages[0]?.text).toContain('<source ref="in-depth view">');
+    const src = indepth();
+    r.draft.origins.forEach((sec, si) =>
+      sec.forEach((o, bi) => {
+        if (o) expect(r.draft.tab.sections[si]?.blocks[bi]).toEqual(src.sections[o.section]?.blocks[o.block]);
+      }),
+    );
+  });
+
+  it('asks for one repair when the section count is wrong; a second miss throws invalid_output', async () => {
+    const source = await steSource();
+    const short = deadpanFixture();
+    short.sections.pop();
+    const fixed = new FakeProvider(withDeadpan([short, deadpanFixture()]));
+    const ok = await createTasks(deps(fixed)).generateDeadpan(source, ctx);
+    expect(ok.draft.tab.sections).toHaveLength(4);
+    const calls = fixed.calls.filter((c) => c.taskId === 'deadpan');
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.messages.at(-1)?.text).toContain('the source view has 4; return exactly 4');
+
+    const never = new FakeProvider(withDeadpan(short));
+    const e = await createTasks(deps(never))
+      .generateDeadpan(source, ctx)
+      .catch((x: unknown) => x);
+    expect((e as LLMError).kind).toBe('invalid_output');
+    expect((e as LLMError).usage?.outputTokens).toBeGreaterThan(0);
+  });
+
+  it('retries once after an output overflow with the shorter-text addendum; a second overflow throws', async () => {
+    const always = new FakeProvider(withDeadpan(deadpanFixture(), { truncateTask: 'deadpan' }));
+    const e = await createTasks(deps(always))
+      .generateDeadpan({ kind: 'indepth', tab: indepth() }, ctx)
+      .catch((x: unknown) => x);
+    expect((e as LLMError).kind).toBe('invalid_output');
+    expect((e as LLMError).usage?.outputTokens).toBeGreaterThan(0);
+    const calls = always.calls.filter((c) => c.taskId === 'deadpan');
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.system).toContain(catalogue.fragment('overflow-addendum-ste', { n: '4' }).text);
+    expect(calls[0]?.system).not.toContain('ran out of space');
+  });
+
+  it('a section action on a Deadpan section gets the In depth facts; other tabs never do', async () => {
+    const section = { heading: 'Widgets', blocks: [{ type: 'paragraph' as const, md: 'Widgets are sold, sadly.' }] };
+    const factSections = [{ heading: 'Widgets', blocks: [{ type: 'paragraph' as const, md: 'Shops buy 40k.' }] }];
+    const base = { section, outline: ['Widgets'], selection: 'sold', signal: ctx.signal };
+    const fake = new FakeProvider(defaultScript());
+    const tasks = createTasks(deps(fake));
+    await tasks.runSectionAction({ ...base, action: 'deeper', tabKind: 'deadpan', factSections });
+    await tasks.runSectionAction({ ...base, action: 'eli5-tab', tabKind: 'deadpan', factSections });
+    await tasks.runSectionAction({ ...base, action: 'deeper', tabKind: 'indepth', factSections });
+    await tasks.runSectionAction({ ...base, action: 'deeper', tabKind: 'deadpan' });
+    const [deeper, eli5, other, none] = fake.calls.map((c) => c.messages[0]?.text ?? '');
+    for (const t of [deeper ?? '', eli5 ?? '']) {
+      expect(t).toContain('<source ref="in-depth view">');
+      expect(t).toContain('Shops buy 40k.');
+      expect(t).not.toMatch(UNRENDERED);
+    }
+    // The register lets a deeper section add depth, as long as the facts come from the material.
+    expect(fake.calls[0]?.system).toContain('take any fact you add');
+    expect(fake.calls[0]?.system).not.toContain('you add no new facts');
+    for (const t of [other ?? '', none ?? '']) expect(t).not.toContain('in-depth view');
+  });
+
+  it('a quick Ask on a Deadpan section gets the In depth facts; other tabs never do', async () => {
+    const section = { heading: 'Widgets', blocks: [{ type: 'paragraph' as const, md: 'Widgets are sold, sadly.' }] };
+    const factSections = [{ heading: 'Widgets', blocks: [{ type: 'paragraph' as const, md: 'Shops buy 40k.' }] }];
+    const ask = { section, outline: ['Widgets'], selection: 'sold', question: 'Who buys?', signal: ctx.signal };
+    const fake = new FakeProvider(defaultScript());
+    const tasks = createTasks(deps(fake));
+    await tasks.answerSectionQuestion({ ...ask, tabKind: 'deadpan', factSections });
+    await tasks.answerSectionQuestion({ ...ask, tabKind: 'indepth', factSections });
+    await tasks.answerSectionQuestion({ ...ask, tabKind: 'deadpan' });
+    const [withFacts, other, none] = fake.calls.map((c) => c.messages[0]?.text ?? '');
+    expect(withFacts).toContain('<source ref="in-depth view">');
+    expect(withFacts).toContain('Shops buy 40k.');
+    expect(withFacts).toContain(catalogue.fragment('ask-fact-source', { facts: '' }).text.split('\n')[0]);
+    expect(withFacts).not.toMatch(UNRENDERED);
+    expect(fake.calls[0]?.system).toContain('The jokes are tone only, never facts');
+    for (const t of [other ?? '', none ?? '']) {
+      expect(t).not.toContain('in-depth view');
+      expect(t.endsWith('</source>')).toBe(true);
+    }
   });
 });
 
