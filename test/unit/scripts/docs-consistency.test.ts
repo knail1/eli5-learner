@@ -219,6 +219,40 @@ describe('Android parity in the user-facing docs', () => {
   });
 });
 
+describe('Deadpan tab and phone Send a link in the docs (0.6.0)', () => {
+  const readme = read('README.md');
+  const prd = read(PRD);
+  const s16 = read('spec/tech/16-android-companion.md');
+
+  it('describes the optional Deadpan tab in the README and the PRD', () => {
+    expect(readme).toMatch(/\*\*Deadpan tab \(optional\)\.\*\*/);
+    expect(readme).toMatch(/### What's new in 0\.6\.0/);
+    expect(prd).toMatch(/^\| Deadpan \(optional, off by default\) \|/m);
+    expect(prd).toMatch(/^\*\*Deadpan tab\*\*$/m);
+    expect(prd).toMatch(/In depth, ELI5, ASD-STE100 \(when present\), Deadpan \(when present\)/);
+    expect(prd).toMatch(/no punching down/);
+  });
+
+  it('quotes the Deadpan tab hint and the checkbox tooltip exactly as the code has them', () => {
+    const hint = /deadpan:\s*'([^']+)'/.exec(read('src/main/document/render/page.ts'))?.[1];
+    expect(hint, 'TAB_HINTS.deadpan').toBeDefined();
+    expect(prd).toContain(hint ?? '');
+    expect(read('spec/tech/07-output-document.md').replace(/\n> /g, ' ')).toContain(hint ?? '');
+    const tip = /DEADPAN_TOOLTIP =\s*'([^']+)'/.exec(read('src/renderer/src/input/draft.ts'))?.[1];
+    expect(tip, 'DEADPAN_TOOLTIP').toBeDefined();
+    expect(read('spec/tech/11-app-shell-ui.md').replace(/\n\s+/g, ' ')).toContain(tip ?? '');
+  });
+
+  it('documents the phone Send a link, the deadpan wire field and its version gate', () => {
+    expect(readme).toMatch(/Send a link/);
+    expect(read('android/README.md')).toMatch(/0\.6\.0 \(versionCode 5\): Send a link and the Deadpan tab/);
+    expect(s16).toMatch(/deadpan\?: boolean/);
+    expect(s16).toMatch(/\*\*Send a link \(0\.6\.0\)\.\*\*/);
+    expect(s16).toMatch(/`appVersion` 0\.6\.0 or\s+later/);
+    expect(s16).toMatch(/`MANIFEST_TAB_KEY_RE`[\s\S]{0,120}already rejects `deadpan`/);
+  });
+});
+
 describe('CLAUDE.md', () => {
   const claude = read('CLAUDE.md');
 

@@ -211,6 +211,50 @@ describe('SectionAnswerDraft (08 Ask)', () => {
   });
 });
 
+describe('DeadpanDraft (02 §10, Deadpan tab)', () => {
+  const dp = (sections: object[][], extra: object = {}): object => ({
+    title: 'T',
+    ...extra,
+    sections: sections.map((blocks, i) => ({ heading: `H${i}`, blocks })),
+  });
+  const keep = (block: number): object => ({ type: 'keep', block });
+
+  it('is prompted JSON, has no terms, and never offers "deadpan" in the tab-kind enum', () => {
+    expect(usesPromptedJson('DeadpanDraft')).toBe(true);
+    expect(draftPromptSchemaText('DeadpanDraft')).not.toContain('"terms"');
+    expect(draftPromptSchemaText('DocumentDraftTab')).not.toContain('deadpan');
+    const ok = validateDraft('DeadpanDraft', dp([[para('Dry.'), keep(1)]]));
+    expect(ok.ok).toBe(true);
+    expect(ok.ok && 'terms' in ok.data).toBe(false);
+    expect(validateDraft('DocumentDraftTab', { ...(tab([[para()]]) as object), kind: 'deadpan' }).ok).toBe(false);
+  });
+
+  it('asks for a repair when the section count differs from the source view', () => {
+    const r = validateDraft('DeadpanDraft', dp([[para()]]), { steSectionCount: 2 });
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.errors.join('\n')).toMatch(/has 1 sections but the source view has 2; return exactly 2/);
+    expect(validateDraft('DeadpanDraft', dp([[para()], [para()]]), { steSectionCount: 2 }).ok).toBe(true);
+  });
+
+  it('asks for a repair when a section keeps nothing keepable and has no text', () => {
+    const r = validateDraft('DeadpanDraft', dp([[keep(0)], [para()]]), { steKeepable: [[1], []] });
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.errors).toEqual([
+      'sections[0]: has no text and keeps no visual of the source section; write its text',
+    ]);
+    expect(validateDraft('DeadpanDraft', dp([[keep(1)], [para()]]), { steKeepable: [[1], []] }).ok).toBe(true);
+  });
+
+  it('keeps the STE repair wording unchanged', () => {
+    const r = validateDraft('SteDraft', dp([[keep(0)]], { terms: [] }), { steSectionCount: 2, steKeepable: [[1]] });
+    expect(!r.ok && r.errors.join('\n')).toMatch(/has 1 sections but the In depth view has 2; return exactly 2/);
+    const empty = validateDraft('SteDraft', dp([[keep(0)]], { terms: [] }), { steKeepable: [[1]] });
+    expect(!empty.ok && empty.errors).toEqual([
+      'sections[0]: has no text and keeps no visual of the In depth section; write its STE text',
+    ]);
+  });
+});
+
 describe('strict JSON Schema export', () => {
   it.each(Object.keys(DRAFT_SCHEMAS).map((n) => [n as DraftSchemaName]))(
     '%s: every object is closed and fully required',
@@ -333,6 +377,7 @@ describe('default FakeProvider script (13 §6.1)', () => {
       'merge-weave': 'MergePlanDraft',
       ste: 'SteDraft',
       'eli5-critique': 'DocumentDraftTab',
+      deadpan: 'DeadpanDraft',
     };
     for (const [id, schema] of Object.entries(schemaFor)) {
       const r = validateDraft(schema, script.responses[id]);

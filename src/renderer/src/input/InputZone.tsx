@@ -11,6 +11,7 @@ import {
 import type { ProviderId, SourceInput } from '../../../preload/contract';
 import { useAnnounce } from '../a11y/Announcer';
 import {
+  DEADPAN_TOOLTIP,
   RUN_AGAIN_TOOLTIP,
   URL_INVALID_MESSAGE,
   chipIcon,
@@ -37,7 +38,8 @@ import type { InputDraft } from './types';
 
 /**
  * Input zone (11 §5.4): drop box, paste, URL field with Add, chips, a dimmed Last run row,
- * clarifying specifics, glossary toggle, Clear, and Start (Run again when only a last run is left).
+ * clarifying specifics, glossary toggle, Deadpan tab toggle, Clear, and Start (Run again when only
+ * a last run is left).
  * Enter in the URL field makes chips and starts nothing; Cmd/Ctrl+Enter starts from anywhere in the
  * zone. Every message is inline; nothing here opens a modal (11 §1).
  */
@@ -541,6 +543,19 @@ export function InputZone(p: InputZoneProps) {
           Explain domain specific terms
         </label>
         <div className="input-buttons">
+          <label className="toggle deadpan-toggle" title={DEADPAN_TOOLTIP}>
+            <input
+              type="checkbox"
+              role="switch"
+              checked={draft.deadpan}
+              onChange={(e) => {
+                const v = e.target.checked;
+                setDraft((d) => ({ ...d, deadpan: v }));
+              }}
+              onKeyDown={enterStarts}
+            />
+            Deadpan tab
+          </label>
           <button
             type="button"
             className="clear-draft"

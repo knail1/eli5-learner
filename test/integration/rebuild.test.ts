@@ -227,4 +227,70 @@ describe('rebuild as a new version (design §5)', () => {
     expect(ns.ok).toBe(false);
     expect(ns.hasSte).toBe(false);
   });
+  it('a document made with Deadpan is rebuilt with it, and the verifier checks the tab', async () => {
+    const app = await launch();
+    const input: SourceInput = { id: 'in-00000001', kind: 'file', origin: 'drop', path: SOURCE };
+    const { jobId } = await app.queue.start({
+      inputs: [input],
+      options: { clarifyingInput: '', glossary: false, deadpan: true },
+    });
+    const created = await app.finished(jobId);
+    expect(created.status).toBe('done');
+    const slug = created.result?.topicSlug ?? '';
+    const oldMeta = JSON.parse(await readFile(app.lib.docPath(slug, 'meta.json'), 'utf8')) as DocumentMeta;
+    expect(oldMeta.deadpanEnabled).toBe(true);
+    expect(oldMeta.tabs.map((t) => t.key)).toEqual(['indepth', 'eli5', 'ste', 'deadpan']);
+
+    const session = prepareRealRun({
+      env: {
+        ELI5_REAL_RUN_REBUILD: `${slug}=${SOURCE}`,
+        ELI5_REAL_RUN_BUDGET_USD: '1',
+        ELI5_REAL_RUN_LEDGER: path.join(app.userData, 'fake-ledger.jsonl'),
+        ELI5_LLM_FAKE: '1',
+      },
+      isPackaged: false,
+      testBuild: true,
+      userData: app.userData,
+      registry: { frozen: false, registerLLMProvider: () => {} },
+    });
+    if (!session) throw new Error('rehearsal not armed');
+    const summary = await startRebuildRun({
+      session,
+      jobs: app.queue,
+      library: app.lib,
+      provider: () => app.registry.llm(),
+      promptSet: app.rt.prompts.set,
+      keyPresent: () => Promise.resolve(false),
+      planInputs: { maxOutputTokens: () => 32_000, overheadTokens: () => 1_000 },
+      stockPhotos: false,
+      write: () => {},
+      quit: () => {},
+    });
+    expect(summary).toMatchObject({ ok: true, mode: 'rehearsal' });
+    expect(summary.preflight[0]?.deadpan).toBe(true);
+    expect(summary.docs[0]?.verify).toMatchObject({ ok: true, hasSte: true, hasDeadpan: true });
+    const newMeta = JSON.parse(await readFile(app.lib.docPath(slug, 'meta.json'), 'utf8')) as DocumentMeta;
+    expect(newMeta.deadpanEnabled).toBe(true);
+    expect(newMeta.tabs.map((t) => t.key)).toEqual(['indepth', 'eli5', 'ste', 'deadpan']);
+    const newHtml = await readFile(app.lib.docPath(slug), 'utf8');
+    expect(validateDocument(newHtml, newMeta).errors).toEqual([]);
+
+    // A meta that lost the Deadpan tab fails the requested check, and ok with it.
+    const noDeadpan = Object.create(app.lib) as typeof app.lib;
+    noDeadpan.getMeta = async (s: string) => {
+      const m = await app.lib.getMeta(s);
+      return { ...m, tabs: m.tabs.filter((t) => t.kind !== 'deadpan') };
+    };
+    const v = await verifyRebuild(noDeadpan, {
+      slug,
+      jobId: summary.docs[0]?.jobId ?? '',
+      docId: oldMeta.id,
+      createdAt: oldMeta.createdAt,
+      baseVersionId: summary.preflight[0]?.baseVersionId ?? null,
+      baseHtmlSha256: summary.preflight[0]?.baseHtmlSha256 ?? '',
+      deadpan: true,
+    });
+    expect(v.hasDeadpan).toBe(false);
+    expect(v.ok).toBe(false);
+  });
 });

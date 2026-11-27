@@ -9,6 +9,7 @@ export {
   INDEPTH_TAB_KEY,
   ELI5_TAB_KEY,
   STE_TAB_KEY,
+  DEADPAN_TAB_KEY,
   MAX_ID_DRAWS,
   cryptoIdSource,
   IdExhaustedError,
@@ -43,6 +44,7 @@ export {
   ELI5_PLACEHOLDER_TEXT,
   MAX_SECTIONS_PER_TAB,
   STE_TAB_LABEL,
+  DEADPAN_TAB_LABEL,
 } from './build';
 export { licenseName } from './render/credit';
 export {
@@ -76,6 +78,7 @@ export {
   carryAnswers,
   linksToText,
   tabsForDeepAsk,
+  inDepthForAsk,
   MAX_SECTION_ELI5_TABS,
   MAX_QA_QUESTION,
   MAX_QA_TOPIC,

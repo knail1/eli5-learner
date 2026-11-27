@@ -570,6 +570,22 @@ describe('accept (09 §10.6)', () => {
     expect(meta.tabs.map((t) => t.key)).not.toContain('ste');
   });
 
+  it('retires the section ids of dropped ASD-STE100 and Deadpan tabs together', async () => {
+    const s = await setup();
+    const dropped = ['sec-ste-0a1b2c3d', 'sec-deadpan-4e5f6a7b'] as SectionId[];
+    const { h, sug } = await suggested(s, {
+      weaveMerged: async (input) => ({
+        ...(await fakeWeave(input)),
+        warnings: ['ste-dropped', 'deadpan-dropped'],
+        retiredSectionIds: dropped,
+      }),
+    });
+    await h.service.accept(sug.id);
+    const meta = await s.lib.getMeta(s.target.topicSlug);
+    expect(meta.retiredIds).toEqual(expect.arrayContaining(dropped));
+    expect(meta.tabs.map((t) => t.key)).not.toContain('deadpan');
+  });
+
   it('keeps the suggestion pending with the ineligible message when HOOK-LIB-02 refuses at accept', async () => {
     const s = await setup();
     let allow = true;

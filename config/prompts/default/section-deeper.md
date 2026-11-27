@@ -1,6 +1,6 @@
 ---
 id: section-deeper
-version: 4
+version: 5
 output: SectionDraft
 temperature: 0.4
 effort: medium
@@ -45,4 +45,4 @@ Selected passage:
 Original source excerpt:
 {{sourceExcerpt | "(not available)"}}
 
-Reader's note: {{note | "none"}}
+Reader's note: {{note | "none"}}{{factSource}}

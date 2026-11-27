@@ -1,8 +1,8 @@
 # ELI5 Learner
 
-macOS app that turns decks, docs, PDFs, screenshots and URLs into interactive HTML explainers: an in-depth WSJ-style view, an ELI5 view and an ASD-STE100 (Simplified Technical English) view, with AI-designed animations, refinable section by section.
+macOS app that turns decks, docs, PDFs, screenshots and URLs into interactive HTML explainers: an in-depth WSJ-style view, an ELI5 view and an ASD-STE100 (Simplified Technical English) view (plus an optional deadpan, sarcastic one), with AI-designed animations, refinable section by section.
 
-> **Status:** v1 is feature-complete (milestones M0 to M4): generation, interactive reading, the library, local publishing, completion notifications, and test, CI and packaging hardening. The optional v2 Android companion and personal sync (M5) are built. Since then: the ASD-STE100 tab, AI-designed sandboxed animations, the WSJ Five-Box In depth and picture-first ELI5 prompts, prompt sets in `config/prompts/`, and rebuild as a new version (a developer tool). Builds are unsigned.
+> **Status:** v1 is feature-complete (milestones M0 to M4): generation, interactive reading, the library, local publishing, completion notifications, and test, CI and packaging hardening. The optional v2 Android companion and personal sync (M5) are built. Since then: the ASD-STE100 tab, AI-designed sandboxed animations, the WSJ Five-Box In depth and picture-first ELI5 prompts, prompt sets in `config/prompts/`, rebuild as a new version (a developer tool), Ask deep and Ask deeper (0.5.0), and, in the source but not released yet, the optional Deadpan tab and the phone's "Send a link" (0.6.0). Builds are unsigned.
 > Full requirements: [spec/ELI5 Learner Product Requirements Document.md](spec/ELI5%20Learner%20Product%20Requirements%20Document.md)
 
 ## Download
@@ -26,6 +26,22 @@ macOS app that turns decks, docs, PDFs, screenshots and URLs into interactive HT
   Google Drive API); it has been verified end to end against a real Drive. This APK is signed with the
   project owner's release key, so Google sign-in in it only works with the owner's Google Cloud project.
   Forks build and sign their own (see [android/README.md](android/README.md)).
+
+### What's new in 0.6.0 (not released yet)
+
+The downloads above are still 0.5.0. Build from source to try these:
+
+- **Deadpan tab.** A "Deadpan tab" checkbox next to Start adds an optional fourth tab: the same
+  document retold with a perfectly straight face, dry, sarcastic and full of deadpan jokes. It is
+  built from the ASD-STE100 tab (or from In depth when that tab is missing), keeps every fact,
+  number and name, reuses the same charts and animations, and never mocks people. It costs one more
+  model call, so it is off unless you tick it. Asking about a Deadpan section answers in the same
+  voice but takes its facts from In depth.
+- **Android: Send a link.** A "Send a link" button in the phone's Inbox: type or paste a URL, add
+  instructions for your Mac (up to 500 characters, with a counter), optionally tick "Deadpan tab",
+  and send. The job travels through your own Google Drive, and your Mac picks it up the next time it
+  runs and syncs, then makes the document on its own. The share sheet capture gets the same
+  instructions field and switch. The Deadpan switch needs ELI5 Learner 0.6.0 or later on the Mac.
 
 ### What's new in v0.5.0
 
@@ -79,6 +95,8 @@ Drop in source material, optionally type a few clarifying specifics, press Start
 - **ELI5.** The same material, rebuilt from scratch for comprehension, in plain words. It doesn't follow the structure of the source.
 - **ASD-STE100.** The in-depth content restated in Simplified Technical English: short sentences, one instruction each, one meaning per word, active voice. It reuses the in-depth charts and diagrams and adds no facts.
 
+Tick **Deadpan tab** next to Start for an optional fourth view, **Deadpan**: the same content retold dry and sarcastic, with the same facts and visuals.
+
 The document opens in the app's viewer and in any browser.
 
 ### From a web page to an explainer
@@ -120,6 +138,11 @@ The ELI5 tab rebuilds the same material in plain words, with analogies, simple d
   controlled writing standard from aerospace maintenance manuals. A short hint at the top of the tab
   (and on its tooltip) explains the standard. An automatic checker counts sentences that break its
   rules and triggers at most one repair. If the step fails, the document simply has two tabs.
+- **Deadpan tab (optional).** Tick the checkbox next to Start and the document gets a fourth tab
+  that retells everything with a straight face: understatement, dry asides and sarcasm aimed at the
+  situation, never at people. It is built from the ASD-STE100 tab, so facts, numbers and names stay
+  the same, and it reuses the In depth charts and animations. A hint at the top says the jokes are
+  not facts. It adds one model call; if it fails, the document is complete without it.
 - **AI-designed animations, in a sandbox.** When a topic has a mechanism you understand better by
   moving it (a learning rate on a loss curve, a sampler's random walk, estimates shrinking toward a
   group mean), the model writes a small interactive animation for that topic, with a slider or two
@@ -271,13 +294,13 @@ The public build needs nothing but an API key: no accounts, no logins and no oth
 > ([android/SETUP.md](android/SETUP.md)). The G1 smoke test passed against a real Google Drive in November 2026: sign-in on the Mac and on a Pixel, desktop push, primary claim, and the phone pulling and listing the library. Phone jobs (Ask) and conflict paths are still unverified against a real Drive.
 
 An optional Android app reads your learnings offline and sends links, photos and files from the
-phone's share sheet to your Mac, which does the generating. It is sideloaded (no Play Store).
+phone's share sheet, or a link typed into the Inbox's "Send a link", to your Mac, which does the generating. It is sideloaded (no Play Store).
 
-- **Without any Google setup:** install the APK and import exported `index.html` files. All three tabs
-  (In depth, ELI5, ASD-STE100), the glossary, charts, the theme and the sandboxed animations work offline.
+- **Without any Google setup:** install the APK and import exported `index.html` files. Every tab
+  (In depth, ELI5, ASD-STE100 and Deadpan), the glossary, charts, the theme and the sandboxed animations work offline.
 - **With sync (off by default):** connect both apps to a hidden app folder in your own Google Drive.
-  Your library shows up on the phone, and "Send to my Mac" queues a job that your Mac runs when it is
-  awake. Your API key never leaves the Mac. Sync copies your learnings (not your sources or notes),
+  Your library shows up on the phone, and "Send to my Mac" (or "Send a link", with optional instructions
+  and the Deadpan tab) queues a job that your Mac runs when it is awake or next starts. Your API key never leaves the Mac. Sync copies your learnings (not your sources or notes),
   and Google can read them.
 
 You bring your own Google Cloud OAuth clients; nothing secret is in the repository or the APK. The

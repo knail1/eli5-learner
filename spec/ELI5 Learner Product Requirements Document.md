@@ -4,7 +4,7 @@ Sep 27, 2026 · @Omer
 
 ## Overview and goals
 
-ELI5 Learner is a macOS Electron app that turns any source material into one beautiful, interactive HTML learning document with three views: a Wall Street Journal grade in depth explainer, an "explain like I'm five" version, and an ASD-STE100 (Simplified Technical English) version.
+ELI5 Learner is a macOS Electron app that turns any source material into one beautiful, interactive HTML learning document with three views: a Wall Street Journal grade in depth explainer, an "explain like I'm five" version, and an ASD-STE100 (Simplified Technical English) version. On request it adds a fourth: a deadpan, sarcastic retelling that keeps every fact.
 
 The user drops in files, screenshots, or URLs, optionally types a few clarifying specifics, hits enter, and walks away. The app generates the full document unattended. Afterward the user reads it inside the app and sculpts it: selecting any passage to expand it, simplify it, or spin off a focused ELI5 tab for just that section.
 
@@ -56,7 +56,7 @@ The app runs as a normal window plus a persistent menu bar item. Closing the win
 
 - **Left sidebar, Library:** every finished document, newest first, titled by topic. Clicking one renders it in the main area. Documents can be filed in folders, archived, or moved to the Trash so a long list stays manageable (see Organizing the Library).
 - **Main area, Viewer:** renders the generated HTML directly in an embedded Electron view. The user never sees raw HTML. Cmd+F finds text in the open document: a find bar above the viewer shows the match count ("3 of 12"), Cmd+G and Shift+Cmd+G step through the matches, and Escape closes it. Option+Cmd+F searches the Library instead (as does Cmd+F when no document is open).
-- **Input zone:** one drop box accepting drag and drop, paste (Cmd+V), and a URL field, plus an optional single line or multiline text field for clarifying specifics. Enter starts generation. What was entered stays on screen after starting, so it can be changed and run again: while that run is still going, Start becomes Restart (cancel it and start again with the edited inputs); once it has finished, Start makes another document and keeps the earlier one. A Clear button (or Cmd+N) empties the input zone.
+- **Input zone:** one drop box accepting drag and drop, paste (Cmd+V), and a URL field, plus an optional single line or multiline text field for clarifying specifics. Enter starts generation. What was entered stays on screen after starting, so it can be changed and run again: while that run is still going, Start becomes Restart (cancel it and start again with the edited inputs); once it has finished, Start makes another document and keeps the earlier one. A Clear button (or Cmd+N) empties the input zone. A "Deadpan tab" checkbox next to Start asks for the optional Deadpan tab for that job; it is off for every new draft and after Clear.
 - **Status area (lower right):** a simple, human readable status line per job, for example Reading sources, Extracting content, Generating document, Done. No verbose logs.
 - **Suggestions area:** where post generation merge suggestions wait for the user (see Library section).
 - No modals anywhere in the ingest and generation flow.
@@ -137,9 +137,10 @@ Each learning produces one self contained `index.html` with tabs across the top.
 | In depth (WSJ style) | Yes, opens first | May follow the source's logical structure | Yes, in the right margin | Yes, at the bottom |
 | ELI5 | Always generated | Rebuilt from scratch for comprehension. Never mirrors the source structure | No. Uses plain words instead of jargon | No |
 | ASD-STE100 (optional) | Generated after the in depth tab | The in depth content rewritten in Simplified Technical English, section for section, with the same visuals | No | No |
+| Deadpan (optional, off by default) | Generated after the ASD-STE100 tab, only when asked for | The same content retold in a deadpan, sarcastic voice, section for section, with the same visuals and the same facts | No | No |
 | Section ELI5 (0 to many) | Created on demand | Focused ELI5 of one selected passage | No | No |
 
-Tabs are always in this order: In depth, ELI5, ASD-STE100 (when present), then section ELI5 tabs in the order they were created. The in depth, ELI5 and ASD-STE100 tabs can never be closed.
+Tabs are always in this order: In depth, ELI5, ASD-STE100 (when present), Deadpan (when present), then section ELI5 tabs in the order they were created. The in depth, ELI5, ASD-STE100 and Deadpan tabs can never be closed.
 
 **In depth tab: visual quality bar**
 
@@ -162,6 +163,16 @@ Tabs are always in this order: In depth, ELI5, ASD-STE100 (when present), then s
 - The tab opens with a short plain-text hint that explains what ASD-STE100 is. The hint also shows as the tab button's tooltip, without JavaScript, in print and in the Markdown export.
 - The tab is optional: if its generation step fails, the document has no ASD-STE100 tab (never a placeholder) and is otherwise complete. The glossary and the references stay in the in depth tab.
 - Accepting a merge suggestion drops the ASD-STE100 tab (keeping it would leave stale text); the version before the merge keeps it, and a rebuild recreates it.
+
+**Deadpan tab**
+
+- Optional per job and off by default: a "Deadpan tab" checkbox next to Start (and a matching switch on the phone's capture sheet). It is never remembered as a setting.
+- It retells the content in a dry, deadpan, sarcastic voice with jokes throughout. It is built from the finished ASD-STE100 tab, or from the in depth draft when that tab is missing, section for section, so it adds no facts: facts, numbers and names match the in depth tab, and only the tone changes. The jokes aim at the situation and the absurdity of the topic, never at people, groups or the source's authors (no punching down).
+- Charts, diagrams, tables, figures, photos and animations are reused from the in depth tab unchanged, as in the ASD-STE100 tab. Its animation copies are not counted against the four-per-document cap either.
+- The tab opens with a short plain-text hint: "A deadpan, tongue-in-cheek retelling of In depth. Facts, numbers and names match In depth; the jokes are not facts." The hint also shows as the tab button's tooltip.
+- It costs one more model call per job. If its step fails, the document has no Deadpan tab (never a placeholder), the job lists the warning "The Deadpan tab could not be generated", and the document is otherwise complete.
+- Asking about a Deadpan section answers in the same voice but from the facts: a quick Ask also gets the in depth tab as context. Ask deep and Ask deeper never use the Deadpan tab as context.
+- Accepting a merge suggestion drops the Deadpan tab like the ASD-STE100 tab; a rebuild recreates it when the document asked for it.
 
 **Animations (AI-designed, sandboxed)**
 
@@ -332,7 +343,7 @@ The public build saves locally only and pushes nothing. The enterprise edition a
 **Open items**
 
 - [ ] Rebuild from the app UI (today a developer-only tool) and a first-class "rebuild" version kind, once the Android companion understands it.
-- [ ] Older installed apps show documents generated by this build (new or rebuilt, all of which can have an ASD-STE100 tab) as invalid or view only; readers must run the current build before opening them.
+- [ ] Older installed apps show documents generated by this build (new or rebuilt, all of which can have an ASD-STE100 tab, and from 0.6.0 a Deadpan tab) as invalid or view only; readers must run the current build before opening them.
 - [ ] User to supply the ELI5 HTML skill and the beautiful documentation HTML skill.
 - [ ] Define the enterprise publishing targets and repo layout.
 
@@ -349,9 +360,13 @@ hold for everyone who does not turn it on.
 **What it does**
 
 - **Android app (sideloaded, not on the Play Store):** an offline Library, a read-only reader for the
-  same self-contained `index.html` (all three tabs including ASD-STE100, glossary, charts, theme, sandboxed animations), import of exported documents
+  same self-contained `index.html` (every tab including ASD-STE100 and Deadpan, glossary, charts, theme, sandboxed animations), import of exported documents
   with no Google setup at all, a read-only Versions view with "Make current on your Mac", a share
-  sheet capture ("Send to my Mac") and an Inbox with job status.
+  sheet capture ("Send to my Mac"), a "Send a link" button in the Inbox for typing or pasting a URL
+  with optional instructions for the Mac (up to 500 characters, with a visible counter), and an Inbox
+  with job status. Both captures can ask for the Deadpan tab; the switch is enabled only when the
+  Mac runs 0.6.0 or later, since an older Mac would reject the request. The Mac picks the job up the
+  next time it runs and syncs, then makes the document unattended.
 - **Desktop:** a Settings > Sync section, Google sign-in in the system browser, a push of the Library
   to the sync store, a job inbox that feeds the existing pipeline, and a small sync indicator.
 - **The Mac stays the only generator.** Documents are generated, refined, merged and reverted only on

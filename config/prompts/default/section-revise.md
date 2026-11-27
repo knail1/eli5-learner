@@ -1,6 +1,6 @@
 ---
 id: section-revise
-version: 3
+version: 4
 output: SectionDraft
 temperature: 0.3
 effort: medium
@@ -44,4 +44,4 @@ Next section:
 Selected passage:
 {{selection | "(none)"}}
 
-Reader's note (apply this): {{note}}
+Reader's note (apply this): {{note}}{{factSource}}

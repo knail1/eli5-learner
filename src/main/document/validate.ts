@@ -98,14 +98,15 @@ export function countAnimations(blocks: readonly { type: string }[]): number {
 }
 
 /**
- * Animations counted against the document cap (07 §5.2): every tab except the ASD-STE100 tab,
- * whose animations only mirror in-depth ones that already count.
+ * Animations counted against the document cap (07 §5.2): every tab except the ASD-STE100 and
+ * Deadpan tabs, whose animations only mirror in-depth ones that already count.
  */
 export function countDocAnimations(
   tabs: readonly { kind: string; sections: readonly { blocks: readonly { type: string }[] }[] }[],
 ): number {
   return tabs.reduce(
-    (n, t) => (t.kind === 'ste' ? n : n + t.sections.reduce((k, s) => k + countAnimations(s.blocks), 0)),
+    (n, t) =>
+      t.kind === 'ste' || t.kind === 'deadpan' ? n : n + t.sections.reduce((k, s) => k + countAnimations(s.blocks), 0),
     0,
   );
 }

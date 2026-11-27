@@ -323,6 +323,11 @@ export interface JobOptions {
   clarifyingInput: string;
   /** Per-job toggle; default from settings glossary.defaultOn. */
   glossary: boolean;
+  /**
+   * Per-job toggle for the optional Deadpan tab (07 §3), off when missing. Never a setting;
+   * the phone sends it on a capture job (16 §5.1).
+   */
+  deadpan?: boolean;
 }
 
 export interface StartJobRequest {
@@ -481,13 +486,17 @@ export interface MergeSuggestion {
 export type SectionId = string & { readonly __brand: 'SectionId' };
 
 /**
- * 07 §4.1 tab keys: 'indepth' | 'eli5' | 'ste' | 'sx' + 6 lowercase hex. The one canonical
- * pattern; document, library, draft and preload checks import it. The sync protocol keeps its
- * older pattern on purpose (16 §4.4: 'ste' is filtered from the manifest for 0.3.0 phones).
+ * 07 §4.1 tab keys: 'indepth' | 'eli5' | 'ste' | 'deadpan' | 'sx' + 6 lowercase hex. The one
+ * canonical pattern; document, library, draft and preload checks import it. The sync protocol
+ * keeps its older pattern on purpose (16 §4.4: 'ste' and 'deadpan' are filtered from the
+ * manifest for older phones).
  */
-export const TAB_KEY_RE = /^(?:indepth|eli5|ste|sx[0-9a-f]{6})$/;
-/** 07 §3 tab kinds: the two required views, the optional ASD-STE100 view, section ELI5 tabs. */
-export const TAB_KINDS = ['indepth', 'eli5', 'ste', 'section-eli5'] as const;
+export const TAB_KEY_RE = /^(?:indepth|eli5|ste|deadpan|sx[0-9a-f]{6})$/;
+/**
+ * 07 §3 tab kinds: the two required views, the optional ASD-STE100 view, the optional Deadpan
+ * view, section ELI5 tabs.
+ */
+export const TAB_KINDS = ['indepth', 'eli5', 'ste', 'deadpan', 'section-eli5'] as const;
 export type TabKind = (typeof TAB_KINDS)[number];
 
 export type SectionAction = 'expand' | 'reexplain' | 'analogy' | 'deeper' | 'revise';

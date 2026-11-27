@@ -179,11 +179,16 @@ describe('protocol stays in step with the app', () => {
     // manifest still writes only the 0.3.0 keys so older phones keep parsing it.
     expect(TAB_KEY_RE.source).toBe('^(indepth|eli5|ste|sx[0-9a-f]{6})$');
     expect(MANIFEST_TAB_KEY_RE.source).toBe('^(indepth|eli5|sx[0-9a-f]{6})$');
-    expect(TAB_KEY_PATTERN.source).toBe('^(?:indepth|eli5|ste|sx[0-9a-f]{6})$');
-    for (const k of ['indepth', 'eli5', 'ste', 'sx0a1b2c', 'sx', 'notes', 'STE', 'sx0a1b2'])
+    expect(TAB_KEY_PATTERN.source).toBe('^(?:indepth|eli5|ste|deadpan|sx[0-9a-f]{6})$');
+    for (const k of ['indepth', 'eli5', 'ste', 'sx0a1b2c', 'sx', 'notes', 'STE', 'sx0a1b2', 'Deadpan'])
       expect(TAB_KEY_RE.test(k), k).toBe(TAB_KEY_PATTERN.test(k));
+    // The one expected difference: the 0.6.0 Deadpan key is an app tab key that sync never lists, so
+    // the shared reader pattern (and patterns.json) stays as 0.5.0 phones have it.
+    expect(TAB_KEY_PATTERN.test('deadpan')).toBe(true);
+    expect(TAB_KEY_RE.test('deadpan')).toBe(false);
     for (const k of ['indepth', 'eli5', 'sx0a1b2c']) expect(MANIFEST_TAB_KEY_RE.test(k), k).toBe(true);
     expect(MANIFEST_TAB_KEY_RE.test('ste')).toBe(false);
+    expect(MANIFEST_TAB_KEY_RE.test('deadpan')).toBe(false);
     expect(SECTION_ID_RE.source).toBe(SECTION_ID_PATTERN.source);
     expect(MAX_FOLDER_NAME_CHARS).toBe(60);
     expect(DOC_ID_RE.test(randomUUID())).toBe(true);
@@ -227,6 +232,27 @@ describe('job limits (16 §5.1)', () => {
     const ci = 'x'.repeat(LIMITS.clarifyingInputChars);
     expect(JobRequestSchema.safeParse({ ...base, clarifyingInput: ci }).success).toBe(true);
     expect(JobRequestSchema.safeParse({ ...base, clarifyingInput: `${ci}x` }).success).toBe(false);
+  });
+
+  it('accepts the 0.6.0 deadpan flag as an optional boolean on a capture only', () => {
+    expect(JobRequestSchema.safeParse(base).success).toBe(true);
+    const on = JobRequestSchema.parse({ ...base, deadpan: true });
+    expect(on.kind === 'capture' && on.deadpan).toBe(true);
+    expect(JobRequestSchema.safeParse({ ...base, deadpan: false }).success).toBe(true);
+    for (const bad of [null, 'true', 1, {}]) {
+      expect(JobRequestSchema.safeParse({ ...base, deadpan: bad }).success, String(bad)).toBe(false);
+    }
+    const checkout = {
+      v: 1,
+      jobId: base.jobId,
+      deviceId: base.deviceId,
+      createdAt: base.createdAt,
+      kind: 'checkout',
+      docId: '3f2b8c1e-5a4d-4e7f-9b6a-0c1d2e3f4a5b',
+      versionId: 'v-000000000002',
+    };
+    expect(JobRequestSchema.safeParse(checkout).success).toBe(true);
+    expect(JobRequestSchema.safeParse({ ...checkout, deadpan: true }).success).toBe(false);
   });
 
   it('accepts exactly 20 http(s) URLs', () => {

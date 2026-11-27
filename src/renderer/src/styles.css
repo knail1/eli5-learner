@@ -961,15 +961,22 @@ button.icon-button {
 }
 .input-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: 8px 12px;
 }
+/* At narrow widths the buttons wrap under the glossary switch and stay on the right. */
 .input-buttons {
   display: inline-flex;
   flex: none;
   gap: 8px;
   align-items: center;
+  margin-left: auto;
+}
+.deadpan-toggle {
+  white-space: nowrap;
+  margin-right: 4px;
 }
 .toggle {
   display: inline-flex;

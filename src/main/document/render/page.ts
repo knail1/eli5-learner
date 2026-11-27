@@ -35,6 +35,8 @@ export const TAB_HINTS: Readonly<Partial<Record<TabKind, string>>> = {
     'ASD-STE100 is Simplified Technical English, a writing standard that began in aerospace maintenance ' +
     'manuals in the late 1970s. Sentences are short (instructions at most 20 words, descriptions at most 25), ' +
     'each sentence gives one instruction, one word keeps one meaning, and verbs are in the active voice.',
+  deadpan:
+    'A deadpan, tongue-in-cheek retelling of In depth. Facts, numbers and names match In depth; the jokes are not facts.',
 };
 
 /** Element id of a tab's hint paragraph (one per tab key; fixed tabs only). */

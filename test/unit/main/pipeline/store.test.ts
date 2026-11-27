@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { JobStore, createJob, snapshotOf, type Job } from '../../../../src/main/pipeline';
+import { JobStore, createJob, parseJobRecord, plannedSteps, snapshotOf, type Job } from '../../../../src/main/pipeline';
 import type { ExtractedContent } from '../../../../src/main/extract';
 import { FakeClock } from '../../../helpers/clock';
 import { tmpLibrary } from '../../../helpers/tmp-library';
@@ -45,6 +45,51 @@ describe('createJob (06 §3.1, §5.1 step 3)', () => {
     });
     const noGlossary = createJob({ ...j, now: new Date(0), options: { clarifyingInput: '', glossary: false } });
     expect(noGlossary.progress.stepsPlanned).toEqual(['indepth', 'eli5', 'ste', 'eli5-critique', 'summary']);
+  });
+});
+
+describe('the Deadpan option (06 §5.4 step 1c)', () => {
+  it('plans step 1c after step 1b and before the glossary only when the job asks for it', () => {
+    expect(plannedSteps({ clarifyingInput: '', glossary: true, deadpan: true })).toEqual([
+      'indepth',
+      'eli5',
+      'ste',
+      'eli5-critique',
+      'deadpan',
+      'glossary',
+      'summary',
+    ]);
+    expect(plannedSteps({ clarifyingInput: '', glossary: false, deadpan: true })).toEqual([
+      'indepth',
+      'eli5',
+      'ste',
+      'eli5-critique',
+      'deadpan',
+      'summary',
+    ]);
+    expect(plannedSteps({ clarifyingInput: '', glossary: true, deadpan: false })).not.toContain('deadpan');
+    expect(plannedSteps({ clarifyingInput: '', glossary: true })).not.toContain('deadpan');
+  });
+
+  it('parses records with and without the option, and refuses a non-boolean one', () => {
+    const old = JSON.parse(JSON.stringify(job())) as Job;
+    expect(parseJobRecord(old)?.options).toEqual({ clarifyingInput: '', glossary: true });
+    const on = JSON.parse(
+      JSON.stringify(
+        createJob({
+          id: '01J0000000000000000000000B',
+          kind: 'create',
+          now: new Date(0),
+          inputs: [],
+          options: { clarifyingInput: '', glossary: false, deadpan: true },
+        }),
+      ),
+    ) as Job;
+    on.checkpoint = { stage: 'generating', resolvedRefs: [], extractedIndexes: [], completedSteps: ['deadpan'] };
+    const parsed = parseJobRecord(on);
+    expect(parsed?.options.deadpan).toBe(true);
+    expect(parsed?.progress.stepsPlanned).toContain('deadpan');
+    expect(parseJobRecord({ ...on, options: { ...on.options, deadpan: 'yes' } })).toBeNull();
   });
 });
 

@@ -36,7 +36,7 @@ export const QA_ID_RE = /^q-[0-9a-f]{8}$/;
 
 /** 07 §4 (mirrored in the preload contract). */
 export const SECTION_ID_PATTERN = /^sec-[a-z][a-z0-9]{1,15}-[0-9a-f]{8}$/;
-/** 'indepth', 'eli5', 'ste', or 'sx' + 6 hex (07 §4.1); the canonical preload-contract pattern. */
+/** 'indepth', 'eli5', 'ste', 'deadpan', or 'sx' + 6 hex (07 §4.1); the canonical preload-contract pattern. */
 export const TAB_KEY_PATTERN = TAB_KEY_RE;
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
@@ -167,6 +167,8 @@ export const DocumentMetaSchema = z
     edition: z.enum(['public', 'enterprise']),
     clarifyingInput: z.string(),
     glossaryEnabled: z.boolean(),
+    /** 07 §3: the job asked for the Deadpan tab (even when the step failed); absent before 0.6.0. */
+    deadpanEnabled: z.boolean().optional(),
     sourcesUsed: z.array(SourceRecordSchema),
     sourcesSkipped: z.array(SkippedSourceSchema),
     tabs: z.array(TabRecordSchema),

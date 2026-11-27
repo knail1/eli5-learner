@@ -91,6 +91,22 @@ class FixturesTest {
         }
     }
 
+    @Test fun `the deadpan capture fixtures are in the index, and only true is ever written`() {
+        val files = protocol.associateBy { it.file }
+        assertTrue(files.getValue("job.valid.capture-deadpan.json").valid)
+        for (f in listOf("job.invalid.capture-deadpan-null.json", "job.invalid.capture-deadpan-string.json", "job.invalid.checkout-with-deadpan.json")) {
+            assertFalse(f, files.getValue(f).valid)
+        }
+        val on = SyncProtocol.decodeJob(read("job.valid.capture-deadpan.json")) as JobRequest.Capture
+        assertTrue(on.deadpan)
+        // Off is never on the wire: the same capture without the key, as 0.5.0 phones write it.
+        val off = SyncProtocol.encode(JobRequest.serializer(), on.copy(deadpan = false))
+        assertFalse(off, "deadpan" in off)
+        val plain = SyncProtocol.decodeJob(read("job.valid.capture-url.json")) as JobRequest.Capture
+        assertFalse(plain.deadpan)
+        assertFalse("deadpan" in SyncProtocol.encode(JobRequest.serializer(), plain))
+    }
+
     @Test fun `rejects every invalid fixture`() {
         val accepted =
             protocol.filter { !it.valid }.filter { e ->

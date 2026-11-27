@@ -11,6 +11,7 @@ interface Draft {
   urlText: string;
   clarifying: string;
   glossary: boolean;
+  deadpan: boolean;
 }
 type Key = { key: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean };
 
@@ -141,6 +142,20 @@ describe('input draft (11 §5.4)', () => {
     expect(startRequest(d, [img]).draftId).toBe(d.draftId);
     expect(chipLabel(img)).toBe('Pasted image 14:02');
     expect(chipLabel({ id: 'a', kind: 'file', origin: 'drop', path: '/Users/x/deck.pptx' })).toBe('deck.pptx');
+  });
+
+  it('Deadpan: off in a new draft, sent only when on, kept after a start, not content for Clear', () => {
+    const d = newDraft(true);
+    expect(d.deadpan).toBe(false);
+    const url: SourceInput = { id: 'in-00000001', kind: 'url', origin: 'url-field', url: 'https://example.com' };
+    // Off: the request is exactly what it was before the option existed.
+    expect(startRequest(d, [url]).options).toEqual({ clarifyingInput: '', glossary: true });
+    expect('deadpan' in startRequest(d, [url]).options).toBe(false);
+    const on = { ...d, deadpan: true };
+    expect(startRequest(on, [url]).options).toEqual({ clarifyingInput: '', glossary: true, deadpan: true });
+    expect(draftAfterStart({ ...on, inputs: [url] }, [url]).deadpan).toBe(true);
+    // The switch alone gives Clear nothing to clear (amendment: it resets only with the draft).
+    expect(draftHasContent(on)).toBe(false);
   });
 
   it('primary button: Start with chips or typed text, else Run again with a last run, else Start (11 §5.4)', () => {

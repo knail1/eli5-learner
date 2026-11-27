@@ -98,9 +98,9 @@ export type WeaveMerged = (input: {
   tabs: TabRecord[];
   markerSectionIds: SectionId[];
   prompt?: string;
-  /** e.g. 'ste-dropped' (09 §10.3). */
+  /** e.g. 'ste-dropped', 'deadpan-dropped' (09 §10.3). */
   warnings?: string[];
-  /** Section ids of a dropped ASD-STE100 tab, added to meta.retiredIds (07 §4.3). */
+  /** Section ids of dropped ASD-STE100 and Deadpan tabs, added to meta.retiredIds (07 §4.3). */
   retiredSectionIds?: SectionId[];
 }>;
 
@@ -750,9 +750,11 @@ class MergeEngine implements MergeDelegate {
       this.log.warn('merge.weave-failed', { errorKind: typeof kind === 'string' ? kind : 'error' });
       throw new AcceptOutcome('failed', MERGE_FAILED_MESSAGE, err);
     }
-    // 09 §10.3: the merge output has no ASD-STE100 tab; the pre-merge version keeps it in History.
+    // 09 §10.3: the merge output has no ASD-STE100 or Deadpan tab; the pre-merge version keeps
+    // them in History.
     const retired = merged.retiredSectionIds ?? [];
     if (merged.warnings?.includes('ste-dropped')) this.log.info('merge.ste-dropped', { count: retired.length });
+    if (merged.warnings?.includes('deadpan-dropped')) this.log.info('merge.deadpan-dropped', { count: retired.length });
     // Step 6.
     let backup: string;
     try {

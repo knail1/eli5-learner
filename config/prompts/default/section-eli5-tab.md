@@ -1,6 +1,6 @@
 ---
 id: section-eli5-tab
-version: 2
+version: 3
 output: DocumentDraftTab # kind "section-eli5"
 temperature: 0.4
 effort: medium
@@ -35,4 +35,4 @@ Section (JSON):
 Selected passage:
 {{selection | "(none)"}}
 
-Reader's note: {{note | "none"}}
+Reader's note: {{note | "none"}}{{factSource}}

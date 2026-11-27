@@ -64,6 +64,8 @@ class OutboxRepositoryTest {
 
     @After fun tearDown() = db.close()
 
+    private var macVersion: String? = "0.6.0"
+
     private fun outbox(database: Eli5Db = db) =
         OutboxRepository(
             db = database,
@@ -77,6 +79,7 @@ class OutboxRepositoryTest {
                 true
             },
             now = { now },
+            macVersion = { macVersion },
         )
 
     private suspend fun queue(
@@ -84,13 +87,14 @@ class OutboxRepositoryTest {
         files: List<ByteArray> = listOf(PNG, PDF),
         urls: List<String> = listOf("https://example.com/article"),
         jobId: String = JobIds.new(now),
+        deadpan: Boolean = false,
     ): String {
         val atts =
             files.mapIndexed { i, b ->
                 val sha = o.stage(jobId, b)
                 Attachment(sha, "file-$i", if (b === PDF) "application/pdf" else "image/png", b.size.toLong())
             }
-        o.queueCapture(CaptureDraft(jobId, urls, "", "Why now?", listOf(FocusChip.BIG_PICTURE), atts, "example.com"))
+        o.queueCapture(CaptureDraft(jobId, urls, "", "Why now?", listOf(FocusChip.BIG_PICTURE), atts, "example.com", deadpan = deadpan))
         return jobId
     }
 
@@ -419,6 +423,76 @@ class OutboxRepositoryTest {
             assertEquals(2, drive.byKind("job").size)
             // The attachments were already in the store.
             assertEquals(2, drive.byKind("att").size)
+        }
+
+    @Test fun `without Deadpan the job file has no deadpan key and is byte-identical to 0_5_0`() =
+        runTest {
+            val o = outbox()
+            val id = queue(o, files = emptyList())
+            val raw = File(File(root, id), OutboxRepository.REQUEST).readText()
+            val expected =
+                "{\"kind\":\"capture\",\"v\":1,\"jobId\":\"$id\",\"deviceId\":\"${prefs.deviceId()}\"," +
+                    "\"createdAt\":\"${OutboxRepository.iso(NOW)}\",\"urls\":[\"https://example.com/article\"],\"text\":\"\"," +
+                    "\"clarifyingInput\":\"Why now?\",\"focus\":[\"big-picture\"],\"attachments\":[]}"
+            assertEquals(expected, raw)
+            o.upload()
+            assertFalse("deadpan" in drive.byKind("job").single().body.decodeToString())
+        }
+
+    @Test fun `with Deadpan the job file says deadpan true, and Retry keeps it for a new enough Mac`() =
+        runTest {
+            val o = outbox()
+            val id = queue(o, deadpan = true)
+            val raw = File(File(root, id), OutboxRepository.REQUEST).readText()
+            assertTrue(raw, raw.endsWith(",\"deadpan\":true}"))
+            o.upload()
+            assertTrue((SyncProtocol.decodeJob(drive.byKind("job").single().body.decodeToString()) as JobRequest.Capture).deadpan)
+
+            putStatus(id, JobState.FAILED, code = "E_INTERNAL", reason = "Something went wrong")
+            o.afterPull(index(), TestMac.MAC_ID)
+            now += 1000
+            assertTrue(o.retry(id))
+            val again = db.jobs().observeVisible().first().single()
+            val req = SyncProtocol.decodeJob(File(File(root, again.jobId), OutboxRepository.REQUEST).readText()) as JobRequest.Capture
+            assertTrue(req.deadpan)
+        }
+
+    @Test fun `Retry drops Deadpan when the Mac is known to be older than 0_6_0`() =
+        runTest {
+            for (version in listOf("0.5.0", "garbage")) {
+                macVersion = "0.6.0"
+                val o = outbox()
+                val id = queue(o, files = emptyList(), deadpan = true)
+                o.upload()
+                putStatus(id, JobState.FAILED, code = "E_INVALID", reason = "Your Mac could not read this request")
+                o.afterPull(index(), TestMac.MAC_ID)
+                now += 1000
+                macVersion = version
+                val before = db.jobs().ids().toSet()
+                assertTrue("$version", o.retry(id))
+                val again = (db.jobs().ids().toSet() - before).single()
+                val raw = File(File(root, again), OutboxRepository.REQUEST).readText()
+                assertFalse("$version: $raw", "deadpan" in raw)
+            }
+        }
+
+    @Test fun `Retry keeps Deadpan when the Mac's version is not known yet`() =
+        runTest {
+            // A cold start, before any pass has read the Mac and with nothing remembered: the request
+            // passed the gate when it was sent, so Retry does not silently drop it.
+            macVersion = "0.6.0"
+            val o = outbox()
+            val id = queue(o, files = emptyList(), deadpan = true)
+            o.upload()
+            putStatus(id, JobState.FAILED, code = "E_INTERNAL", reason = "Something went wrong")
+            o.afterPull(index(), TestMac.MAC_ID)
+            now += 1000
+            macVersion = null
+            val before = db.jobs().ids().toSet()
+            assertTrue(o.retry(id))
+            val again = (db.jobs().ids().toSet() - before).single()
+            val req = SyncProtocol.decodeJob(File(File(root, again), OutboxRepository.REQUEST).readText()) as JobRequest.Capture
+            assertTrue(req.deadpan)
         }
 
     @Test fun `a deleted job stays hidden and acknowledged after a rebuild`() =

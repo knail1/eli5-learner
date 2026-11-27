@@ -105,6 +105,8 @@ export interface InboxCapture {
   /** Staged attachments and the shared text, all under `root`. */
   files: Array<{ path: string; name: string }>;
   clarifyingInput: string;
+  /** The phone asked for the Deadpan tab too (16 §5.1, 0.6.0); false when the key was absent. */
+  deadpan: boolean;
   /** `<userData>/sync/inbox/<jobId>/`. */
   root: string;
 }
@@ -628,6 +630,7 @@ export class SyncInbox {
         urls: [...job.urls],
         files,
         clarifyingInput: composeClarifying(job.clarifyingInput, job.focus),
+        deadpan: job.deadpan === true,
         root: dir,
       }));
     } catch (err) {

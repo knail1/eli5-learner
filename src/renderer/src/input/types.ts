@@ -17,4 +17,9 @@ export interface InputDraft {
   clarifying: string;
   /** Initialised from settings glossary.defaultOn. */
   glossary: boolean;
+  /**
+   * Also write the optional Deadpan tab. Off for every new draft and after Clear; kept after a
+   * start in the same session; never remembered across launches and no Settings default.
+   */
+  deadpan: boolean;
 }

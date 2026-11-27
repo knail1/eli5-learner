@@ -4,6 +4,8 @@ import type { ExtractedContent } from '../../extract';
 import {
   deserializePrepared,
   sectionText,
+  type DeadpanSource,
+  type DeadpanStepDraft,
   serializePrepared,
   type DocumentDraftTab,
   type GlossaryDraft,
@@ -26,6 +28,7 @@ export const GEN = {
   document: 'gen/document.json',
   ste: 'gen/ste.json',
   eli5Critique: 'gen/eli5-critique.json',
+  deadpan: 'gen/deadpan.json',
   glossary: 'gen/glossary.json',
   summary: 'gen/summary.json',
   photos: 'gen/photos.json',
@@ -56,6 +59,18 @@ export interface DocumentStepOutput {
 /** gen/ste.json (06 §5.4 step 1b): the ASD-STE100 tab, or null when the step failed (`ste-omitted`). */
 export interface SteStepOutput {
   ste: SteStepDraft | null;
+  prompt?: string;
+  usage?: TokenUsage;
+}
+
+/**
+ * gen/deadpan.json (06 §5.4 step 1c): the Deadpan tab, or null when the step failed
+ * (`deadpan-omitted`). `source` says which draft it was built from: the STE tab, or In depth when
+ * the STE step had omitted its tab.
+ */
+export interface DeadpanStepOutput {
+  deadpan: DeadpanStepDraft | null;
+  source: 'ste' | 'indepth';
   prompt?: string;
   usage?: TokenUsage;
 }
@@ -116,6 +131,7 @@ export function stepWarning(kind: JobWarning['kind']): JobWarning {
     'summary-fallback': 'The summary was taken from the lead section',
     'input-truncated': 'Some source content was cut to fit the model',
     'ste-omitted': 'The ASD-STE100 version could not be generated',
+    'deadpan-omitted': 'The Deadpan tab could not be generated',
   };
   return { kind, message: messages[kind] };
 }
@@ -326,6 +342,29 @@ function critiqueOutcome(
   return { eli5: null, outcome: 'failed', ...(spent ? { usage: spent } : {}) };
 }
 
+/** The draft step 1c rewrites: the resolved STE tab when step 1b produced one, else In depth. */
+export function deadpanSource(ste: SteStepOutput | null, indepth: DocumentDraftTab): DeadpanSource {
+  const resolved = ste?.ste;
+  return resolved && resolved.tab.sections.length > 0
+    ? { kind: 'ste', tab: resolved.tab, origins: resolved.origins }
+    : { kind: 'indepth', tab: indepth };
+}
+
+/** Step 1c (06 §5.4). Any failure but cancellation omits the tab with `deadpan-omitted`. */
+async function deadpanStep(ctx: StageContext, indepth: DocumentDraftTab, step: StepCtx): Promise<DeadpanStepOutput> {
+  const { job, deps, store } = ctx;
+  clearWarnings(job, 'deadpan-omitted');
+  const ste = (await store.readJson(job.id, GEN.ste)) as SteStepOutput | null;
+  const source = deadpanSource(ste, indepth);
+  const r = await optional(ctx, 'deadpan', () => deps.tasks.generateDeadpan(source, step));
+  if (!r) {
+    addWarning(job, stepWarning('deadpan-omitted'));
+    return { deadpan: null, source: source.kind };
+  }
+  logUsage(ctx, 'deadpan', r.usage);
+  return { deadpan: r.draft, source: source.kind, prompt: r.prompt, usage: r.usage };
+}
+
 /** Stock photos are offered when the setting is on and a real (non-stub) provider is wired (07 §7.4). */
 function photosOn(ctx: StageContext): boolean {
   const s = ctx.deps.settings();
@@ -417,6 +456,8 @@ export async function generateStage(ctx: StageContext): Promise<void> {
 
   // Step 1b: ASD-STE100 tab || ELI5 critique (06 §5.4).
   const todo = { ste: !completed.has('ste'), critique: !completed.has('eli5-critique') };
+  // A deadpan draft built from an STE draft that is about to be redone is stale (step 1c).
+  if (todo.ste) completed.delete('deadpan');
   if (todo.ste || todo.critique) {
     await stepOneB(ctx, doc, step, todo, {
       ste: async (out) => {
@@ -431,6 +472,13 @@ export async function generateStage(ctx: StageContext): Promise<void> {
   }
   const critique = (await store.readJson(job.id, GEN.eli5Critique)) as Eli5CritiqueStepOutput | null;
   const eli5 = finalEli5(doc, critique);
+
+  // Step 1c: the optional Deadpan tab, from the STE tab (else In depth); it degrades (06 §5.4).
+  if (job.progress.stepsPlanned.includes('deadpan') && !completed.has('deadpan')) {
+    const out = await deadpanStep(ctx, indepth, step);
+    await store.writeJson(job.id, GEN.deadpan, out);
+    await persistStep('deadpan');
+  }
 
   if (job.options.glossary && !completed.has('glossary')) {
     clearWarnings(job, 'glossary-omitted');

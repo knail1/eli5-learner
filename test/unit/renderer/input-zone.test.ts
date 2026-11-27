@@ -265,6 +265,54 @@ describe('InputZone start algorithm (11 §5.4)', () => {
     expect(lastRun(host)).toEqual(['example.com/a']);
   });
 
+  it('the Deadpan tab switch sends options.deadpan, stays on after a start and resets on Clear', async () => {
+    fake.api.settings.hasApiKey = async () => ok(true);
+    const calls: { options: unknown }[] = [];
+    fake.api.jobs.start = vi.fn(async (r) => {
+      calls.push(r as never);
+      return ok({ jobId: `job-${String(calls.length)}` });
+    }) as unknown as typeof fake.api.jobs.start;
+    const { host, url } = await mount();
+    const switches = Array.from(host.querySelectorAll<HTMLInputElement>('input[role="switch"]'));
+    // The glossary switch stays first; the Deadpan switch sits with the buttons, before Clear.
+    expect(switches).toHaveLength(2);
+    const deadpan = switches[1];
+    const label = deadpan?.closest('label');
+    expect(label?.textContent?.trim()).toBe('Deadpan tab');
+    expect(label?.textContent).not.toContain('Start');
+    expect(label?.title).toContain('deadpan');
+    expect(label?.closest('.input-buttons')).not.toBeNull();
+    expect(deadpan?.checked).toBe(false);
+
+    // Off: the request has no deadpan key at all.
+    await type(url, 'https://example.com/a');
+    await click(button(host, 'Start'));
+    expect(calls[0]?.options).toEqual({ clarifyingInput: '', glossary: true });
+
+    await click(deadpan);
+    expect(deadpan?.checked).toBe(true);
+    await type(url, 'https://example.com/b');
+    await new Promise((r) => setTimeout(r, 450)); // past the double-start debounce
+    await click(button(host, 'Start'));
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.options).toEqual({ clarifyingInput: '', glossary: true, deadpan: true });
+    // Kept after a start in the same session.
+    expect(deadpan?.checked).toBe(true);
+
+    await click(button(host, 'Clear'));
+    expect(host.querySelectorAll<HTMLInputElement>('input[role="switch"]')[1]?.checked).toBe(false);
+  });
+
+  it('Enter on the Deadpan switch starts like the other switch', async () => {
+    fake.api.settings.hasApiKey = async () => ok(true);
+    fake.api.jobs.start = vi.fn(async () => ok({ jobId: 'job-1' })) as unknown as typeof fake.api.jobs.start;
+    const { host, url } = await mount();
+    await type(url, 'https://example.com/a');
+    await key(url, 'Enter');
+    await key(host.querySelectorAll('input[role="switch"]')[1], 'Enter');
+    expect(fake.api.jobs.start).toHaveBeenCalledOnce();
+  });
+
   it('URL chips copy the full URL: Cmd+C on a focused chip and the icon-only copy button', async () => {
     const { host, url } = await mount();
     const long = 'https://example.com/a/very/long/path?with=query&and=more';

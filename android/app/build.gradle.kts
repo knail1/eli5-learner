@@ -49,8 +49,8 @@ android {
         minSdk = 31
         // One below compileSdk until a manual pass on a phone (16 §6.1).
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.5.0"
+        versionCode = 5
+        versionName = "0.6.0"
         buildConfigField("String", "GIT_COMMIT", "\"$gitCommit\"")
     }
 

@@ -105,6 +105,12 @@ class AppPreferences(
         }
     }
 
+    override suspend fun lastMacVersion(): String? = store.data.first()[LAST_MAC_VERSION]
+
+    override suspend fun setLastMacVersion(version: String?) {
+        store.edit { if (version != null) it[LAST_MAC_VERSION] = version else it.remove(LAST_MAC_VERSION) }
+    }
+
     private fun cursorOf(p: Preferences) =
         SyncCursor(
             startToken = p[START_TOKEN],
@@ -148,6 +154,7 @@ class AppPreferences(
         private val ACKS_HASH = stringPreferencesKey("sync_acks_hash")
         private val READY_NOTIFICATIONS = booleanPreferencesKey("ready_notifications")
         private val LAST_SYNC_AT = longPreferencesKey("sync_last_at")
+        private val LAST_MAC_VERSION = stringPreferencesKey("sync_last_mac_version")
         private val OFFLINE_POLICY = stringPreferencesKey("sync_offline_policy")
         private val LARGE_ON_WIFI_ONLY = booleanPreferencesKey("sync_large_on_wifi_only")
         private val ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")

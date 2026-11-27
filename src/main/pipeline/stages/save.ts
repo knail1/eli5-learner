@@ -34,6 +34,7 @@ import {
   finalEli5,
   loadContents,
   stepWarning,
+  type DeadpanStepOutput,
   type DocumentStepOutput,
   type Eli5CritiqueStepOutput,
   type GlossaryStepOutput,
@@ -213,6 +214,9 @@ export async function saveStage(ctx: StageContext): Promise<CatalogEntry> {
   // Step 1b (06 §5.4): absent in jobs that predate it, or when the steps failed.
   const steOut = (await store.readJson(job.id, GEN.ste)) as SteStepOutput | null;
   const critique = (await store.readJson(job.id, GEN.eli5Critique)) as Eli5CritiqueStepOutput | null;
+  // Step 1c: only when this job asked for the Deadpan tab (a stale file is never used).
+  const deadpanOn = job.options.deadpan === true;
+  const deadpanOut = deadpanOn ? ((await store.readJson(job.id, GEN.deadpan)) as DeadpanStepOutput | null) : null;
   if (!doc || !summary || !prepJson) throw new PipelineFailure('INTERNAL', 'generation-artifact-missing');
   const prep = deserializePrepared(prepJson);
   skippedWarnings(job);
@@ -229,25 +233,22 @@ export async function saveStage(ctx: StageContext): Promise<CatalogEntry> {
   const stagingDir = libraryStagingDir(lib.root, job.id);
 
   const ste = steOut?.ste ?? null;
+  const deadpan = deadpanOut?.deadpan ?? null;
   const eli5 = finalEli5(doc, critique);
   // Tags of the prompts whose output the document uses (a rejected critique is not one, and the
-  // STE prompt only when the built document has an ASD-STE100 tab).
-  const promptsFor = (hasSte: boolean): string[] =>
+  // STE and Deadpan prompts only when the built document has that tab).
+  const promptsFor = (has: BuiltTabs): string[] =>
     uniq([
       ...prep.prompts,
       ...doc.prompts,
-      hasSte ? steOut?.prompt : undefined,
+      has.ste ? steOut?.prompt : undefined,
       critique?.eli5 ? critique.prompt : undefined,
+      has.deadpan ? deadpanOut?.prompt : undefined,
       glossary?.prompt,
       summary.prompt,
       photosOut?.prompt,
     ]);
-  const build = (o: {
-    docId: string;
-    slug: string;
-    createdAt?: string;
-    reservedIds?: Iterable<string>;
-  }): { html: string; tabs: TabRecord[]; title: string; hasSte: boolean } => {
+  const build = (o: { docId: string; slug: string; createdAt?: string; reservedIds?: Iterable<string> }): BuiltDoc => {
     const built = buildDocumentModel({
       docId: o.docId,
       slug: o.slug,
@@ -257,6 +258,7 @@ export async function saveStage(ctx: StageContext): Promise<CatalogEntry> {
       indepth: { ...doc.indepth, title },
       eli5,
       ste: ste ? { tab: ste.tab, origins: ste.origins } : null,
+      ...(deadpanOn ? { deadpan: deadpan ? { tab: deadpan.tab, origins: deadpan.origins } : null } : {}),
       glossary: glossary?.draft ?? null,
       images: prep.images.map((i) => ({ label: i.label, mime: i.mediaType, bytes: new Uint8Array(i.data) })),
       photos,
@@ -271,11 +273,13 @@ export async function saveStage(ctx: StageContext): Promise<CatalogEntry> {
     // An STE draft that converted to no sections leaves no tab (07 §5): say so like a failed step.
     const hasSte = built.model.tabs.some((t) => t.kind === 'ste');
     if (ste && !hasSte) addWarning(job, stepWarning('ste-omitted'));
+    const hasDeadpan = built.model.tabs.some((t) => t.kind === 'deadpan');
+    if (deadpan && !hasDeadpan) addWarning(job, stepWarning('deadpan-omitted'));
     const html = renderDocument(built.model, built.assets, { runtime, theme });
-    return { html, tabs: tabRecords(built.model, now), title: built.model.title, hasSte };
+    return { html, tabs: tabRecords(built.model, now), title: built.model.title, hasSte, hasDeadpan };
   };
-  const generation = (hasSte: boolean): DocumentMeta['generation'] => {
-    const prompts = promptsFor(hasSte);
+  const generation = (has: BuiltTabs): DocumentMeta['generation'] => {
+    const prompts = promptsFor(has);
     return {
       provider: doc.provider.id,
       model: doc.provider.model,
@@ -318,11 +322,12 @@ export async function saveStage(ctx: StageContext): Promise<CatalogEntry> {
       edition: deps.edition,
       clarifyingInput: job.options.clarifyingInput,
       glossaryEnabled: job.options.glossary,
+      ...(deadpanOn ? { deadpanEnabled: true } : {}),
       sourcesUsed: job.resolved.map(sourceRecord),
       sourcesSkipped: job.skipped,
       tabs: built.tabs,
       retiredIds: [],
-      generation: generation(built.hasSte),
+      generation: generation({ ste: built.hasSte, deadpan: built.hasDeadpan }),
       warnings: job.warnings,
       merges: [],
       publications: [],
@@ -426,14 +431,23 @@ export async function rebuildCommitted(
   return lib.getEntry(slug);
 }
 
+/** Which optional tabs the built document ended up with. */
+interface BuiltTabs {
+  ste: boolean;
+  deadpan: boolean;
+}
+
+interface BuiltDoc {
+  html: string;
+  tabs: TabRecord[];
+  title: string;
+  hasSte: boolean;
+  hasDeadpan: boolean;
+}
+
 interface RebuildParts {
-  build(o: { docId: string; slug: string; createdAt?: string; reservedIds?: Iterable<string> }): {
-    html: string;
-    tabs: TabRecord[];
-    title: string;
-    hasSte: boolean;
-  };
-  generation(hasSte: boolean): DocumentMeta['generation'];
+  build(o: { docId: string; slug: string; createdAt?: string; reservedIds?: Iterable<string> }): BuiltDoc;
+  generation(has: BuiltTabs): DocumentMeta['generation'];
   report(hasSte: boolean): void;
   assertValid(html: string, meta: DocumentMeta): void;
   summary: SummaryStepOutput;
@@ -471,13 +485,15 @@ async function saveRebuild(ctx: StageContext, r: RebuildTarget, parts: RebuildPa
   }
 
   const built = parts.build({ docId: live.id, slug: r.slug, createdAt: live.createdAt, reservedIds: reserved });
-  const generation = parts.generation(built.hasSte);
+  const generation = parts.generation({ ste: built.hasSte, deadpan: built.hasDeadpan });
   parts.report(built.hasSte);
   const label = rebuildLabel(generation.promptSet ?? r.promptSet, generation.promptDigest);
   const patchMeta = (m: DocumentMeta): DocumentMeta => {
-    const { asks: _asks, actions: _actions, ...rest } = m;
+    const { asks: _asks, actions: _actions, deadpanEnabled: _deadpan, ...rest } = m;
     return {
       ...rest,
+      // The rebuild's own request decides, so a rebuild without Deadpan clears the flag.
+      ...(job.options.deadpan === true ? { deadpanEnabled: true } : {}),
       title: built.title,
       summary: parts.summary.summary,
       summarySource: parts.summary.source,

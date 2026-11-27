@@ -691,9 +691,13 @@ export class JobQueue {
     if ((await has(GEN.prepared)) && (await has(GEN.document))) ok.add('indepth').add('eli5');
     if (ok.has('indepth') && (await has(GEN.ste))) ok.add('ste');
     if (ok.has('indepth') && (await has(GEN.eli5Critique))) ok.add('eli5-critique');
+    // Step 1c is built from the STE draft: it only counts when that draft is still there.
+    if (ok.has('ste') && (await has(GEN.deadpan))) ok.add('deadpan');
     if (ok.has('indepth') && (await has(GEN.glossary))) ok.add('glossary');
     if (ok.has('indepth') && (await has(GEN.summary))) ok.add('summary');
     cp.completedSteps = cp.completedSteps.filter((s) => ok.has(s));
+    // A redone STE step makes any deadpan draft stale (06 §5.4 step 1c).
+    if (!cp.completedSteps.includes('ste')) cp.completedSteps = cp.completedSteps.filter((s) => s !== 'deadpan');
     const allSteps = job.progress.stepsPlanned.every((s) => ok.has(s) && cp.completedSteps.includes(s));
     if (cp.stage === 'saving' && !allSteps) cp.stage = 'generating';
   }

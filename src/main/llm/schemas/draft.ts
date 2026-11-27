@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TAB_KINDS } from '../../../preload/contract';
+import type { TabKind } from '../../../preload/contract';
 
 /**
  * Structured model output (02 §10). Types are inferred from these schemas.
@@ -115,13 +115,21 @@ export const SectionDraftSchema = z.object({
 });
 export type SectionDraft = z.infer<typeof SectionDraftSchema>;
 
+/**
+ * The tab kinds a model may write in a DocumentDraftTab. Deadpan is not one of them: the deadpan
+ * prompt writes a DeadpanDraft and `resolveRewrite` (ste.ts) stamps `kind: 'deadpan'`, so the enum
+ * sent to the model (and every rendered request) stays as it was before the Deadpan tab.
+ */
+export const DRAFT_TAB_KINDS = ['indepth', 'eli5', 'ste', 'section-eli5'] as const;
+
 export const DocumentDraftTabSchema = z.object({
-  kind: z.enum(TAB_KINDS),
+  kind: z.enum(DRAFT_TAB_KINDS),
   title: z.string(),
   dek: z.string().optional(),
   sections: z.array(SectionDraftSchema).min(1).max(40),
 });
-export type DocumentDraftTab = z.infer<typeof DocumentDraftTabSchema>;
+/** A tab draft; code-made tabs (the Deadpan tab) carry any TabKind. */
+export type DocumentDraftTab = Omit<z.infer<typeof DocumentDraftTabSchema>, 'kind'> & { kind: TabKind };
 
 export const ChunkNotesSchema = z.object({
   notes: z.string(),
@@ -255,6 +263,14 @@ export const SteDraftSchema = z.object({
 });
 export type SteDraft = z.infer<typeof SteDraftSchema>;
 
+/**
+ * The Deadpan tab as the `deadpan` prompt writes it (02 §10): the SteDraft shape without `terms`. Its
+ * text blocks retell the source view (the ASD-STE100 tab, else In depth) in a dry, deadpan register,
+ * and its `keep` blocks reuse that view's visuals byte for byte through `resolveRewrite` (ste.ts).
+ */
+export const DeadpanDraftSchema = SteDraftSchema.omit({ terms: true });
+export type DeadpanDraft = z.infer<typeof DeadpanDraftSchema>;
+
 /** Schema names usable in prompt front matter `output:` (02 §9, §16 prompt lint). */
 export const DRAFT_SCHEMAS = {
   DocumentDraftTab: DocumentDraftTabSchema,
@@ -268,6 +284,7 @@ export const DRAFT_SCHEMAS = {
   SectionAnswerDraft: SectionAnswerDraftSchema,
   SectionDeeperAnswerDraft: SectionDeeperAnswerDraftSchema,
   SteDraft: SteDraftSchema,
+  DeadpanDraft: DeadpanDraftSchema,
 } as const;
 export type DraftSchemaName = keyof typeof DRAFT_SCHEMAS;
 
@@ -343,6 +360,7 @@ const PROMPTED_JSON: ReadonlySet<DraftSchemaName> = new Set([
   'SectionDraft',
   'MergePlanDraft',
   'SteDraft',
+  'DeadpanDraft',
 ]);
 
 export function usesPromptedJson(name: DraftSchemaName): boolean {

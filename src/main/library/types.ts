@@ -97,7 +97,7 @@ export interface SourceRecord {
 
 /** 09 §5.2; kind mirrors 07 Tab['kind'], sourceSectionId/createdAt owned by 08 §6.6. */
 export interface TabRecord {
-  /** 'indepth', 'eli5', 'ste', or 'sx' + 6 hex (07 §4.1). */
+  /** 'indepth', 'eli5', 'ste', 'deadpan', or 'sx' + 6 hex (07 §4.1). */
   key: string;
   kind: TabKind;
   label: string;
@@ -132,6 +132,8 @@ export interface DocumentMeta {
   edition: Edition;
   clarifyingInput: string;
   glossaryEnabled: boolean;
+  /** The job asked for the Deadpan tab (07 §3), even if that step failed; absent before 0.6.0. */
+  deadpanEnabled?: boolean;
   sourcesUsed: SourceRecord[];
   sourcesSkipped: SkippedSource[];
   tabs: TabRecord[];

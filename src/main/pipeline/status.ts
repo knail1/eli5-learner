@@ -28,6 +28,8 @@ export const STATUS_LINES = {
   generatingSteCritique: 'Generating document (ASD-STE100 version, simplifying the ELI5 version)',
   generatingSte: 'Generating document (ASD-STE100 version)',
   generatingCritique: 'Generating document (simplifying the ELI5 version)',
+  /** Step 1c (06 §5.4): the optional Deadpan tab. */
+  generatingDeadpan: 'Generating document (Deadpan version)',
   generatingGlossary: 'Generating document (glossary notes)',
   generatingSummary: 'Generating document (finishing up)',
   saving: 'Saving',
@@ -105,6 +107,7 @@ function generatingLine(job: StatusLineJob, ctx: StatusLineContext): string {
   if (ste && critique) return STATUS_LINES.generatingSteCritique;
   if (ste) return STATUS_LINES.generatingSte;
   if (critique) return STATUS_LINES.generatingCritique;
+  if (running.has('deadpan')) return STATUS_LINES.generatingDeadpan;
   if (running.has('glossary')) return STATUS_LINES.generatingGlossary;
   if (running.has('summary')) return STATUS_LINES.generatingSummary;
   return STATUS_LINES.generating;

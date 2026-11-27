@@ -287,6 +287,8 @@ export interface DocumentMeta {
   edition: Edition;                // edition that created it: 'public' | 'enterprise'
   clarifyingInput: string;         // verbatim; '' when none
   glossaryEnabled: boolean;
+  deadpanEnabled?: boolean;        // the job asked for the Deadpan tab (06 §5.4 rule 11), even if the step
+                                   // failed; absent before 0.6.0 and when not asked; a rebuild reads it
   sourcesUsed: SourceRecord[];
   sourcesSkipped: SkippedSource[]; // {ref, reason, code} from 03 (SkipCode)
   tabs: TabRecord[];               // current tab list, in display order
@@ -336,8 +338,8 @@ export interface SourceRecord {
 }
 
 export interface TabRecord {
-  key: string;                     // tab key used in SectionIds: 'indepth', 'eli5', 'ste', or 'sx' + 6 hex, e.g. 'sx4e1a07' (07 §4.1)
-  kind: 'indepth' | 'eli5' | 'ste' | 'section-eli5'; // Tab['kind'] from 07 (TAB_KINDS)
+  key: string;                     // tab key used in SectionIds: 'indepth', 'eli5', 'ste', 'deadpan', or 'sx' + 6 hex, e.g. 'sx4e1a07' (07 §4.1)
+  kind: 'indepth' | 'eli5' | 'ste' | 'deadpan' | 'section-eli5'; // Tab['kind'] from 07 (TAB_KINDS)
   label: string;                   // e.g. 'ELI5: Revenue recognition'
   sectionCount: number;
   sourceSectionId?: SectionId;     // section-eli5 only: the section it was made from (08 §6.6)
@@ -360,6 +362,12 @@ newer meta schema would flip the whole library read-only in older apps. Instead,
 fails to validate only the meta of documents that have an `ste` tab (`library.meta-invalid`):
 reconcile skips them, so they are missing from its library, and the file is never renamed or
 rewritten (meta reads do not move invalid files aside). Run the newer build before opening them.
+
+**Downgrade note (Deadpan).** The same holds for the `deadpan` tab key and kind and the optional
+`deadpanEnabled` field (0.6.0): no `META_SCHEMA_VERSION` bump; a 0.5.0 desktop fails to validate
+only the meta of documents that have a Deadpan tab and leaves them out of its library untouched.
+A meta with `deadpanEnabled` but no Deadpan tab (the step failed) still has only known tab kinds;
+the loose schema keeps the unknown field.
 
 Schema ownership and strictness:
 
@@ -689,6 +697,8 @@ The model is told to keep every existing fact unless the new material contradict
 
 **ASD-STE100 tab.** The merge output drops the target's `ste` tab ([07](07-output-document.md) §4.1): it is a rewrite of the pre-merge In depth tab, so it would be stale, and regenerating it would be an extra paid call. The merge result carries the warning (note) `ste-dropped` and `retiredSectionIds`, the dropped tab's section IDs, which the engine adds to the target's `retiredIds` (07 §4.3) and logs as `merge.ste-dropped`. The pre-merge version keeps the tab in History, and a rebuild recreates it. The STE text is never sent to `merge-weave`.
 
+**Deadpan tab.** Dropped the same way and for the same reason: warning `deadpan-dropped`, its section IDs added to `retiredSectionIds` with any STE IDs, logged as `merge.deadpan-dropped`. A rebuild recreates it when `meta.deadpanEnabled` is set (or, for a document without the field, when a tab has `kind === 'deadpan'`). The Deadpan text is never sent to `merge-weave`.
+
 **Highlights.** The model never marks spans. [07](07-output-document.md) §6.4 diffs each revised block against the block it replaces, word by word, and stores the inserted runs in the model; brand-new sections and blocks get a block-level mark. Each merge gets a legend id (`m1`, `m2`, …) recorded in the model's `merges` list, which renders the legend at the top of the document. Marks of earlier merges survive later merges through unchanged words. Regenerating a section later (08 section actions) rewrites it without marks: the old merge's highlights in that section disappear, which is accepted.
 
 The HTML work is done by the document module ([07](07-output-document.md)), which exposes:
@@ -702,8 +712,8 @@ export function weaveMergedDocument(input: {
   mergedAt: string; signal?: AbortSignal;
 }, planner: MergePlanner, opts?: { idSource?: IdSource; runtime?: DocRuntime }): Promise<{
   html: string; tabs: TabRecord[]; markerSectionIds: SectionId[]; mergeId: string; prompt: string;
-  warnings: string[];              // e.g. 'merge-block-dropped', 'ste-dropped'
-  retiredSectionIds: SectionId[];  // IDs of a dropped ASD-STE100 tab, for meta.retiredIds
+  warnings: string[];              // e.g. 'merge-block-dropped', 'ste-dropped', 'deadpan-dropped'
+  retiredSectionIds: SectionId[];  // IDs of dropped ASD-STE100 and Deadpan tabs, for meta.retiredIds
 }>;
 ```
 

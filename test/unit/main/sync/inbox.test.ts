@@ -194,6 +194,26 @@ function snap(over: Partial<JobSnapshot> = {}): JobSnapshot {
 }
 
 describe('capture (16 §5.3)', () => {
+  it("passes the phone's deadpan request on, and treats an absent or false flag as off", async () => {
+    const h = await harness();
+    const on = await h.send(h.capture({ deadpan: true }));
+    const off = await h.send(h.capture({ deadpan: false }));
+    const absent = await h.send(h.capture());
+    await h.pass();
+    const byId = new Map(h.enqueued.map((c) => [c.jobId, c.deadpan]));
+    expect(byId.get(on)).toBe(true);
+    expect(byId.get(off)).toBe(false);
+    expect(byId.get(absent)).toBe(false);
+  });
+
+  it('rejects a capture whose deadpan flag is not a boolean, without enqueueing it', async () => {
+    const h = await harness();
+    const id = await h.send(h.capture({ deadpan: 'true' }));
+    await h.pass();
+    expect(h.enqueued).toEqual([]);
+    expect(h.status(id)).toMatchObject({ state: 'rejected', code: 'E_INVALID' });
+  });
+
   it('validates, writes received, then enqueues; the phone sees queued', async () => {
     const h = await harness();
     const id = await h.send(h.capture({ clarifyingInput: '  Keep it short ', focus: ['big-picture', 'numbers'] }));
@@ -204,6 +224,7 @@ describe('capture (16 §5.3)', () => {
         urls: ['https://example.com/article?id=1'],
         files: [],
         clarifyingInput: `Keep it short ${FOCUS_PHRASES['big-picture']} ${FOCUS_PHRASES.numbers}`,
+        deadpan: false,
         root: path.join(h.dir, 'sync', 'inbox', id),
       },
     ]);

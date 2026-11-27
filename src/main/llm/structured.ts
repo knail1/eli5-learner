@@ -7,6 +7,7 @@ import {
   DocumentDraftTabSchema,
   DraftBlockSchema,
   SectionDraftSchema,
+  DeadpanDraftSchema,
   SteBlockSchema,
   SteDraftSchema,
   draftJsonSchema,
@@ -17,6 +18,7 @@ import {
   type DraftBlock,
   type DraftSchemaName,
   type MergePlanDraft,
+  type SteBlock,
 } from './schemas/draft';
 import type { GenerationRequest, GenerationResult, LLMProvider, TokenUsage, WebSource } from './types';
 
@@ -37,11 +39,15 @@ export class OutputTruncated extends LLMError {
 export interface ValidationContext {
   /** Labels of the ImageInputs sent with the request; `figure.imageLabel` must be one of them. */
   imageLabels?: ReadonlySet<string>;
-  /** SteDraft only: the in-depth section count the STE tab must match (D15); a mismatch asks for a repair. */
+  /**
+   * SteDraft and DeadpanDraft: the source view's section count the rewrite must match (D15); a
+   * mismatch asks for a repair.
+   */
   steSectionCount?: number;
   /**
-   * SteDraft only: per In depth section, the indexes of its visual blocks a `keep` may name. A section
-   * with no text of its own and no keep of one of these would resolve to nothing, so it asks for a repair.
+   * SteDraft and DeadpanDraft: per source section, the indexes of its visual blocks a `keep` may name.
+   * A section with no text of its own and no keep of one of these would resolve to nothing, so it asks
+   * for a repair.
    */
   steKeepable?: readonly (readonly number[])[];
 }
@@ -154,7 +160,8 @@ export function validateDraft<N extends DraftSchemaName>(
   ctx: ValidationContext = {},
 ): ValidationOutcome<DraftOf<N>> {
   const json = stripNullProperties(input);
-  if (name === 'SteDraft') return validateSte(json, ctx) as ValidationOutcome<DraftOf<N>>;
+  if (name === 'SteDraft') return validateRewrite(json, ctx, STE_REWRITE) as ValidationOutcome<DraftOf<N>>;
+  if (name === 'DeadpanDraft') return validateRewrite(json, ctx, DEADPAN_REWRITE) as ValidationOutcome<DraftOf<N>>;
   if (name === 'DocumentDraftTab' || name === 'SectionDraft') {
     const lenient = name === 'DocumentDraftTab' ? LenientTab.safeParse(json) : LenientSection.safeParse(json);
     if (!lenient.success) return { ok: false, errors: zodErrors(lenient.error) };
@@ -190,27 +197,53 @@ export function validateDraft<N extends DraftSchemaName>(
   return { ok: true, data: parsed.data as DraftOf<N>, dropped: [] };
 }
 
-const LenientSte = SteDraftSchema.extend({
-  sections: z
-    .array(z.object({ heading: z.string(), blocks: z.array(z.unknown()).min(1).max(60) }))
-    .min(1)
-    .max(40),
-});
+const lenientSections = z
+  .array(z.object({ heading: z.string(), blocks: z.array(z.unknown()).min(1).max(60) }))
+  .min(1)
+  .max(40);
+
+/** A section-for-section rewrite of another view with `keep` blocks: SteDraft or DeadpanDraft. */
+interface RewriteKind<T> {
+  lenient: z.ZodType<{ sections: { heading: string; blocks: unknown[] }[] }>;
+  final: z.ZodType<T>;
+  /** Repair text: the view the counts come from, and what a section with nothing in it must get. */
+  sourceView: string;
+  emptyFix: string;
+}
+
+const STE_REWRITE: RewriteKind<DraftOf<'SteDraft'>> = {
+  lenient: SteDraftSchema.extend({ sections: lenientSections }),
+  final: SteDraftSchema,
+  sourceView: 'the In depth view',
+  emptyFix: 'keeps no visual of the In depth section; write its STE text',
+};
+
+const DEADPAN_REWRITE: RewriteKind<DraftOf<'DeadpanDraft'>> = {
+  lenient: DeadpanDraftSchema.extend({ sections: lenientSections }),
+  final: DeadpanDraftSchema,
+  sourceView: 'the source view',
+  emptyFix: 'keeps no visual of the source section; write its text',
+};
 
 /**
- * SteDraft checks (02 §10.1, D15): text blocks are dropped like any draft block (at most 20 %);
- * `keep` numbers are resolved later by resolveSte (bad ones dropped, never repaired). The one
- * structural rule that asks for a repair is the section count: the tab mirrors In depth section by section.
+ * SteDraft and DeadpanDraft checks (02 §10.1, D15): text blocks are dropped like any draft block (at
+ * most 20 %); `keep` numbers are resolved later by resolveRewrite (bad ones dropped, never repaired).
+ * The one structural rule that asks for a repair is the section count: the tab mirrors its source
+ * view section by section.
  */
-function validateSte(json: unknown, ctx: ValidationContext): ValidationOutcome<DraftOf<'SteDraft'>> {
-  const lenient = LenientSte.safeParse(json);
+function validateRewrite<T extends { sections: { blocks: SteBlock[] }[] }>(
+  json: unknown,
+  ctx: ValidationContext,
+  kind: RewriteKind<T>,
+): ValidationOutcome<T> {
+  const lenient = kind.lenient.safeParse(json);
   if (!lenient.success) return { ok: false, errors: zodErrors(lenient.error) };
   const data = lenient.data;
   const errors: string[] = [];
   const want = ctx.steSectionCount;
   if (want !== undefined && data.sections.length !== want) {
     errors.push(
-      `sections: has ${data.sections.length} sections but the In depth view has ${want}; return exactly ${want}`,
+      `sections: has ${data.sections.length} sections but ${kind.sourceView} has ${want}; return exactly ${want}`,
     );
   }
   const blocks = checkBlocks(
@@ -223,14 +256,14 @@ function validateSte(json: unknown, ctx: ValidationContext): ValidationOutcome<D
   );
   if (!blocks.ok) errors.push(...blocks.errors);
   if (errors.length) return { ok: false, errors };
-  const final = SteDraftSchema.safeParse(data);
+  const final = kind.final.safeParse(data);
   if (!final.success) return { ok: false, errors: zodErrors(final.error) };
   const keepable = ctx.steKeepable;
   if (keepable) {
     const empty = final.data.sections.flatMap((sec, si) =>
       sec.blocks.some((b) => b.type !== 'keep' || keepable[si]?.includes(b.block))
         ? []
-        : [`sections[${si}]: has no text and keeps no visual of the In depth section; write its STE text`],
+        : [`sections[${si}]: has no text and ${kind.emptyFix}`],
     );
     if (empty.length) return { ok: false, errors: empty };
   }

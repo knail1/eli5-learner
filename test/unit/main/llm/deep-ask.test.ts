@@ -257,6 +257,18 @@ describe('planDeepContext', () => {
     expect(at(DEEP_ASK_MIN_TOKENS + 20_000)).toEqual([['indepth', 'eli5', 'ste', 'sx1', 'sx2'], []]);
   });
 
+  it('drops a Deadpan tab before every other tab (it should never reach the planner)', () => {
+    const pad = 'Filler sentence about pallets and crates. '.repeat(400);
+    const heavy = (t: DeepAskTab): DeepAskTab => ({ ...t, sections: [sec('H', pad)] });
+    const deadpan = tab('deadpan', 'deadpan', [sec('Dry', 'The shop sells the widget, heroically.')]);
+    const m = { ...base, tabs: [indepth, heavy(eli5), heavy(ste), heavy(deadpan), heavy(sx1), heavy(sx2)] };
+    const r = planDeepContext(m, DEEP_ASK_MIN_TOKENS);
+    expect(r.plan.tabsDropped).toEqual(['deadpan', 'sx2', 'sx1', 'ste', 'eli5']);
+    const roomy = planDeepContext(m, DEEP_ASK_MIN_TOKENS + 20_000);
+    expect(roomy.plan.tabsDropped).toEqual(['deadpan']);
+    expect(roomy.explanation).not.toContain('heroically');
+  });
+
   function longSource(r: () => number, lines: number, needleAt: number): string {
     const out: string[] = ['# Report'];
     for (let i = 0; i < lines; i++) {

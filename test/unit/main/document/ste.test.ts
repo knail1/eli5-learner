@@ -65,6 +65,9 @@ describe('tab keys and kinds (07 §4.1)', () => {
     expect(TAB_KEY_RE.test('ste')).toBe(true);
     expect(TAB_KEY_PATTERN.source).toBe(TAB_KEY_RE.source);
     expect(TAB_KEY_RE.test('stex')).toBe(false);
+    expect(isTabKey('deadpan')).toBe(true);
+    expect(TAB_KEY_RE.test('deadpan')).toBe(true);
+    expect(TAB_KEY_RE.test('deadpans')).toBe(false);
     expect(
       TabRecordSchema.safeParse({
         key: 'ste',

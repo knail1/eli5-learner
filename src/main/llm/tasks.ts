@@ -41,6 +41,7 @@ import type { FragmentId, PromptCatalogue } from './prompts';
 import { cancelled } from './retry';
 import type {
   ChunkNotes,
+  DeadpanDraft,
   DocumentDraftTab,
   DraftSchemaName,
   GlossaryDraft,
@@ -55,14 +56,17 @@ import type {
 } from './schemas/draft';
 import type { SkillLibrary, SkillSlot, SkillTask, SkillTexts } from './skills';
 import {
+  composeOrigins,
   critiqueInput,
   indepthOutline,
   isKeepable,
+  resolveRewrite,
   resolveSte,
   restoreAnimations,
   SteResolveError,
   steInputJson,
   type ResolvedSte,
+  type SteOrigin,
 } from './ste';
 import { addUsage, generateStructured, OutputTruncated, usageOf, ZERO_USAGE, type DraftOf } from './structured';
 import type {
@@ -133,6 +137,21 @@ export interface SteStepDraft extends ResolvedSte {
   };
 }
 
+/**
+ * What the Deadpan tab retells (02 §12): the resolved ASD-STE100 tab with its In depth origins, or
+ * the In depth draft when the STE tab was omitted.
+ */
+export type DeadpanSource =
+  { kind: 'ste'; tab: DocumentDraftTab; origins: (SteOrigin | null)[][] } | { kind: 'indepth'; tab: DocumentDraftTab };
+
+/**
+ * The Deadpan step's output: the tab (kind 'deadpan') and, per block, the In depth origin of a kept
+ * visual (already composed through the STE tab when that was the source), null for Deadpan text.
+ */
+export interface DeadpanStepDraft extends ResolvedSte {
+  source: DeadpanSource['kind'];
+}
+
 export interface SteLintSummary {
   sentences: number;
   failing: number;
@@ -158,6 +177,11 @@ export interface SectionActionInput {
   sourceExcerpt?: string;
   /** 'eli5-selection' only: headings and adjacent blocks around the selection, for grounding (08 §7.5). */
   context?: string;
+  /**
+   * A Deadpan section only: the In depth sections it retells (budgeted by 06), the material any fact
+   * the action keeps or adds comes from. Ignored for every other tab.
+   */
+  factSections?: SectionDraft[];
   signal: AbortSignal;
 }
 
@@ -171,6 +195,12 @@ export interface SectionAskInput {
   selection: string;
   /** The reader's question. Wrapped as source text: it is the only instruction, but never trusted markup. */
   question: string;
+  /**
+   * Quick Ask on a Deadpan section only (08 Ask): the In depth sections the answer takes its facts
+   * from (the tab, or the section the asked one retells). Ignored for every other tab and by Ask
+   * deep and Ask deeper, whose material already has the In depth tab.
+   */
+  factSections?: SectionDraft[];
   signal: AbortSignal;
 }
 
@@ -255,6 +285,7 @@ const REGISTER_FRAGMENT: Record<TabKind, FragmentId> = {
   eli5: 'register-eli5',
   'section-eli5': 'register-section-eli5',
   ste: 'register-ste',
+  deadpan: 'register-deadpan',
 };
 
 /** `{{sourceStatus}}` of section-ask-deep: what the model is told about the source text it got. */
@@ -271,7 +302,7 @@ const SKILL_FALLBACK: Record<SkillSlot, FragmentId> = {
 
 /** Task kind for a skill's `appliesTo` front matter (02 §11). */
 function skillTask(id: PromptId): SkillTask | undefined {
-  if (id === 'in-depth' || id === 'ste') return 'indepth';
+  if (id === 'in-depth' || id === 'ste' || id === 'deadpan') return 'indepth';
   if (id === 'eli5' || id === 'eli5-critique') return 'eli5';
   return id.startsWith('section-') || id === 'merge-weave' ? 'section' : undefined;
 }
@@ -323,6 +354,12 @@ export interface LlmTasks {
    * STE rule (kept only when its lint score is better). Throws when no usable tab results.
    */
   generateSte(indepth: DocumentDraftTab, ctx: StepCtx): Promise<StepResult<SteStepDraft>>;
+  /**
+   * The optional Deadpan tab from the STE tab (else In depth): same sections, facts and visuals, in
+   * a dry, deadpan register. One schema repair (including a wrong section count) and one overflow
+   * retry; no lint. Throws when no usable tab results; the caller omits the tab.
+   */
+  generateDeadpan(source: DeadpanSource, ctx: StepCtx): Promise<StepResult<DeadpanStepDraft>>;
   /**
    * D17: one editing pass over the ELI5 draft with the In depth outline and the ELI5 lint findings.
    * Returns the revision and the accept gate's verdict; the caller keeps the first draft when the
@@ -387,6 +424,15 @@ interface RunResult<T> {
 export function createTasks(deps: TaskDeps): LlmTasks {
   const policy = (): PromptPolicy => deps.policy?.() ?? defaultPromptPolicy;
   const frag = (id: FragmentId, vars?: Record<string, string>): string => deps.prompts.fragment(id, vars).text;
+  /**
+   * `{{factSource}}` (08 Ask, §6.3): on a Deadpan section, the In depth sections its facts come from;
+   * empty for every other tab, and when none were given.
+   */
+  const factSourceOf = (input: { tabKind: TabKind; factSections?: SectionDraft[] }): string => {
+    const facts = input.tabKind === 'deadpan' ? (input.factSections ?? []) : [];
+    if (!facts.length) return '';
+    return `\n\n${frag('ask-fact-source', { facts: wrapSource('in-depth view', facts.map(sectionText).join('\n\n')) })}`;
+  };
   // Skill headings and the built-in fallback text come from the catalogue fragments (02 §11).
   const skillTexts: SkillTexts = {
     heading: (name) => frag('skill-heading', { name }),
@@ -855,6 +901,64 @@ export function createTasks(deps: TaskDeps): LlmTasks {
     };
   }
 
+  async function generateDeadpan(source: DeadpanSource, ctx: StepCtx): Promise<StepResult<DeadpanStepDraft>> {
+    const provider = deps.provider();
+    const tab = source.tab;
+    const sectionCount = tab.sections.length;
+    const vars: Record<string, string> = {
+      clarifyingInput: ctx.clarifyingInput,
+      sourceDraft: wrapSource(source.kind === 'ste' ? 'ste view' : 'in-depth view', steInputJson(tab)),
+      sectionCount: String(sectionCount),
+      visibleOutputTokens: String(visibleOutput(provider.limits, deps.settings().llm.maxOutputTokens)),
+    };
+    const opts: RunOpts = {
+      signal: ctx.signal,
+      steSectionCount: sectionCount,
+      steKeepable: tab.sections.map((s) => s.blocks.flatMap((b, n) => (isKeepable(b) ? [n] : []))),
+      ...(ctx.onRetry ? { onRetry: ctx.onRetry } : {}),
+    };
+    let spent: TokenUsage = ZERO_USAGE;
+    let r: { data: DeadpanDraft; usage: TokenUsage; tag: string };
+    try {
+      r = await run<DeadpanDraft>('deadpan', { ...vars, overflowAddendum: '' }, opts);
+    } catch (e) {
+      // 02 §8.5 as for STE: one retry asking for shorter text (the section count is fixed).
+      if (!(e instanceof OutputTruncated)) throw e;
+      spent = e.usage ?? ZERO_USAGE;
+      log.warn('llm.output-overflow', { taskId: 'deadpan', count: sectionCount });
+      try {
+        r = await run<DeadpanDraft>(
+          'deadpan',
+          { ...vars, overflowAddendum: frag('overflow-addendum-ste', { n: String(sectionCount) }) },
+          opts,
+        );
+      } catch (e2) {
+        if (e2 instanceof LLMError) e2.usage = addUsage(spent, e2.usage ?? ZERO_USAGE);
+        throw e2;
+      }
+    }
+    const usage = addUsage(spent, r.usage);
+    let resolved: ResolvedSte;
+    try {
+      resolved = resolveRewrite(tab, r.data, 'deadpan');
+    } catch (e) {
+      if (e instanceof SteResolveError) {
+        const err = new LLMError('invalid_output', `Deadpan draft unusable: ${e.message}`);
+        err.usage = usage;
+        throw err;
+      }
+      throw e;
+    }
+    if (resolved.fixes.length) log.info('llm.deadpan-resolved', { count: resolved.fixes.length });
+    if (source.kind === 'ste') {
+      // Kept STE visuals -> their In depth origins, so the document resolves them like the STE tab's.
+      const composed = composeOrigins(resolved.origins, source.origins);
+      if (composed.lost) log.warn('llm.deadpan-origin-lost', { count: composed.lost });
+      resolved = { ...resolved, origins: composed.origins };
+    }
+    return { draft: { ...resolved, source: source.kind }, usage, prompt: r.tag };
+  }
+
   async function critiqueEli5(
     eli5: DocumentDraftTab,
     indepth: DocumentDraftTab,
@@ -974,6 +1078,7 @@ export function createTasks(deps: TaskDeps): LlmTasks {
     prepareContent,
     pickPhotos,
     generateSte,
+    generateDeadpan,
     critiqueEli5,
 
     generateIndepth: (p, ctx) =>
@@ -1025,9 +1130,10 @@ export function createTasks(deps: TaskDeps): LlmTasks {
         note: input.note ?? '',
         sourceExcerpt: input.sourceExcerpt ? wrapSource('original source excerpt', input.sourceExcerpt) : '',
         context: input.context ? wrapSource('surrounding context', input.context) : '',
-        // The ASD-STE100 tab never adds or changes visuals (08 §6.3): no invitation to write an
-        // animation; register-ste says how to keep the ones the section has.
-        animationRules: input.tabKind === 'ste' ? '' : frag('animation-rules'),
+        // The ASD-STE100 and Deadpan tabs never add or change visuals (08 §6.3): no invitation to
+        // write an animation; their register says how to keep the ones the section has.
+        animationRules: input.tabKind === 'ste' || input.tabKind === 'deadpan' ? '' : frag('animation-rules'),
+        factSource: factSourceOf(input),
       };
       if (input.action === 'eli5-tab' || input.action === 'eli5-selection') {
         const r = await run<DocumentDraftTab>(id, vars, { signal: input.signal });
@@ -1037,7 +1143,10 @@ export function createTasks(deps: TaskDeps): LlmTasks {
     },
 
     async answerSectionQuestion(input) {
-      return (await run<SectionAnswerDraft>('section-ask', askVars(input), { signal: input.signal })).data;
+      // A Deadpan answer keeps the tab's tone but takes its facts from In depth (factSource).
+      const factSource = factSourceOf(input);
+      return (await run<SectionAnswerDraft>('section-ask', { ...askVars(input), factSource }, { signal: input.signal }))
+        .data;
     },
 
     answerDeepQuestion,

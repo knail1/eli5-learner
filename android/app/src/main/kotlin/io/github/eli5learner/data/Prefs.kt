@@ -53,6 +53,15 @@ interface SyncPrefs {
 
     /** Forgets every cursor (Disconnect, or a cache rebuilt from scratch); options and the device id stay. */
     suspend fun resetCursor()
+
+    /**
+     * The primary Mac's `appVersion` from the last pass that read its device file, or null. Kept so
+     * the capture gates (16 §5.1) work before this process has finished a pass (a share cold-starts it).
+     */
+    suspend fun lastMacVersion(): String? = null
+
+    /** Remembers [version] for [lastMacVersion]; null forgets it (Disconnect). */
+    suspend fun setLastMacVersion(version: String?) {}
 }
 
 /** Where this phone stands with the remote store. */

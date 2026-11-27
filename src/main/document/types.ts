@@ -38,8 +38,8 @@ export type {
 // Model (07 §3)
 // ---------------------------------------------------------------------------
 
-/** Tab keys (07 §4.1): 'indepth' | 'eli5' | 'ste' | 'sx' + 6 lowercase hex. */
-export type FixedTabKey = 'indepth' | 'eli5' | 'ste';
+/** Tab keys (07 §4.1): 'indepth' | 'eli5' | 'ste' | 'deadpan' | 'sx' + 6 lowercase hex. */
+export type FixedTabKey = 'indepth' | 'eli5' | 'ste' | 'deadpan';
 export type TabKey = FixedTabKey | `sx${string}`;
 
 export interface DocumentModel {
@@ -51,7 +51,7 @@ export interface DocumentModel {
   createdAt: string; // ISO 8601 UTC
   updatedAt: string; // bumped by every mutation
   generator: { app: string; version: string; edition: Edition; runtimeVersion: string };
-  tabs: Tab[]; // [indepth, eli5, ste?, ...section-eli5 in creation order] (07 §12)
+  tabs: Tab[]; // [indepth, eli5, ste?, deadpan?, ...section-eli5 in creation order] (07 §12)
   glossary: GlossaryNote[]; // in-depth tab only
   references: ReferenceEntry[]; // rendered as the last in-depth section
   assets: AssetRef[];
@@ -106,7 +106,7 @@ export interface TabOrigin {
 export interface Tab {
   key: string; // TabKey; kept as string per 07 §3
   kind: TabKind;
-  label: string; // 'In depth' | 'ELI5' | 'ASD-STE100' | 'ELI5: <heading>'
+  label: string; // 'In depth' | 'ELI5' | 'ASD-STE100' | 'Deadpan' | 'ELI5: <heading>'
   createdAt: string;
   origin?: TabOrigin; // section-eli5 only
   placeholder?: true; // ELI5 placeholder after eli5 step failure (06 §7.1)
@@ -393,6 +393,12 @@ export interface BuildInput {
   eli5: DocumentDraftTab | null; // null -> placeholder tab (06 §7.1)
   /** Optional ASD-STE100 tab (07 §5); absent, null or empty after conversion -> no tab, never a placeholder. */
   ste?: SteBuildInput | null;
+  /**
+   * Optional Deadpan tab: the resolved deadpan draft, with origins already composed back to the
+   * in-depth draft (through STE when it was built from STE). Same rules as `ste`; an empty result
+   * warns 'deadpan-omitted'.
+   */
+  deadpan?: SteBuildInput | null;
   /** SectionIds that must never be minted (07 §4.3): a rebuild passes live, retired and older-version ids. */
   reservedIds?: Iterable<string>;
   /** Overrides model.createdAt (default `now`); a rebuild keeps the document's original date. */

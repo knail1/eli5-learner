@@ -266,3 +266,86 @@ export function steModel() {
     warnings: [...built.warnings, ...added.warnings],
   };
 }
+
+/**
+ * The Deadpan retelling of SHOWCASE_STE: same sections in the same order, same facts and numbers,
+ * a dry tone, and every visual kept. Each kept block is an STE kept block, so its origin composes
+ * back to the same in-depth {section, block} (SHOWCASE_STE_ORIGINS).
+ */
+export const SHOWCASE_DEADPAN: DocumentDraftTab = {
+  kind: 'deadpan',
+  title: 'How Example Widgets Inc. heroically moves a widget a few miles',
+  sections: [
+    {
+      heading: 'From the click to the door, eventually',
+      blocks: [
+        {
+          type: 'paragraph',
+          md: 'Every order takes the same path, because improvising is for jazz. The warehouse ships each one in two days or less, which it would like you to find thrilling.',
+        },
+        {
+          type: 'stepper',
+          title: 'Four steps, each more dramatic than the last',
+          steps: [
+            { label: 'Click', md: 'The customer clicks a search ad. A widget page opens. Destiny.' },
+            { label: 'Buy', md: 'The customer pays. The order reaches the warehouse in one minute, a personal best.' },
+            {
+              label: 'Pack',
+              md: 'A picker finds the widget and boxes it with **recycled** filler. The filler is thrilled.',
+            },
+            { label: 'Ship', md: 'A courier collects the box the same afternoon, as couriers do.' },
+          ],
+        },
+        kept(0, 2),
+      ],
+    },
+    {
+      heading: 'Where the time goes (spoiler: packing)',
+      blocks: [
+        {
+          type: 'paragraph',
+          md: 'Packing is the slowest step. The courier, not the warehouse, sets the shipping time, and the warehouse is fine with that. Totally fine.',
+        },
+        kept(1, 1),
+      ],
+    },
+    {
+      heading: 'Why the packing line grows like a hobby',
+      blocks: [
+        {
+          type: 'paragraph',
+          md: 'About five orders arrive each minute. Each packer packs two. Arithmetic, sadly, does the rest: one packer short and the line grows all shift.',
+        },
+        kept(2, 1),
+      ],
+    },
+  ],
+};
+
+/**
+ * The 'with-deadpan' golden: 'with-ste' plus the optional Deadpan tab, then a section ELI5 tab, so
+ * the tab order is [indepth, eli5, ste, deadpan, sx…].
+ */
+export function deadpanModel() {
+  const input = fixtureInput('full', 13);
+  const built = buildDocumentModel({
+    ...input,
+    indepth: SHOWCASE_INDEPTH,
+    eli5: SHOWCASE_ELI5,
+    ste: { tab: SHOWCASE_STE, origins: SHOWCASE_STE_ORIGINS },
+    deadpan: { tab: SHOWCASE_DEADPAN, origins: SHOWCASE_STE_ORIGINS },
+    glossary: null,
+    photos: SHOWCASE_PHOTOS,
+  });
+  const from = built.model.tabs[0]?.sections[0]?.id;
+  if (!from) throw new Error('with-deadpan has no in-depth section');
+  const added = addSectionEli5Tab(built.model, from, SHOWCASE_SELECTION, SHOWCASE_SECTION_ELI5, SHOWCASE_TAB_AT, {
+    idSource: new SeededIdSource(321),
+  });
+  return {
+    model: added.model,
+    assets: built.assets,
+    theme: input.theme,
+    warnings: [...built.warnings, ...added.warnings],
+  };
+}

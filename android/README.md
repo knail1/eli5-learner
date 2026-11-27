@@ -29,6 +29,17 @@ app on your phone, follow [SETUP.md](SETUP.md).
 > it accepts; the desktop does not run phone questions yet, so it stays hidden for now. Everything
 > against a real Google Drive was smoke-tested at gate G1 (spec 16 §13). The G1 smoke test passed against a real Google Drive in November 2026: sign-in on the Mac and on a Pixel, desktop push, primary claim, and the phone pulling and listing the library. Phone jobs (Ask) and conflict paths are still unverified against a real Drive.
 >
+> **0.6.0 (versionCode 5): Send a link and the Deadpan tab.** The Inbox has a "Send a link" button
+> that opens the capture sheet with an empty Link field (URL keyboard and a Paste button; a bare host
+> gets `https://`, and `file:`, `javascript:`, `ftp:` and user-name links are refused). Both the share
+> sheet and Send a link now label the clarifying field "Instructions for your Mac (optional)" with an
+> `n/500` counter, and add a "Deadpan tab" switch that asks the Mac for the optional deadpan,
+> sarcastic fourth tab. The switch is enabled only when the Mac's device file reports ELI5 Learner
+> 0.6.0 or later (an older Mac would reject the request); otherwise it is greyed out with "Needs ELI5
+> Learner 0.6.0 or later on your Mac.", and Retry re-checks the Mac's version. With the switch off
+> the job file is byte for byte what 0.5.0 wrote. The reader shows a document's Deadpan tab like any
+> other tab. Not yet run on a phone.
+>
 > **0.5.0 (versionCode 4): Share.** Share a document from the reader or from a Library row's menu; the
 > recipient gets "<title>.html" through the share sheet, served read-only from the app's cache by a
 > non-exported FileProvider. The reader shows the desktop's new Ask, Ask deep and Ask deeper answer
@@ -194,6 +205,14 @@ Sync (after G1, Stages B and C of SETUP.md):
 - [ ] Share a link to ELI5 Learner, tap "Send to my Mac": the Inbox goes from "Waiting to upload"
       to "Waiting for your Mac" (turn on "Accept jobs from phone" on the Mac) to Generating to Ready,
       and the new document opens on the phone.
+- [ ] Inbox > "Send a link": paste a link, type instructions (the counter counts up to 500), tap
+      "Send to my Mac": the job goes through the same states. With the Mac on 0.6.0 or later, tick
+      "Deadpan tab": the finished document has a Deadpan tab after ASD-STE100. With the Mac on 0.5.0
+      the switch is greyed out with "Needs ELI5 Learner 0.6.0 or later on your Mac."
+- [ ] "Send a link" with `file:///sdcard/x` or a link with a user name shows the link error and
+      Send stays off; closing the sheet leaves nothing in the Inbox.
+- [ ] Quit the Mac app, send a link from the phone, then start the Mac app: it picks the job up on
+      its first sync and builds the document unattended.
 - [ ] After the first capture the app asks "Tell you when it's ready?"; with Notify me, a finished
       job posts "Learnings ready", and tapping it opens the Inbox.
 - [ ] Cancel a job that is still waiting for the Mac: it shows "Cancelling…", then "Cancelled".

@@ -4,6 +4,7 @@ import android.text.format.DateUtils
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,7 +12,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -23,8 +26,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,12 +50,14 @@ data class InboxActions(
     val onConnect: () -> Unit = {},
     val onReconnect: () -> Unit = {},
     val onNotifications: (Boolean) -> Unit = {},
+    /** "Send a link": type or paste a link to send to the Mac without sharing it from another app. */
+    val onSendLink: () -> Unit = {},
 )
 
 /**
  * The Inbox (16 §6.2): jobs sent from this phone with their chips (Waiting to upload, Waiting for
  * your Mac, Queued, Generating with the stage, Ready, Built · N sources skipped, Failed with the
- * reason, Retry and Delete), and the "Mac last seen" line.
+ * reason, Retry and Delete), the "Mac last seen" line, and "Send a link" for a link typed here.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,6 +72,16 @@ fun InboxScreen(
     Scaffold(
         modifier = modifier,
         topBar = { TopAppBar(title = { Text(stringResource(R.string.inbox_title)) }) },
+        floatingActionButton = {
+            val label = stringResource(R.string.inbox_send_link)
+            ExtendedFloatingActionButton(
+                onClick = actions.onSendLink,
+                // The label is hidden from accessibility while it animates; the button keeps its name.
+                modifier = Modifier.semantics { contentDescription = label },
+                icon = { Icon(painterResource(R.drawable.ic_link), contentDescription = null) },
+                text = { Text(label) },
+            )
+        },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             StatusLines(state, actions, now)
@@ -75,7 +93,8 @@ fun InboxScreen(
                     modifier = Modifier.fillMaxWidth().padding(32.dp),
                 )
             } else {
-                LazyColumn(Modifier.fillMaxSize()) {
+                // Room under the last row for the "Send a link" button.
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 88.dp)) {
                     items(state.items, key = { it.jobId }) { item ->
                         InboxRow(item, actions, now)
                         HorizontalDivider()

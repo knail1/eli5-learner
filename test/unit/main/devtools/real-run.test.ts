@@ -64,7 +64,15 @@ describe('realRunConfigFromEnv', () => {
     expect(cfg).toMatchObject({ ledgerPath: path.join(dir, 'l.jsonl'), timeoutMs: 60_000 });
   });
 
+  it('reads ELI5_REAL_RUN_DEADPAN=1 (every job also asks for the Deadpan tab); 0 or empty leaves it off', () => {
+    expect(realRunConfigFromEnv(env({ ELI5_REAL_RUN_DEADPAN: '1' }), unpackaged())).toMatchObject({ deadpan: true });
+    for (const v of ['0', '', undefined]) {
+      expect(realRunConfigFromEnv(env({ ELI5_REAL_RUN_DEADPAN: v }), unpackaged())).not.toHaveProperty('deadpan');
+    }
+  });
+
   it.each([
+    [{ ELI5_REAL_RUN_DEADPAN: 'yes' }, /DEADPAN/],
     [{ ELI5_REAL_RUN_BUDGET_USD: undefined }, /BUDGET/],
     [{ ELI5_REAL_RUN_BUDGET_USD: 'lots' }, /BUDGET/],
     [{ ELI5_REAL_RUN_BUDGET_USD: '0' }, /BUDGET/],
@@ -420,6 +428,15 @@ describe('startRealRun', () => {
     ]);
     expect(summary.jobs[0]).not.toHaveProperty('indexPath');
     expect(h.codes).toEqual([1]);
+  });
+
+  it('asks every job for the Deadpan tab when the config says so', async () => {
+    const h = harness();
+    const s = session(['https://example.com/a']);
+    s.config.deadpan = true;
+    const q = new ScriptedQueue([{ status: 'done', slug: 'topic-a' }]);
+    await startRealRun({ session: s, jobs: q, library, provider: () => provider(), ...h });
+    expect(q.started[0]?.options).toEqual({ clarifyingInput: '', glossary: true, deadpan: true });
   });
 
   it('cancels jobs still running at the timeout and marks them timeout', async () => {
